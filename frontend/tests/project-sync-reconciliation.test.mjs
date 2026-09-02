@@ -83,7 +83,7 @@ test("stored conflicts retry automatically and planning preflight sync updates p
   assert.match(provider, /void syncProjectSnapshot\(project\)/);
   assert.match(provider, /retryProjectSync/);
   assert.match(storyBible, /syncProjectSnapshot\(preparedProject\)/);
-  assert.match(storyTree, /syncProjectSnapshot\(project\)/);
+  assert.match(storyTree, /syncProjectSnapshot\((?:project|requestProject)\)/);
 });
 
 test("conflicts expose explicit cloud and local resolution paths", async () => {
@@ -111,6 +111,16 @@ test("a completed sync durably stores its final state before returning", async (
     provider,
     /void saveStoredProject\(updated\)\.catch\(\(error: unknown\) => \{\s*setStorageError/s,
   );
+});
+
+test("generation checkpoint CAS conflicts rebase monotonically through a per-job queue", async () => {
+  const sync = await source("lib/project-sync.ts");
+
+  assert.match(sync, /generationTaskSaveQueues/);
+  assert.match(sync, /saveGenerationTaskWithReconciliation/);
+  assert.match(sync, /loadGenerationTask\(projectId, task\.jobId\)/);
+  assert.match(sync, /reconcileGenerationRecoveryTask\(current, requested\)/);
+  assert.match(sync, /MAX_SYNC_RECONCILIATION_ATTEMPTS/);
 });
 
 test("automatic conflict retry keys are cleared after success or unavailability", async () => {

@@ -8,6 +8,7 @@ from app.llm_runtime import (
     build_dialogue_polish_adapter_from_env,
     build_episode_plan_llm_adapter_from_env,
     build_llm_adapter_from_env,
+    build_market_routed_role_adapter_from_env,
     build_planning_llm_adapter_from_env,
     build_script_fallback_llm_adapter_from_env,
     build_script_editor_llm_adapter_from_env,
@@ -15,15 +16,18 @@ from app.llm_runtime import (
     build_script_generation_adapter_from_env,
     build_script_repair_llm_adapter_from_env,
     build_story_architect_llm_adapter_from_env,
+    build_story_architect_recovery_llm_adapter_from_env,
     build_story_bible_llm_adapter_from_env,
     get_llm_runtime_config,
 )
 from app.modules.script_engine.llm_adapter import (
+    AdaptiveTransportLLMAdapter,
     MockLLMAdapter,
     MissingLLMConfigurationError,
     ModelFailoverLLMAdapter,
     PooledLLMAdapter,
     RealLLMAdapter,
+    MarketRoutedLLMAdapter,
 )
 
 
@@ -200,6 +204,7 @@ def test_script_service_uses_script_repair_profile_for_every_recovery_stage(
 
         assert service._llm_adapter is script_adapter
         assert service._repair_llm_adapter is script_repair_adapter
+        assert service._json_repair_llm_adapter is script_editor_adapter
         assert service._initial_fallback_llm_adapter is script_repair_adapter
         assert service._contract_fallback_llm_adapter is script_repair_adapter
         assert service._continuity_llm_adapter is continuity_adapter
@@ -262,16 +267,95 @@ def test_script_runtime_can_use_an_explicit_same_model_alternate_route(
     assert adapter._fallback._reasoning_effort == "high"
     assert adapter._primary._thinking_mode == "enabled"
     assert adapter._fallback._thinking_mode == "enabled"
-    assert adapter._primary._retry_empty_response is False
-    assert adapter._fallback._retry_empty_response is False
+    assert adapter._primary._retry_empty_response is True
+    assert adapter._fallback._retry_empty_response is True
     assert adapter._primary._defer_schema_container_repair is True
     assert adapter._fallback._defer_schema_container_repair is True
-    assert adapter._primary._retry_gateway_stream_as_non_stream is False
-    assert adapter._fallback._retry_gateway_stream_as_non_stream is False
+    assert adapter._primary._retry_gateway_stream_as_non_stream is True
+    assert adapter._fallback._retry_gateway_stream_as_non_stream is True
     assert adapter._circuit_failure_threshold == 1
+    assert adapter._circuit_cooldown_seconds == 600
     assert adapter._hedge_delay_seconds == 45
     assert isinstance(repair_adapter, ModelFailoverLLMAdapter)
     assert repair_adapter._hedge_delay_seconds is None
+
+
+def test_script_runtime_can_chain_a_second_same_model_alternate_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "default-model")
+    monkeypatch.setenv("LLM_API_KEY", "default-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_API_KEY", "gateway-key")
+    monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://gateway.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_API_KEY", "relay-key")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_BASE_URL", "https://relay.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_02_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_02_API_KEY", "dashscope-key")
+    monkeypatch.setenv(
+        "LLM_SCRIPT_ALTERNATE_02_BASE_URL",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+
+    adapter = build_script_generation_adapter_from_env()
+
+    assert isinstance(adapter, ModelFailoverLLMAdapter)
+    assert isinstance(adapter._primary, ModelFailoverLLMAdapter)
+    assert adapter._fallback._adapter._base_url == (
+        "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
+    assert adapter._primary._fallback._adapter._base_url == "https://relay.example/v1"
+
+
+def test_deepseek_script_runtime_enables_adaptive_transport_without_lowering_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "default-model")
+    monkeypatch.setenv("LLM_API_KEY", "default-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://deepseek.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_REASONING_EFFORT", "high")
+    monkeypatch.setenv("LLM_SCRIPT_THINKING_MODE", "enabled")
+    monkeypatch.setenv("LLM_SCRIPT_ADAPTIVE_NON_STREAM_THRESHOLD", "3")
+    monkeypatch.setenv("LLM_SCRIPT_ADAPTIVE_NON_STREAM_COOLDOWN_SECONDS", "1200")
+
+    adapter = build_script_generation_adapter_from_env()
+
+    assert isinstance(adapter, AdaptiveTransportLLMAdapter)
+    assert adapter._failure_threshold == 3
+    assert adapter._cooldown_seconds == 1200
+    assert adapter._reasoning_effort == "high"
+    assert adapter._thinking_mode == "enabled"
+
+
+def test_deepseek_script_runtime_switches_transport_after_one_length_exhaustion_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "default-model")
+    monkeypatch.setenv("LLM_API_KEY", "default-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_SCRIPT_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://deepseek-defaults.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_REASONING_EFFORT", "high")
+    monkeypatch.setenv("LLM_SCRIPT_THINKING_MODE", "enabled")
+    monkeypatch.delenv("LLM_SCRIPT_ADAPTIVE_NON_STREAM_THRESHOLD", raising=False)
+    monkeypatch.delenv("LLM_SCRIPT_ADAPTIVE_NON_STREAM_COOLDOWN_SECONDS", raising=False)
+
+    adapter = build_script_generation_adapter_from_env()
+
+    assert isinstance(adapter, AdaptiveTransportLLMAdapter)
+    assert adapter._failure_threshold == 1
+    assert adapter._cooldown_seconds == 900
+    assert adapter._reasoning_effort == "high"
+    assert adapter._thinking_mode == "enabled"
 
 
 def test_script_runtime_rejects_a_different_alternate_model(
@@ -381,6 +465,7 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     creative = build_creative_llm_adapter_from_env()
     story_bible = build_story_bible_llm_adapter_from_env()
     architect = build_story_architect_llm_adapter_from_env()
+    architect_recovery = build_story_architect_recovery_llm_adapter_from_env()
     episode_plan = build_episode_plan_llm_adapter_from_env()
     script_repair = build_script_repair_llm_adapter_from_env()
     continuity = build_continuity_llm_adapter_from_env()
@@ -394,13 +479,28 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     assert story_bible._base_url == "https://kimi.example/v1"
     assert story_bible._wire_api == "chat_completions"
     assert story_bible._use_strict_schema is False
-    assert isinstance(architect, ModelFailoverLLMAdapter)
+    # Story Bible is a planning artifact; it intentionally keeps the
+    # generation role's success-first retry policy separate.
+    assert story_bible._retry_empty_response is False
+    assert story_bible._max_retries == 0
+    assert story_bible._thinking_mode == "disabled"
+    assert story_bible._send_response_format is True
+    assert isinstance(architect, RealLLMAdapter)
     assert architect.get_model_info().model_name == "glm-5.2"
-    assert architect._primary._base_url == "https://glm.example/v1"
-    assert architect._primary._reasoning_effort == "high"
-    assert architect._fallback.get_model_info().model_name == (
-        "deepseek-v4-flash-repair"
-    )
+    assert architect._base_url == "https://glm.example/v1"
+    assert architect._reasoning_effort == "high"
+    assert architect._retry_empty_response is False
+    assert architect._defer_schema_container_repair is True
+    assert architect._retry_gateway_stream_as_non_stream is False
+    assert isinstance(architect_recovery, RealLLMAdapter)
+    assert architect_recovery.get_model_info().model_name == "glm-5.2"
+    assert architect_recovery._base_url == "https://glm.example/v1"
+    assert architect_recovery._reasoning_effort == "medium"
+    assert architect_recovery._thinking_mode == "disabled"
+    assert architect_recovery._use_strict_schema is False
+    assert architect_recovery._retry_empty_response is False
+    assert architect_recovery._defer_schema_container_repair is True
+    assert architect_recovery._retry_gateway_stream_as_non_stream is False
     assert isinstance(episode_plan, ModelFailoverLLMAdapter)
     assert episode_plan.get_model_info().model_name == "glm-5.2-roadmap"
     assert episode_plan._primary._reasoning_effort == "medium"
@@ -541,6 +641,7 @@ def test_story_planning_roles_inherit_planning_chain(
 
     story_bible = build_story_bible_llm_adapter_from_env()
     architect = build_story_architect_llm_adapter_from_env()
+    architect_recovery = build_story_architect_recovery_llm_adapter_from_env()
     episode_plan = build_episode_plan_llm_adapter_from_env()
     continuity = build_continuity_llm_adapter_from_env()
 
@@ -557,9 +658,15 @@ def test_story_planning_roles_inherit_planning_chain(
     assert architect._max_retries == 0
     for adapter in (architect, episode_plan, continuity):
         assert adapter._reasoning_effort == "high"
+    assert architect_recovery.get_model_info().model_name == "planning-model"
+    assert architect_recovery._base_url == "https://planning.example/v1"
+    assert architect_recovery._reasoning_effort == "medium"
+    assert architect_recovery._thinking_mode == "disabled"
+    assert architect_recovery._timeout_seconds == 180
+    assert architect_recovery._max_retries == 0
 
 
-def test_story_architect_uses_script_route_after_retryable_glm_failure(
+def test_story_architect_does_not_inherit_script_fallback_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
@@ -575,10 +682,38 @@ def test_story_architect_uses_script_route_after_retryable_glm_failure(
 
     adapter = build_story_architect_llm_adapter_from_env()
 
+    assert isinstance(adapter, RealLLMAdapter)
+    assert adapter.get_model_info().model_name == "glm-5.2"
+    assert adapter._base_url == "https://glm.example/v1"
+
+
+def test_story_architect_accepts_explicit_same_model_fallback_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "default-model")
+    monkeypatch.setenv("LLM_API_KEY", "default-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "glm-key")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_FALLBACK_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_FALLBACK_API_KEY", "backup-key")
+    monkeypatch.setenv(
+        "LLM_STORY_ARCHITECT_FALLBACK_BASE_URL",
+        "https://glm-backup.example/v1",
+    )
+
+    adapter = build_story_architect_llm_adapter_from_env()
+
     assert isinstance(adapter, ModelFailoverLLMAdapter)
     assert adapter._primary.get_model_info().model_name == "glm-5.2"
-    assert adapter._fallback.get_model_info().model_name == "deepseek-v4-flash"
-    assert adapter._fallback._use_strict_schema is False
+    assert adapter._fallback.get_model_info().model_name == "glm-5.2"
+    assert adapter._fallback._base_url == "https://glm-backup.example/v1"
+    assert adapter._primary._defer_schema_container_repair is True
+    assert adapter._fallback._defer_schema_container_repair is True
+    assert adapter._primary._retry_gateway_stream_as_non_stream is False
+    assert adapter._fallback._retry_gateway_stream_as_non_stream is False
 
 
 def test_invalid_script_repair_profile_does_not_disable_planning_primaries(
@@ -677,3 +812,203 @@ def test_llm_runtime_requires_api_key_for_real_adapter(
 
     with pytest.raises(MissingLLMConfigurationError, match="LLM_API_KEY"):
         build_llm_adapter_from_env()
+
+
+def test_market_role_adapter_routes_models_by_prompt_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_CN_CREATIVE_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_CN_CREATIVE_MODEL", "glm-5.2")
+    monkeypatch.setenv("LLM_CN_CREATIVE_API_KEY", "cn-key")
+    monkeypatch.setenv("LLM_CN_CREATIVE_BASE_URL", "https://cn.example/v1")
+    monkeypatch.setenv("LLM_CN_CREATIVE_WIRE_API", "chat_completions")
+    monkeypatch.setenv("LLM_CN_CREATIVE_THINKING_MODE", "enabled")
+    monkeypatch.setenv("LLM_OVERSEAS_CREATIVE_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_OVERSEAS_CREATIVE_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("LLM_OVERSEAS_CREATIVE_API_KEY", "overseas-key")
+    monkeypatch.setenv("LLM_OVERSEAS_CREATIVE_BASE_URL", "https://overseas.example/v1")
+    monkeypatch.setenv("LLM_OVERSEAS_CREATIVE_WIRE_API", "responses")
+
+    routed = build_market_routed_role_adapter_from_env(
+        "CREATIVE",
+        fallback=MockLLMAdapter(),
+        default_timeout_seconds=300,
+        default_max_retries=1,
+    )
+
+    assert isinstance(routed, MarketRoutedLLMAdapter)
+    assert routed._mainland.get_model_info().model_name == "glm-5.2"
+    assert routed._overseas.get_model_info().model_name == "gpt-5.6-sol"
+    assert routed._select("Market path: cn_mainland") is routed._mainland
+    assert routed._select("Market path: overseas (current profile: overseas_tiktok)") is routed._overseas
+    assert routed._select('{"market_profile":"overseas_tiktok"}') is routed._overseas
+
+
+def test_market_role_adapter_honors_response_format_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_CN_STORY_ARCHITECT_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_CN_STORY_ARCHITECT_MODEL", "qwen-test")
+    monkeypatch.setenv("LLM_CN_STORY_ARCHITECT_API_KEY", "cn-key")
+    monkeypatch.setenv("LLM_CN_STORY_ARCHITECT_BASE_URL", "https://cn.example/v1")
+    monkeypatch.setenv("LLM_CN_STORY_ARCHITECT_WIRE_API", "chat_completions")
+    monkeypatch.delenv("LLM_CN_STORY_ARCHITECT_SEND_RESPONSE_FORMAT", raising=False)
+
+    routed = build_market_routed_role_adapter_from_env(
+        "STORY_ARCHITECT",
+        fallback=MockLLMAdapter(),
+        default_timeout_seconds=300,
+        default_max_retries=1,
+        default_use_strict_schema=False,
+        default_send_response_format=False,
+    )
+
+    assert isinstance(routed, MarketRoutedLLMAdapter)
+    assert isinstance(routed._mainland, RealLLMAdapter)
+    assert routed._mainland._send_response_format is False
+
+
+def test_market_script_overseas_alternate_is_wrapped_without_touching_planning_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_CN_SCRIPT_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_CN_SCRIPT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_CN_SCRIPT_API_KEY", "cn-key")
+    monkeypatch.setenv("LLM_CN_SCRIPT_BASE_URL", "https://cn.example/v1")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_API_KEY", "overseas-key")
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_BASE_URL",
+        "https://overseas.example/v1",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_MODEL",
+        "gpt-5.6-sol",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_API_KEY",
+        "overseas-backup-key",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_BASE_URL",
+        "https://overseas-backup.example/v1",
+    )
+    for name in (
+        "LLM_SCRIPT_ALTERNATE_MODEL",
+        "LLM_SCRIPT_ALTERNATE_API_KEY",
+        "LLM_SCRIPT_ALTERNATE_BASE_URL",
+        "LLM_SCRIPT_HEDGE_DELAY_SECONDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    routed = build_market_routed_role_adapter_from_env(
+        "SCRIPT",
+        fallback=MockLLMAdapter(),
+        default_timeout_seconds=600,
+        default_max_retries=1,
+    )
+
+    assert isinstance(routed, MarketRoutedLLMAdapter)
+    assert isinstance(routed._mainland, AdaptiveTransportLLMAdapter)
+    assert isinstance(routed._overseas, ModelFailoverLLMAdapter)
+    assert routed._overseas._primary._base_url == "https://overseas.example/v1"
+    assert routed._overseas._fallback._base_url == (
+        "https://overseas-backup.example/v1"
+    )
+    assert routed._overseas._primary.get_model_info().model_name == "gpt-5.6-sol"
+    assert routed._overseas._fallback.get_model_info().model_name == "gpt-5.6-sol"
+
+
+def test_market_script_alternate_rejects_a_different_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_API_KEY", "overseas-key")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_BASE_URL", "https://overseas.example/v1")
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_MODEL",
+        "gpt-5.6-mini",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_API_KEY",
+        "overseas-backup-key",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_BASE_URL",
+        "https://overseas-backup.example/v1",
+    )
+
+    with pytest.raises(MissingLLMConfigurationError, match="same model"):
+        build_market_routed_role_adapter_from_env(
+            "SCRIPT",
+            fallback=MockLLMAdapter(),
+            default_timeout_seconds=600,
+            default_max_retries=1,
+        )
+
+
+def test_market_script_alternate_requires_all_route_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_API_KEY", "overseas-key")
+    monkeypatch.setenv("LLM_OVERSEAS_SCRIPT_BASE_URL", "https://overseas.example/v1")
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_PROVIDER",
+        "openai_compatible",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_MODEL",
+        "gpt-5.6-sol",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_SCRIPT_ALTERNATE_BASE_URL",
+        "https://overseas-backup.example/v1",
+    )
+    monkeypatch.delenv("LLM_OVERSEAS_SCRIPT_ALTERNATE_API_KEY", raising=False)
+
+    with pytest.raises(MissingLLMConfigurationError, match="API_KEY"):
+        build_market_routed_role_adapter_from_env(
+            "SCRIPT",
+            fallback=MockLLMAdapter(),
+            default_timeout_seconds=600,
+            default_max_retries=1,
+        )
+
+
+def test_market_planning_route_does_not_get_script_failover_wrappers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_OVERSEAS_STORY_ARCHITECT_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_OVERSEAS_STORY_ARCHITECT_MODEL", "qwen3.8-max")
+    monkeypatch.setenv("LLM_OVERSEAS_STORY_ARCHITECT_API_KEY", "planning-key")
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_STORY_ARCHITECT_BASE_URL",
+        "https://planning.example/v1",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_STORY_ARCHITECT_ALTERNATE_MODEL",
+        "qwen3.8-max",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_STORY_ARCHITECT_ALTERNATE_API_KEY",
+        "planning-backup-key",
+    )
+    monkeypatch.setenv(
+        "LLM_OVERSEAS_STORY_ARCHITECT_ALTERNATE_BASE_URL",
+        "https://planning-backup.example/v1",
+    )
+
+    routed = build_market_routed_role_adapter_from_env(
+        "STORY_ARCHITECT",
+        fallback=MockLLMAdapter(),
+        default_timeout_seconds=300,
+        default_max_retries=0,
+    )
+
+    assert isinstance(routed, MarketRoutedLLMAdapter)
+    assert isinstance(routed._overseas, RealLLMAdapter)
+    assert routed._overseas._base_url == "https://planning.example/v1"

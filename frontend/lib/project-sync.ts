@@ -1,47 +1,93 @@
 import { ApiError, apiRequest } from "@/lib/api-client";
+import type { components as ApiComponents } from "@/lib/generated/api-schema";
 import { shouldStartPersistenceCooldown } from "@/lib/persistence-availability";
 import { compactContinuityLedgerForGeneration } from "@/lib/continuity-checkpoint";
 import { inferProjectMarketProfile } from "@/lib/project-store";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
+import { reconcileGenerationRecoveryTask } from "@/lib/generation-recovery";
 import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
-import type {
-  EpisodeArtifactKind,
-  EpisodeArtifactReference,
-  GenerationRecoveryTask,
-  ProjectServerSyncState,
-  ScriptProject,
+import { migrateProjectScreenplayFormat } from "@/lib/canonical-character-names";
+import {
+  enforceMarketDeliveryContract,
+  type EpisodeArtifactKind,
+  type MemoryLayer,
+  type EpisodeArtifactReference,
+  type GenerationRecoveryTask,
+  type ProjectServerSyncState,
+  type PlanningSession,
+  type ScriptProject,
 } from "@/lib/types";
 
-interface StoryProjectResponse {
+type ApiSchemas = ApiComponents["schemas"];
+type StoryProjectData = ApiSchemas["StoryProject"] & Required<
+  Pick<ApiSchemas["StoryProject"], "created_at" | "updated_at">
+>;
+type StoryProjectResponse = Omit<ApiSchemas["StoryProjectResponse"], "data"> & {
+  data: StoryProjectData;
+};
+type StoryProjectListResponse = Omit<ApiSchemas["StoryProjectListResponse"], "data"> & {
+  data: StoryProjectData[];
+};
+type WorkspaceData = ApiSchemas["StoryProjectWorkspaceSnapshot"] & Required<
+  Pick<ApiSchemas["StoryProjectWorkspaceSnapshot"], "updated_at">
+>;
+type WorkspaceResponse = Omit<ApiSchemas["StoryProjectWorkspaceResponse"], "data"> & {
+  data: WorkspaceData;
+};
+
+interface PlanningSessionResponse {
   data: {
-    project_id: string;
+    schema_version: string;
+    session_id: string;
+    story_project_id: string;
     revision: number;
-    title: string;
-    content_spec_id: string | null;
-    output_language: string;
-    target_total_characters: number;
-    planned_episode_count: number;
-    default_batch_size: number;
-    status: string;
-    active_story_bible_id: string | null;
-    active_story_bible_version: number | null;
-    created_at: string;
+    phase: PlanningSession["phase"];
+    status: PlanningSession["status"];
+    story_bible_author_instruction: string;
+    tree_author_instruction: string;
+    story_bible_step?: PlanningSession["storyBibleStep"];
+    story_bible_sections?: Record<string, unknown>;
+    active_node_id: string | null;
+    reviewed_node_ids: string[];
+    turns: Array<{
+      turn_id: string;
+      scope: "creative_intent" | "story_bible" | "story_tree" | "story_node";
+      node_id: string | null;
+      instruction: string;
+      selected_candidate_titles: string[];
+      outcome: "proposed" | "accepted" | "rejected";
+      created_at: string;
+    }>;
+    started_at: string | null;
     updated_at: string;
   };
 }
 
-interface StoryProjectListResponse {
-  data: StoryProjectResponse["data"][];
-  total: number;
-}
-
-interface WorkspaceResponse {
-  data: {
-    project_id: string;
-    revision: number;
-    client_instance_id: string;
-    workspace_payload: Record<string, unknown>;
-    updated_at: string;
+function planningSessionFromRemote(value: PlanningSessionResponse["data"]): PlanningSession {
+  return {
+    schemaVersion: value.schema_version as "v1",
+    sessionId: value.session_id,
+    storyProjectId: value.story_project_id,
+    revision: value.revision,
+    phase: value.phase,
+    status: value.status,
+    storyBibleAuthorInstruction: value.story_bible_author_instruction,
+    treeAuthorInstruction: value.tree_author_instruction,
+    storyBibleStep: value.story_bible_step,
+    storyBibleSections: value.story_bible_sections ?? {},
+    activeNodeId: value.active_node_id ?? undefined,
+    reviewedNodeIds: [...value.reviewed_node_ids],
+    turns: value.turns.map((turn) => ({
+      turnId: turn.turn_id,
+      scope: turn.scope,
+      nodeId: turn.node_id ?? undefined,
+      instruction: turn.instruction,
+      selectedCandidateTitles: [...turn.selected_candidate_titles],
+      outcome: turn.outcome,
+      createdAt: turn.created_at,
+    })),
+    startedAt: value.started_at ?? undefined,
+    updatedAt: value.updated_at,
   };
 }
 
@@ -49,6 +95,7 @@ interface EpisodeArtifactResponse {
   data: {
     artifact_id: string;
     artifact_kind: EpisodeArtifactKind;
+    memory_layer?: MemoryLayer | null;
     artifact_version: number;
     payload_checksum: string;
     created_at: string;
@@ -111,6 +158,7 @@ let syncSequence = 0;
 const projectRevisions = new Map<string, number>();
 const workspaceRevisions = new Map<string, number>();
 const lastSyncedProjectUpdates = new Map<string, string>();
+const generationTaskSaveQueues = new Map<string, Promise<GenerationRecoveryTask>>();
 let unavailableUntil = 0;
 
 export function queueProjectServerSync(
@@ -120,6 +168,49 @@ export function queueProjectServerSync(
     forceWorkspaceOverwrite: false,
     bypassCooldown: false,
   });
+}
+
+export async function savePlanningSessionOnServer(
+  project: ScriptProject,
+  session: PlanningSession,
+): Promise<PlanningSession> {
+  const response = await apiRequest<PlanningSessionResponse>(
+    `/story-projects/${project.id}/planning-session`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        schema_version: "v1",
+        project_id: project.id,
+        client_instance_id: getClientInstanceId(),
+        session: {
+          schema_version: session.schemaVersion,
+          session_id: session.sessionId,
+          story_project_id: project.id,
+          revision: session.revision ?? 1,
+          phase: session.phase,
+          status: session.status,
+          story_bible_author_instruction: session.storyBibleAuthorInstruction,
+          tree_author_instruction: session.treeAuthorInstruction,
+          story_bible_step: session.storyBibleStep,
+          story_bible_sections: session.storyBibleSections ?? {},
+          active_node_id: session.activeNodeId ?? null,
+          reviewed_node_ids: session.reviewedNodeIds,
+          turns: session.turns.map((turn) => ({
+            turn_id: turn.turnId,
+            scope: turn.scope,
+            node_id: turn.nodeId ?? null,
+            instruction: turn.instruction,
+            selected_candidate_titles: turn.selectedCandidateTitles ?? [],
+            outcome: turn.outcome,
+            created_at: turn.createdAt,
+          })),
+          started_at: session.startedAt ?? null,
+          updated_at: session.updatedAt,
+        },
+      }),
+    },
+  );
+  return planningSessionFromRemote(response.data);
 }
 
 export function forceWorkspaceOverwrite(
@@ -240,6 +331,15 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
         workspaceRevisions.set(remoteProject.project_id, workspace.data.revision);
         const payload = workspace.data.workspace_payload;
         if (!isScriptProject(payload)) return null;
+        let planningSession: PlanningSession | undefined;
+        try {
+          const planning = await apiRequest<PlanningSessionResponse>(
+            `/story-projects/${remoteProject.project_id}/planning-session`,
+          );
+          planningSession = planningSessionFromRemote(planning.data);
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+        }
         lastSyncedProjectUpdates.set(remoteProject.project_id, payload.updatedAt);
         const marketProfile = payload.marketProfile ?? inferProjectMarketProfile(payload);
         let activeGenerationTask = payload.activeGenerationTask;
@@ -257,6 +357,11 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
           : payload.episodePlansReadyThrough ?? 0;
         const restored: ScriptProject = {
           ...payload,
+          ...(planningSession ? {
+            planningSession,
+            storyBibleAuthorInstruction: planningSession.storyBibleAuthorInstruction
+              || payload.storyBibleAuthorInstruction,
+          } : {}),
           referenceMaterials: payload.referenceMaterials ?? [],
           ...(activeGenerationTask ? { activeGenerationTask } : {}),
           ...(remoteProject.active_story_bible_version != null ? {
@@ -266,10 +371,10 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
           marketProfile,
           episodeRoadmaps,
           episodePlansReadyThrough: recoveredPlanningCoverage || undefined,
-          generationSettings: {
-            ...normalizeGenerationSettings(payload.generationSettings),
-            ...(marketProfile === "cn_mainland" ? { outputLanguage: "zh" as const } : {}),
-          },
+          generationSettings: enforceMarketDeliveryContract(
+            normalizeGenerationSettings(payload.generationSettings),
+            marketProfile,
+          ),
           contentSpecId: remoteProject.content_spec_id ?? undefined,
           serverSync: {
             status: "synced",
@@ -278,7 +383,7 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
             lastSyncedAt: workspace.data.updated_at,
           },
         };
-        return restored;
+        return migrateProjectScreenplayFormat(restored);
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) return null;
         throw error;
@@ -302,41 +407,101 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
   }
 }
 
-export async function saveGenerationTaskOnServer(
+export function saveGenerationTaskOnServer(
   projectId: string,
   task: GenerationRecoveryTask,
 ): Promise<GenerationRecoveryTask> {
-  if (Date.now() < unavailableUntil) return task;
+  const queueKey = `${projectId}:${task.jobId}`;
+  const previous = generationTaskSaveQueues.get(queueKey);
+  const save = (previous
+    ? previous.catch(() => null)
+    : Promise.resolve(null)
+  ).then((latest) => {
+    const requested = latest?.serverBacked === true
+      && (
+        task.batchRevision <= latest.batchRevision
+        || task.jobRevision <= latest.jobRevision
+      )
+      ? reconcileGenerationRecoveryTask(latest, task)
+      : task;
+    if (latest?.status === "completed") return latest;
+    return saveGenerationTaskWithReconciliation(projectId, requested);
+  });
+  generationTaskSaveQueues.set(queueKey, save);
+  void save.then(
+    () => clearGenerationTaskSaveQueue(queueKey, save),
+    () => clearGenerationTaskSaveQueue(queueKey, save),
+  );
+  return save;
+}
+
+async function saveGenerationTaskWithReconciliation(
+  projectId: string,
+  task: GenerationRecoveryTask,
+): Promise<GenerationRecoveryTask> {
+  if (Date.now() < unavailableUntil) return { ...task, serverBacked: false };
+  let requested = task;
+  for (let attempt = 0; attempt < MAX_SYNC_RECONCILIATION_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await apiRequest<GenerationTaskCheckpointResponse>(
+        `/story-projects/${projectId}/generation-tasks/${task.jobId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(toGenerationTaskPayload(projectId, requested)),
+        },
+      );
+      return response.data ? fromGenerationTaskPayload(response.data) : requested;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        let current: GenerationRecoveryTask | null;
+        try {
+          current = await loadGenerationTask(projectId, task.jobId);
+        } catch (reloadError) {
+          if (shouldStartPersistenceCooldown(
+            reloadError instanceof ApiError ? reloadError.status : undefined,
+          )) {
+            unavailableUntil = Date.now() + 30_000;
+            return { ...requested, serverBacked: false };
+          }
+          throw reloadError;
+        }
+        if (!current) return { ...requested, serverBacked: false };
+        requested = reconcileGenerationRecoveryTask(current, requested);
+        continue;
+      }
+      if (shouldStartPersistenceCooldown(
+        error instanceof ApiError ? error.status : undefined,
+      )) {
+        unavailableUntil = Date.now() + 30_000;
+        return { ...requested, serverBacked: false };
+      }
+      throw error;
+    }
+  }
+  return { ...requested, serverBacked: false };
+}
+
+async function loadGenerationTask(
+  projectId: string,
+  jobId: string,
+): Promise<GenerationRecoveryTask | null> {
   try {
     const response = await apiRequest<GenerationTaskCheckpointResponse>(
-      `/story-projects/${projectId}/generation-tasks/${task.jobId}`,
-      {
-        method: "PUT",
-        body: JSON.stringify(toGenerationTaskPayload(projectId, task)),
-      },
+      `/story-projects/${projectId}/generation-tasks/${jobId}`,
     );
-    return response.data ? fromGenerationTaskPayload(response.data) : task;
+    return response.data ? fromGenerationTaskPayload(response.data) : null;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      try {
-        const recovery = await apiRequest<GenerationTaskCheckpointResponse>(
-          `/story-projects/${projectId}/generation-tasks/recoverable`,
-        );
-        if (recovery.data?.checkpoint.job_id === task.jobId) {
-          return fromGenerationTaskPayload(recovery.data);
-        }
-      } catch {
-        // Generated episodes remain authoritative when a stale checkpoint cannot reload.
-      }
-      return { ...task, serverBacked: false };
-    }
-    if (shouldStartPersistenceCooldown(
-      error instanceof ApiError ? error.status : undefined,
-    )) {
-      unavailableUntil = Date.now() + 30_000;
-      return { ...task, serverBacked: false };
-    }
+    if (error instanceof ApiError && error.status === 404) return null;
     throw error;
+  }
+}
+
+function clearGenerationTaskSaveQueue(
+  queueKey: string,
+  save: Promise<GenerationRecoveryTask>,
+): void {
+  if (generationTaskSaveQueues.get(queueKey) === save) {
+    generationTaskSaveQueues.delete(queueKey);
   }
 }
 
@@ -698,6 +863,7 @@ export async function saveEpisodeArtifactOnServer(args: {
   project: ScriptProject;
   episodeNumber: number;
   artifactKind: EpisodeArtifactKind;
+  memoryLayer?: MemoryLayer;
   contentSchemaVersion: string;
   contentPayload: Record<string, unknown>;
   lineageRefs?: Record<string, string>;
@@ -717,6 +883,8 @@ export async function saveEpisodeArtifactOnServer(args: {
     crypto.randomUUID(),
   ].join(".");
   try {
+    const memoryLayer = args.memoryLayer
+      ?? (args.artifactKind === "revised" ? "derived" : "canonical");
     const response = await apiRequest<EpisodeArtifactResponse>(
       `/story-projects/${args.project.id}/episodes/${args.episodeNumber}/artifacts`,
       {
@@ -727,6 +895,7 @@ export async function saveEpisodeArtifactOnServer(args: {
           story_project_id: args.project.id,
           episode_number: args.episodeNumber,
           artifact_kind: args.artifactKind,
+          memory_layer: memoryLayer,
           content_schema_version: args.contentSchemaVersion,
           content_payload: args.contentPayload,
           source_artifact_id: args.sourceArtifactId,
@@ -739,6 +908,7 @@ export async function saveEpisodeArtifactOnServer(args: {
     return {
       artifactId: response.data.artifact_id,
       artifactKind: response.data.artifact_kind,
+      memoryLayer: response.data.memory_layer ?? memoryLayer,
       artifactVersion: response.data.artifact_version,
       payloadChecksum: response.data.payload_checksum,
       createdAt: response.data.created_at,
@@ -808,7 +978,7 @@ function toStoryProjectStatus(status: ScriptProject["status"]): string {
   return "review";
 }
 
-function getClientInstanceId(): string {
+export function getClientInstanceId(): string {
   const existing = window.localStorage.getItem(CLIENT_INSTANCE_KEY);
   if (existing) return existing;
   const created = `client.${crypto.randomUUID()}`;

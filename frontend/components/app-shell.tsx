@@ -19,9 +19,10 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { MenuIcon } from "@/components/icons";
-import { BackgroundGenerationDock } from "@/components/background-generation-dock";
+import { BackgroundGenerationStatus } from "@/components/background-generation-status";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ProjectSidebar } from "@/components/project-sidebar";
+import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
@@ -138,9 +139,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ) : visibleProjects.length === 0 ? (
                   <p className="topbar-project-empty">{projects.length ? t("nav.noMatches") : t("nav.empty")}</p>
                 ) : visibleProjects.map((project) => {
-                  const projectHref = project.episodes.length
-                    ? `/projects/${project.id}/workspace`
-                    : `/projects/${project.id}/planning`;
+                  const projectHref = currentWorkspaceHref(project);
                   const active = pathname.includes(project.id);
                   return (
                     <div className={`topbar-project-row ${active ? "is-active" : ""}`} key={project.id}>
@@ -174,6 +173,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </div>
         <div className="topbar-actions">
+          <BackgroundGenerationStatus />
           <div className="service-indicator">
             <span aria-hidden="true" />
             {t("nav.serviceReady")}
@@ -202,6 +202,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <MenuIcon />
           </button>
           <BrandLogo compact />
+          <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </header>
         {storageError ? <div className="storage-alert">{t("nav.storageUnavailable")}</div> : null}
@@ -312,7 +313,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         ) : null}
         {children}
-        <BackgroundGenerationDock />
       </div>
     </div>
   );

@@ -1,21 +1,13 @@
 export type StoryPlanNodePrimaryAction =
-  | "confirm"
   | "decompose"
   | "generate-roadmap"
   | "continue-roadmap"
-  | "generate-script"
-  | "continue-script"
-  | "view-script"
   | null;
 
 export type StoryPlanNodeWorkflowStatus =
   | "none"
   | "roadmap-blocked"
-  | "roadmap-pending"
-  | "script-blocked"
-  | "script-ready"
-  | "script-progress"
-  | "script-complete";
+  | "roadmap-pending";
 
 export interface StoryPlanNodeActionContext {
   status: "draft" | "approved" | "superseded";
@@ -26,9 +18,6 @@ export interface StoryPlanNodeActionContext {
   roadmapComplete: boolean;
   roadmapItemCount: number;
   roadmapPredecessorReady: boolean;
-  scriptPredecessorReady: boolean;
-  generatedEpisodeCount: number;
-  expectedEpisodeCount: number;
 }
 
 export interface StoryPlanNodeWorkflow {
@@ -42,9 +31,10 @@ export function resolveStoryPlanNodeWorkflow(
   if (context.isEditing || context.status === "superseded") {
     return { action: null, status: "none" };
   }
-  if (context.status === "draft") {
-    return { action: "confirm", status: "none" };
-  }
+  // Draft nodes are review checkpoints. The full-tree coordinator confirms
+  // them only when the creator continues to the next layer; nodes never expose
+  // a separate confirmation or intermediate-save workflow.
+  if (context.status === "draft") return { action: null, status: "none" };
   if (context.canDecompose) {
     return { action: "decompose", status: "none" };
   }
@@ -62,17 +52,5 @@ export function resolveStoryPlanNodeWorkflow(
       status: "roadmap-pending",
     };
   }
-  if (!context.scriptPredecessorReady) {
-    return { action: null, status: "script-blocked" };
-  }
-  if (
-    context.expectedEpisodeCount > 0
-    && context.generatedEpisodeCount >= context.expectedEpisodeCount
-  ) {
-    return { action: "view-script", status: "script-complete" };
-  }
-  if (context.generatedEpisodeCount > 0) {
-    return { action: "continue-script", status: "script-progress" };
-  }
-  return { action: "generate-script", status: "script-ready" };
+  return { action: null, status: "none" };
 }

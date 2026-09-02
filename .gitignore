@@ -34,6 +34,9 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+playwright-report/
+test-results/
+blob-report/
 
 # Read-only external research repositories
 external_research/

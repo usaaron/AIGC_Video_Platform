@@ -1,7 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  Activity,
+  Check,
+  ChevronDown,
+  Download,
+  History,
+  LoaderCircle,
+  Pause,
+  Play,
+  ShieldCheck,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -9,19 +19,29 @@ import {
   useState,
   type Dispatch,
   type SetStateAction,
+  type SyntheticEvent,
 } from "react";
 
 import { ArrowIcon, CloseIcon } from "@/components/icons";
-import { SectionHelp } from "@/components/section-help";
+import type { DocumentOutlineEntry } from "@/components/document-outline";
+import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import {
-  applyOverseasCharacterNames,
+  PlanningCanvasCopilot,
+  type PlanningCanvasAction,
+  type PlanningCanvasMessage,
+} from "@/components/planning-canvas-copilot";
+import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
+import { SectionHelp } from "@/components/section-help";
+import { workspaceSectionAccess } from "@/lib/workspace-stage";
+import {
+  applyChineseCharacterNames,
   mergeOverseasCharacterNames,
+  overseasDialogueSpeaker,
 } from "@/lib/bilingual-dialogue";
-import { EpisodeTreeNavigation } from "@/components/episode-tree-navigation";
 import { clientDialogueSpeaker } from "@/lib/client-screenplay-format";
 import { ProjectContinuityPanel } from "@/components/project-continuity-panel";
 import {
-  buildBilingualScriptView,
+  buildEmbeddedOverseasDialogueView,
   deepenEpisodeDraft,
   generateSingleEpisode,
   prepareEpisodeGenerationRuntime,
@@ -38,14 +58,18 @@ import {
 } from "@/lib/generation-stream";
 import type { EpisodeStreamProgress } from "@/lib/generation-stream";
 import {
+  automaticGenerationRecoveryDelayMs,
   completeRecoveryEpisode,
   continuePausedGenerationRecoveryTask,
   createGenerationRecoveryTask,
+  episodeGenerationAgentRequestId,
   failGenerationRecoveryTask,
   finishGenerationRecoveryTask,
   firstMissingRecoveryEpisode,
   pauseGenerationRecoveryTask,
   resumeGenerationRecoveryTask,
+  shouldAutoResumeGenerationRecovery,
+  shouldAutomaticallyContinueScriptGeneration,
 } from "@/lib/generation-recovery";
 import {
   generateWithAutomaticTransientRetry,
@@ -54,10 +78,16 @@ import {
   beginScriptGenerationTask,
   completeScriptGenerationTask,
   failScriptGenerationTask,
+  isScriptGenerationAbortError,
   isScriptGenerationPauseRequested,
+  isScriptGenerationPauseAbort,
+  registerScriptGenerationAbortController,
+  requestScriptGenerationPause,
+  resumeScriptGenerationTask,
   updateScriptGenerationProgress,
   useScriptGenerationTask,
   waitForScriptGenerationResume,
+  type ScriptGenerationTaskSnapshot,
 } from "@/lib/script-generation-background";
 import {
   nextBatchRange,
@@ -80,6 +110,7 @@ import {
   episodeGenerationInstruction,
   episodeGenerationLedgerPlan,
   nextApprovedScriptLeafRange,
+  nextReadyScriptPartEpisode,
   plannedEpisodeBodyReference,
   plannedEpisodeDurationSeconds,
   plannedEpisodeShotCount,
@@ -104,6 +135,7 @@ import { buildProductionIndex } from "@/lib/production-index";
 import { createProductionWorkbookAttachments } from "@/lib/production-workbooks";
 import { createScreenplayDocxBlob } from "@/lib/episode-docx";
 import { completeScriptQualityLoop } from "@/lib/quality-loop-client";
+import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
   saveEpisodeArtifactOnServer,
   saveGenerationTaskOnServer,
@@ -113,30 +145,276 @@ import {
   loadStoryBible,
   loadActiveStoryPlanNodes,
   storyBibleIdForProject,
+  type StoryBibleSelectionContext,
 } from "@/lib/story-planning-client";
-import { CURRENT_MARKET_PROFILE } from "@/lib/types";
-import { userFacingError } from "@/lib/api-error";
+import { isRequestAborted, userFacingError } from "@/lib/api-error";
 import type {
-  BilingualScriptView,
   EpisodeWorkspace,
   GeneratedDraft,
-  GeneratedScene,
   GenerationBatchRecord,
   GenerationRecoveryTask,
-  ReleaseRegion,
   ScriptProject,
-  ScriptGenerationRun,
 } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
-import { WorkflowNavigation } from "@/components/workflow-navigation";
+import { canonicalCharacterNameMap } from "@/lib/canonical-character-names";
+import {
+  loadWorkspaceChatMessages,
+  saveWorkspaceChatMessages,
+} from "@/lib/workspace-section-memory";
 
-type WorkspaceVersion = "framework" | "modification" | "deepening" | "revised" | "final";
+type WorkspaceDocumentView = "current" | "modification" | "deepening" | "revised" | "final";
 type SeriesExportMode = "episodes" | "collection";
+type ScriptDraftUpdater = (draft: GeneratedDraft) => GeneratedDraft;
+
+function normalizeEpisodeLifecycle(episode: EpisodeWorkspace): EpisodeWorkspace {
+  const lockedAt = episode.lockedAt
+    ?? (episode.status === "final" || episode.artifactRefs?.final
+      ? episode.confirmedAt ?? episode.updatedAt
+      : undefined);
+  if (lockedAt) {
+    const confirmedDraftJson = episode.confirmedDraftJson ?? episode.workingDraftJson;
+    const lockedStatus = episode.status === "final"
+      || Boolean(episode.finalizationResult?.master_script)
+      || Boolean(episode.artifactRefs?.final)
+      ? "final"
+      : "confirmed";
+    if (
+      episode.status === lockedStatus
+      && episode.lockedAt === lockedAt
+      && episode.confirmedDraftJson === confirmedDraftJson
+      && !episode.hasLocalDraftEdits
+      && !episode.modificationCandidate
+    ) return episode;
+    return {
+      ...episode,
+      status: lockedStatus,
+      confirmedDraftJson,
+      confirmedAt: episode.confirmedAt ?? lockedAt,
+      lockedAt,
+      hasLocalDraftEdits: false,
+      modificationCandidate: undefined,
+    };
+  }
+  const status = episode.hasLocalDraftEdits || episode.modificationCandidate
+    ? "editing"
+    : "saved";
+  return episode.status === status && !episode.lockedAt
+    ? episode
+    : { ...episode, status, lockedAt: undefined };
+}
+
+function episodeIsLocked(episode: EpisodeWorkspace): boolean {
+  return Boolean(normalizeEpisodeLifecycle(episode).lockedAt);
+}
+
+function episodeHasSavedDraft(episode: EpisodeWorkspace): boolean {
+  const normalized = normalizeEpisodeLifecycle(episode);
+  return (
+    normalized.status === "saved"
+      || normalized.status === "confirmed"
+      || normalized.status === "final"
+  ) && !normalized.deepeningRun?.candidate_draft_master_script;
+}
 
 const CREATIVE_DEEPENING_ENABLED = (
   process.env.NEXT_PUBLIC_CREATIVE_DEEPENING_ENABLED === "true"
 );
+
+const SCRIPT_QUICK_ACTIONS: Array<{ id: PlanningCanvasAction; label: string; instruction: string }> = [
+  { id: "continue", label: "续写", instruction: "请承接当前正文继续写下去，保持人物状态、场景逻辑和上一集交接一致。" },
+  { id: "polish", label: "润色", instruction: "请润色当前正文，保留剧情事实，只优化表达、节奏和对白自然度。" },
+  { id: "rewrite", label: "改写", instruction: "请根据当前正文和上下文重写需要调整的部分，确保前后场次衔接一致。" },
+  { id: "expand", label: "扩写", instruction: "请补足当前正文的必要动作、情绪和场面细节，不改变既定剧情走向。" },
+  { id: "shorten", label: "精简", instruction: "请压缩当前正文的重复表达，保留全部关键行动、信息和对白。" },
+];
+
+type ScriptWorkspaceTranslator = (key: string) => string;
+
+function normalizedEpisodeTitle(title: string | null | undefined, episodeNumber: number): string {
+  const value = title?.trim() ?? "";
+  if (!value) return "";
+  return value
+    .replace(new RegExp(`^第\\s*${episodeNumber}\\s*集(?:\\s*[·:：—-]\\s*)?`), "")
+    .trim();
+}
+
+function projectEpisodeTitle(project: ScriptProject, episodeNumber: number): string {
+  const roadmapTitle = project.episodeRoadmaps?.find((item) => (
+    item.episode_number === episodeNumber
+  ))?.episode_title;
+  const normalizedRoadmapTitle = normalizedEpisodeTitle(roadmapTitle, episodeNumber);
+  if (normalizedRoadmapTitle) return normalizedRoadmapTitle;
+  const episode = project.episodes.find((item) => item.episodeNumber === episodeNumber);
+  const draftTitle = episode ? parseWorkingDraft(episode.workingDraftJson)?.title : undefined;
+  return normalizedEpisodeTitle(draftTitle, episodeNumber);
+}
+
+function updateDraftScene(
+  draft: GeneratedDraft,
+  sceneIndex: number,
+  update: (scene: GeneratedDraft["scenes"][number]) => GeneratedDraft["scenes"][number],
+): GeneratedDraft {
+  return {
+    ...draft,
+    scenes: draft.scenes.map((scene, index) => index === sceneIndex ? update(scene) : scene),
+  };
+}
+
+function updateDraftDialogue(
+  draft: GeneratedDraft,
+  sceneIndex: number,
+  dialogueIndex: number,
+  update: (
+    dialogue: GeneratedDraft["scenes"][number]["dialogues"][number],
+  ) => GeneratedDraft["scenes"][number]["dialogues"][number],
+): GeneratedDraft {
+  return updateDraftScene(draft, sceneIndex, (scene) => ({
+    ...scene,
+    dialogues: scene.dialogues.map((dialogue, index) => (
+      index === dialogueIndex ? update(dialogue) : dialogue
+    )),
+  }));
+}
+
+function updateDialogueSpeakerFromDisplay(
+  dialogue: GeneratedDraft["scenes"][number]["dialogues"][number],
+  displayValue: string,
+  overseasDialogueView: boolean,
+): GeneratedDraft["scenes"][number]["dialogues"][number] {
+  const parsed = clientDialogueSpeaker(displayValue, displayValue);
+  const withMarker = (name: string) => parsed.marker ? `${name} (${parsed.marker})` : name;
+  if (!overseasDialogueView) {
+    return { ...dialogue, character_name: withMarker(parsed.speaker) };
+  }
+  const bilingualName = parsed.speaker.match(/^(.+?)[（(]\s*([A-Za-z][A-Za-z0-9 ._'-]*)\s*[）)]$/);
+  if (bilingualName) {
+    return {
+      ...dialogue,
+      character_name: withMarker(bilingualName[2].trim()),
+      chinese_character_name: bilingualName[1].trim(),
+    };
+  }
+  if (/[\u3400-\u9fff]/.test(parsed.speaker)) {
+    return { ...dialogue, chinese_character_name: parsed.speaker };
+  }
+  return { ...dialogue, character_name: withMarker(parsed.speaker) };
+}
+
+function episodeDirectoryLabel(
+  project: ScriptProject,
+  episodeNumber: number,
+  t: ScriptWorkspaceTranslator,
+): string {
+  const numberLabel = t("workspace.episodeLabel").replace("{number}", String(episodeNumber));
+  const title = projectEpisodeTitle(project, episodeNumber);
+  return title ? `${numberLabel} · ${title}` : numberLabel;
+}
+
+function creatorGenerationStage(
+  item: EpisodeStreamProgress,
+  t: ScriptWorkspaceTranslator,
+): string {
+  if (item.status === "failed") return t("workspace.stream.creatorStage.failed");
+  if (item.status === "completed") return t("workspace.stream.creatorStage.completed");
+  if (item.status === "queued") return t("workspace.stream.creatorStage.queued");
+  if (item.stage === "preparing") return t("workspace.stream.creatorStage.preparing");
+  if (item.stage === "generating" || item.stage === "retrying_generation") {
+    return t("workspace.stream.creatorStage.writing");
+  }
+  return t("workspace.stream.creatorStage.reviewing");
+}
+
+function buildScriptDirectoryEntries(
+  project: ScriptProject,
+  batch: EpisodeStreamProgress[],
+  t: ScriptWorkspaceTranslator,
+): DocumentOutlineEntry[] {
+  const visibleBatch = compactGenerationDirectoryBatch(project, batch);
+  const batchByEpisode = new Map(visibleBatch.map((item) => [item.episodeNumber, item]));
+  const generatedByEpisode = new Map(project.episodes.map((item) => [item.episodeNumber, item]));
+  const episodeNumbers = [...new Set([
+    ...project.episodes.map((item) => item.episodeNumber),
+    ...visibleBatch.map((item) => item.episodeNumber),
+  ])].sort((left, right) => left - right);
+  const entries: DocumentOutlineEntry[] = [];
+  for (const episodeNumber of episodeNumbers) {
+    const streamed = batchByEpisode.get(episodeNumber);
+    const generated = generatedByEpisode.get(episodeNumber);
+    const normalizedGenerated = generated ? normalizeEpisodeLifecycle(generated) : undefined;
+    const status = streamed?.status ?? (generated ? "completed" : "queued");
+    const statusLabel = streamed
+      ? creatorGenerationStage(streamed, t)
+      : normalizedGenerated
+        ? t(`episodeStatus.${normalizedGenerated.status}`)
+        : t("workspace.stream.creatorStage.queued");
+    entries.push({
+      id: `script-episode-${episodeNumber}`,
+      label: episodeDirectoryLabel(project, episodeNumber, t),
+      meta: statusLabel,
+      status,
+      statusLabel,
+      disabled: !generated && !streamed,
+    });
+  }
+  return entries;
+}
+
+function preferredStreamItem(
+  batch: EpisodeStreamProgress[],
+  episodeNumber?: number,
+): EpisodeStreamProgress | undefined {
+  return batch.find((item) => item.episodeNumber === episodeNumber)
+    ?? batch.find((item) => item.status === "active")
+    ?? batch.find((item) => item.status === "failed")
+    ?? batch.find((item) => item.status === "queued")
+    ?? batch.at(-1);
+}
+
+function compactGenerationDetailBatch(
+  batch: EpisodeStreamProgress[],
+  limit = 4,
+): EpisodeStreamProgress[] {
+  if (batch.length <= limit) return batch;
+  const focus = preferredStreamItem(batch);
+  const focusEpisode = focus?.episodeNumber ?? batch[0].episodeNumber;
+  const priority = [
+    ...batch.filter((item) => item.status === "active" || item.status === "failed"),
+    ...batch.filter((item) => item.status === "completed").slice(-1),
+    ...batch.filter((item) => (
+      item.status === "queued" && item.episodeNumber > focusEpisode
+    )).slice(0, 1),
+    ...batch.slice().sort((left, right) => (
+      Math.abs(left.episodeNumber - focusEpisode)
+      - Math.abs(right.episodeNumber - focusEpisode)
+    )),
+  ];
+  const visibleEpisodes = new Set<number>();
+  for (const item of priority) {
+    visibleEpisodes.add(item.episodeNumber);
+    if (visibleEpisodes.size >= limit) break;
+  }
+  return batch.filter((item) => visibleEpisodes.has(item.episodeNumber));
+}
+
+function compactGenerationDirectoryBatch(
+  project: ScriptProject,
+  batch: EpisodeStreamProgress[],
+): EpisodeStreamProgress[] {
+  if (!batch.length) return [];
+  const generatedEpisodes = new Set(project.episodes.map((item) => item.episodeNumber));
+  const focused = compactGenerationDetailBatch(batch, 6);
+  const firstQueued = batch
+    .filter((item) => item.status === "queued")
+    .sort((left, right) => left.episodeNumber - right.episodeNumber)[0];
+  const visibleEpisodes = new Set([
+    ...generatedEpisodes,
+    ...focused.map((item) => item.episodeNumber),
+    ...(firstQueued ? [firstQueued.episodeNumber] : []),
+  ]);
+  const visible = batch.filter((item) => visibleEpisodes.has(item.episodeNumber));
+  return visible.length ? visible : firstQueued ? [firstQueued] : batch.slice(0, 1);
+}
 
 export function ScriptWorkspace() {
   const params = useParams<{ projectId: string }>();
@@ -147,16 +425,17 @@ export function ScriptWorkspace() {
   const project = getProject(params.projectId);
   const backgroundScriptTask = useScriptGenerationTask(params.projectId);
   const [activeEpisodeNumber, setActiveEpisodeNumber] = useState(project?.activeEpisodeNumber ?? 1);
-  const [selectedVersion, setSelectedVersion] = useState<WorkspaceVersion>("framework");
-  const [editingDraft, setEditingDraft] = useState<GeneratedDraft | null>(null);
+  const [selectedDocumentView, setSelectedDocumentView] = useState<WorkspaceDocumentView>("current");
   const [message, setMessage] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"confirm" | "modify" | "deepen" | "next" | "batch" | "finalize" | null>(null);
-  const [dialog, setDialog] = useState<"modify" | "next" | "batch" | null>(null);
-  const [instruction, setInstruction] = useState("");
+  const [busyAction, setBusyAction] = useState<"save" | "confirm" | "modify" | "deepen" | "batch" | "finalize" | null>(null);
+  const [scriptChatInstruction, setScriptChatInstruction] = useState("");
+  const [scriptDocumentSelection, setScriptDocumentSelection] = useState<StoryBibleSelectionContext | null>(null);
+  const [scriptChatMessages, setScriptChatMessages] = useState<PlanningCanvasMessage[]>(() => (
+    loadWorkspaceChatMessages(params.projectId, "script") as PlanningCanvasMessage[]
+  ));
   const [workspaceView, setWorkspaceView] = useState<"script" | "continuity">(
     searchParams.get("view") === "continuity" ? "continuity" : "script",
   );
-  const [episodeExportFormat, setEpisodeExportFormat] = useState<EpisodeDocumentFormat>("markdown");
   const [seriesExportOpen, setSeriesExportOpen] = useState(false);
   const [seriesExportMode, setSeriesExportMode] = useState<SeriesExportMode>("episodes");
   const [seriesExportFormats, setSeriesExportFormats] = useState<Record<EpisodeDocumentFormat, boolean>>({
@@ -166,17 +445,49 @@ export function ScriptWorkspace() {
   });
   const [seriesExportProductionPackage, setSeriesExportProductionPackage] = useState(true);
   const [seriesExportBusy, setSeriesExportBusy] = useState(false);
+  const [episodeExportFormat, setEpisodeExportFormat] = useState<EpisodeDocumentFormat>("markdown");
   const [generationIntentConsumed, setGenerationIntentConsumed] = useState(false);
   const streamBatch = backgroundScriptTask?.progress ?? [];
+  const streamStatusSignature = streamBatch
+    .map((item) => `${item.episodeNumber}:${item.status}`)
+    .join("|");
   const setStreamBatch = useCallback<Dispatch<SetStateAction<EpisodeStreamProgress[]>>>(
     (update) => updateScriptGenerationProgress(params.projectId, update),
     [params.projectId],
   );
-  const [generationProgressVisible, setGenerationProgressVisible] = useState<boolean | null>(null);
+  const [generationDetailsOpen, setGenerationDetailsOpen] = useState(false);
+  const [generationStatusDismissed, setGenerationStatusDismissed] = useState(false);
+  const [lengthDetailsOpen, setLengthDetailsOpen] = useState(false);
+  const [activeScriptOutlineId, setActiveScriptOutlineId] = useState(
+    `script-episode-${project?.activeEpisodeNumber ?? 1}`,
+  );
   const finalizedRecoveryJobs = useRef(new Set<string>());
+  const autoResumedRecoveryAttempts = useRef(new Set<string>());
+  const automaticallyStartedScriptParts = useRef(new Set<string>());
+  const pendingInlineDraftsRef = useRef(new Map<number, GeneratedDraft>());
+  const candidateBaseInlineEditsRef = useRef(new Set<number>());
+  const generateNextStageRef = useRef<(
+    instruction?: string,
+    requestedRange?: { startEpisode: number; endEpisode: number },
+  ) => Promise<void>>(async () => undefined);
+  const scriptModificationAbortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => scriptModificationAbortControllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    saveWorkspaceChatMessages(params.projectId, "script", scriptChatMessages);
+  }, [params.projectId, scriptChatMessages]);
+
+  useEffect(() => {
+    if (!project?.episodes.length) return;
+    const episodes = project.episodes.map(normalizeEpisodeLifecycle);
+    if (episodes.every((item, index) => item === project.episodes[index])) return;
+    void updateProject(project.id, { episodes });
+  }, [project?.episodes, project?.id]);
 
   const episode = project?.episodes.find((item) => item.episodeNumber === activeEpisodeNumber);
   const generationIntent = searchParams.get("generate") === "1";
+  const scriptAccessible = project ? workspaceSectionAccess(project).script : false;
   const requestedStart = Number(searchParams.get("start"));
   const requestedEnd = Number(searchParams.get("end"));
   const requestedLeafRange = Number.isInteger(requestedStart)
@@ -189,6 +500,85 @@ export function ScriptWorkspace() {
       : null;
 
   useEffect(() => {
+    if (!isReady || !project || scriptAccessible) return;
+    const destination = workspaceSectionAccess(project).planning
+      ? `/projects/${project.id}/planning/structure`
+      : `/projects/${project.id}/planning`;
+    router.replace(destination);
+  }, [isReady, project?.id, router, scriptAccessible]);
+
+  useEffect(() => {
+    if (
+      !project
+      || !scriptAccessible
+      || project.episodes.length > 0
+      || generationIntent
+      || generationIntentConsumed
+    ) return;
+    router.replace(`/projects/${project.id}/workspace?generate=1`);
+  }, [
+    generationIntent,
+    generationIntentConsumed,
+    project?.episodes.length,
+    project?.id,
+    router,
+    scriptAccessible,
+  ]);
+
+  useEffect(() => {
+    if (
+      !project
+      || !scriptAccessible
+    ) return;
+    const nextEpisode = nextReadyScriptPartEpisode(
+      project.episodes.map((item) => item.episodeNumber),
+      project.episodePlansReadyThrough ?? 0,
+      project.generationSettings.episodeCount,
+    );
+    if (!shouldAutomaticallyContinueScriptGeneration({
+      planningPhase: project.planningSession?.phase,
+      existingEpisodeCount: project.episodes.length,
+      nextReadyEpisode: nextEpisode,
+      generationIntent,
+      busy: busyAction !== null,
+      browserTaskStatus: backgroundScriptTask?.status,
+      recoveryTaskStatus: project.activeGenerationTask?.status,
+    })) return;
+
+    const attemptKey = [
+      project.id,
+      project.storyBibleVersion ?? "legacy",
+      project.episodePlansReadyThrough ?? 0,
+      nextEpisode,
+    ].join(":");
+    if (automaticallyStartedScriptParts.current.has(attemptKey)) return;
+    automaticallyStartedScriptParts.current.add(attemptKey);
+
+    let launched = false;
+    const timer = window.setTimeout(() => {
+      launched = true;
+      void generateNextStageRef.current();
+    }, 500);
+    return () => {
+      window.clearTimeout(timer);
+      if (!launched) automaticallyStartedScriptParts.current.delete(attemptKey);
+    };
+  }, [
+    backgroundScriptTask?.status,
+    busyAction,
+    generationIntent,
+    project?.activeGenerationTask?.jobId,
+    project?.activeGenerationTask?.status,
+    project?.episodePlansReadyThrough,
+    project?.episodes.length,
+    project?.generationSettings.episodeCount,
+    project?.id,
+    project?.planningSession?.phase,
+    project?.storyBibleVersion,
+    scriptAccessible,
+  ]);
+
+  useEffect(() => {
     if (!project?.episodes.length) return;
     if (!project.episodes.some((item) => item.episodeNumber === activeEpisodeNumber)) {
       setActiveEpisodeNumber(project.episodes[0].episodeNumber);
@@ -196,10 +586,23 @@ export function ScriptWorkspace() {
   }, [project?.episodes.length, activeEpisodeNumber]);
 
   useEffect(() => {
-    setSelectedVersion("framework");
-    setEditingDraft(null);
+    setSelectedDocumentView("current");
+    setScriptDocumentSelection(null);
     setMessage(null);
+    setActiveScriptOutlineId(`script-episode-${activeEpisodeNumber}`);
   }, [activeEpisodeNumber]);
+
+  useEffect(() => {
+    if (streamBatch.some((item) => item.status === "active" || item.status === "queued")) {
+      setGenerationStatusDismissed(false);
+      setGenerationDetailsOpen(false);
+      return;
+    }
+    if (!streamBatch.length || !streamBatch.every((item) => item.status === "completed")) return;
+    setGenerationDetailsOpen(false);
+    const timer = window.setTimeout(() => setGenerationStatusDismissed(true), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [streamStatusSignature]);
 
   useEffect(() => {
     if (!project?.episodes.length || project.storyLines.length) return;
@@ -235,25 +638,51 @@ export function ScriptWorkspace() {
   }, [project, updateProject]);
 
   useEffect(() => {
-    if (!streamBatch.length) {
-      setGenerationProgressVisible(null);
-      return;
-    }
-    const progressElement = document.getElementById("episode-generation-progress");
-    if (!progressElement) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setGenerationProgressVisible(entry.isIntersecting),
-      { threshold: 0.1 },
-    );
-    observer.observe(progressElement);
-    return () => observer.disconnect();
-  }, [streamBatch.length]);
+    const task = project?.activeGenerationTask;
+    if (
+      !project
+      || !scriptAccessible
+      || !shouldAutoResumeGenerationRecovery(
+        task,
+        project.episodes.map((item) => item.episodeNumber),
+        backgroundScriptTask?.status,
+      )
+    ) return;
+
+    const recoveryAttemptKey = `${task.jobId}:${task.attemptCount}`;
+    if (autoResumedRecoveryAttempts.current.has(recoveryAttemptKey)) return;
+    autoResumedRecoveryAttempts.current.add(recoveryAttemptKey);
+    let launched = false;
+    const timer = window.setTimeout(() => {
+      launched = true;
+      void generateNextStageRef.current(task.instruction ?? "", {
+        startEpisode: task.startEpisode,
+        endEpisode: task.endEpisode,
+      });
+    }, automaticGenerationRecoveryDelayMs(task));
+    return () => {
+      window.clearTimeout(timer);
+      if (!launched) autoResumedRecoveryAttempts.current.delete(recoveryAttemptKey);
+    };
+  }, [
+    backgroundScriptTask?.status,
+    project?.activeGenerationTask?.attemptCount,
+    project?.activeGenerationTask?.jobId,
+    project?.activeGenerationTask?.lastError,
+    project?.activeGenerationTask?.status,
+    project?.episodes.length,
+    project?.id,
+    scriptAccessible,
+  ]);
 
   if (!isReady) {
     return <main className="centered-state"><div className="loading-mark" /><p>{t("project.opening")}</p></main>;
   }
   if (!project) {
     return <main className="centered-state" />;
+  }
+  if (!scriptAccessible) {
+    return <main className="centered-state"><div className="loading-mark" /></main>;
   }
   if (
     requestedLeafRange
@@ -295,87 +724,82 @@ export function ScriptWorkspace() {
   }
   if (!episode) {
     return (
-      <main className="script-workspace page-reveal">
-        <header className="workspace-header">
-          <div>
-            <span className="section-kicker">{t("workspace.kicker")}</span>
-            <div className="section-title-with-help">
-              <h1>{project.title}</h1>
-              <SectionHelp content={t("guide.scriptWorkspace")} label={t("guide.openHelp")} />
-            </div>
-            <p>{t("workspace.episodeCountSummary")
-              .replace("{current}", "0")
-              .replace("{total}", String(project.generationSettings.episodeCount))}</p>
-          </div>
-          <div className="workspace-header-actions">
-            <Link className="outline-action" href={`/projects/${project.id}/planning`}>
-              {t("workspace.backToPlanning")}
-            </Link>
-          </div>
-        </header>
-        <WorkflowNavigation
-          active="script"
-          generatedEpisodes={0}
-          plannedThrough={project.episodePlansReadyThrough ?? 0}
-          projectId={project.id}
-          scriptStarted
-          totalEpisodes={project.generationSettings.episodeCount}
-        />
-        {streamBatch.length ? (
-          <EpisodeGenerationProgress
-            batch={streamBatch}
-            onRetryEpisode={() => undefined}
-            retryDisabled
-            t={t}
-          />
-        ) : null}
-      </main>
+      <PendingScriptWorkspace
+        activeEpisodeNumber={activeEpisodeNumber}
+        batch={streamBatch}
+        detailsOpen={generationDetailsOpen}
+        onDetailsToggle={() => setGenerationDetailsOpen((current) => !current)}
+        onRetryEpisode={() => {
+          setGenerationIntentConsumed(false);
+          router.replace(`/projects/${project.id}/workspace?generate=1`);
+        }}
+        onSelectEpisode={(episodeNumber) => {
+          setActiveEpisodeNumber(episodeNumber);
+          void updateProject(project.id, { activeEpisodeNumber: episodeNumber });
+        }}
+        project={project}
+        task={backgroundScriptTask}
+        t={t}
+      />
     );
   }
 
-  const currentProject = project;
-  const currentEpisode = episode;
+  const normalizedEpisodes = project.episodes.map(normalizeEpisodeLifecycle);
+  const currentProject = normalizedEpisodes.every((item, index) => item === project.episodes[index])
+    ? project
+    : { ...project, episodes: normalizedEpisodes };
+  const currentEpisode = normalizeEpisodeLifecycle(episode);
   const recoverableEpisode = currentProject.activeGenerationTask
     ? firstMissingRecoveryEpisode(
         currentProject.activeGenerationTask,
         currentProject.episodes.map((item) => item.episodeNumber),
       )
     : null;
-  const frameworkDraft = parseWorkingDraft(currentEpisode.workingDraftJson)
-    ?? currentEpisode.generationRun.draft_master_script;
+  const currentDraft = resolveWorkingDraft(currentEpisode);
   const modificationDraft = currentEpisode.modificationCandidate?.candidate_generation_run.draft_master_script ?? null;
   const deepeningRun = currentEpisode.deepeningRun ?? currentEpisode.generationRun.creative_deepening_run ?? null;
   const deepeningDraft = deepeningRun?.candidate_valid_for_comparison
     ? deepeningRun.candidate_draft_master_script ?? null
     : null;
   const revisedDraft = currentEpisode.revisionRun?.revised_draft_master_script ?? null;
-  const finalDraft = currentEpisode.finalizationResult?.master_script ?? null;
-  const displayedDraft = selectedVersion === "modification" && modificationDraft
+  const displayedDraft = selectedDocumentView === "modification" && modificationDraft
     ? modificationDraft
-    : selectedVersion === "deepening" && deepeningDraft
+    : selectedDocumentView === "deepening" && deepeningDraft
       ? deepeningDraft
-      : selectedVersion === "revised" && revisedDraft
+      : selectedDocumentView === "revised" && revisedDraft
         ? revisedDraft
-        : selectedVersion === "final" && finalDraft
-          ? finalDraft
-          : frameworkDraft;
-  const displayedBilingualView = currentEpisode.bilingualViews?.[displayedDraft.id];
-  const marketMismatch = currentProject.marketProfile !== CURRENT_MARKET_PROFILE;
-  const displayedProjectTitle = marketMismatch
-    ? t("nav.historicalProject")
-    : currentProject.title;
-  const isConfirmed = ["confirmed", "deepened", "final"].includes(currentEpisode.status);
+        : currentDraft;
+  const projectCharacterNameMap = Object.fromEntries(
+    collectProjectOverseasCharacterNames(currentProject),
+  );
+  const seriesMissingBilingualCount = currentProject.generationSettings.releaseRegion === "overseas"
+    ? currentProject.episodes
+      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
+      .reduce((count, item) => {
+        const draft = resolveSavedDraft(item);
+        if (!draft) return count + 1;
+        const isUsable = Boolean(resolveCurrentOverseasDialogueView(
+          draft,
+          projectCharacterNameMap,
+        ));
+        return count + (isUsable ? 0 : 1);
+      }, 0)
+    : 0;
+  const displayedBilingualView = currentProject.generationSettings.releaseRegion === "overseas"
+    ? resolveCurrentOverseasDialogueView(
+        displayedDraft,
+        projectCharacterNameMap,
+      )
+    : undefined;
   const metricDrafts = currentProject.episodes.map((item) => (
-    item.episodeNumber === currentEpisode.episodeNumber && editingDraft
-      ? editingDraft
-      : resolveExportDraft(item)
+    resolveWorkingDraft(item)
   ));
   const seriesTextMetrics = calculateSeriesTextMetrics(
     metricDrafts,
     currentProject.generationSettings.targetTotalCharacters,
     currentProject.generationSettings.episodeCount,
   );
-  const displayedTextMetrics = calculateDraftTextMetrics(editingDraft ?? displayedDraft);
+  const displayedTextMetrics = calculateDraftTextMetrics(displayedDraft);
   const displayedBodyTarget = scriptBodyTargetCharacters(displayedDraft)
     ?? targetScriptBodyCharacters(currentProject.generationSettings);
   const displayedBodyGuidance = scriptBodyLengthGuidance(displayedBodyTarget);
@@ -387,6 +811,30 @@ export function ScriptWorkspace() {
       : t("workspace.length.currentTargetMet");
   const numberFormatter = new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en-US");
   const progressPercent = seriesTextMetrics.progressRatio * 100;
+  const scriptGenerationActive = backgroundScriptTask
+    ? ["running", "pausing", "paused"].includes(backgroundScriptTask.status)
+    : false;
+  const allPlannedEpisodesGenerated = currentProject.generationSettings.episodeCount > 0
+    && contiguousEpisodeCoverageThrough(
+      currentProject.episodes.map((item) => item.episodeNumber),
+    ) >= currentProject.generationSettings.episodeCount
+    && !scriptGenerationActive
+    && (!currentProject.activeGenerationTask
+      || currentProject.activeGenerationTask.status === "completed");
+  const allPlannedEpisodesSaved = allPlannedEpisodesGenerated
+    && currentProject.episodes
+      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
+      .every(episodeHasSavedDraft);
+  const currentEpisodeLocked = episodeIsLocked(currentEpisode);
+  const scriptInlineEditingEnabled = !currentEpisodeLocked
+    && selectedDocumentView === "current"
+    && workspaceView === "script"
+    && !modificationDraft
+    && !deepeningDraft
+    && busyAction === null;
+  const currentEpisodeHasDirectEdits = currentEpisode.hasLocalDraftEdits
+    && !currentEpisode.modificationCandidate
+    && !currentEpisode.deepeningRun?.candidate_draft_master_script;
   const projectedSummary = seriesTextMetrics.estimatedEpisodesToTarget === null
     ? t("workspace.length.projectionPending")
     : t("workspace.length.projectionValue")
@@ -395,177 +843,344 @@ export function ScriptWorkspace() {
         .replace("{estimated}", numberFormatter.format(seriesTextMetrics.estimatedEpisodesToTarget));
 
   function blockCrossMarketMutation(): boolean {
-    if (!marketMismatch) return false;
-    setMessage(t("workspace.marketMismatch"));
-    return true;
+    return false;
   }
 
-  function replaceEpisode(patch: Partial<EpisodeWorkspace>, projectPatch: Record<string, unknown> = {}) {
+  function replaceEpisode(
+    patch: Partial<EpisodeWorkspace>,
+    projectPatch: Record<string, unknown> = {},
+    options: { skipContinuitySync?: boolean } = {},
+  ) {
     const now = new Date().toISOString();
     const episodes = currentProject.episodes.map((item) => item.episodeNumber === currentEpisode.episodeNumber
       ? { ...item, ...patch, updatedAt: now }
       : item);
+    const continuityPatch = options.skipContinuitySync
+      ? {}
+      : synchronizeContinuity(
+          currentProject.creativePrompt,
+          currentProject.characters,
+          episodes,
+          currentProject.storyLines,
+          currentProject.characterRelationships,
+          currentProject.continuityStates,
+        );
     updateProject(currentProject.id, {
       episodes,
-      ...synchronizeContinuity(
-        currentProject.creativePrompt,
-        currentProject.characters,
-        episodes,
-        currentProject.storyLines,
-        currentProject.characterRelationships,
-        currentProject.continuityStates,
-      ),
+      ...continuityPatch,
       ...projectPatch,
     });
   }
 
-  function selectEpisode(number: number) {
-    setActiveEpisodeNumber(number);
-    updateProject(currentProject.id, { activeEpisodeNumber: number });
+  function updateCurrentDraft(update: ScriptDraftUpdater) {
+    if (!scriptInlineEditingEnabled) return;
+    const episodeNumber = currentEpisode.episodeNumber;
+    const sourceDraft = pendingInlineDraftsRef.current.get(episodeNumber) ?? currentDraft;
+    const nextDraft = update(sourceDraft);
+    if (JSON.stringify(nextDraft) === JSON.stringify(sourceDraft)) return;
+    pendingInlineDraftsRef.current.set(episodeNumber, nextDraft);
+    setMessage(null);
+    void updateProject(currentProject.id, (latestProject) => ({
+      episodes: latestProject.episodes.map((item) => item.episodeNumber === episodeNumber
+        ? {
+            ...item,
+            status: "editing",
+            generationRun: {
+              ...item.generationRun,
+              draft_master_script: nextDraft,
+            },
+            workingDraftJson: JSON.stringify(nextDraft, null, 2),
+            confirmedDraftJson: undefined,
+            hasLocalDraftEdits: true,
+            confirmedAt: undefined,
+            lockedAt: undefined,
+            revisionRun: undefined,
+            finalizationResult: undefined,
+            updatedAt: new Date().toISOString(),
+          }
+        : item),
+    }));
   }
 
-  function scrollToGenerationProgress() {
-    document.getElementById("episode-generation-progress")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }
-
-  function startEditing() {
-    setEditingDraft(structuredClone(frameworkDraft));
-    setSelectedVersion("framework");
-  }
-
-  function saveManualEdit() {
-    if (!editingDraft) return;
-    replaceEpisode({
-      status: "editing",
-      workingDraftJson: JSON.stringify(editingDraft, null, 2),
-      hasLocalDraftEdits: true,
-      confirmedDraftJson: undefined,
-      confirmedAt: undefined,
-      deepeningRun: undefined,
-      revisionRun: undefined,
-      finalizationResult: undefined,
-    });
-    setEditingDraft(null);
-    setMessage(t("workspace.saved"));
-  }
-
-  async function confirmDraft(draft: GeneratedDraft = editingDraft ?? frameworkDraft) {
-    if (blockCrossMarketMutation()) return;
-    setBusyAction("confirm");
+  async function saveCurrentDraft() {
+    if (
+      currentEpisodeLocked
+      || !currentEpisodeHasDirectEdits
+      || currentEpisode.modificationCandidate
+      || currentEpisode.deepeningRun?.candidate_draft_master_script
+    ) return;
+    const editedDraft = pendingInlineDraftsRef.current.get(currentEpisode.episodeNumber)
+      ?? currentDraft;
+    setBusyAction("save");
     setMessage(null);
     try {
-      const reviewedRun = await reviewEpisodeDraft(
-        currentEpisode.generationRun,
-        draft,
-      );
-      const draftJson = JSON.stringify(reviewedRun.draft_master_script, null, 2);
       const artifactRef = await saveEpisodeArtifactOnServer({
         project: currentProject,
         episodeNumber: currentEpisode.episodeNumber,
         artifactKind: "draft",
+        memoryLayer: "provisional",
         contentSchemaVersion: "draft_master_script.v1",
-        contentPayload: reviewedRun.draft_master_script,
+        contentPayload: editedDraft,
         lineageRefs: {
-          draft_master_script_id: reviewedRun.draft_master_script.id,
-          generation_strategy_id: reviewedRun.generation_strategy_id,
+          draft_master_script_id: editedDraft.id,
+          generation_strategy_id: currentEpisode.generationRun.generation_strategy_id,
         },
       });
-      const legacyPatch = currentEpisode.episodeNumber === 1 ? {
-        generationRun: reviewedRun,
-        workingDraftJson: draftJson,
-        hasLocalDraftEdits: false,
-        revisionRun: undefined,
-        finalizationResult: undefined,
-      } : {};
+      const saved = await updateProject(currentProject.id, (latestProject) => {
+        const now = new Date().toISOString();
+        const episodes = latestProject.episodes.map((item) => item.episodeNumber === currentEpisode.episodeNumber
+          ? {
+              ...item,
+              status: "saved" as const,
+              generationRun: {
+                ...item.generationRun,
+                draft_master_script: editedDraft,
+              },
+              workingDraftJson: JSON.stringify(editedDraft, null, 2),
+              confirmedDraftJson: undefined,
+              hasLocalDraftEdits: false,
+              modificationCandidate: undefined,
+              confirmedAt: undefined,
+              lockedAt: undefined,
+              deepeningRun: undefined,
+              revisionRun: undefined,
+              finalizationResult: undefined,
+              artifactRefs: artifactRef
+                ? { ...item.artifactRefs, draft: artifactRef }
+                : item.artifactRefs,
+              updatedAt: now,
+            }
+          : item);
+        return {
+          episodes,
+          ...synchronizeContinuity(
+            latestProject.creativePrompt,
+            latestProject.characters,
+            episodes,
+            latestProject.storyLines,
+            latestProject.characterRelationships,
+            latestProject.continuityStates,
+          ),
+        };
+      });
+      if (!saved) throw new Error(t("workspace.saveFailed"));
+      pendingInlineDraftsRef.current.delete(currentEpisode.episodeNumber);
+      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+      setMessage(artifactRef
+        ? t("workspace.episodeSaved")
+        : `${t("workspace.episodeSaved")} ${t("workspace.artifactSaveWarning")}`);
+    } catch (error) {
+      setMessage(formatWorkflowError(error, t, "workspace.saveFailed"));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function selectEpisode(number: number) {
+    setScriptDocumentSelection(null);
+    setSelectedDocumentView("current");
+    setActiveEpisodeNumber(number);
+    updateProject(currentProject.id, { activeEpisodeNumber: number });
+  }
+
+  async function requestModification(
+    instructionOverride?: string,
+    selectionOverride: StoryBibleSelectionContext | null = scriptDocumentSelection,
+  ) {
+    if (blockCrossMarketMutation() || currentEpisodeLocked) return;
+    const submittedInstruction = (instructionOverride ?? scriptChatInstruction).trim();
+    if (!submittedInstruction) return;
+    if (currentEpisodeHasDirectEdits) {
+      candidateBaseInlineEditsRef.current.add(currentEpisode.episodeNumber);
+    } else {
+      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+    }
+    const controller = new AbortController();
+    scriptModificationAbortControllerRef.current = controller;
+    setBusyAction("modify");
+    setMessage(null);
+    setScriptChatInstruction("");
+    setScriptChatMessages((current) => [
+      ...current,
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        text: submittedInstruction,
+        quote: selectionOverride,
+      },
+    ]);
+    setScriptDocumentSelection((current) => current === selectionOverride ? null : current);
+    try {
+      const latestDraft = pendingInlineDraftsRef.current.get(currentEpisode.episodeNumber)
+        ?? currentDraft;
+      const result = await modifyEpisodeDraft(
+        currentEpisode.generationRun,
+        latestDraft,
+        submittedInstruction,
+        controller.signal,
+        selectionOverride,
+        currentProject,
+      );
       replaceEpisode({
-        status: "confirmed",
-        generationRun: reviewedRun,
+        status: "editing",
+        hasLocalDraftEdits: true,
+        modificationCandidate: result,
+      }, {}, { skipContinuitySync: true });
+      setSelectedDocumentView("modification");
+      setScriptChatInstruction("");
+      setScriptChatMessages((current) => [
+        ...current,
+        { id: `assistant-${Date.now()}`, role: "assistant", text: "已生成正文修改候选，请在正文区审阅后确认采用。" },
+      ]);
+      setMessage(t("workspace.modificationReady"));
+    } catch (error) {
+      if (isRequestAborted(error, controller.signal)) {
+        setScriptChatMessages((current) => [
+          ...current,
+          { id: `assistant-paused-${Date.now()}`, role: "assistant", text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。" },
+        ]);
+      } else {
+        setMessage(formatWorkflowError(error, t, "workspace.modificationFailed"));
+      }
+    } finally {
+      if (scriptModificationAbortControllerRef.current === controller) {
+        scriptModificationAbortControllerRef.current = null;
+      }
+      setBusyAction(null);
+    }
+  }
+
+  function pauseScriptModification() {
+    scriptModificationAbortControllerRef.current?.abort();
+  }
+
+  function editScriptChatMessage(
+    messageId: string,
+    text: string,
+    quote?: StoryBibleSelectionContext | null,
+  ) {
+    setScriptChatMessages((current) => {
+      const messageIndex = current.findIndex((item) => item.id === messageId);
+      return messageIndex >= 0 ? current.slice(0, messageIndex) : current;
+    });
+    void requestModification(text, quote ?? null);
+  }
+
+  function submitScriptChat() {
+    void requestModification(scriptChatInstruction);
+  }
+
+  function runScriptQuickAction(_action: PlanningCanvasAction, actionInstruction: string) {
+    setScriptChatInstruction(actionInstruction);
+    void requestModification(actionInstruction, scriptDocumentSelection);
+  }
+
+  function captureScriptDocumentSelection(event: SyntheticEvent<HTMLDivElement>) {
+    if (currentEpisodeLocked) return;
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim() ?? "";
+    if (!selectedText) return;
+    const eventTarget = event.target instanceof HTMLElement ? event.target : null;
+    if (eventTarget?.closest(".selection-edit-toolbar")) return;
+    const anchorElement = selection?.anchorNode instanceof HTMLElement
+      ? selection.anchorNode
+      : selection?.anchorNode?.parentElement ?? null;
+    const target = anchorElement?.closest<HTMLElement>("[data-script-field]");
+    if (!target || !event.currentTarget.contains(target)) return;
+    const fullText = target.dataset.scriptFieldText ?? target.innerText ?? selectedText;
+    const selectedIndex = fullText.indexOf(selectedText);
+    const afterStart = selectedIndex >= 0
+      ? selectedIndex + selectedText.length
+      : fullText.length;
+    setScriptDocumentSelection({
+      source_field: target.dataset.scriptField ?? "正文",
+      selected_text: selectedText.slice(0, 4_000),
+      before_text: selectedIndex > 0
+        ? fullText.slice(Math.max(0, selectedIndex - 320), selectedIndex)
+        : "",
+      after_text: fullText.slice(afterStart, afterStart + 320),
+    });
+  }
+
+  async function applyModification() {
+    if (!currentEpisode.modificationCandidate || currentEpisodeLocked) return;
+    const candidateRun = currentEpisode.modificationCandidate.candidate_generation_run;
+    setBusyAction("save");
+    setMessage(null);
+    try {
+      const draftJson = JSON.stringify(candidateRun.draft_master_script, null, 2);
+      const artifactRef = await saveEpisodeArtifactOnServer({
+        project: currentProject,
+        episodeNumber: currentEpisode.episodeNumber,
+        artifactKind: "draft",
+        memoryLayer: "provisional",
+        contentSchemaVersion: "draft_master_script.v1",
+        contentPayload: candidateRun.draft_master_script,
+        lineageRefs: {
+          draft_master_script_id: candidateRun.draft_master_script.id,
+          generation_strategy_id: candidateRun.generation_strategy_id,
+        },
+      });
+      replaceEpisode({
+        status: "saved",
+        generationRun: candidateRun,
         workingDraftJson: draftJson,
-        confirmedDraftJson: draftJson,
+        confirmedDraftJson: undefined,
         hasLocalDraftEdits: false,
         modificationCandidate: undefined,
+        confirmedAt: undefined,
+        lockedAt: undefined,
         deepeningRun: undefined,
         revisionRun: undefined,
         finalizationResult: undefined,
         artifactRefs: artifactRef
           ? { ...currentEpisode.artifactRefs, draft: artifactRef }
           : currentEpisode.artifactRefs,
-        confirmedAt: new Date().toISOString(),
-      }, legacyPatch);
-      setEditingDraft(null);
-      setSelectedVersion("framework");
+      });
+      pendingInlineDraftsRef.current.delete(currentEpisode.episodeNumber);
+      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+      setSelectedDocumentView("current");
       setMessage(artifactRef
-        ? t("workspace.confirmed")
-        : `${t("workspace.confirmed")} ${t("workspace.artifactSaveWarning")}`);
+        ? t("workspace.modificationApplied")
+        : `${t("workspace.modificationApplied")} ${t("workspace.artifactSaveWarning")}`);
     } catch (error) {
-      setMessage(formatWorkflowError(error, t, "workspace.confirmFailed"));
+      setMessage(formatWorkflowError(error, t, "workspace.saveFailed"));
     } finally {
       setBusyAction(null);
     }
-  }
-
-  async function requestModification() {
-    if (blockCrossMarketMutation()) return;
-    if (!instruction.trim()) return;
-    setBusyAction("modify");
-    setMessage(null);
-    try {
-      const result = await modifyEpisodeDraft(
-        currentEpisode.generationRun,
-        frameworkDraft,
-        instruction.trim(),
-      );
-      replaceEpisode({ modificationCandidate: result });
-      setSelectedVersion("modification");
-      setDialog(null);
-      setInstruction("");
-      setMessage(t("workspace.modificationReady"));
-    } catch (error) {
-      setMessage(formatWorkflowError(error, t, "workspace.modificationFailed"));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  function applyModification() {
-    if (!currentEpisode.modificationCandidate) return;
-    const candidateRun = currentEpisode.modificationCandidate.candidate_generation_run;
-    replaceEpisode({
-      status: "editing",
-      generationRun: candidateRun,
-      workingDraftJson: JSON.stringify(candidateRun.draft_master_script, null, 2),
-      hasLocalDraftEdits: true,
-      modificationCandidate: undefined,
-      confirmedDraftJson: undefined,
-      confirmedAt: undefined,
-      deepeningRun: undefined,
-      revisionRun: undefined,
-      finalizationResult: undefined,
-    });
-    setSelectedVersion("framework");
-    setMessage(t("workspace.modificationApplied"));
   }
 
   async function requestDeepening() {
-    if (blockCrossMarketMutation()) return;
-    if (!isConfirmed) return;
+    if (blockCrossMarketMutation() || currentEpisodeLocked) return;
+    if (currentEpisodeHasDirectEdits) {
+      candidateBaseInlineEditsRef.current.add(currentEpisode.episodeNumber);
+    } else {
+      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+    }
     setBusyAction("deepen");
     setMessage(null);
-    replaceEpisode({ status: "deepening" });
     try {
-      const result = await deepenEpisodeDraft(currentEpisode.generationRun, frameworkDraft);
-      replaceEpisode({ status: "confirmed", deepeningRun: result });
+      const latestDraft = pendingInlineDraftsRef.current.get(currentEpisode.episodeNumber)
+        ?? currentDraft;
+      const result = await deepenEpisodeDraft(currentEpisode.generationRun, latestDraft);
       if (!result.candidate_valid_for_comparison || !result.candidate_draft_master_script) {
+        replaceEpisode({
+          status: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber) ? "editing" : "saved",
+          deepeningRun: undefined,
+          hasLocalDraftEdits: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber),
+        });
         setMessage(t("workspace.deepeningRejected"));
         return;
       }
-      setSelectedVersion("deepening");
+      replaceEpisode({ status: "editing", deepeningRun: result, hasLocalDraftEdits: true });
+      setSelectedDocumentView("deepening");
       setMessage(t("workspace.deepeningReady"));
     } catch (error) {
-      replaceEpisode({ status: "confirmed" });
+      replaceEpisode({
+        status: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber) ? "editing" : "saved",
+        deepeningRun: undefined,
+        hasLocalDraftEdits: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber),
+      });
       setMessage(formatWorkflowError(error, t, "workspace.deepeningFailed"));
     } finally {
       setBusyAction(null);
@@ -573,23 +1188,44 @@ export function ScriptWorkspace() {
   }
 
   async function applyDeepening() {
-    if (!deepeningDraft) return;
-    setBusyAction("confirm");
+    if (!deepeningDraft || currentEpisodeLocked) return;
+    setBusyAction("save");
     try {
       const reviewedRun = await reviewEpisodeDraft(currentEpisode.generationRun, deepeningDraft);
       const draftJson = JSON.stringify(reviewedRun.draft_master_script, null, 2);
+      const artifactRef = await saveEpisodeArtifactOnServer({
+        project: currentProject,
+        episodeNumber: currentEpisode.episodeNumber,
+        artifactKind: "draft",
+        memoryLayer: "provisional",
+        contentSchemaVersion: "draft_master_script.v1",
+        contentPayload: reviewedRun.draft_master_script,
+        lineageRefs: {
+          draft_master_script_id: reviewedRun.draft_master_script.id,
+          generation_strategy_id: reviewedRun.generation_strategy_id,
+        },
+      });
       replaceEpisode({
-        status: "deepened",
+        status: "saved",
         generationRun: reviewedRun,
         workingDraftJson: draftJson,
-        confirmedDraftJson: draftJson,
+        confirmedDraftJson: undefined,
         hasLocalDraftEdits: false,
-        confirmedAt: new Date().toISOString(),
+        confirmedAt: undefined,
+        lockedAt: undefined,
+        deepeningRun: undefined,
+        artifactRefs: artifactRef
+          ? { ...currentEpisode.artifactRefs, draft: artifactRef }
+          : currentEpisode.artifactRefs,
       });
-      setSelectedVersion("framework");
-      setMessage(t("workspace.deepeningApplied"));
+      pendingInlineDraftsRef.current.delete(currentEpisode.episodeNumber);
+      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+      setSelectedDocumentView("current");
+      setMessage(artifactRef
+        ? t("workspace.deepeningApplied")
+        : `${t("workspace.deepeningApplied")} ${t("workspace.artifactSaveWarning")}`);
     } catch (error) {
-      setMessage(formatWorkflowError(error, t, "workspace.confirmFailed"));
+      setMessage(formatWorkflowError(error, t, "workspace.saveFailed"));
     } finally {
       setBusyAction(null);
     }
@@ -600,7 +1236,6 @@ export function ScriptWorkspace() {
     requestedRange?: { startEpisode: number; endEpisode: number },
   ) {
     if (blockCrossMarketMutation()) return;
-    setDialog(null);
     setBusyAction("batch");
     setMessage(null);
     const orderedExistingEpisodes = currentProject.episodes
@@ -675,8 +1310,7 @@ export function ScriptWorkspace() {
       endEpisode: batchRange.endEpisode,
     });
     if (!backgroundTask.started) {
-      setDialog(null);
-      setMessage(t("workflowNavigation.backgroundScript")
+      setMessage(t("generation.backgroundScript")
         .replace("{start}", String(backgroundTask.task.startEpisode))
         .replace("{end}", String(backgroundTask.task.endEpisode)));
       setBusyAction(null);
@@ -699,21 +1333,20 @@ export function ScriptWorkspace() {
     const requestedEpisodeCount = batchRange.endEpisode - batchRange.startEpisode + 1;
     const createdAt = new Date().toISOString();
     const generatedEpisodes: EpisodeWorkspace[] = [];
-    const overseasCharacterNames = collectProjectOverseasCharacterNames(currentProject);
     const batchRecordId = `batch-${currentProject.id}-${batchNumber}`;
     let activeStreamingEpisode = batchRange.startEpisode;
     let recoveryTask: GenerationRecoveryTask | undefined;
     const persistRecoveryTask = async (task: GenerationRecoveryTask) => {
       recoveryTask = task;
-      updateProject(currentProject.id, { activeGenerationTask: task });
       try {
         const savedTask = await saveGenerationTaskOnServer(currentProject.id, task);
         recoveryTask = savedTask;
-        updateProject(currentProject.id, { activeGenerationTask: savedTask });
       } catch {
         recoveryTask = { ...task, serverBacked: false };
-        updateProject(currentProject.id, { activeGenerationTask: recoveryTask });
       }
+      // The task endpoint is the durable fine-grained checkpoint. Persist the
+      // resulting task snapshot to the large workspace only once per boundary.
+      await updateProject(currentProject.id, { activeGenerationTask: recoveryTask });
     };
     const pauseAtEpisodeBoundary = async () => {
       if (!isScriptGenerationPauseRequested(currentProject.id)) return;
@@ -829,10 +1462,12 @@ export function ScriptWorkspace() {
       const generateEpisode = async (
         episodeNumber: number,
         continuityEpisodes: EpisodeWorkspace[],
+        agentRequestId: string,
+        signal: AbortSignal,
       ): Promise<EpisodeWorkspace> => {
         const latestEpisode = continuityEpisodes.at(-1);
         const previousEpisode = latestEpisode
-          ? resolveExportDraft(latestEpisode)
+          ? resolveWorkingDraft(latestEpisode)
           : undefined;
         const continuity = synchronizeContinuity(
           currentProject.creativePrompt,
@@ -843,7 +1478,7 @@ export function ScriptWorkspace() {
           currentProject.continuityStates,
         );
         const generatedBodyCharacters = calculateSeriesTextMetrics(
-          continuityEpisodes.map(resolveExportDraft),
+          continuityEpisodes.map(resolveWorkingDraft),
           currentProject.generationSettings.targetTotalCharacters,
           currentProject.generationSettings.episodeCount,
         ).scriptBodyCharacters;
@@ -876,6 +1511,7 @@ export function ScriptWorkspace() {
           generationMode: currentProject.generationSettings.mode,
           episodeNumber,
           totalEpisodes: batchRange.totalEpisodes,
+          agentRequestId,
           targetScriptBodyCharacters: bodyTarget,
           targetDurationSeconds: plannedEpisodeDurationSeconds(generationConstraint),
           adaptiveSceneCount: adaptiveEpisodeSceneCount(generationConstraint),
@@ -900,11 +1536,14 @@ export function ScriptWorkspace() {
             endEpisode: batchRange.endEpisode,
             instruction: optionalInstruction,
           },
-        }, (event) => setStreamBatch((current) => applyEpisodeStreamEvent(
-          current,
-          episodeNumber,
-          event,
-        )), generationRuntime);
+        }, (event) => {
+          if (signal.aborted) return;
+          setStreamBatch((current) => applyEpisodeStreamEvent(
+            current,
+            episodeNumber,
+            event,
+          ));
+        }, generationRuntime, signal);
         setStreamBatch((current) => completeEpisodeStream(
           current,
           episodeNumber,
@@ -915,18 +1554,12 @@ export function ScriptWorkspace() {
             ...generationPerformanceDetails(run.draft_master_script),
           },
         ));
-        const bilingualViews = await buildGeneratedOverseasDialogueView(
-          currentProject,
-          run,
-          overseasCharacterNames,
-        );
         const now = new Date().toISOString();
         return {
           id: crypto.randomUUID(),
           episodeNumber,
-          status: "framework",
+          status: "saved",
           generationRun: run,
-          ...(bilingualViews ? { bilingualViews } : {}),
           workingDraftJson: JSON.stringify(run.draft_master_script, null, 2),
           hasLocalDraftEdits: false,
           continuationInstruction: optionalInstruction.trim() || undefined,
@@ -937,26 +1570,61 @@ export function ScriptWorkspace() {
       const episodeNumbers = Array.from(
         { length: requestedEpisodeCount },
         (_, index) => batchRange.startEpisode + index,
-      );
-      const generateEpisodeWithRetry = (
+      ).filter((episodeNumber) => (
+        !orderedExistingEpisodes.some((episode) => episode.episodeNumber === episodeNumber)
+      ));
+      const generateEpisodeWithRetry = async (
         episodeNumber: number,
         continuityEpisodes: EpisodeWorkspace[],
-      ) => generateWithAutomaticTransientRetry({
-        generate: () => generateEpisode(
-          episodeNumber,
-          continuityEpisodes,
-        ),
-        onAutomaticRetry: ({ nextAttempt, maxAttempts }) => {
-          setStreamBatch((current) => markEpisodeAutomaticRetry(
-            current,
-            episodeNumber,
-          ));
-          setMessage(t("workspace.stream.autoRetrying")
-            .replace("{episode}", String(episodeNumber))
-            .replace("{attempt}", String(nextAttempt))
-            .replace("{max}", String(maxAttempts)));
-        },
-      });
+      ): Promise<EpisodeWorkspace> => {
+        const agentRequestId = recoveryTask
+          ? episodeGenerationAgentRequestId(recoveryTask, episodeNumber)
+          : `agent-request.${crypto.randomUUID()}`;
+        while (true) {
+          const controller = new AbortController();
+          const unregister = registerScriptGenerationAbortController(
+            currentProject.id,
+            controller,
+          );
+          try {
+            return await generateWithAutomaticTransientRetry({
+              signal: controller.signal,
+              generate: () => generateEpisode(
+                episodeNumber,
+                continuityEpisodes,
+                agentRequestId,
+                controller.signal,
+              ),
+              onAutomaticRetry: ({ nextAttempt, maxAttempts }) => {
+                setStreamBatch((current) => markEpisodeAutomaticRetry(
+                  current,
+                  episodeNumber,
+                ));
+                setMessage(t("workspace.stream.autoRetrying")
+                  .replace("{episode}", String(episodeNumber))
+                  .replace("{attempt}", String(nextAttempt))
+                  .replace("{max}", String(maxAttempts)));
+              },
+            });
+          } catch (error) {
+            if (
+              !isScriptGenerationAbortError(error)
+              || (
+                !isScriptGenerationPauseRequested(currentProject.id)
+                && !isScriptGenerationPauseAbort(controller.signal)
+              )
+            ) {
+              throw error;
+            }
+            // The current request was deliberately stopped. Wait for the
+            // shared pause gate, then retry this same episode with a fresh
+            // controller and the same stable Agent request id.
+            await pauseAtEpisodeBoundary();
+          } finally {
+            unregister();
+          }
+        }
+      };
       const generationWindows = buildEpisodeGenerationWindows(episodeNumbers);
       for (const windowEpisodeNumbers of generationWindows) {
         await pauseAtEpisodeBoundary();
@@ -989,14 +1657,6 @@ export function ScriptWorkspace() {
             firstFailure ??= { episodeNumber, reason: result.reason };
             continue;
           }
-          if (firstFailure) {
-            setStreamBatch((current) => failEpisodeStream(
-              current,
-              episodeNumber,
-              "上一集生成失败，本集结果未保存，请从失败集继续生成。",
-            ));
-            continue;
-          }
           generatedEpisodes.push(result.value);
           generatedEpisodes.sort((left, right) => left.episodeNumber - right.episodeNumber);
           await persistGeneratedEpisodes(false);
@@ -1019,8 +1679,6 @@ export function ScriptWorkspace() {
       updateProject(currentProject.id, { activeEpisodeNumber: batchRange.startEpisode });
       updateProject(currentProject.id, { activeGenerationTask: undefined });
       setActiveEpisodeNumber(batchRange.startEpisode);
-      setDialog(null);
-      setInstruction("");
       setMessage(t("workspace.batchComplete")
         .replace("{start}", String(batchRange.startEpisode))
         .replace("{end}", String(batchRange.endEpisode)));
@@ -1053,131 +1711,26 @@ export function ScriptWorkspace() {
     }
   }
 
-  function handleNextEpisode() {
-    const nextNumber = currentEpisode.episodeNumber + 1;
-    if (currentProject.episodes.some((item) => item.episodeNumber === nextNumber)) {
-      selectEpisode(nextNumber);
-      return;
-    }
-    setInstruction("");
-    setDialog("batch");
-  }
-
-  async function finalizeEpisode() {
-    if (blockCrossMarketMutation()) return;
-    if (!isConfirmed) return;
-    setBusyAction("finalize");
-    setMessage(null);
-    try {
-      const result = await completeScriptQualityLoop(currentEpisode.generationRun);
-      const revisedArtifact = await saveEpisodeArtifactOnServer({
-        project: currentProject,
-        episodeNumber: currentEpisode.episodeNumber,
-        artifactKind: "revised",
-        contentSchemaVersion: "revised_draft_master_script.v1",
-        contentPayload: result.revisionRun.revised_draft_master_script,
-        sourceArtifactId: currentEpisode.artifactRefs?.draft?.artifactId,
-        lineageRefs: {
-          revised_draft_master_script_id: result.revisionRun.revised_draft_master_script.id,
-        },
-      });
-      const finalArtifact = await saveEpisodeArtifactOnServer({
-        project: currentProject,
-        episodeNumber: currentEpisode.episodeNumber,
-        artifactKind: "final",
-        contentSchemaVersion: "final_master_script.v1",
-        contentPayload: result.finalizationResult.master_script,
-        sourceArtifactId: revisedArtifact?.artifactId,
-        lineageRefs: {
-          final_master_script_id: result.finalizationResult.master_script.id,
-        },
-      });
-      const allEpisodesFinal = currentProject.episodes.every((item) => (
-        item.episodeNumber === currentEpisode.episodeNumber || item.status === "final"
-      ));
-      replaceEpisode({
-        status: "final",
-        revisionRun: result.revisionRun,
-        finalizationResult: result.finalizationResult,
-        artifactRefs: {
-          ...currentEpisode.artifactRefs,
-          ...(revisedArtifact ? { revised: revisedArtifact } : {}),
-          ...(finalArtifact ? { final: finalArtifact } : {}),
-        },
-      }, {
-        status: allEpisodesFinal ? "final" : "draft",
-        ...(currentEpisode.episodeNumber === 1 ? {
-          revisionRun: result.revisionRun,
-          finalizationResult: result.finalizationResult,
-        } : {}),
-      });
-      setSelectedVersion("final");
-      setMessage(revisedArtifact && finalArtifact
-        ? t("workspace.qualityComplete")
-        : `${t("workspace.qualityComplete")} ${t("workspace.artifactSaveWarning")}`);
-    } catch (error) {
-      setMessage(formatWorkflowError(error, t, "workspace.qualityFailed"));
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function downloadEpisode(format: "json" | EpisodeDocumentFormat) {
-    const isJson = format === "json";
-    if (format === "word") {
-      const document = await createScreenplayDocxBlob(currentProject.title, [{
-        episodeNumber: currentEpisode.episodeNumber,
-        draft: displayedDraft,
-        bilingualView: displayedBilingualView,
-      }]);
-      downloadBlob(
-        document,
-        episodeDocumentFilename(
-          currentProject.title,
-          currentEpisode.episodeNumber,
-          format,
-        ),
-      );
-      return;
-    }
-    downloadFile(
-      isJson
-        ? JSON.stringify(displayedDraft, null, 2)
-        : format === "markdown"
-          ? toEpisodeMarkdown(
-              displayedDraft,
-              currentEpisode.episodeNumber,
-              displayedBilingualView,
-            )
-          : toEpisodePlainText(
-              displayedDraft,
-              currentEpisode.episodeNumber,
-              displayedBilingualView,
-            ),
-      isJson
-        ? `${safeFilename(currentProject.title)}-episode-${String(currentEpisode.episodeNumber).padStart(2, "0")}.json`
-        : episodeDocumentFilename(
-            currentProject.title,
-            currentEpisode.episodeNumber,
-            format,
-          ),
-      isJson
-        ? "application/json"
-        : format === "markdown"
-          ? "text/markdown;charset=utf-8"
-          : "text/plain;charset=utf-8",
-    );
-  }
+  generateNextStageRef.current = generateNextStage;
 
   function downloadSeriesData() {
+    if (!allPlannedEpisodesSaved) {
+      setMessage(t("workspace.exportSaveRequiredSeries"));
+      return;
+    }
     const ordered = currentProject.episodes
+      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
       .slice()
       .sort((a, b) => a.episodeNumber - b.episodeNumber)
-      .map((item) => ({
-        episodeNumber: item.episodeNumber,
-        status: item.status,
-        draft: resolveExportDraft(item),
-      }));
+      .map((item) => {
+        const draft = resolveSavedDraft(item);
+        if (!draft) throw new Error(t("workspace.exportSaveRequiredSeries"));
+        return {
+          episodeNumber: item.episodeNumber,
+          status: "saved" as const,
+          draft,
+        };
+      });
     downloadFile(
       JSON.stringify({
         schema_version: "ai_comic_series_export.v1",
@@ -1199,18 +1752,38 @@ export function ScriptWorkspace() {
       .filter(([, selected]) => selected)
       .map(([format]) => format);
     if (!formats.length && !seriesExportProductionPackage) return;
+    if (!allPlannedEpisodesSaved) {
+      setMessage(t("workspace.exportSaveRequiredSeries"));
+      return;
+    }
 
     const episodes = currentProject.episodes
+      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
       .slice()
       .sort((a, b) => a.episodeNumber - b.episodeNumber)
       .map((item) => {
-        const draft = resolveExportDraft(item);
+        const draft = resolveSavedDraft(item);
+        if (!draft) throw new Error(t("workspace.exportSaveRequiredSeries"));
+        const bilingualView = currentProject.generationSettings.releaseRegion === "overseas"
+          ? resolveCurrentOverseasDialogueView(
+              draft,
+              projectCharacterNameMap,
+            )
+          : undefined;
         return {
           episodeNumber: item.episodeNumber,
           draft,
-          bilingualView: item.bilingualViews?.[draft.id],
+          bilingualView,
         };
       });
+    const missingBilingualCount = formats.length
+      && currentProject.generationSettings.releaseRegion === "overseas"
+      ? episodes.filter((item) => !item.bilingualView).length
+      : 0;
+    if (missingBilingualCount > 0) {
+      setMessage(t("workspace.exportBilingualRequired").replace("{count}", String(missingBilingualCount)));
+      return;
+    }
     setSeriesExportBusy(true);
     setMessage(null);
     try {
@@ -1274,6 +1847,7 @@ export function ScriptWorkspace() {
         }
       }
       setSeriesExportOpen(false);
+      setMessage(null);
     } catch {
       setMessage(t("workspace.exportFailed"));
     } finally {
@@ -1281,69 +1855,46 @@ export function ScriptWorkspace() {
     }
   }
 
+  const scriptDirectoryEntries = buildScriptDirectoryEntries(
+    currentProject,
+    streamBatch,
+    t,
+  );
+  const currentEpisodeTitle = projectEpisodeTitle(
+    currentProject,
+    currentEpisode.episodeNumber,
+  );
+  const retryGenerationEpisode = (episodeNumber: number) => {
+    const recoveryTask = currentProject.activeGenerationTask;
+    void generateNextStage("", {
+      startEpisode: recoveryTask?.startEpisode
+        ?? streamBatch[0]?.episodeNumber
+        ?? episodeNumber,
+      endEpisode: recoveryTask?.endEpisode
+        ?? streamBatch.at(-1)?.episodeNumber
+        ?? episodeNumber,
+    });
+  };
+
+  function selectScriptDirectoryEntry(entry: DocumentOutlineEntry): void {
+    if (entry.id === "workspace-section-script") {
+      setActiveScriptOutlineId(`script-episode-${currentEpisode.episodeNumber}`);
+      return;
+    }
+    const episodeMatch = /^script-episode-(\d+)$/.exec(entry.id);
+    if (episodeMatch) {
+      setActiveScriptOutlineId(entry.id);
+      selectEpisode(Number(episodeMatch[1]));
+      return;
+    }
+    setActiveScriptOutlineId(entry.id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(entry.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   return (
-    <main className="script-workspace page-reveal">
-      <header className="workspace-header">
-        <div>
-          <span className="section-kicker">{t("workspace.kicker")}</span>
-          <div className="section-title-with-help">
-            <h1>{displayedProjectTitle}</h1>
-            <SectionHelp content={t("guide.scriptWorkspace")} label={t("guide.openHelp")} />
-          </div>
-          <p>{t("workspace.episodeCountSummary").replace("{current}", String(currentProject.episodes.length)).replace("{total}", String(currentProject.generationSettings.episodeCount))}</p>
-        </div>
-        <div className="workspace-header-actions">
-          {streamBatch.length && generationProgressVisible === false ? (
-            <button className="outline-action" onClick={scrollToGenerationProgress} type="button">
-              {t("workspace.backToGenerationProgress")}
-            </button>
-          ) : null}
-          <button className="outline-action" onClick={() => setSeriesExportOpen(true)} type="button">
-            {t("workspace.exportScript")}
-          </button>
-          <Link className="outline-action" href={`/projects/${currentProject.id}/planning`}>
-            {t("workspace.backToPlanning")}
-          </Link>
-        </div>
-      </header>
-
-      <WorkflowNavigation
-        active="script"
-        generatedEpisodes={currentProject.episodes.length}
-        plannedThrough={currentProject.episodePlansReadyThrough ?? 0}
-        projectId={currentProject.id}
-        scriptStarted
-        totalEpisodes={currentProject.generationSettings.episodeCount}
-      />
-
-      {currentProject.activeGenerationTask
-      && recoverableEpisode !== null
-      && (!backgroundScriptTask || backgroundScriptTask.status === "failed" || backgroundScriptTask.status === "completed") ? (
-        <section className="generation-recovery-banner" aria-live="polite">
-          <div>
-            <strong>{t("workspace.recovery.title")}</strong>
-            <p>{t("workspace.recovery.description")
-              .replace("{episode}", String(recoverableEpisode))}</p>
-          </div>
-          <button
-            className="primary-action"
-            disabled={Boolean(busyAction)}
-            onClick={() => void generateNextStage(
-              currentProject.activeGenerationTask?.instruction ?? "",
-              {
-                startEpisode: currentProject.activeGenerationTask?.startEpisode
-                  ?? recoverableEpisode,
-                endEpisode: currentProject.activeGenerationTask?.endEpisode
-                  ?? recoverableEpisode,
-              },
-            )}
-            type="button"
-          >
-            {busyAction ? t("workspace.processing") : t("workspace.recovery.resume")}
-          </button>
-        </section>
-      ) : null}
-
+    <main className="script-workspace is-unified page-reveal">
       <AutoStartDirectGeneration
         enabled={generationIntent && !generationIntentConsumed && Boolean(requestedLeafRange)}
         onConsume={() => {
@@ -1352,195 +1903,131 @@ export function ScriptWorkspace() {
         }}
         onStart={() => generateNextStage("", requestedLeafRange ?? undefined)}
       />
+      <div className="script-workbench">
+        <div className="script-document-column">
+          <div className="script-unified-document-layout">
+            <WorkspaceSectionDirectory
+              activeEntryId={activeScriptOutlineId}
+              activeSection="script"
+              currentEntries={scriptDirectoryEntries}
+              onSelect={selectScriptDirectoryEntry}
+              projectId={currentProject.id}
+            />
+            <div
+              className="script-document-surface"
+              onKeyUp={captureScriptDocumentSelection}
+              onMouseUp={captureScriptDocumentSelection}
+            >
+              <SelectionEditToolbar
+                actions={SCRIPT_QUICK_ACTIONS}
+                disabled={currentEpisodeLocked || busyAction !== null || selectedDocumentView !== "current" || workspaceView !== "script"}
+                onAction={runScriptQuickAction}
+                onClear={() => setScriptDocumentSelection(null)}
+                selection={currentEpisodeLocked ? null : scriptDocumentSelection}
+              />
+              <div className="document-edit-toolbar script-document-toolbar" role="toolbar" aria-label={t("workspace.toolbarLabel")}>
+                <div className="script-document-identity">
+                  <span>{t("workspace.episodeLabel").replace("{number}", String(currentEpisode.episodeNumber))}</span>
+                  <strong>{currentEpisodeTitle || t("workspace.stream.untitledEpisode")}</strong>
+                  <span className={`episode-status status-${currentEpisode.status}`}>{t(`episodeStatus.${currentEpisode.status}`)}</span>
+                  <SectionHelp content={t("guide.scriptWorkspace")} label={t("guide.openHelp")} />
+                </div>
+                <div className="script-document-toolbar-actions">
+                  <button aria-pressed={workspaceView === "continuity"} className="document-edit-toolbar-action" onClick={() => setWorkspaceView((current) => current === "script" ? "continuity" : "script")} title={t("workspace.continuityView")} type="button"><Activity aria-hidden="true" size={14} /><span>{t("workspace.continuityView")}</span></button>
+                  <button aria-expanded={lengthDetailsOpen} className="document-edit-toolbar-action" onClick={() => setLengthDetailsOpen((current) => !current)} title={t("workspace.length.title")} type="button"><ShieldCheck aria-hidden="true" size={14} /><span>{progressPercent.toFixed(0)}%</span></button>
+                  {allPlannedEpisodesSaved ? <button className="document-edit-toolbar-action is-export-ready" onClick={() => setSeriesExportOpen(true)} title={t("workspace.exportAll")} type="button"><Download aria-hidden="true" size={14} /><span>{t("workspace.exportAll")}</span></button> : null}
+                </div>
+              </div>
 
-      {streamBatch.length ? (
-        <EpisodeGenerationProgress
-          batch={streamBatch}
-          onRetryEpisode={(episodeNumber) => {
-            const recoveryTask = currentProject.activeGenerationTask;
-            void generateNextStage("", {
-              startEpisode: recoveryTask?.startEpisode
-                ?? streamBatch[0]?.episodeNumber
-                ?? episodeNumber,
-              endEpisode: recoveryTask?.endEpisode
-                ?? streamBatch.at(-1)?.episodeNumber
-                ?? episodeNumber,
-            });
-          }}
-          retryDisabled={Boolean(busyAction)}
-          t={t}
-        />
-      ) : null}
+              {streamBatch.length && !generationStatusDismissed ? <ScriptGenerationStatus batch={streamBatch} detailsOpen={generationDetailsOpen} onDetailsToggle={() => setGenerationDetailsOpen((current) => !current)} onRetryEpisode={retryGenerationEpisode} project={currentProject} retryDisabled={Boolean(busyAction)} task={backgroundScriptTask} t={t} /> : null}
 
-      <section aria-label={t("workspace.length.title")} className="story-length-dashboard">
-        <div className="story-length-heading">
-          <div>
-            <span className="section-kicker">{t("workspace.length.kicker")}</span>
-            <div className="section-title-with-help">
-              <h2>{t("workspace.length.title")}</h2>
-              <SectionHelp content={t("guide.storyLength")} label={t("guide.openHelp")} />
+              {currentProject.activeGenerationTask && recoverableEpisode !== null && (!backgroundScriptTask || backgroundScriptTask.status === "failed" || backgroundScriptTask.status === "completed") ? (
+                <section className="generation-recovery-banner is-compact" aria-live="polite">
+                  <div><strong>{t("workspace.recovery.title")}</strong><p>{t("workspace.recovery.description").replace("{episode}", String(recoverableEpisode))}</p></div>
+                  <button className="primary-action" disabled={Boolean(busyAction)} onClick={() => void generateNextStage(currentProject.activeGenerationTask?.instruction ?? "", { startEpisode: currentProject.activeGenerationTask?.startEpisode ?? recoverableEpisode, endEpisode: currentProject.activeGenerationTask?.endEpisode ?? recoverableEpisode })} type="button">{busyAction ? t("workspace.processing") : t("workspace.recovery.resume")}</button>
+                </section>
+              ) : null}
+
+              {lengthDetailsOpen ? (
+                <section aria-label={t("workspace.length.title")} className="story-length-dashboard is-compact">
+                  <div className="story-length-heading"><strong>{t("workspace.length.title")}</strong><strong>{progressPercent.toFixed(2)}%</strong></div>
+                  <div className="story-length-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, progressPercent)}><span style={{ width: `${Math.min(100, progressPercent)}%` }} /></div>
+                  <div className="story-length-metrics">
+                    <div><span>{t("workspace.length.total")}</span><strong>{numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}</strong><small>{t("workspace.length.target").replace("{target}", numberFormatter.format(seriesTextMetrics.targetCharacters))}</small></div>
+                    <div><span>{t("workspace.length.average")}</span><strong>{numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}</strong><small>{t("workspace.length.requiredAverage").replace("{required}", numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode))}</small></div>
+                    <div><span>{t("workspace.length.currentEpisode").replace("{episode}", String(currentEpisode.episodeNumber))}</span><strong>{numberFormatter.format(displayedTextMetrics.scriptBodyCharacters)}</strong><small>{t("workspace.length.currentTarget").replace("{min}", numberFormatter.format(displayedBodyGuidance.preferredMinCharacters)).replace("{max}", numberFormatter.format(displayedBodyGuidance.preferredMaxCharacters)).replace("{status}", displayedBodyTargetStatus)}</small></div>
+                    <div><span>{t("workspace.length.projection")}</span><strong>{numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes)}</strong><small>{projectedSummary}</small></div>
+                  </div>
+                </section>
+              ) : null}
+
+              {workspaceView === "continuity" ? (
+                <ProjectContinuityPanel project={currentProject} />
+              ) : (
+          <>
+          <div className="workspace-toolbar episode-actions is-compact">
+            {currentEpisodeHasDirectEdits && selectedDocumentView === "current" ? (
+              <button className="primary-action" disabled={busyAction !== null} onClick={() => void saveCurrentDraft()} type="button">
+                <Check aria-hidden="true" size={14} />
+                <span>{busyAction === "save" ? t("workspace.saving") : t("workspace.saveEpisode")}</span>
+              </button>
+            ) : null}
+            {CREATIVE_DEEPENING_ENABLED && !currentEpisodeLocked && selectedDocumentView === "current" ? <button className="outline-action" disabled={busyAction === "deepen"} onClick={() => void requestDeepening()} type="button">{busyAction === "deepen" ? t("workspace.deepening") : t("workspace.deepenEpisode")}</button> : null}
+            <details className="episode-action-menu version-history-menu">
+              <summary className="outline-action"><History aria-hidden="true" size={14} /><span>{t("workspace.versionHistory")}</span><ChevronDown aria-hidden="true" size={13} /></summary>
+              <div className="episode-action-menu-popover" role="menu">
+                <button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} role="menuitem" type="button">{t("workspace.currentScript")}</button>
+                {revisedDraft ? <button aria-pressed={selectedDocumentView === "revised"} onClick={() => setSelectedDocumentView("revised")} role="menuitem" type="button">{t("workspace.version.revised")}</button> : null}
+              </div>
+            </details>
+          </div>
+
+          {modificationDraft ? (
+            <div className="candidate-decision-bar">
+              <div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "modification"} onClick={() => setSelectedDocumentView("modification")} type="button">{t("workspace.aiCandidate")}</button></div>
+              <span>{currentEpisode.modificationCandidate?.instruction}</span>
+              <div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyModification()} type="button">{busyAction === "save" ? t("workspace.saving") : t("workspace.applyCandidate")}</button><button className="outline-action" disabled={busyAction === "save"} onClick={() => { const hasInlineEdits = pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", hasLocalDraftEdits: hasInlineEdits, modificationCandidate: undefined }, {}, { skipContinuitySync: true }); setSelectedDocumentView("current"); }} type="button">{t("workspace.discardCandidate")}</button></div>
             </div>
-          </div>
-          <strong>{progressPercent.toFixed(2)}%</strong>
-        </div>
-        <div className="story-length-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, progressPercent)}>
-          <span style={{ width: `${Math.min(100, progressPercent)}%` }} />
-        </div>
-        <div className="story-length-metrics">
-          <div><span>{t("workspace.length.total")}</span><strong>{numberFormatter.format(seriesTextMetrics.scriptBodyCharacters)}</strong><small>{t("workspace.length.target").replace("{target}", numberFormatter.format(seriesTextMetrics.targetCharacters))}</small></div>
-          <div><span>{t("workspace.length.body")}</span><strong>{numberFormatter.format(seriesTextMetrics.totalCharacters)}</strong><small>{t("workspace.length.bodyHelp")}</small></div>
-          <div><span>{t("workspace.length.average")}</span><strong>{numberFormatter.format(seriesTextMetrics.averageCharactersPerEpisode)}</strong><small>{t("workspace.length.requiredAverage").replace("{required}", numberFormatter.format(seriesTextMetrics.requiredAverageCharactersPerEpisode))}</small></div>
-          <div><span>{t("workspace.length.projection")}</span><strong>{numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes)}</strong><small>{projectedSummary}</small></div>
-        </div>
-        <div className="story-length-current">
-          <span>{t("workspace.length.currentEpisode").replace("{episode}", String(currentEpisode.episodeNumber))}</span>
-          <strong>{numberFormatter.format(displayedTextMetrics.scriptBodyCharacters)}</strong>
-          <small>{t("workspace.length.currentBreakdown")
-            .replace("{actions}", numberFormatter.format(displayedTextMetrics.actionCharacters))
-            .replace("{dialogue}", numberFormatter.format(displayedTextMetrics.dialogueCharacters))}</small>
-          <small>{t("workspace.length.currentTarget")
-            .replace("{min}", numberFormatter.format(displayedBodyGuidance.preferredMinCharacters))
-            .replace("{max}", numberFormatter.format(displayedBodyGuidance.preferredMaxCharacters))
-            .replace("{status}", displayedBodyTargetStatus)}</small>
-          <small>{t("workspace.length.countingRule")}</small>
-        </div>
-      </section>
-
-      <nav className="project-view-tabs">
-        <button aria-pressed={workspaceView === "script"} onClick={() => setWorkspaceView("script")} type="button">{t("workspace.scriptView")}</button>
-        <button aria-pressed={workspaceView === "continuity"} onClick={() => setWorkspaceView("continuity")} type="button">{t("workspace.continuityView")}</button>
-      </nav>
-
-      {marketMismatch ? (
-        <div className="storage-alert">{t("workspace.marketMismatch")}</div>
-      ) : null}
-
-      {workspaceView === "continuity" ? (
-        <ProjectContinuityPanel
-          project={currentProject}
-        />
-      ) : (
-      <div className="episode-workspace-layout">
-        <EpisodeTreeNavigation
-          activeEpisodeNumber={currentEpisode.episodeNumber}
-          entries={currentProject.episodes.map((item) => ({
-            id: item.id,
-            episodeNumber: item.episodeNumber,
-            label: t("workspace.episodeLabel").replace("{number}", String(item.episodeNumber)),
-            statusLabel: t(`episodeStatus.${item.status}`),
-          }))}
-          heading={t("workspace.episodes")}
-          nextBatchDisabled={busyAction === "next" || busyAction === "batch"}
-          nextBatchLabel={t("workspace.nextBatch")}
-          onNextBatch={handleNextEpisode}
-          onSelectEpisode={selectEpisode}
-          projectId={currentProject.id}
-          showNextBatch={currentProject.episodes.length < currentProject.generationSettings.episodeCount && isConfirmed}
-          storyBibleVersion={currentProject.storyBibleVersion}
-          totalEpisodes={currentProject.generationSettings.episodeCount}
-        />
-
-        <div className="episode-document-area">
-          <div className="episode-title-row">
-            <span>{t("workspace.episodeLabel").replace("{number}", String(currentEpisode.episodeNumber))}</span>
-            <span className={`episode-status status-${currentEpisode.status}`}>{t(`episodeStatus.${currentEpisode.status}`)}</span>
-          </div>
-
-          <nav aria-label={t("workspace.versions")} className="workspace-version-tabs">
-            <button aria-pressed={selectedVersion === "framework"} onClick={() => setSelectedVersion("framework")} type="button">{t("workspace.version.draft")}</button>
-            <button aria-pressed={selectedVersion === "modification"} disabled={!modificationDraft} onClick={() => setSelectedVersion("modification")} type="button">{t("workspace.version.modification")}</button>
-            {CREATIVE_DEEPENING_ENABLED ? <button aria-pressed={selectedVersion === "deepening"} disabled={!deepeningDraft} onClick={() => setSelectedVersion("deepening")} type="button">{t("workspace.version.deepening")}</button> : null}
-            <button aria-pressed={selectedVersion === "revised"} disabled={!revisedDraft} onClick={() => setSelectedVersion("revised")} type="button">{t("workspace.version.revised")}</button>
-            <button aria-pressed={selectedVersion === "final"} disabled={!finalDraft} onClick={() => setSelectedVersion("final")} type="button">{t("workspace.version.final")}</button>
-          </nav>
-
-          <div className="workspace-toolbar episode-actions">
-            {selectedVersion === "framework" ? <button className="outline-action" onClick={startEditing} type="button">{t("workspace.edit")}</button> : null}
-            {selectedVersion === "framework" ? <button className="outline-action" onClick={() => { setInstruction(""); setDialog("modify"); }} type="button">{t("workspace.aiModify")}</button> : null}
-            {!isConfirmed && selectedVersion === "framework" ? <button className="primary-action" disabled={busyAction === "confirm"} onClick={() => void confirmDraft()} type="button">{busyAction === "confirm" ? t("workspace.confirming") : t("workspace.confirmEpisode")}</button> : null}
-            {isConfirmed ? <button className="primary-action" disabled={busyAction === "next" || busyAction === "batch"} onClick={handleNextEpisode} type="button">{currentProject.episodes.some((item) => item.episodeNumber === currentEpisode.episodeNumber + 1) ? t("workspace.nextEpisode") : t("workspace.nextBatch")} <ArrowIcon /></button> : null}
-            {isConfirmed && CREATIVE_DEEPENING_ENABLED ? <button className="outline-action" disabled={busyAction === "deepen"} onClick={() => void requestDeepening()} type="button">{busyAction === "deepen" ? t("workspace.deepening") : t("workspace.deepenEpisode")}</button> : null}
-            <div className="episode-export-control">
-              <select
-                aria-label={t("workspace.exportEpisodeFormat")}
-                onChange={(event) => setEpisodeExportFormat(event.target.value as EpisodeDocumentFormat)}
-                value={episodeExportFormat}
-              >
-                <option value="markdown">{t("workspace.exportFormatMarkdown")}</option>
-                <option value="text">{t("workspace.exportFormatText")}</option>
-                <option value="word">{t("workspace.exportFormatWord")}</option>
-              </select>
-              <button className="outline-action" onClick={() => void downloadEpisode(episodeExportFormat)} type="button">{t("workspace.exportEpisode")}</button>
-            </div>
-            <button className="text-action" onClick={() => void downloadEpisode("json")} type="button">{t("workspace.exportEpisodeData")}</button>
-          </div>
-
-          {selectedVersion === "modification" && modificationDraft ? (
-            <div className="candidate-decision-bar"><span>{currentEpisode.modificationCandidate?.instruction}</span><button className="primary-action" onClick={applyModification} type="button">{t("workspace.applyCandidate")}</button><button className="outline-action" onClick={() => { replaceEpisode({ modificationCandidate: undefined }); setSelectedVersion("framework"); }} type="button">{t("workspace.discardCandidate")}</button></div>
           ) : null}
-          {selectedVersion === "deepening" && deepeningDraft ? (
-            <div className="candidate-decision-bar"><span>{deepeningRun?.comparison_metadata?.summary ?? t("workspace.deepeningReady")}</span><button className="primary-action" disabled={busyAction === "confirm"} onClick={() => void applyDeepening()} type="button">{t("workspace.applyDeepening")}</button><button className="outline-action" onClick={() => setSelectedVersion("framework")} type="button">{t("workspace.keepFramework")}</button></div>
+          {currentEpisode.deepeningRun && deepeningDraft ? (
+            <div className="candidate-decision-bar"><div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "deepening"} onClick={() => setSelectedDocumentView("deepening")} type="button">{t("workspace.version.deepening")}</button></div><span>{deepeningRun?.comparison_metadata?.summary ?? t("workspace.deepeningReady")}</span><div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyDeepening()} type="button">{t("workspace.applyDeepening")}</button><button className="outline-action" onClick={() => { const hasInlineEdits = pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", deepeningRun: undefined, hasLocalDraftEdits: hasInlineEdits }); setSelectedDocumentView("current"); }} type="button">{t("workspace.keepCurrent")}</button></div></div>
           ) : null}
           {message ? <div className="inline-notice">{message}</div> : null}
 
-          {editingDraft ? (
-            <EpisodeDraftEditor draft={editingDraft} onChange={setEditingDraft} onCancel={() => setEditingDraft(null)} onConfirm={() => void confirmDraft(editingDraft)} onSave={saveManualEdit} t={t} />
-          ) : (
-            <ScriptDocumentWithTranslation
-              cachedView={displayedBilingualView}
-              characterNameMap={Object.fromEntries(
-                collectProjectOverseasCharacterNames(currentProject),
+          <ScriptDocumentWithDialoguePair
+            characterNameMap={projectCharacterNameMap}
+            draft={displayedDraft}
+            editable={scriptInlineEditingEnabled}
+            onDraftChange={updateCurrentDraft}
+            releaseRegion={currentProject.generationSettings.releaseRegion}
+            t={t}
+          />
+
+              </>
               )}
-              draft={displayedDraft}
-              generationStrategyId={currentEpisode.generationRun.generation_strategy_id}
-              locale={locale}
-              onView={(view) => replaceEpisode({
-                bilingualViews: {
-                  ...(currentEpisode.bilingualViews ?? {}),
-                  [displayedDraft.id]: view,
-                },
-              })}
-              releaseRegion={currentProject.generationSettings.releaseRegion}
-              t={t}
-            />
-          )}
-
-          {isConfirmed ? (
-            <section className="episode-finalization-panel">
-              <div>
-                <div className="section-kicker-with-help">
-                  <span className="section-kicker">{t("workspace.finalization")}</span>
-                  <SectionHelp content={t("guide.finalization")} label={t("guide.openHelp")} />
-                </div>
-                <p>{t("workspace.finalizationHelp")}</p>
-              </div>
-              <button className="primary-action" disabled={busyAction === "finalize" || currentEpisode.status === "final"} onClick={() => void finalizeEpisode()} type="button">{busyAction === "finalize" ? t("workspace.completingQuality") : currentEpisode.status === "final" ? t("workspace.qualityCompleted") : t("workspace.completeQuality")}</button>
-            </section>
-          ) : null}
-        </div>
-      </div>
-      )}
-
-      {dialog ? (
-        <div className="tag-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !busyAction) setDialog(null); }}>
-          <div aria-modal="true" className="tag-dialog episode-instruction-dialog" role="dialog">
-            <button aria-label={t("tags.cancelCustom")} className="tag-dialog-close" disabled={Boolean(busyAction)} onClick={() => setDialog(null)} type="button"><CloseIcon /></button>
-            <span className="section-kicker">{dialog === "batch" ? t("workspace.nextBatch") : dialog === "next" ? t("workspace.nextEpisode") : t("workspace.aiModify")}</span>
-            <div className="section-title-with-help">
-              <h3>{dialog === "batch" ? t("workspace.batchPromptTitle") : dialog === "next" ? t("workspace.nextPromptTitle") : t("workspace.modifyPromptTitle")}</h3>
-              <SectionHelp content={t("guide.aiRevision")} label={t("guide.openHelp")} />
-            </div>
-            <p>{dialog === "batch" ? t("workspace.batchPromptHelp") : dialog === "next" ? t("workspace.nextPromptHelp") : t("workspace.modifyPromptHelp")}</p>
-            <textarea autoFocus maxLength={1000} onChange={(event) => setInstruction(event.target.value)} placeholder={dialog === "batch" ? t("workspace.batchPromptPlaceholder") : dialog === "next" ? t("workspace.nextPromptPlaceholder") : t("workspace.modifyPromptPlaceholder")} rows={5} value={instruction} />
-            <div className="tag-dialog-actions">
-              {dialog === "next" || dialog === "batch" ? <button className="outline-action" disabled={Boolean(busyAction)} onClick={() => void generateNextStage()} type="button">{t("workspace.skipPrompt")}</button> : <button className="outline-action" disabled={Boolean(busyAction)} onClick={() => setDialog(null)} type="button">{t("tags.cancelCustom")}</button>}
-              <button className="primary-action" disabled={Boolean(busyAction) || (dialog === "modify" && !instruction.trim())} onClick={() => dialog === "next" || dialog === "batch" ? void generateNextStage(instruction) : void requestModification()} type="button">{busyAction ? t("workspace.processing") : t("tags.confirmCustom")}</button>
             </div>
           </div>
         </div>
-      ) : null}
+        <PlanningCanvasCopilot
+          busy={busyAction === "modify"}
+          disabled={currentEpisodeLocked || (busyAction !== null && busyAction !== "modify") || selectedDocumentView !== "current" || workspaceView !== "script"}
+          instruction={scriptChatInstruction}
+          messages={scriptChatMessages}
+          onClearSelection={() => setScriptDocumentSelection(null)}
+          onEditMessage={editScriptChatMessage}
+          onInstructionChange={setScriptChatInstruction}
+          onPause={pauseScriptModification}
+          onQuickAction={runScriptQuickAction}
+          onSubmit={submitScriptChat}
+          quickActions={SCRIPT_QUICK_ACTIONS}
+          scopeLabel={`${t("workspace.episodeLabel").replace("{number}", String(currentEpisode.episodeNumber))}${currentEpisodeTitle ? ` · ${currentEpisodeTitle}` : ""}`}
+          selection={currentEpisodeLocked ? null : scriptDocumentSelection}
+          thinking={busyAction === "modify"}
+          variant="document"
+        />
+      </div>
 
-      {seriesExportOpen ? (
+      {seriesExportOpen && allPlannedEpisodesSaved ? (
         <div className="tag-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !seriesExportBusy) setSeriesExportOpen(false); }}>
           <div aria-labelledby="series-export-title" aria-modal="true" className="tag-dialog series-export-dialog" role="dialog">
             <button aria-label={t("tags.cancelCustom")} className="tag-dialog-close" disabled={seriesExportBusy} onClick={() => setSeriesExportOpen(false)} type="button"><CloseIcon /></button>
@@ -1599,6 +2086,11 @@ export function ScriptWorkspace() {
                 .replace("{count}", numberFormatter.format(currentProject.episodes.length))}
               {seriesExportProductionPackage ? ` ${t("workspace.exportProductionPackageSummary")}` : ""}
             </p>
+            {seriesMissingBilingualCount > 0 && Object.values(seriesExportFormats).some(Boolean) ? (
+              <div className="inline-notice">
+                {t("workspace.exportBilingualRequired").replace("{count}", String(seriesMissingBilingualCount))}
+              </div>
+            ) : null}
             <div className="tag-dialog-actions">
               <button className="text-action series-export-data" disabled={seriesExportBusy} onClick={downloadSeriesData} type="button">{t("workspace.exportAllData")}</button>
               <button className="outline-action" disabled={seriesExportBusy} onClick={() => setSeriesExportOpen(false)} type="button">{t("tags.cancelCustom")}</button>
@@ -1639,14 +2131,218 @@ function AutoStartDirectGeneration({ enabled, onConsume, onStart }: {
   return null;
 }
 
+function formatScriptElapsed(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function ScriptGenerationStatus({
+  batch,
+  detailsOpen,
+  onDetailsToggle,
+  onRetryEpisode,
+  project,
+  retryDisabled,
+  task,
+  t,
+}: {
+  batch: EpisodeStreamProgress[];
+  detailsOpen: boolean;
+  onDetailsToggle: () => void;
+  onRetryEpisode?: (episodeNumber: number) => void;
+  project: ScriptProject;
+  retryDisabled: boolean;
+  task?: ScriptGenerationTaskSnapshot;
+  t: ScriptWorkspaceTranslator;
+}) {
+  const current = preferredStreamItem(batch);
+  const [now, setNow] = useState(Date.now());
+  const active = batch.some((item) => item.status === "active");
+  const taskPaused = task?.status === "paused" || task?.status === "pausing";
+  useEffect(() => {
+    if (!active || taskPaused) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active, taskPaused]);
+  if (!current) return null;
+  const completedEpisodes = new Set(project.episodes.map((item) => item.episodeNumber));
+  batch.filter((item) => item.status === "completed").forEach((item) => (
+    completedEpisodes.add(item.episodeNumber)
+  ));
+  const pausedAt = taskPaused && current.pausedAt !== undefined
+    ? current.pausedAt
+    : Number.NaN;
+  const elapsedEnd = current.completedAt
+    ?? (Number.isFinite(pausedAt) ? pausedAt : now);
+  const elapsedSeconds = current.startedAt
+    ? Math.max(
+        0,
+        Math.round(
+          (elapsedEnd - current.startedAt - (current.pausedDurationMs ?? 0)) / 1_000,
+        ),
+      )
+    : 0;
+  const title = projectEpisodeTitle(project, current.episodeNumber);
+  return (
+    <div className="script-generation-status-stack">
+      <section aria-live="polite" className={`script-generation-status is-${current.status}`}>
+        <span className="script-generation-status-mark">
+          {taskPaused ? <Pause aria-hidden="true" size={15} /> : null}
+          {!taskPaused && current.status === "active" ? <LoaderCircle aria-hidden="true" size={15} /> : null}
+          {!taskPaused && current.status === "completed" ? <Check aria-hidden="true" size={15} /> : null}
+          {!taskPaused && current.status === "queued" ? <span aria-hidden="true" className="script-generation-queued-dot" /> : null}
+          {!taskPaused && current.status === "failed" ? <span aria-hidden="true">!</span> : null}
+        </span>
+        <div className="script-generation-status-copy">
+          <strong>{t("workspace.stream.compactProgress")
+            .replace("{completed}", String(completedEpisodes.size))
+            .replace("{total}", String(project.generationSettings.episodeCount))}</strong>
+          <span>{t("workspace.episodeLabel").replace("{number}", String(current.episodeNumber))}{title ? ` · ${title}` : ""}</span>
+          <small>{creatorGenerationStage(current, t)}{elapsedSeconds ? ` · ${formatScriptElapsed(elapsedSeconds)}` : ""}</small>
+        </div>
+        <div className="script-generation-status-actions">
+          {task && (task.status === "running" || taskPaused) ? (
+            <button aria-label={t(taskPaused ? "generationPause.resumeScript" : "generationPause.pauseScript")} className="small-icon-button" onClick={() => taskPaused ? resumeScriptGenerationTask(project.id) : requestScriptGenerationPause(project.id)} title={t(taskPaused ? "generationPause.resumeScript" : "generationPause.pauseScript")} type="button">
+              {taskPaused ? <Play aria-hidden="true" size={14} /> : <Pause aria-hidden="true" size={14} />}
+            </button>
+          ) : null}
+          {current.status === "failed" && onRetryEpisode ? (
+            <button className="script-generation-retry" disabled={retryDisabled} onClick={() => onRetryEpisode(current.episodeNumber)} type="button">
+              {t("workspace.stream.retryEpisode")}
+            </button>
+          ) : null}
+          <button aria-expanded={detailsOpen} className="script-generation-details-toggle" onClick={onDetailsToggle} type="button">
+            {t("workspace.stream.details")}<ChevronDown aria-hidden="true" className={detailsOpen ? "is-open" : undefined} size={14} />
+          </button>
+        </div>
+      </section>
+      {detailsOpen ? (
+        <EpisodeGenerationProgress batch={batch} onRetryEpisode={onRetryEpisode} project={project} retryDisabled={retryDisabled} t={t} />
+      ) : null}
+    </div>
+  );
+}
+
+function ScriptLiveGenerationPreview({
+  item,
+  onRetryEpisode,
+  project,
+  retryDisabled,
+  t,
+}: {
+  item?: EpisodeStreamProgress;
+  onRetryEpisode?: (episodeNumber: number) => void;
+  project: ScriptProject;
+  retryDisabled: boolean;
+  t: ScriptWorkspaceTranslator;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (item?.status !== "active") return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [item?.status]);
+  if (!item) {
+    return <section className="script-live-generation-preview is-empty"><p>{t("workspace.stream.waitingForText")}</p></section>;
+  }
+  const title = projectEpisodeTitle(project, item.episodeNumber);
+  const visibleCharacters = item.actualCharacters ?? countEffectiveCharacters(item.preview);
+  const elapsedSeconds = item.startedAt
+    ? Math.round(((item.completedAt ?? now) - item.startedAt) / 1_000)
+    : 0;
+  return (
+    <section aria-live={item.status === "active" ? "polite" : "off"} className={`script-live-generation-preview is-${item.status}`}>
+      <header>
+        <div>
+          <span>{t("workspace.episodeLabel").replace("{number}", String(item.episodeNumber))}</span>
+          <h1>{title || t("workspace.stream.untitledEpisode")}</h1>
+        </div>
+        <div className="script-live-generation-meta">
+          <strong>{creatorGenerationStage(item, t)}</strong>
+          <small>{visibleCharacters ? `${visibleCharacters} ${t("workspace.stream.characters")}` : ""}{elapsedSeconds ? ` · ${formatScriptElapsed(elapsedSeconds)}` : ""}</small>
+        </div>
+      </header>
+      {item.error ? (
+        <div className="episode-generation-error-block">
+          <p className="episode-generation-error">{userFacingError(item.error, t("generation.failed"))}</p>
+          {onRetryEpisode ? <button className="primary-action" disabled={retryDisabled} onClick={() => onRetryEpisode(item.episodeNumber)} type="button">{t("workspace.stream.retryEpisode")}</button> : null}
+        </div>
+      ) : (
+        <div className="script-live-generation-text">
+          {item.preview || t("workspace.stream.waitingForText")}
+          {item.status === "active" ? <span className="typing-caret" aria-hidden="true" /> : null}
+        </div>
+      )}
+      {item.status !== "completed" && !item.error ? <footer>{t("workspace.stream.previewPending")}</footer> : null}
+    </section>
+  );
+}
+
+function PendingScriptWorkspace({
+  activeEpisodeNumber,
+  batch,
+  detailsOpen,
+  message,
+  onDetailsToggle,
+  onRetryEpisode,
+  onSelectEpisode,
+  project,
+  retryDisabled = false,
+  task,
+  t,
+}: {
+  activeEpisodeNumber: number;
+  batch: EpisodeStreamProgress[];
+  detailsOpen: boolean;
+  message?: string | null;
+  onDetailsToggle: () => void;
+  onRetryEpisode: (episodeNumber: number) => void;
+  onSelectEpisode: (episodeNumber: number) => void;
+  project: ScriptProject;
+  retryDisabled?: boolean;
+  task?: ScriptGenerationTaskSnapshot;
+  t: ScriptWorkspaceTranslator;
+}) {
+  const selectedItem = preferredStreamItem(batch, activeEpisodeNumber);
+  const entries = buildScriptDirectoryEntries(project, batch, t);
+  const activeEntryId = selectedItem ? `script-episode-${selectedItem.episodeNumber}` : null;
+  return (
+    <main className="script-workspace is-unified page-reveal">
+      <div className="script-generation-workbench">
+        <WorkspaceSectionDirectory
+          activeEntryId={activeEntryId}
+          activeSection="script"
+          currentEntries={entries}
+          onSelect={(entry) => {
+            const match = /^script-episode-(\d+)$/.exec(entry.id);
+            if (match) onSelectEpisode(Number(match[1]));
+          }}
+          projectId={project.id}
+        />
+        <div className="script-generation-document-surface">
+          <div className="document-edit-toolbar script-document-toolbar">
+            <div className="script-document-identity"><span>{t("workspace.kicker")}</span><strong>{project.title}</strong></div>
+          </div>
+          {batch.length ? <ScriptGenerationStatus batch={batch} detailsOpen={detailsOpen} onDetailsToggle={onDetailsToggle} onRetryEpisode={onRetryEpisode} project={project} retryDisabled={retryDisabled} task={task} t={t} /> : null}
+          {message ? <div className="inline-notice">{message}</div> : null}
+          <ScriptLiveGenerationPreview item={selectedItem} onRetryEpisode={onRetryEpisode} project={project} retryDisabled={retryDisabled} t={t} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
 function EpisodeGenerationProgress({
   batch,
   onRetryEpisode,
+  project,
   retryDisabled = false,
   t,
 }: {
   batch: EpisodeStreamProgress[];
   onRetryEpisode?: (episodeNumber: number) => void;
+  project: ScriptProject;
   retryDisabled?: boolean;
   t: (key: string) => string;
 }) {
@@ -1654,6 +2350,8 @@ function EpisodeGenerationProgress({
   const [now, setNow] = useState(Date.now());
   const [openEpisodes, setOpenEpisodes] = useState<Set<number>>(new Set());
   const statusSignature = batch.map((item) => `${item.episodeNumber}:${item.status}`).join("|");
+  const visibleBatch = compactGenerationDetailBatch(batch);
+  const hiddenEpisodeCount = batch.length - visibleBatch.length;
 
   useEffect(() => {
     if (!hasActiveEpisode) return;
@@ -1675,36 +2373,21 @@ function EpisodeGenerationProgress({
     });
   }, [statusSignature]);
 
-  const completedCount = batch.filter((item) => item.status === "completed").length;
   return (
     <section
       aria-label={t("workspace.stream.title")}
-      className="episode-generation-progress"
+      className="episode-generation-progress is-details"
       id="episode-generation-progress"
     >
-      <div className="episode-generation-progress-heading">
-        <div>
-          <span className="section-kicker">{t("workspace.stream.kicker")}</span>
-          <div className="section-title-with-help">
-            <h2>{t("workspace.stream.title")}</h2>
-            <SectionHelp content={t("guide.generationProgress")} label={t("guide.openHelp")} />
-          </div>
-        </div>
-        <div className="episode-generation-progress-controls">
-          <strong>{completedCount}/{batch.length}</strong>
-        </div>
-      </div>
       <div className="episode-generation-list">
-        {batch.map((item) => {
+        {visibleBatch.map((item) => {
           const visibleCharacters = item.actualCharacters
             ?? countEffectiveCharacters(item.preview);
-          const progress = item.preferredMaxCharacters > 0
-            ? Math.min(100, visibleCharacters / item.preferredMaxCharacters * 100)
-            : 0;
           const elapsedSeconds = item.startedAt
             ? Math.max(0, Math.round(((item.completedAt ?? now) - item.startedAt) / 1000))
             : 0;
-          const statusLabel = t(`workspace.stream.stage.${item.stage}`);
+          const statusLabel = creatorGenerationStage(item, t);
+          const title = projectEpisodeTitle(project, item.episodeNumber);
           return (
             <details
               className={`episode-generation-item is-${item.status}`}
@@ -1726,8 +2409,8 @@ function EpisodeGenerationProgress({
                   {String(item.episodeNumber).padStart(2, "0")}
                 </span>
                 <span className="episode-generation-title">
-                  <strong>{t("workspace.episodeLabel").replace("{number}", String(item.episodeNumber))}</strong>
-                  <small>{statusLabel}</small>
+                  <strong>{t("workspace.episodeLabel").replace("{number}", String(item.episodeNumber))}{title ? ` · ${title}` : ""}</strong>
+                  <small>{statusLabel} · {t(`workspace.stream.stage.${item.stage}`)}</small>
                   {(item.attemptCount ?? 0) > 1 ? (
                     <small>{t("workspace.stream.attempt")
                       .replace("{count}", String(item.attemptCount))}</small>
@@ -1742,9 +2425,6 @@ function EpisodeGenerationProgress({
                 </span>
               </summary>
               <div className="episode-generation-body">
-                <div className="episode-generation-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
-                  <span style={{ width: `${progress}%` }} />
-                </div>
                 {item.error ? (
                   <div className="episode-generation-error-block">
                     <p className="episode-generation-error">{userFacingError(item.error, t("generation.failed"))}</p>
@@ -1761,7 +2441,9 @@ function EpisodeGenerationProgress({
                   </div>
                 ) : (
                   <div aria-live={item.status === "active" ? "polite" : "off"} className="episode-generation-preview">
-                    {item.preview || t("workspace.stream.waitingForText")}
+                    {item.preview || (item.status === "completed"
+                      ? statusLabel
+                      : t("workspace.stream.waitingForText"))}
                     {item.status === "active" ? <span className="typing-caret" aria-hidden="true" /> : null}
                   </div>
                 )}
@@ -1769,6 +2451,11 @@ function EpisodeGenerationProgress({
             </details>
           );
         })}
+        {hiddenEpisodeCount > 0 ? (
+          <div className="episode-generation-compacted">
+            {t("workspace.stream.compactedItems").replace("{count}", String(hiddenEpisodeCount))}
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -1791,12 +2478,25 @@ function InitialScriptBatchLauncher({
   setStreamBatch: Dispatch<SetStateAction<EpisodeStreamProgress[]>>;
   streamBatch: EpisodeStreamProgress[];
   t: (key: string) => string;
-  updateProject: (projectId: string, patch: Partial<ScriptProject>) => Promise<boolean>;
+  updateProject: (
+    projectId: string,
+    patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
+  ) => Promise<boolean>;
 }) {
   const started = useRef(false);
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedEpisodeNumber, setSelectedEpisodeNumber] = useState(
+    requestedLeafRange.startEpisode,
+  );
+  const task = useScriptGenerationTask(project.id);
+
+  useEffect(() => {
+    const active = streamBatch.find((item) => item.status === "active");
+    if (active) setSelectedEpisodeNumber(active.episodeNumber);
+  }, [streamBatch]);
   async function commitEpisodes(
     generatedEpisodes: EpisodeWorkspace[],
     batchRecord: GenerationBatchRecord,
@@ -1889,7 +2589,7 @@ function InitialScriptBatchLauncher({
       endEpisode: batchRange.endEpisode,
     });
     if (!backgroundTask.started) {
-      setMessage(t("workflowNavigation.backgroundScript")
+      setMessage(t("generation.backgroundScript")
         .replace("{start}", String(backgroundTask.task.startEpisode))
         .replace("{end}", String(backgroundTask.task.endEpisode)));
       setBusy(true);
@@ -1900,20 +2600,19 @@ function InitialScriptBatchLauncher({
     const requestedEpisodeCount = batchRange.endEpisode - batchRange.startEpisode + 1;
     const createdAt = new Date().toISOString();
     const generatedEpisodes: EpisodeWorkspace[] = [];
-    const overseasCharacterNames = collectProjectOverseasCharacterNames(project);
     let activeStreamingEpisode = batchRange.startEpisode;
     let recoveryTask: GenerationRecoveryTask | undefined;
     const persistRecoveryTask = async (task: GenerationRecoveryTask) => {
       recoveryTask = task;
-      updateProject(project.id, { activeGenerationTask: task });
       try {
         const savedTask = await saveGenerationTaskOnServer(project.id, task);
         recoveryTask = savedTask;
-        updateProject(project.id, { activeGenerationTask: savedTask });
       } catch {
         recoveryTask = { ...task, serverBacked: false };
-        updateProject(project.id, { activeGenerationTask: recoveryTask });
       }
+      // Avoid uploading the multi-megabyte workspace before and after the
+      // lightweight server checkpoint for the same logical state transition.
+      await updateProject(project.id, { activeGenerationTask: recoveryTask });
     };
     const pauseAtEpisodeBoundary = async () => {
       if (!isScriptGenerationPauseRequested(project.id)) return;
@@ -1987,10 +2686,12 @@ function InitialScriptBatchLauncher({
       const generateInitialEpisode = async (
         episodeNumber: number,
         continuityEpisodes: EpisodeWorkspace[],
+        agentRequestId: string,
+        signal: AbortSignal,
       ): Promise<EpisodeWorkspace> => {
         const latestEpisode = continuityEpisodes.at(-1);
         const previousEpisode = latestEpisode
-          ? resolveExportDraft(latestEpisode)
+          ? resolveWorkingDraft(latestEpisode)
           : undefined;
         const continuity = synchronizeContinuity(
           project.creativePrompt,
@@ -2001,7 +2702,7 @@ function InitialScriptBatchLauncher({
           project.continuityStates,
         );
         const generatedBodyCharacters = calculateSeriesTextMetrics(
-          continuityEpisodes.map(resolveExportDraft),
+          continuityEpisodes.map(resolveWorkingDraft),
           project.generationSettings.targetTotalCharacters,
           project.generationSettings.episodeCount,
         ).scriptBodyCharacters;
@@ -2035,6 +2736,7 @@ function InitialScriptBatchLauncher({
           generationMode: project.generationSettings.mode,
           episodeNumber,
           totalEpisodes: batchRange.totalEpisodes,
+          agentRequestId,
           targetScriptBodyCharacters: bodyTarget,
           targetDurationSeconds: plannedEpisodeDurationSeconds(generationConstraint),
           adaptiveSceneCount: adaptiveEpisodeSceneCount(generationConstraint),
@@ -2058,11 +2760,14 @@ function InitialScriptBatchLauncher({
             startEpisode: batchRange.startEpisode,
             endEpisode: batchRange.endEpisode,
           },
-        }, (event) => setStreamBatch((currentBatch) => applyEpisodeStreamEvent(
-          currentBatch,
-          episodeNumber,
-          event,
-        )), generationRuntime);
+        }, (event) => {
+          if (signal.aborted) return;
+          setStreamBatch((currentBatch) => applyEpisodeStreamEvent(
+            currentBatch,
+            episodeNumber,
+            event,
+          ));
+        }, generationRuntime, signal);
         setStreamBatch((currentBatch) => completeEpisodeStream(
           currentBatch,
           episodeNumber,
@@ -2073,18 +2778,12 @@ function InitialScriptBatchLauncher({
             ...generationPerformanceDetails(generationRun.draft_master_script),
           },
         ));
-        const bilingualViews = await buildGeneratedOverseasDialogueView(
-          project,
-          generationRun,
-          overseasCharacterNames,
-        );
         const now = new Date().toISOString();
         return {
           id: crypto.randomUUID(),
           episodeNumber,
-          status: "framework",
+          status: "saved",
           generationRun,
-          ...(bilingualViews ? { bilingualViews } : {}),
           workingDraftJson: JSON.stringify(generationRun.draft_master_script, null, 2),
           hasLocalDraftEdits: false,
           createdAt: now,
@@ -2094,26 +2793,58 @@ function InitialScriptBatchLauncher({
       const episodeNumbers = Array.from(
         { length: requestedEpisodeCount },
         (_, index) => batchRange.startEpisode + index,
-      );
-      const generateInitialEpisodeWithRetry = (
+      ).filter((episodeNumber) => (
+        !project.episodes.some((episode) => episode.episodeNumber === episodeNumber)
+      ));
+      const generateInitialEpisodeWithRetry = async (
         episodeNumber: number,
         continuityEpisodes: EpisodeWorkspace[],
-      ) => generateWithAutomaticTransientRetry({
-        generate: () => generateInitialEpisode(
-          episodeNumber,
-          continuityEpisodes,
-        ),
-        onAutomaticRetry: ({ nextAttempt, maxAttempts }) => {
-          setStreamBatch((currentBatch) => markEpisodeAutomaticRetry(
-            currentBatch,
-            episodeNumber,
-          ));
-          setMessage(t("workspace.stream.autoRetrying")
-            .replace("{episode}", String(episodeNumber))
-            .replace("{attempt}", String(nextAttempt))
-            .replace("{max}", String(maxAttempts)));
-        },
-      });
+      ): Promise<EpisodeWorkspace> => {
+        const agentRequestId = recoveryTask
+          ? episodeGenerationAgentRequestId(recoveryTask, episodeNumber)
+          : `agent-request.${crypto.randomUUID()}`;
+        while (true) {
+          const controller = new AbortController();
+          const unregister = registerScriptGenerationAbortController(
+            project.id,
+            controller,
+          );
+          try {
+            return await generateWithAutomaticTransientRetry({
+              signal: controller.signal,
+              generate: () => generateInitialEpisode(
+                episodeNumber,
+                continuityEpisodes,
+                agentRequestId,
+                controller.signal,
+              ),
+              onAutomaticRetry: ({ nextAttempt, maxAttempts }) => {
+                setStreamBatch((currentBatch) => markEpisodeAutomaticRetry(
+                  currentBatch,
+                  episodeNumber,
+                ));
+                setMessage(t("workspace.stream.autoRetrying")
+                  .replace("{episode}", String(episodeNumber))
+                  .replace("{attempt}", String(nextAttempt))
+                  .replace("{max}", String(maxAttempts)));
+              },
+            });
+          } catch (error) {
+            if (
+              !isScriptGenerationAbortError(error)
+              || (
+                !isScriptGenerationPauseRequested(project.id)
+                && !isScriptGenerationPauseAbort(controller.signal)
+              )
+            ) {
+              throw error;
+            }
+            await pauseAtEpisodeBoundary();
+          } finally {
+            unregister();
+          }
+        }
+      };
       const generationWindows = buildEpisodeGenerationWindows(episodeNumbers);
       for (const windowEpisodeNumbers of generationWindows) {
         await pauseAtEpisodeBoundary();
@@ -2145,14 +2876,6 @@ function InitialScriptBatchLauncher({
               errorText,
             ));
             firstFailure ??= { episodeNumber, reason: result.reason };
-            continue;
-          }
-          if (firstFailure) {
-            setStreamBatch((currentBatch) => failEpisodeStream(
-              currentBatch,
-              episodeNumber,
-              "上一集生成失败，本集结果未保存，请从失败集继续生成。",
-            ));
             continue;
           }
           generatedEpisodes.push(result.value);
@@ -2245,321 +2968,180 @@ function InitialScriptBatchLauncher({
     void generateInitialBatch();
   }, []);
 
-  const decision = nextLeafBatchRange(0, project.generationSettings, requestedLeafRange);
-  const visibleRange = decision.status === "ready"
-    ? decision.range
-    : {
-        startEpisode: requestedLeafRange.startEpisode,
-        endEpisode: requestedLeafRange.endEpisode,
-      };
-
   return (
-    <main className="script-workspace page-reveal">
-      <header className="workspace-header">
-        <div>
-          <span className="section-kicker">{t("planningWorkspace.script")}</span>
-          <div className="section-title-with-help">
-            <h1>{project.title}</h1>
-            <SectionHelp content={t("guide.scriptWorkspace")} label={t("guide.openHelp")} />
-          </div>
-          <p>{t("workspace.generatingPlannedBatchHelp")}</p>
-        </div>
-        <Link className="outline-action" href={`/projects/${project.id}/planning`}>
-          {t("workspace.backToPlanning")}
-        </Link>
-      </header>
-      <WorkflowNavigation
-        active="script"
-        generatedEpisodes={project.episodes.length}
-        plannedThrough={project.episodePlansReadyThrough ?? 0}
-        projectId={project.id}
-        scriptStarted
-        totalEpisodes={project.generationSettings.episodeCount}
-      />
-      <section className="direct-generation-status" aria-live="polite">
-        {busy ? <div className="loading-mark" /> : null}
-        <div>
-          <span className="section-kicker">{t("workspace.kicker")}</span>
-          <div className="section-title-with-help">
-            <h2>{t("workspace.generatingPlannedBatch")
-              .replace("{start}", String(visibleRange.startEpisode))
-              .replace("{end}", String(visibleRange.endEpisode))}</h2>
-            <SectionHelp content={t("guide.generationProgress")} label={t("guide.openHelp")} />
-          </div>
-          <p>{errorMessage ?? message}</p>
-        </div>
-      </section>
-      {streamBatch.length ? (
-        <EpisodeGenerationProgress
-          batch={streamBatch}
-          onRetryEpisode={() => void generateInitialBatch()}
-          retryDisabled={busy}
-          t={t}
-        />
-      ) : null}
-    </main>
+    <PendingScriptWorkspace
+      activeEpisodeNumber={selectedEpisodeNumber}
+      batch={streamBatch}
+      detailsOpen={detailsOpen}
+      message={errorMessage ?? message}
+      onDetailsToggle={() => setDetailsOpen((current) => !current)}
+      onRetryEpisode={() => void generateInitialBatch()}
+      onSelectEpisode={setSelectedEpisodeNumber}
+      project={project}
+      retryDisabled={busy}
+      task={task}
+      t={t}
+    />
   );
 }
 
-function EpisodeDraftEditor({ draft, onChange, onSave, onConfirm, onCancel, t }: {
-  draft: GeneratedDraft;
-  onChange: (draft: GeneratedDraft) => void;
-  onSave: () => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-  t: (key: string) => string;
-}) {
-  function updateTopLevel(field: keyof GeneratedDraft, value: string) {
-    onChange({ ...draft, [field]: value });
-  }
-
-  function updateScene(index: number, patch: Partial<GeneratedScene>) {
-    onChange({
-      ...draft,
-      scenes: draft.scenes.map((scene, sceneIndex) => sceneIndex === index ? { ...scene, ...patch } : scene),
-    });
-  }
-
-  return (
-    <section className="structured-episode-editor">
-      <div className="structured-editor-grid">
-        <label><span>{t("workspace.field.logline")}</span><textarea onChange={(event) => updateTopLevel("logline", event.target.value)} rows={2} value={draft.logline} /></label>
-        <label><span>{t("workspace.hook")}</span><textarea onChange={(event) => updateTopLevel("hook", event.target.value)} rows={2} value={draft.hook} /></label>
-        <label><span>{t("workspace.synopsis")}</span><textarea onChange={(event) => updateTopLevel("synopsis", event.target.value)} rows={3} value={draft.synopsis} /></label>
-        <label><span>{t("workspace.field.episodeGoal")}</span><textarea onChange={(event) => updateTopLevel("episode_goal", event.target.value)} rows={2} value={draft.episode_goal ?? ""} /></label>
-        <label><span>{t("workspace.nextQuestion")}</span><textarea onChange={(event) => updateTopLevel("next_episode_question", event.target.value)} rows={2} value={draft.next_episode_question ?? ""} /></label>
-      </div>
-      {draft.scenes.map((scene, index) => (
-        <div className="structured-scene-editor" key={scene.scene_number}>
-          <div className="structured-scene-heading"><span>{String(scene.scene_number).padStart(2, "0")}</span><strong>{t("workspace.scene")}</strong></div>
-          <label><span>{t("workspace.field.sceneTitle")}</span><input onChange={(event) => updateScene(index, { slug: event.target.value })} value={scene.slug} /></label>
-          <label><span>{t("workspace.field.purpose")}</span><textarea onChange={(event) => updateScene(index, { purpose: event.target.value })} rows={2} value={scene.purpose} /></label>
-          <label><span>{t("workspace.field.beat")}</span><textarea onChange={(event) => updateScene(index, { beat_summary: event.target.value })} rows={3} value={scene.beat_summary} /></label>
-          <label><span>{t("workspace.field.actions")}</span><textarea onChange={(event) => updateScene(index, { character_actions: splitLines(event.target.value) })} rows={4} value={scene.character_actions.join("\n")} /></label>
-          <div className="structured-dialogue-editor">
-            <span>{t("workspace.field.dialogue")}</span>
-            {scene.dialogues.map((line, dialogueIndex) => (
-              <div key={`${scene.scene_number}-${dialogueIndex}`}>
-                <input aria-label={t("workspace.field.character")} onChange={(event) => updateScene(index, { dialogues: scene.dialogues.map((item, itemIndex) => itemIndex === dialogueIndex ? { ...item, character_name: event.target.value } : item) })} value={line.character_name} />
-                <input aria-label={t("workspace.field.intent")} onChange={(event) => updateScene(index, { dialogues: scene.dialogues.map((item, itemIndex) => itemIndex === dialogueIndex ? { ...item, intent: event.target.value } : item) })} value={line.intent} />
-                <textarea aria-label={t("workspace.field.dialogue")} onChange={(event) => updateScene(index, { dialogues: scene.dialogues.map((item, itemIndex) => itemIndex === dialogueIndex ? { ...item, text: event.target.value } : item) })} rows={2} value={line.text} />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-      <div className="structured-editor-actions"><button className="text-action" onClick={onCancel} type="button">{t("tags.cancelCustom")}</button><button className="outline-action" onClick={onSave} type="button">{t("workspace.saveEdit")}</button><button className="primary-action" onClick={onConfirm} type="button">{t("workspace.saveAndConfirm")}</button></div>
-    </section>
-  );
-}
-
-function ScriptDocumentWithTranslation({
+function ScriptDocumentWithDialoguePair({
   draft,
-  generationStrategyId,
-  locale,
-  cachedView,
   characterNameMap,
-  onView,
+  editable,
+  onDraftChange,
   releaseRegion,
   t,
 }: {
   draft: GeneratedDraft;
-  generationStrategyId: string;
-  locale: "en" | "zh";
-  cachedView?: BilingualScriptView;
   characterNameMap: Record<string, string>;
-  onView: (view: BilingualScriptView) => void;
-  releaseRegion: ReleaseRegion;
+  editable: boolean;
+  onDraftChange: (update: ScriptDraftUpdater) => void;
+  releaseRegion: ScriptProject["generationSettings"]["releaseRegion"];
   t: (key: string) => string;
 }) {
-  const [attemptedTranslationKey, setAttemptedTranslationKey] = useState<string | null>(null);
-  const [translationError, setTranslationError] = useState(false);
-  const legacyChineseView = locale === "zh"
-    && draft.language.toLocaleLowerCase().startsWith("en");
-  const overseasDialogueView = releaseRegion === "overseas"
-    && !draft.language.toLocaleLowerCase().startsWith("en");
-  const shouldTranslate = legacyChineseView || overseasDialogueView;
-  const translationOnly = legacyChineseView;
-  const targetLanguage = overseasDialogueView ? "en-US-short-drama" : "zh-CN";
-  const translationRequestKey = `${draft.id}:${targetLanguage}:${JSON.stringify(
-    draft.scenes.flatMap((scene) => scene.dialogues.map((dialogue) => [
-      dialogue.character_name,
-      dialogue.text,
-    ])),
-  )}:${JSON.stringify(characterNameMap)}`;
-  const activeView = shouldTranslate
-    && cachedView?.target_language?.toLocaleLowerCase().startsWith(
-      overseasDialogueView ? "en-us" : "zh",
-    )
-    && (!overseasDialogueView || overseasDialogueViewMatchesDraft(
-      cachedView,
-      draft,
-      characterNameMap,
-    ))
-    ? cachedView
+  const overseasDialogueView = releaseRegion === "overseas";
+  const embeddedView = overseasDialogueView
+    ? resolveCurrentOverseasDialogueView(
+        draft,
+        characterNameMap,
+      )
     : undefined;
-
-  useEffect(() => {
-    if (
-      !shouldTranslate
-      || activeView
-      || attemptedTranslationKey === translationRequestKey
-    ) return;
-    setAttemptedTranslationKey(translationRequestKey);
-    setTranslationError(false);
-    void buildBilingualScriptView(
-      generationStrategyId,
-      draft,
-      targetLanguage,
-      characterNameMap,
-    )
-      .then(onView)
-      .catch(() => setTranslationError(true));
-  }, [
-    attemptedTranslationKey,
-    activeView,
-    draft,
-    generationStrategyId,
-    characterNameMap,
-    onView,
-    shouldTranslate,
-    targetLanguage,
-    translationRequestKey,
-  ]);
-
-  const translations = activeView
-    ? new Map(activeView.items.map((item) => [item.path, item.translated_text]))
+  const translations = embeddedView
+    ? new Map(embeddedView.items.map((item) => [item.path, item.translated_text]))
     : undefined;
 
   return (
-    <>
-      {shouldTranslate && !activeView && !translationError
-        ? <div className="inline-notice">{t("workspace.translationLoading")}</div>
-        : null}
-      {translationError ? (
-        <div className="inline-notice">
-          {t("workspace.translationFailed")}
-          <button
-            className="text-action"
-            onClick={() => {
-              setTranslationError(false);
-              setAttemptedTranslationKey(null);
-            }}
-            type="button"
-          >
-            {t("workspace.translationRetry")}
-          </button>
-        </div>
-      ) : null}
-      {!translationOnly || activeView ? (
-        <ScriptDocument
-          characterNameMap={new Map(Object.entries(characterNameMap))}
-          draft={draft}
-          overseasDialogueView={overseasDialogueView}
-          t={t}
-          translationOnly={translationOnly}
-          translations={translations}
-        />
-      ) : null}
-    </>
+    <ScriptDocument
+      characterNameMap={mergeOverseasCharacterNames(
+        new Map(Object.entries(characterNameMap)),
+        embeddedView,
+      )}
+      draft={draft}
+      editable={editable}
+      onDraftChange={onDraftChange}
+      overseasDialogueView={overseasDialogueView}
+      t={t}
+      translations={translations}
+    />
   );
 }
 
-function overseasDialogueViewMatchesDraft(
-  view: BilingualScriptView,
+function resolveCurrentOverseasDialogueView(
   draft: GeneratedDraft,
   characterNameMap: Record<string, string>,
-): boolean {
-  if (view.view_version !== "bilingual_script_view.v2") return false;
-  const sourceByPath = new Map(view.items.map((item) => [item.path, item.source_text]));
-  const translatedByPath = new Map(view.items.map((item) => [item.path, item.translated_text]));
-  return draft.scenes.every((scene, sceneIndex) => scene.dialogues.every(
-    (dialogue, dialogueIndex) => {
-      const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
-      const characterPath = `${prefix}.character_name`;
-      const sourceName = clientDialogueSpeaker(
-        dialogue.character_name,
-        dialogue.character_name,
-      ).speaker;
-      const expectedEnglishName = characterNameMap[sourceName];
-      const translatedName = clientDialogueSpeaker(
-        translatedByPath.get(characterPath) ?? "",
-        dialogue.character_name,
-      ).speaker.toLocaleUpperCase();
-      return sourceByPath.get(characterPath) === dialogue.character_name.trim()
-        && sourceByPath.get(`${prefix}.text`) === dialogue.text.trim()
-        && (!expectedEnglishName
-          || translatedName === expectedEnglishName.toLocaleUpperCase());
-    },
-  ));
+): ReturnType<typeof buildEmbeddedOverseasDialogueView> {
+  return buildEmbeddedOverseasDialogueView(
+    draft,
+    "zh-CN-short-drama",
+    characterNameMap,
+  );
 }
 
 function ScriptDocument({
   characterNameMap,
   draft,
+  editable,
+  onDraftChange,
   t,
   translations,
-  translationOnly = false,
   overseasDialogueView = false,
 }: {
   characterNameMap: ReadonlyMap<string, string>;
   draft: GeneratedDraft;
+  editable: boolean;
+  onDraftChange: (update: ScriptDraftUpdater) => void;
   t: (key: string) => string;
   translations?: Map<string, string>;
-  translationOnly?: boolean;
   overseasDialogueView?: boolean;
 }) {
+  const dialoguePresentation = overseasDialogueView && translations
+    ? {
+        direction: "english-to-chinese" as const,
+        translations,
+      }
+    : undefined;
   return (
     <article className="script-document">
-      <details className="script-production-notes">
+      <details
+        className="script-production-notes is-document-section"
+        id="script-overview"
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("summary")) event.preventDefault();
+        }}
+        open
+      >
         <summary>{t("workspace.productionNotes")}</summary>
         <div className="script-notes-help"><SectionHelp content={t("guide.productionNotes")} label={t("guide.openHelp")} /></div>
         <section className="script-overview">
           <strong>{t("workspace.hook")}</strong>
-          <p><ScriptText path="hook" source={draft.hook} t={t} translationOnly={translationOnly} translations={translations} /></p>
+          <p data-script-field="本集钩子（hook）"><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => ({ ...current, hook: value }))} source={draft.hook} /></p>
           <strong>{t("workspace.synopsis")}</strong>
-          <p><ScriptText path="synopsis" source={draft.synopsis} t={t} translationOnly={translationOnly} translations={translations} /></p>
+          <p data-script-field="剧情梗概（synopsis）"><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => ({ ...current, synopsis: value }))} source={draft.synopsis} /></p>
           <strong>{t("workspace.nextQuestion")}</strong>
-          <p><ScriptText path="next_episode_question" source={draft.next_episode_question ?? ""} t={t} translationOnly={translationOnly} translations={translations} /></p>
+          <p data-script-field="下集问题（next_episode_question）"><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => ({ ...current, next_episode_question: value || null }))} source={draft.next_episode_question ?? ""} /></p>
         </section>
       </details>
       {draft.scenes.map((scene, sceneIndex) => (
-        <section className="script-scene" key={scene.scene_number}>
+        <section className="script-scene" id={`script-scene-${scene.scene_number}`} key={scene.scene_number}>
           <span>{String(scene.scene_number).padStart(2, "0")}</span>
           <div>
-            <h2>{scene.setting_hint
-              ? <ScriptText path={`scenes.${sceneIndex}.setting_hint`} source={scene.setting_hint} t={t} translationOnly={translationOnly} translations={translations} />
-              : <ScriptText path={`scenes.${sceneIndex}.slug`} source={scene.slug} t={t} translationOnly={translationOnly} translations={translations} />}</h2>
-            {scene.setting_hint ? <p className="scene-setting"><ScriptText path={`scenes.${sceneIndex}.slug`} source={scene.slug} t={t} translationOnly={translationOnly} translations={translations} /></p> : null}
-            <details className="scene-planning-notes">
+            <h2 data-script-field={`第${scene.scene_number}场场景标题（scenes.${sceneIndex}.${scene.setting_hint ? "setting_hint" : "slug"}）`}>
+              <ScriptInlineText
+                editable={editable}
+                onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => (
+                  scene.setting_hint ? { ...draftScene, setting_hint: value } : { ...draftScene, slug: value }
+                )))}
+                source={overseasDialogueView
+                  ? applyChineseCharacterNames(scene.setting_hint ?? scene.slug, characterNameMap)
+                  : scene.setting_hint ?? scene.slug}
+              />
+            </h2>
+            <details
+              className="scene-planning-notes is-document-section"
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("summary")) event.preventDefault();
+              }}
+              open
+            >
               <summary>{t("workspace.productionNotes")}</summary>
               <div className="script-notes-help"><SectionHelp content={t("guide.productionNotes")} label={t("guide.openHelp")} /></div>
-              <p className="scene-purpose"><ScriptText path={`scenes.${sceneIndex}.purpose`} source={scene.purpose} t={t} translationOnly={translationOnly} translations={translations} /></p>
-              <p><ScriptText path={`scenes.${sceneIndex}.beat_summary`} source={scene.beat_summary} t={t} translationOnly={translationOnly} translations={translations} /></p>
+              {scene.setting_hint ? <p className="scene-setting" data-script-field={`第${scene.scene_number}场场景标识（scenes.${sceneIndex}.slug）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, slug: value })))} source={scene.slug} /></p> : null}
+              <p className="scene-purpose" data-script-field={`第${scene.scene_number}场目的（scenes.${sceneIndex}.purpose）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, purpose: value })))} source={scene.purpose} /></p>
+              <p data-script-field={`第${scene.scene_number}场剧情节拍（scenes.${sceneIndex}.beat_summary）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, beat_summary: value })))} source={scene.beat_summary} /></p>
               {scene.scene_causality ? (
                 <dl className="scene-causality">
-                  <div><dt>{t("workspace.goal")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.goal`} source={scene.scene_causality.goal} t={t} translationOnly={translationOnly} translations={translations} /></dd></div>
-                  <div><dt>{t("workspace.conflict")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.conflict`} source={scene.scene_causality.conflict} t={t} translationOnly={translationOnly} translations={translations} /></dd></div>
-                  <div><dt>{t("workspace.outcome")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.outcome`} source={scene.scene_causality.outcome} t={t} translationOnly={translationOnly} translations={translations} /></dd></div>
-                  {scene.scene_causality.causal_link ? <div><dt>{t("workspace.causalLink")}</dt><dd><ScriptText path={`scenes.${sceneIndex}.scene_causality.causal_link`} source={scene.scene_causality.causal_link} t={t} translationOnly={translationOnly} translations={translations} /></dd></div> : null}
+                  <div><dt>{t("workspace.goal")}</dt><dd data-script-field={`第${scene.scene_number}场目标（scenes.${sceneIndex}.scene_causality.goal）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, goal: value } } : draftScene))} source={scene.scene_causality.goal} /></dd></div>
+                  <div><dt>{t("workspace.conflict")}</dt><dd data-script-field={`第${scene.scene_number}场冲突（scenes.${sceneIndex}.scene_causality.conflict）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, conflict: value } } : draftScene))} source={scene.scene_causality.conflict} /></dd></div>
+                  <div><dt>{t("workspace.outcome")}</dt><dd data-script-field={`第${scene.scene_number}场结果（scenes.${sceneIndex}.scene_causality.outcome）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, outcome: value } } : draftScene))} source={scene.scene_causality.outcome} /></dd></div>
+                  {scene.scene_causality.causal_link ? <div><dt>{t("workspace.causalLink")}</dt><dd data-script-field={`第${scene.scene_number}场因果衔接（scenes.${sceneIndex}.scene_causality.causal_link）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, causal_link: value || null } } : draftScene))} source={scene.scene_causality.causal_link} /></dd></div> : null}
                 </dl>
               ) : null}
             </details>
-            <div className="scene-actions">{scene.character_actions.map((action, actionIndex) => <p key={`${action}-${actionIndex}`}><span aria-hidden="true">△</span><ScriptText path={`scenes.${sceneIndex}.character_actions.${actionIndex}`} source={overseasDialogueView ? applyOverseasCharacterNames(action, characterNameMap) : action} t={t} translationOnly={translationOnly} translations={translations} /></p>)}</div>
-            <div className="scene-dialogues">{scene.dialogues.map((dialogue, dialogueIndex) => {
-              const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
-              const polishedSpeaker = translations?.get(`${prefix}.character_name`);
-              const displaySpeaker = clientDialogueSpeaker(
-                polishedSpeaker ?? dialogue.character_name,
-                dialogue.character_name,
-              );
+            <div className="scene-body">{orderedScreenplayBody(scene).map((item) => {
+              if (item.kind === "action") {
+                return <p className="scene-action-line" data-script-field={`第${scene.scene_number}场动作${item.index + 1}（scenes.${sceneIndex}.character_actions.${item.index}）`} key={`action-${item.index}`}><span aria-hidden="true">△</span><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, character_actions: draftScene.character_actions.map((action, actionIndex) => actionIndex === item.index ? value : action) })))} source={overseasDialogueView ? applyChineseCharacterNames(item.action, characterNameMap) : item.action} /></p>;
+              }
+              const dialogue = item.dialogue;
+              const prefix = `scenes.${sceneIndex}.dialogues.${item.index}`;
+              const displaySpeaker = overseasDialogueView
+                ? overseasDialogueSpeaker(
+                    dialoguePresentation,
+                    `${prefix}.character_name`,
+                    dialogue.character_name,
+                    characterNameMap,
+                  )
+                : clientDialogueSpeaker(
+                    dialogue.character_name,
+                    dialogue.character_name,
+                  );
               return (
-                <blockquote key={`${dialogue.character_name}-${dialogueIndex}`}>
-                  <strong>{`${displaySpeaker.speaker}${displaySpeaker.marker ? ` (${displaySpeaker.marker})` : ""}`}</strong>
-                  <small><ScriptText path={`${prefix}.intent`} source={dialogue.intent} t={t} translationOnly={translationOnly} translations={translations} /></small>
-                  <p>{overseasDialogueView
-                    ? <OverseasDialogue source={dialogue.text} translated={translations?.get(`${prefix}.text`)} t={t} />
-                    : <ScriptText path={`${prefix}.text`} source={dialogue.text} t={t} translationOnly={translationOnly} translations={translations} />}</p>
+                <blockquote className="scene-dialogue" key={`dialogue-${item.index}`}>
+                  <strong data-script-field={`第${scene.scene_number}场对白${item.index + 1}角色（${prefix}.character_name）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftDialogue(current, sceneIndex, item.index, (draftDialogue) => updateDialogueSpeakerFromDisplay(draftDialogue, value, overseasDialogueView)))} source={`${displaySpeaker.speaker}${displaySpeaker.marker ? ` (${displaySpeaker.marker})` : ""}`} /></strong>
+                  <small data-script-field={`第${scene.scene_number}场对白${item.index + 1}意图（${prefix}.intent）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftDialogue(current, sceneIndex, item.index, (draftDialogue) => ({ ...draftDialogue, intent: value })))} source={overseasDialogueView ? applyChineseCharacterNames(dialogue.intent, characterNameMap) : dialogue.intent} /></small>
+                  <p data-script-field={`第${scene.scene_number}场对白${item.index + 1}（${prefix}.text）`}>{overseasDialogueView
+                    ? <OverseasDialogue editable={editable} onSourceChange={(value) => onDraftChange((current) => updateDraftDialogue(current, sceneIndex, item.index, (draftDialogue) => ({ ...draftDialogue, text: value })))} onTranslationChange={(value) => onDraftChange((current) => updateDraftDialogue(current, sceneIndex, item.index, (draftDialogue) => ({ ...draftDialogue, chinese_translation: value || null })))} source={dialogue.text} translated={translations?.get(`${prefix}.text`) ?? dialogue.chinese_translation ?? undefined} t={t} />
+                    : <ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftDialogue(current, sceneIndex, item.index, (draftDialogue) => ({ ...draftDialogue, text: value })))} source={dialogue.text} />}</p>
                 </blockquote>
               );
             })}</div>
@@ -2571,106 +3153,97 @@ function ScriptDocument({
 }
 
 function OverseasDialogue({
+  editable,
+  onSourceChange,
+  onTranslationChange,
   source,
   translated,
   t,
 }: {
+  editable: boolean;
+  onSourceChange: (value: string) => void;
+  onTranslationChange: (value: string) => void;
   source: string;
   translated?: string;
   t: (key: string) => string;
 }) {
-  if (!translated) return <>{source}</>;
+  if (!translated) {
+    return <ScriptInlineText editable={editable} onChange={onSourceChange} source={source} />;
+  }
   return (
     <>
-      {translated}
+      <ScriptInlineText editable={editable} onChange={onSourceChange} source={source} />
       <span className="bilingual-translation">
         <small>{t("workspace.translationLabel")}</small>
-        {source}
+        <ScriptInlineText editable={editable} onChange={onTranslationChange} source={translated} />
       </span>
     </>
   );
 }
 
-function ScriptText({
-  path,
+function ScriptInlineText({
+  editable,
+  onChange,
   source,
-  translations,
-  translationOnly,
-  t,
 }: {
-  path: string;
+  editable: boolean;
+  onChange: (value: string) => void;
   source: string;
-  translations?: Map<string, string>;
-  translationOnly: boolean;
-  t: (key: string) => string;
 }) {
-  const translated = translations?.get(path);
-  if (translationOnly) return translated ?? source;
-  return <>{source}<Translation path={path} t={t} translations={translations} /></>;
-}
-
-function Translation({
-  path,
-  translations,
-  t,
-}: {
-  path: string;
-  translations?: Map<string, string>;
-  t: (key: string) => string;
-}) {
-  const text = translations?.get(path);
-  if (!text) return null;
   return (
-    <span className="bilingual-translation">
-      <small>{t("workspace.translationLabel")}</small>
-      {text}
+    <span
+      aria-readonly={!editable}
+      className={editable ? "script-inline-editable" : undefined}
+      contentEditable={editable}
+      onBlur={(event) => {
+        const value = event.currentTarget.textContent ?? "";
+        if (value !== source) onChange(value);
+      }}
+      suppressContentEditableWarning
+    >
+      {source}
     </span>
   );
 }
 
-function resolveExportDraft(episode: EpisodeWorkspace): GeneratedDraft {
+function resolveWorkingDraft(episode: EpisodeWorkspace): GeneratedDraft {
+  if (episodeIsLocked(episode)) {
+    return episode.finalizationResult?.master_script
+      ?? parseWorkingDraft(episode.confirmedDraftJson)
+      ?? parseWorkingDraft(episode.workingDraftJson)
+      ?? episode.generationRun.draft_master_script;
+  }
   return episode.finalizationResult?.master_script
-    ?? parseWorkingDraft(episode.confirmedDraftJson)
     ?? parseWorkingDraft(episode.workingDraftJson)
+    ?? parseWorkingDraft(episode.confirmedDraftJson)
     ?? episode.generationRun.draft_master_script;
 }
 
-async function buildGeneratedOverseasDialogueView(
-  project: ScriptProject,
-  generationRun: ScriptGenerationRun,
-  characterNameMap: Map<string, string>,
-): Promise<Record<string, BilingualScriptView> | undefined> {
-  const draft = generationRun.draft_master_script;
-  if (
-    project.generationSettings.releaseRegion !== "overseas"
-    || draft.language.toLocaleLowerCase().startsWith("en")
-  ) return undefined;
-  try {
-    const view = await buildBilingualScriptView(
-      generationRun.generation_strategy_id,
-      draft,
-      "en-US-short-drama",
-      Object.fromEntries(characterNameMap),
-    );
-    mergeOverseasCharacterNames(characterNameMap, view);
-    return { [draft.id]: view };
-  } catch {
-    // The canonical Chinese script is already valid. The workspace retries only
-    // the presentation-layer dialogue view without rerunning the episode.
-    return undefined;
-  }
+function resolveSavedDraft(episode: EpisodeWorkspace): GeneratedDraft | null {
+  if (!episodeHasSavedDraft(episode)) return null;
+  return resolveWorkingDraft(episode);
 }
 
 function collectProjectOverseasCharacterNames(
-  project: Pick<ScriptProject, "episodes">,
+  project: Pick<
+    ScriptProject,
+    "canonicalCharacterNames" | "episodes" | "referenceMaterials"
+  >,
 ): Map<string, string> {
-  const names = new Map<string, string>();
+  const names = new Map([
+    ...Object.entries(project.canonicalCharacterNames ?? {}),
+    ...canonicalCharacterNameMap(project.referenceMaterials),
+  ]);
   for (const episode of [...project.episodes].sort(
     (left, right) => left.episodeNumber - right.episodeNumber,
   )) {
-    for (const view of Object.values(episode.bilingualViews ?? {})) {
-      mergeOverseasCharacterNames(names, view);
-    }
+    const draft = resolveWorkingDraft(episode);
+    const embeddedView = buildEmbeddedOverseasDialogueView(
+      draft,
+      "zh-CN-short-drama",
+      Object.fromEntries(names),
+    );
+    mergeOverseasCharacterNames(names, embeddedView);
   }
   return names;
 }
@@ -2738,10 +3311,6 @@ function formatWorkflowError(
   return userFacingError(error, t(fallbackKey));
 }
 
-function splitLines(value: string): string[] {
-  return value.split("\n").map((line) => line.trim()).filter(Boolean);
-}
-
 function safeFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "script-project";
 }
@@ -2755,8 +3324,14 @@ function downloadBlob(blob: Blob, filename: string) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  // Keep the object URL alive until the browser has started the download.
+  window.setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function seriesExportPreface(

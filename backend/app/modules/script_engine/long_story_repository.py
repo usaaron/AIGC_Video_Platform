@@ -9,6 +9,10 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, update
 from sqlmodel import Session, col, select
 
+from app.modules.agent_runtime.persistence import (
+    AgentRunRecordTable,
+    AgentStepRecordTable,
+)
 from app.modules.script_engine.long_story_models import (
     ContinuityLedger,
     EpisodeArtifact,
@@ -18,6 +22,10 @@ from app.modules.script_engine.long_story_models import (
     GenerationBatchStatus,
     GenerationJobCheckpoint,
     GenerationJobStatus,
+    NarrativeEvent,
+    NarrativeEventSet,
+    PlanningSession,
+    PlanningSessionSnapshot,
     StoryBible,
     StoryPlanNode,
     StoryProject,
@@ -31,6 +39,9 @@ from app.modules.script_engine.long_story_persistence import (
     EpisodePlanVersionRecord,
     GenerationBatchPlanRecord,
     GenerationJobCheckpointRecord,
+    NarrativeEventRecord,
+    NarrativeEventSetRecord,
+    PlanningSessionRecord,
     StoryBibleVersionRecord,
     StoryPlanNodeVersionRecord,
     StoryProjectRecord,
@@ -192,6 +203,68 @@ class LongStoryRepository:
             return None
         return self._workspace_from_record(record)
 
+    def save_planning_session(
+        self,
+        session: PlanningSession,
+        *,
+        client_instance_id: str,
+        payload_checksum: str,
+        payload_size_bytes: int,
+    ) -> PlanningSessionSnapshot:
+        payload = session.model_dump(mode="json")
+        record = self._session.get(PlanningSessionRecord, session.story_project_id)
+        values = {
+            "session_id": session.session_id,
+            "schema_version": session.schema_version,
+            "revision": session.revision,
+            "client_instance_id": client_instance_id,
+            "payload_checksum": payload_checksum,
+            "payload_size_bytes": payload_size_bytes,
+            "updated_at": session.updated_at,
+            "payload": payload,
+        }
+        if record is None:
+            if session.revision != 1:
+                raise LongStoryPersistenceConflictError(
+                    "New Planning Session must start at revision 1."
+                )
+            self._session.add(
+                PlanningSessionRecord(
+                    project_id=session.story_project_id,
+                    **values,
+                )
+            )
+        else:
+            if session.revision == record.revision and record.payload == payload:
+                return self._planning_session_from_record(record)
+            if session.revision != record.revision + 1:
+                raise LongStoryPersistenceConflictError(
+                    "Planning Session revision is stale or skips a version."
+                )
+            self._apply_optimistic_update(
+                PlanningSessionRecord,
+                PlanningSessionRecord.project_id == session.story_project_id,
+                PlanningSessionRecord.revision == record.revision,
+                values,
+                "Planning Session",
+            )
+        self._session.flush()
+        saved = self._session.get(PlanningSessionRecord, session.story_project_id)
+        if saved is None:
+            raise LongStoryPersistenceConflictError(
+                "Planning Session could not be reloaded after save."
+            )
+        return self._planning_session_from_record(saved)
+
+    def get_planning_session(
+        self,
+        project_id: str,
+    ) -> PlanningSessionSnapshot | None:
+        record = self._session.get(PlanningSessionRecord, project_id)
+        if record is None:
+            return None
+        return self._planning_session_from_record(record)
+
     def reset_workspace_generation_state(
         self,
         project_id: str,
@@ -251,13 +324,36 @@ class LongStoryRepository:
         artifact_ids = select(EpisodeArtifactVersionRecord.artifact_id).where(
             EpisodeArtifactVersionRecord.story_project_id == story_project_id
         )
+        agent_run_ids = select(AgentRunRecordTable.run_id).where(
+            AgentRunRecordTable.project_id == story_project_id
+        )
 
         self._session.execute(
             update(EpisodeArtifactVersionRecord)
             .where(EpisodeArtifactVersionRecord.source_artifact_id.in_(artifact_ids))
             .values(source_artifact_id=None)
         )
+        self._session.execute(
+            delete(NarrativeEventRecord).where(
+                NarrativeEventRecord.story_project_id == story_project_id
+            )
+        )
+        self._session.execute(
+            delete(NarrativeEventSetRecord).where(
+                NarrativeEventSetRecord.story_project_id == story_project_id
+            )
+        )
         results = {
+            "agent_steps": self._session.execute(
+                delete(AgentStepRecordTable).where(
+                    AgentStepRecordTable.run_id.in_(agent_run_ids)
+                )
+            ).rowcount,
+            "agent_runs": self._session.execute(
+                delete(AgentRunRecordTable).where(
+                    AgentRunRecordTable.project_id == story_project_id
+                )
+            ).rowcount,
             "generation_job_checkpoints": self._session.execute(
                 delete(GenerationJobCheckpointRecord).where(
                     GenerationJobCheckpointRecord.batch_id.in_(batch_ids)
@@ -316,6 +412,9 @@ class LongStoryRepository:
         artifact_ids = select(EpisodeArtifactVersionRecord.artifact_id).where(
             EpisodeArtifactVersionRecord.story_project_id == story_project_id
         )
+        agent_run_ids = select(AgentRunRecordTable.run_id).where(
+            AgentRunRecordTable.project_id == story_project_id
+        )
 
         # Break same-table references before deleting the referenced rows.
         self._session.execute(
@@ -333,8 +432,28 @@ class LongStoryRepository:
                 predecessor_node_version=None,
             )
         )
+        self._session.execute(
+            delete(NarrativeEventRecord).where(
+                NarrativeEventRecord.story_project_id == story_project_id
+            )
+        )
+        self._session.execute(
+            delete(NarrativeEventSetRecord).where(
+                NarrativeEventSetRecord.story_project_id == story_project_id
+            )
+        )
 
         results = {
+            "agent_steps": self._session.execute(
+                delete(AgentStepRecordTable).where(
+                    AgentStepRecordTable.run_id.in_(agent_run_ids)
+                )
+            ).rowcount,
+            "agent_runs": self._session.execute(
+                delete(AgentRunRecordTable).where(
+                    AgentRunRecordTable.project_id == story_project_id
+                )
+            ).rowcount,
             "generation_job_checkpoints": self._session.execute(
                 delete(GenerationJobCheckpointRecord).where(
                     GenerationJobCheckpointRecord.batch_id.in_(batch_ids)
@@ -373,6 +492,11 @@ class LongStoryRepository:
             "story_project_workspace_snapshots": self._session.execute(
                 delete(StoryProjectWorkspaceSnapshotRecord).where(
                     StoryProjectWorkspaceSnapshotRecord.project_id == story_project_id
+                )
+            ).rowcount,
+            "planning_sessions": self._session.execute(
+                delete(PlanningSessionRecord).where(
+                    PlanningSessionRecord.project_id == story_project_id
                 )
             ).rowcount,
             "story_bible_versions": self._session.execute(
@@ -476,7 +600,119 @@ class LongStoryRepository:
         ).all()
         return [EpisodeArtifact.model_validate(record.payload) for record in records]
 
+    def save_narrative_event_set(
+        self,
+        event_set: NarrativeEventSet,
+        events: list[NarrativeEvent],
+    ) -> NarrativeEventSet:
+        event_set_payload = event_set.model_dump(mode="json")
+        existing_set = self._session.get(
+            NarrativeEventSetRecord,
+            event_set.event_set_id,
+        )
+        if existing_set is not None:
+            if existing_set.payload != event_set_payload:
+                raise LongStoryPersistenceConflictError(
+                    "Narrative Event Set already exists and cannot be overwritten."
+                )
+            for event in events:
+                existing_event = self._session.get(NarrativeEventRecord, event.event_id)
+                if existing_event is None or existing_event.payload != event.model_dump(mode="json"):
+                    raise LongStoryPersistenceConflictError(
+                        "Narrative Event Set exists but its events are incomplete."
+                    )
+            return event_set
+
+        if len(events) != len(event_set.event_ids) or {
+            event.event_id for event in events
+        } != set(event_set.event_ids):
+            raise LongStoryPersistenceConflictError(
+                "Narrative Event Set event IDs do not match its event records."
+            )
+        for event in events:
+            payload = event.model_dump(mode="json")
+            existing_event = self._session.get(NarrativeEventRecord, event.event_id)
+            if existing_event is not None:
+                if existing_event.payload != payload:
+                    raise LongStoryPersistenceConflictError(
+                        "Narrative Event ID already exists and cannot be overwritten."
+                    )
+                continue
+            self._session.add(
+                NarrativeEventRecord(
+                    event_id=event.event_id,
+                    event_set_id=event.event_set_id,
+                    story_project_id=event.story_project_id,
+                    episode_number=event.episode_number,
+                    sequence_order=event.sequence_order,
+                    source_artifact_id=event.source_artifact_id,
+                    event_type=event.event_type.value,
+                    memory_layer=event.memory_layer.value,
+                    recorded_at=event.recorded_at,
+                    payload=payload,
+                )
+            )
+        self._session.add(
+            NarrativeEventSetRecord(
+                event_set_id=event_set.event_set_id,
+                story_project_id=event_set.story_project_id,
+                episode_number=event_set.episode_number,
+                source_artifact_id=event_set.source_artifact_id,
+                source_artifact_version=event_set.source_artifact_version,
+                schema_version=event_set.schema_version,
+                extractor_policy_version=event_set.extractor_policy_version,
+                status=event_set.status.value,
+                memory_layer=event_set.memory_layer.value,
+                content_hash=event_set.content_hash,
+                created_at=event_set.created_at,
+                payload=event_set_payload,
+            )
+        )
+        self._session.flush()
+        return event_set
+
+    def get_narrative_event_set_for_artifact(
+        self,
+        source_artifact_id: str,
+    ) -> NarrativeEventSet | None:
+        record = self._session.exec(
+            select(NarrativeEventSetRecord).where(
+                NarrativeEventSetRecord.source_artifact_id == source_artifact_id
+            )
+        ).first()
+        return self._from_payload(NarrativeEventSet, record)
+
+    def list_narrative_events(
+        self,
+        story_project_id: str,
+        *,
+        episode_number: int | None = None,
+        event_set_id: str | None = None,
+    ) -> list[NarrativeEvent]:
+        statement = select(NarrativeEventRecord).where(
+            NarrativeEventRecord.story_project_id == story_project_id
+        )
+        if episode_number is not None:
+            statement = statement.where(
+                NarrativeEventRecord.episode_number == episode_number
+            )
+        if event_set_id is not None:
+            statement = statement.where(
+                NarrativeEventRecord.event_set_id == event_set_id
+            )
+        records = self._session.exec(
+            statement.order_by(
+                col(NarrativeEventRecord.episode_number),
+                col(NarrativeEventRecord.sequence_order),
+            )
+        ).all()
+        return [NarrativeEvent.model_validate(record.payload) for record in records]
+
     def save_story_bible(self, story_bible: StoryBible) -> StoryBible:
+        payload = story_bible.model_dump(mode="json")
+        # market_profile is workflow routing metadata excluded from the public
+        # Story Bible generation projection; persist it alongside the payload.
+        payload["market_profile"] = story_bible.market_profile
         record = StoryBibleVersionRecord(
             story_bible_id=story_bible.story_bible_id,
             version=story_bible.version,
@@ -486,7 +722,7 @@ class LongStoryRepository:
             status=story_bible.status.value,
             created_at=story_bible.created_at,
             approved_at=story_bible.approved_at,
-            payload=story_bible.model_dump(mode="json"),
+            payload=payload,
         )
         self._save_immutable(
             StoryBibleVersionRecord,
@@ -775,9 +1011,23 @@ class LongStoryRepository:
                 ContinuityLedgerVersionRecord.story_project_id == story_project_id
             )
             .order_by(
-                col(ContinuityLedgerVersionRecord.through_episode_number).desc(),
                 col(ContinuityLedgerVersionRecord.version).desc(),
             )
+        ).first()
+        return self._from_payload(ContinuityLedger, record)
+
+    def get_continuity_ledger_version(
+        self,
+        story_project_id: str,
+        version: int,
+    ) -> ContinuityLedger | None:
+        record = self._session.exec(
+            select(ContinuityLedgerVersionRecord)
+            .where(
+                ContinuityLedgerVersionRecord.story_project_id == story_project_id,
+                ContinuityLedgerVersionRecord.version == version,
+            )
+            .order_by(col(ContinuityLedgerVersionRecord.updated_at).desc())
         ).first()
         return self._from_payload(ContinuityLedger, record)
 
@@ -966,6 +1216,18 @@ class LongStoryRepository:
             client_instance_id=record.client_instance_id,
             workspace_payload=record.payload,
             updated_at=record.updated_at,
+            payload_checksum=record.payload_checksum,
+            payload_size_bytes=record.payload_size_bytes,
+        )
+
+    @staticmethod
+    def _planning_session_from_record(
+        record: PlanningSessionRecord,
+    ) -> PlanningSessionSnapshot:
+        session = PlanningSession.model_validate(record.payload)
+        return PlanningSessionSnapshot(
+            **session.model_dump(),
+            client_instance_id=record.client_instance_id,
             payload_checksum=record.payload_checksum,
             payload_size_bytes=record.payload_size_bytes,
         )

@@ -2,6 +2,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.master_script.models import (
+    CharacterProfile,
+    DialogueLine,
+    DraftSceneCard,
     DraftMasterScript,
     LLMGeneratedDraftMasterScript,
     MasterScriptCreate,
@@ -98,6 +101,82 @@ def test_generated_episode_title_excludes_the_episode_number(
     expected: str,
 ) -> None:
     assert normalize_generated_episode_title(source) == expected
+
+
+def test_dialogue_translation_is_required_for_new_llm_output_but_legacy_data_loads() -> None:
+    legacy = DialogueLine(
+        character_name="林夏",
+        intent="压低声音",
+        text="找到了。",
+    )
+
+    assert legacy.chinese_translation is None
+    assert legacy.chinese_character_name is None
+    assert "chinese_translation" in DialogueLine.model_json_schema()["required"]
+    assert "chinese_character_name" in DialogueLine.model_json_schema()["required"]
+    paired = DialogueLine(
+        character_name="LENA HART",
+        chinese_character_name="林夏",
+        intent="压低声音",
+        text="I found it.",
+        chinese_translation="我找到了。",
+    )
+    assert paired.chinese_translation == "我找到了。"
+
+
+def _screenplay_scene(**updates: object) -> DraftSceneCard:
+    payload: dict[str, object] = {
+        "scene_number": 1,
+        "slug": "INT. 仓库 夜",
+        "purpose": "林夏取得账本并逼问周野。",
+        "setting_hint": "INT. 仓库 夜",
+        "beat_summary": "林夏取得账本，周野随后指出账本已经被调包。",
+        "emotional_shift": "警惕转为震惊",
+        "character_actions": ["林夏打开铁柜。", "周野按住账本。"],
+        "dialogues": [
+            DialogueLine(character_name="林夏", intent="压低声音", text="找到了。"),
+            DialogueLine(character_name="周野", intent="直接打断", text="那是假的。"),
+        ],
+    }
+    payload.update(updates)
+    return DraftSceneCard.model_validate(payload)
+
+
+def test_screenplay_body_order_preserves_authored_interleaving() -> None:
+    scene = _screenplay_scene(
+        body_order=["action:0", "dialogue:0", "action:1", "dialogue:1"]
+    )
+
+    assert scene.body_order == [
+        "action:0",
+        "dialogue:0",
+        "action:1",
+        "dialogue:1",
+    ]
+
+
+def test_screenplay_body_order_recovers_invalid_legacy_order_locally() -> None:
+    scene = _screenplay_scene(body_order=["action:0", "dialogue:99"])
+
+    assert scene.body_order == [
+        "action:0",
+        "dialogue:0",
+        "action:1",
+        "dialogue:1",
+    ]
+
+
+def test_screenplay_body_order_repairs_grouped_actions_and_dialogue() -> None:
+    scene = _screenplay_scene(
+        body_order=["action:0", "action:1", "dialogue:0", "dialogue:1"]
+    )
+
+    assert scene.body_order == [
+        "action:0",
+        "dialogue:0",
+        "action:1",
+        "dialogue:1",
+    ]
 
 
 def build_payload() -> dict:
@@ -220,6 +299,45 @@ def test_draft_master_script_accepts_valid_payload() -> None:
     model = DraftMasterScript.model_validate(build_draft_payload())
     assert model.generation_strategy_id == "strategy.tiktok.master_script.v1"
     assert model.scenes[-1].cliffhanger is True
+
+
+def test_llm_generated_characters_reject_alias_duplicate_identity() -> None:
+    characters = [
+        CharacterProfile(
+            name="砝码（Weight）",
+            role="证人",
+            description="掌握重建账本并隐藏真实身份的关键证人。",
+            motivation="公开重建契约背后的真相。",
+        ),
+        CharacterProfile(
+            name="Weight",
+            role="证人假身份",
+            description="以英文代号活动的同一个关键证人。",
+            motivation="公开重建契约背后的真相。",
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="one record per identity"):
+        LLMGeneratedDraftMasterScript.ensure_unique_character_identities(characters)
+
+
+def test_llm_generated_characters_keep_distinct_same_name_people() -> None:
+    characters = [
+        CharacterProfile(
+            name="李伟（医生）",
+            role="急诊医生",
+            description="负责抢救关键证人的急诊医生。",
+            motivation="查清病历被替换的原因。",
+        ),
+        CharacterProfile(
+            name="李伟（记者）",
+            role="调查记者",
+            description="追查同一案件资金来源的调查记者。",
+            motivation="公开资金链背后的操控者。",
+        ),
+    ]
+
+    assert LLMGeneratedDraftMasterScript.ensure_unique_character_identities(characters) == characters
 
 
 def test_scene_causality_rejects_outcome_that_restates_goal() -> None:

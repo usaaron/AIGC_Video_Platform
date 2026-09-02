@@ -9,6 +9,8 @@ export type ScriptGenerationTaskStatus =
   | "completed"
   | "failed";
 
+export const SCRIPT_GENERATION_PAUSE_ABORT_REASON = "script-generation-pause";
+
 export interface ScriptGenerationTaskSnapshot {
   key: string;
   projectId: string;
@@ -17,6 +19,8 @@ export interface ScriptGenerationTaskSnapshot {
   status: ScriptGenerationTaskStatus;
   createdAt: string;
   completedAt?: string;
+  pausedAt?: string;
+  pausedDurationMs?: number;
   error?: string;
   progress: EpisodeStreamProgress[];
 }
@@ -25,6 +29,7 @@ const taskRecords = new Map<string, ScriptGenerationTaskSnapshot>();
 const activeProjectTasks = new Map<string, string>();
 const listeners = new Set<() => void>();
 const pauseWaiters = new Map<string, Set<() => void>>();
+const activeAbortControllers = new Map<string, Set<AbortController>>();
 
 function notify(): void {
   listeners.forEach((listener) => listener());
@@ -94,7 +99,9 @@ export function updateScriptGenerationProgress(
   const key = activeProjectTasks.get(projectId);
   if (!key) return;
   const task = taskRecords.get(key);
-  if (!task || (task.status !== "running" && task.status !== "pausing")) return;
+  // Once pause has been requested, late SSE frames from the aborted request
+  // must not keep changing the preview or make the task look active again.
+  if (!task || task.status !== "running") return;
   const nextProgress = typeof update === "function"
     ? update(task.progress)
     : update;
@@ -115,7 +122,19 @@ export function requestScriptGenerationPause(projectId: string): void {
   if (!key) return;
   const task = taskRecords.get(key);
   if (!task || task.status !== "running") return;
-  taskRecords.set(key, { ...task, status: "pausing" });
+  taskRecords.set(key, {
+    ...task,
+    status: "pausing",
+    pausedAt: task.pausedAt ?? new Date().toISOString(),
+    progress: task.progress.map((item) => (
+      item.status === "active" && item.pausedAt === undefined
+        ? { ...item, pausedAt: Date.now() }
+        : item
+    )),
+  });
+  activeAbortControllers.get(projectId)?.forEach((controller) => {
+    controller.abort(SCRIPT_GENERATION_PAUSE_ABORT_REASON);
+  });
   notify();
 }
 
@@ -124,7 +143,25 @@ export function resumeScriptGenerationTask(projectId: string): void {
   if (!key) return;
   const task = taskRecords.get(key);
   if (!task || (task.status !== "pausing" && task.status !== "paused")) return;
-  taskRecords.set(key, { ...task, status: "running" });
+  const pausedAtMs = task.pausedAt ? Date.parse(task.pausedAt) : Number.NaN;
+  const pausedDurationMs = (task.pausedDurationMs ?? 0)
+    + (Number.isFinite(pausedAtMs) ? Math.max(0, Date.now() - pausedAtMs) : 0);
+  const resumedAt = Date.now();
+  taskRecords.set(key, {
+    ...task,
+    status: "running",
+    pausedAt: undefined,
+    pausedDurationMs,
+    progress: task.progress.map((item) => {
+      if (item.pausedAt === undefined) return item;
+      return {
+        ...item,
+        pausedAt: undefined,
+        pausedDurationMs: (item.pausedDurationMs ?? 0)
+          + Math.max(0, resumedAt - item.pausedAt),
+      };
+    }),
+  });
   const waiters = pauseWaiters.get(projectId);
   pauseWaiters.delete(projectId);
   waiters?.forEach((resolve) => resolve());
@@ -134,6 +171,53 @@ export function resumeScriptGenerationTask(projectId: string): void {
 export function isScriptGenerationPauseRequested(projectId: string): boolean {
   const status = getScriptGenerationTask(projectId)?.status;
   return status === "pausing" || status === "paused";
+}
+
+/** Register the request controller for the currently running episode. */
+export function registerScriptGenerationAbortController(
+  projectId: string,
+  controller: AbortController,
+): () => void {
+  const controllers = activeAbortControllers.get(projectId) ?? new Set<AbortController>();
+  controllers.add(controller);
+  activeAbortControllers.set(projectId, controllers);
+  const task = getScriptGenerationTask(projectId);
+  if (task && (task.status === "pausing" || task.status === "paused")) {
+    // Close the small race where a request is registered just after the user
+    // clicks pause and the original abort broadcast has already run.
+    controller.abort(SCRIPT_GENERATION_PAUSE_ABORT_REASON);
+  }
+  return () => {
+    const current = activeAbortControllers.get(projectId);
+    if (!current) return;
+    current.delete(controller);
+    if (!current.size) activeAbortControllers.delete(projectId);
+  };
+}
+
+export function isScriptGenerationAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+export function isScriptGenerationPauseAbort(signal: AbortSignal): boolean {
+  return signal.aborted && signal.reason === SCRIPT_GENERATION_PAUSE_ABORT_REASON;
+}
+
+export function scriptGenerationElapsedSeconds(
+  task: ScriptGenerationTaskSnapshot,
+  now = Date.now(),
+): number {
+  const startedAt = Date.parse(task.createdAt);
+  if (!Number.isFinite(startedAt)) return 0;
+  const completedAt = task.completedAt ? Date.parse(task.completedAt) : Number.NaN;
+  const pausedAt = task.pausedAt ? Date.parse(task.pausedAt) : Number.NaN;
+  const endedAt = Number.isFinite(completedAt)
+    ? completedAt
+    : task.status === "pausing" || task.status === "paused"
+      ? (Number.isFinite(pausedAt) ? pausedAt : now)
+      : now;
+  const elapsedMs = endedAt - startedAt - (task.pausedDurationMs ?? 0);
+  return Math.max(0, Math.round(elapsedMs / 1_000));
 }
 
 export async function waitForScriptGenerationResume(projectId: string): Promise<boolean> {
@@ -151,6 +235,20 @@ export async function waitForScriptGenerationResume(projectId: string): Promise<
     pauseWaiters.set(projectId, waiters);
   });
   return true;
+}
+
+export function waitForScriptGenerationIdle(projectId: string): Promise<void> {
+  if (!isScriptGenerationRunning(projectId)) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let unsubscribe: () => void = () => undefined;
+    const finishIfIdle = () => {
+      if (isScriptGenerationRunning(projectId)) return;
+      unsubscribe();
+      resolve();
+    };
+    unsubscribe = subscribeScriptGenerationTasks(finishIfIdle);
+    finishIfIdle();
+  });
 }
 
 export function subscribeScriptGenerationTasks(listener: () => void): () => void {
@@ -192,13 +290,30 @@ function finishScriptGenerationTask(
   if (!key) return;
   const task = taskRecords.get(key);
   if (!task || !isActiveScriptTaskStatus(task.status)) return;
+  const completedAt = new Date();
+  const pausedAtMs = task.pausedAt ? Date.parse(task.pausedAt) : Number.NaN;
+  const pausedDurationMs = (task.pausedDurationMs ?? 0)
+    + (Number.isFinite(pausedAtMs) ? Math.max(0, completedAt.getTime() - pausedAtMs) : 0);
   taskRecords.set(key, {
     ...task,
     status,
-    completedAt: new Date().toISOString(),
+    completedAt: completedAt.toISOString(),
+    pausedAt: undefined,
+    pausedDurationMs,
+    progress: task.progress.map((item) => {
+      if (item.pausedAt === undefined) return item;
+      return {
+        ...item,
+        pausedAt: undefined,
+        pausedDurationMs: (item.pausedDurationMs ?? 0)
+          + Math.max(0, completedAt.getTime() - item.pausedAt),
+      };
+    }),
     ...(error ? { error } : {}),
   });
   activeProjectTasks.delete(projectId);
+  activeAbortControllers.get(projectId)?.forEach((controller) => controller.abort());
+  activeAbortControllers.delete(projectId);
   const waiters = pauseWaiters.get(projectId);
   pauseWaiters.delete(projectId);
   waiters?.forEach((resolve) => resolve());

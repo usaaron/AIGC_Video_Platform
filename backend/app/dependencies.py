@@ -1,7 +1,7 @@
 import os
 from functools import lru_cache
 
-from fastapi import HTTPException, status
+from fastapi import Depends, HTTPException, status
 
 from app.database import (
     DatabaseConfigurationError,
@@ -15,15 +15,21 @@ from app.llm_runtime import (
     build_dialogue_polish_adapter_from_env,
     build_episode_plan_llm_adapter_from_env,
     build_llm_adapter_from_env,
+    build_market_routed_role_adapter_from_env,
     build_planning_llm_adapter_from_env,
     build_script_generation_adapter_from_env,
     build_script_editor_llm_adapter_from_env,
     build_script_repair_llm_adapter_from_env,
     build_story_architect_llm_adapter_from_env,
+    build_story_architect_recovery_llm_adapter_from_env,
     build_story_bible_llm_adapter_from_env,
 )
 from app.modules.asset.repository import AssetRepository
 from app.modules.asset.service import AssetService
+from app.modules.agent_runtime.episode_roadmap import EpisodeRoadmapAgent
+from app.modules.agent_runtime.episode_script import EpisodeScriptAgent
+from app.modules.agent_runtime.story_quality import StoryQualityAgent
+from app.modules.agent_runtime.service import AgentRunService
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.content_spec.service import ContentSpecService
 from app.modules.data_intelligence.service import DataIntelligenceService
@@ -141,6 +147,34 @@ def get_story_planning_service() -> StoryPlanningService:
     return _get_story_planning_service(_llm_service_cache_key())
 
 
+def get_agent_run_service() -> AgentRunService:
+    try:
+        runtime = get_long_story_database_runtime()
+    except DatabaseConfigurationError:
+        runtime = None
+    return AgentRunService(runtime)
+
+
+def get_episode_roadmap_agent(
+    planning_service: StoryPlanningService = Depends(get_story_planning_service),
+    run_service: AgentRunService = Depends(get_agent_run_service),
+) -> EpisodeRoadmapAgent:
+    return EpisodeRoadmapAgent(
+        planning_service=planning_service,
+        run_service=run_service,
+    )
+
+
+def get_story_quality_agent(
+    planning_service: StoryPlanningService = Depends(get_story_planning_service),
+    run_service: AgentRunService = Depends(get_agent_run_service),
+) -> StoryQualityAgent:
+    return StoryQualityAgent(
+        planning_service=planning_service,
+        run_service=run_service,
+    )
+
+
 @lru_cache(maxsize=8)
 def _get_story_planning_service(
     _cache_key: tuple[tuple[str, str], ...],
@@ -153,22 +187,134 @@ def _get_story_planning_service(
         decomposition_llm_adapter = build_planning_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         decomposition_llm_adapter = FailingLLMAdapter(exc)
+    decomposition_llm_adapter = build_market_routed_role_adapter_from_env(
+        "STORY_ARCHITECT",
+        fallback=decomposition_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="medium",
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
+    )
     try:
         creative_llm_adapter = build_creative_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         creative_llm_adapter = FailingLLMAdapter(exc)
+    creative_llm_adapter = build_market_routed_role_adapter_from_env(
+        "CREATIVE",
+        fallback=creative_llm_adapter,
+        default_timeout_seconds=300,
+        default_max_retries=1,
+        default_reasoning_effort="medium",
+        default_thinking_mode="enabled",
+    )
+    inspiration_llm_adapter = build_market_routed_role_adapter_from_env(
+        "INSPIRATION",
+        fallback=creative_llm_adapter,
+        # Inspiration is an interactive turn, not a long-form artifact. Keep
+        # medium reasoning for question quality, but never leave the creator
+        # waiting through a multi-minute provider request.
+        default_timeout_seconds=60,
+        default_max_retries=0,
+        default_reasoning_effort="medium",
+        default_thinking_mode="enabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        default_retry_empty_response=False,
+    )
     try:
         story_bible_llm_adapter = build_story_bible_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         story_bible_llm_adapter = FailingLLMAdapter(exc)
+    story_bible_llm_adapter = build_market_routed_role_adapter_from_env(
+        "STORY_BIBLE",
+        fallback=story_bible_llm_adapter,
+        default_timeout_seconds=600,
+        # Story Bible requests are long-running. Retry at the shared client
+        # boundary instead of replaying the same large request inside the
+        # adapter, which can otherwise double the visible wait time.
+        default_max_retries=0,
+        default_reasoning_effort="medium",
+        # The Story Bible prompt and structured contract already carry the
+        # planning constraints. Keep hidden reasoning off for this synthesis
+        # pass so the model spends its budget on the reviewable outline.
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        # A successful HTTP response with an empty body is recoverable for the
+        # Story Bible role; let the adapter make one bounded protocol retry.
+        default_retry_empty_response=True,
+    )
+    story_bible_editor_llm_adapter = build_market_routed_role_adapter_from_env(
+        "STORY_BIBLE_EDITOR",
+        fallback=story_bible_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="medium",
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=False,
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
+    )
     try:
         story_architect_llm_adapter = build_story_architect_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         story_architect_llm_adapter = FailingLLMAdapter(exc)
+    story_architect_llm_adapter = build_market_routed_role_adapter_from_env(
+        "STORY_ARCHITECT",
+        fallback=story_architect_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="medium",
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
+    )
+    try:
+        story_architect_recovery_llm_adapter = (
+            build_story_architect_recovery_llm_adapter_from_env()
+        )
+    except MissingLLMConfigurationError as exc:
+        story_architect_recovery_llm_adapter = FailingLLMAdapter(exc)
+    story_architect_recovery_llm_adapter = build_market_routed_role_adapter_from_env(
+        "STORY_ARCHITECT_RECOVERY",
+        fallback=story_architect_recovery_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="low",
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
+    )
     try:
         episode_plan_llm_adapter = build_episode_plan_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         episode_plan_llm_adapter = FailingLLMAdapter(exc)
+    episode_plan_llm_adapter = build_market_routed_role_adapter_from_env(
+        "EPISODE_PLAN",
+        fallback=episode_plan_llm_adapter,
+        default_timeout_seconds=180,
+        default_max_retries=0,
+        default_reasoning_effort="low",
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=False,
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
+    )
     return StoryPlanningService(
         long_story_service=get_long_story_service(),
         content_spec_repository=content_spec_repository,
@@ -176,8 +322,13 @@ def _get_story_planning_service(
         llm_adapter=llm_adapter,
         decomposition_llm_adapter=decomposition_llm_adapter,
         creative_llm_adapter=creative_llm_adapter,
+        inspiration_llm_adapter=inspiration_llm_adapter,
         story_bible_llm_adapter=story_bible_llm_adapter,
+        story_bible_editor_llm_adapter=story_bible_editor_llm_adapter,
         story_architect_llm_adapter=story_architect_llm_adapter,
+        story_architect_recovery_llm_adapter=(
+            story_architect_recovery_llm_adapter
+        ),
         episode_plan_llm_adapter=episode_plan_llm_adapter,
     )
 
@@ -224,6 +375,16 @@ def get_script_generation_service() -> ScriptGenerationService:
     return _get_script_generation_service(_llm_service_cache_key())
 
 
+def get_episode_script_agent(
+    generation_service: ScriptGenerationService = Depends(get_script_generation_service),
+    run_service: AgentRunService = Depends(get_agent_run_service),
+) -> EpisodeScriptAgent:
+    return EpisodeScriptAgent(
+        generation_service=generation_service,
+        run_service=run_service,
+    )
+
+
 @lru_cache(maxsize=8)
 def _get_script_generation_service(
     _cache_key: tuple[tuple[str, str], ...],
@@ -232,18 +393,60 @@ def _get_script_generation_service(
         primary_llm_adapter = build_script_generation_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         primary_llm_adapter = FailingLLMAdapter(exc)
+    primary_llm_adapter = build_market_routed_role_adapter_from_env(
+        "SCRIPT",
+        fallback=primary_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+        default_use_strict_schema=False,
+        default_send_response_format=False,
+        default_retry_empty_response=True,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=True,
+    )
     try:
         primary_repair_llm_adapter = build_script_repair_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         primary_repair_llm_adapter = FailingLLMAdapter(exc)
+    primary_repair_llm_adapter = build_market_routed_role_adapter_from_env(
+        "SCRIPT_REPAIR",
+        fallback=primary_repair_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+        default_use_strict_schema=False,
+        default_send_response_format=False,
+        default_retry_empty_response=True,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=True,
+    )
     try:
         script_editor_llm_adapter = build_script_editor_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         script_editor_llm_adapter = FailingLLMAdapter(exc)
+    script_editor_llm_adapter = build_market_routed_role_adapter_from_env(
+        "SCRIPT_EDITOR",
+        fallback=script_editor_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="medium",
+        default_thinking_mode="enabled",
+    )
     try:
         continuity_llm_adapter = build_continuity_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         continuity_llm_adapter = FailingLLMAdapter(exc)
+    continuity_llm_adapter = build_market_routed_role_adapter_from_env(
+        "CONTINUITY",
+        fallback=continuity_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+    )
     return ScriptGenerationService(
         content_spec_repository=content_spec_repository,
         generation_strategy_repository=generation_strategy_repository,
@@ -253,6 +456,8 @@ def _get_script_generation_service(
         retrieval_service=get_retrieval_service(),
         llm_adapter=primary_llm_adapter,
         repair_llm_adapter=primary_repair_llm_adapter,
+        json_repair_llm_adapter=script_editor_llm_adapter,
+        production_count_llm_adapter=script_editor_llm_adapter,
         initial_fallback_llm_adapter=primary_repair_llm_adapter,
         contract_fallback_llm_adapter=primary_repair_llm_adapter,
         continuity_llm_adapter=continuity_llm_adapter,
@@ -281,6 +486,14 @@ def get_bilingual_script_view_service() -> BilingualScriptViewService:
         llm_adapter = build_dialogue_polish_adapter_from_env()
     except MissingLLMConfigurationError as exc:
         llm_adapter = FailingLLMAdapter(exc)
+    llm_adapter = build_market_routed_role_adapter_from_env(
+        "SCRIPT_EDITOR",
+        fallback=llm_adapter,
+        default_timeout_seconds=300,
+        default_max_retries=1,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+    )
 
     return BilingualScriptViewService(
         generation_strategy_repository=generation_strategy_repository,

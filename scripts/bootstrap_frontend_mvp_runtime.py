@@ -205,6 +205,18 @@ def _bootstrap_payloads(
         ontology_nodes = MAINLAND_FRONTEND_ONTOLOGY_NODES
     else:
         platform_payload = build_platform_profile_payload(profile_id)
+        platform_payload["metadata"] = {
+            **platform_payload.get("metadata", {}),
+            "market_profile": market_profile,
+            "market_profile_family": "overseas",
+            "market_contract_version": "v1",
+            "runtime_status": "active",
+            "default_output_language": "en",
+            "cultural_context": (
+                "English-language overseas/international cultural context by default; "
+                "country-specific profiles can be added later."
+            ),
+        }
         prompt_payloads = build_prompt_library_payload(suffix)
         deepening_prompt = _build_deepening_prompt_payload(suffix)
         prompt_payloads.append(deepening_prompt)

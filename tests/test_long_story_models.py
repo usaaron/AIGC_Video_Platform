@@ -13,8 +13,12 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanItemModificationRequest,
     GenerationBatchPlan,
     GenerationJobCheckpoint,
+    MemoryLayer,
     SetupPayoffRecord,
     StoryBible,
+    StoryInspirationBrief,
+    StoryInspirationChatOutput,
+    StoryInspirationFrontierQuestion,
     StoryPlanNode,
     StoryPlanNodeDecompositionOutput,
     StoryPlanNodeDecompositionRequest,
@@ -22,6 +26,54 @@ from app.modules.script_engine.long_story_models import (
     StoryProjectWorkspaceSave,
     StoryStagePlan,
 )
+
+
+def test_unfinished_inspiration_turn_requires_an_actionable_question() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="unfinished inspiration turn must include at least one question",
+    ):
+        StoryInspirationChatOutput(
+            assistant_message="我已经记录了目前明确的剧本方向。",
+            questions=[],
+            brief=StoryInspirationBrief(),
+            ready_to_generate=False,
+        )
+
+    completed = StoryInspirationChatOutput(
+        assistant_message="当前决策前沿已经清空，可以生成总纲。",
+        questions=[],
+        brief=StoryInspirationBrief(),
+        ready_to_generate=True,
+    )
+    assert completed.questions == []
+
+
+def test_inspiration_recommendation_must_reference_an_available_choice() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="frontier recommended_choice must exactly match one choice",
+    ):
+        StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="story_promise.viewer_reward",
+            title="核心追看回报",
+            question="故事进入中段后，观众最想继续看到哪一种变化？",
+            choices=["秘密逐层揭露", "关系持续变化"],
+            recommended_choice="高难度逆转",
+            recommended_answer="优先选择秘密逐层揭露，因为它可以稳定提供阶段性回报。",
+        )
+
+    question = StoryInspirationFrontierQuestion(
+        question_id="Q1",
+        decision_key="story_promise.viewer_reward",
+        title="核心追看回报",
+        question="故事进入中段后，观众最想继续看到哪一种变化？",
+        choices=["秘密逐层揭露", "关系持续变化"],
+        recommended_choice="秘密逐层揭露",
+        recommended_answer="优先选择秘密逐层揭露，因为它可以稳定提供阶段性回报。",
+    )
+    assert question.recommended_choice == "秘密逐层揭露"
 
 
 def build_episode_plan_generation_item(episode_number: int = 1) -> dict:
@@ -55,7 +107,7 @@ def build_scene_execution_plan() -> list[dict[str, object]]:
             "visible_action": "主角比对封存档案与账本上的时间戳。",
             "turn_or_reveal": "档案显示时间戳曾被改写。",
             "dialogue_objective": "逼管理员说明谁接触过原始档案。",
-            "dialogue_line_target": 12,
+            "dialogue_line_target": 13,
             "shot_target": 8,
             "exit_state": "主角锁定提供账本的证人。",
         },
@@ -78,7 +130,7 @@ def test_episode_plan_scene_execution_plan_enforces_episode_budgets() -> None:
     payload = {
         **build_episode_plan_generation_item(),
         "planned_scene_count": 2,
-        "planned_dialogue_line_count": 24,
+        "planned_dialogue_line_count": 25,
         "planned_shot_count": 16,
         "scene_execution_plan": build_scene_execution_plan(),
     }
@@ -86,7 +138,7 @@ def test_episode_plan_scene_execution_plan_enforces_episode_budgets() -> None:
     item = EpisodePlanGenerationItem.model_validate(payload)
 
     assert len(item.scene_execution_plan) == 2
-    assert sum(scene.dialogue_line_target for scene in item.scene_execution_plan) == 24
+    assert sum(scene.dialogue_line_target for scene in item.scene_execution_plan) == 25
     assert sum(scene.shot_target for scene in item.scene_execution_plan) == 16
 
     invalid = {
@@ -145,8 +197,14 @@ def test_episode_plan_modification_allows_blank_instruction_only_for_rewrite() -
         **common,
         revision_mode="rewrite",
         instruction="",
+        selection_context={
+            "source_field": "本集冲突",
+            "selected_text": "公开对抗升级",
+        },
     )
     assert rewrite.revision_mode.value == "rewrite"
+    assert rewrite.selection_context is not None
+    assert rewrite.selection_context.source_field == "本集冲突"
 
     with pytest.raises(ValueError, match="requires an instruction"):
         EpisodePlanItemModificationRequest(
@@ -450,6 +508,26 @@ def test_continuity_ledger_tracks_compact_state_and_serializes() -> None:
     assert serialized["through_episode_number"] == 1
     assert serialized["setup_payoffs"][0]["status"] == "setup"
     assert serialized["recent_episode_summaries"][0]["episode_number"] == 1
+    assert serialized["memory_layer"] == "derived"
+
+
+def test_memory_layers_keep_canon_ledger_and_workspace_boundaries_explicit() -> None:
+    with pytest.raises(ValidationError, match="derived projection"):
+        ContinuityLedger(
+            ledger_id="continuity.invalid.layer",
+            story_project_id="story_project.mainland_demo",
+            story_bible_id="story_bible.mainland_demo",
+            story_bible_version=1,
+            memory_layer=MemoryLayer.canonical,
+        )
+
+    with pytest.raises(ValidationError, match="provisional memory"):
+        StoryProjectWorkspaceSave(
+            project_id="story_project.mainland_demo",
+            memory_layer=MemoryLayer.canonical,
+            client_instance_id="client.mainland_demo",
+            workspace_payload={"id": "story_project.mainland_demo"},
+        )
 
 
 def test_continuity_ledger_rejects_future_observed_state() -> None:
@@ -551,6 +629,20 @@ def test_episode_artifact_create_serializes_bounded_lineage() -> None:
     assert serialized["artifact_kind"] == "draft"
     assert serialized["content_payload"]["title"] == "Episode 1"
     assert serialized["lineage_refs"]["generation_run_id"] == "generation.run.001"
+    assert artifact.effective_memory_layer == MemoryLayer.canonical
+
+
+def test_revised_artifact_cannot_be_declared_canonical() -> None:
+    with pytest.raises(ValidationError, match="cannot be canonical"):
+        EpisodeArtifactCreate(
+            artifact_id="artifact.episode_001.revised.invalid-layer",
+            story_project_id="story_project.mainland_demo",
+            episode_number=1,
+            artifact_kind="revised",
+            memory_layer=MemoryLayer.canonical,
+            content_schema_version="revised_draft_master_script.v1",
+            content_payload={"title": "Episode 1"},
+        )
 
 
 def test_episode_artifact_rejects_excessive_lineage() -> None:

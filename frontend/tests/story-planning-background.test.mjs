@@ -343,7 +343,7 @@ test("an active planning node cannot be enqueued twice", async () => {
   assert.equal(await second.promise, "done");
 });
 
-test("planning task labels remain available to the global background dock", async () => {
+test("planning task labels remain available to the top-bar generation status", async () => {
   const projectId = `project.background.label.${crypto.randomUUID()}`;
   let release;
   const queued = enqueuePlanningTask({

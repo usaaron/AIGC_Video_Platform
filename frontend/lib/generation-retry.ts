@@ -3,13 +3,12 @@ import type { FailureRetryMode } from "./types.ts";
 // An attempt includes the first request. Keep this small: the backend already
 // has provider-route and bounded contract recovery of its own.
 export const MAX_AUTOMATIC_GENERATION_ATTEMPTS = 3;
-// One roadmap API request already tries the planning model and its independent
-// fallback route. Do not repeat that full two-model chain in the browser: one
-// click remains automatically recoverable while staying below the 105-second
-// combined provider timeout.
-export const MAX_EPISODE_ROADMAP_API_ATTEMPTS = 1;
+// One attempt is the original request; the other two are bounded reconnects.
+// The episode-plan adapters do not retry the same route internally, so recovery
+// happens in one visible place and can never turn into an unbounded loop.
+export const MAX_EPISODE_ROADMAP_API_ATTEMPTS = 3;
 
-const TRANSIENT_STATUSES = new Set([408, 429, 502, 503, 504]);
+const TRANSIENT_STATUSES = new Set([408, 429, 502, 503, 504, 524]);
 const DETERMINISTIC_FAILURE_CLASSES = new Set([
   "configuration",
   "contract",
@@ -30,6 +29,8 @@ const TRANSIENT_FAILURE_CLASSES = new Set([
   "upstream",
   "transient_upstream",
   "stream_incomplete",
+  "checkpoint_recoverable",
+  "agent_in_progress",
 ]);
 
 export interface AutomaticRetryEvent {
@@ -41,6 +42,7 @@ export interface AutomaticRetryEvent {
 }
 
 export type RetryDelay = (failedAttempt: number, error: unknown) => number;
+export type RetryWait = (delayMs: number, signal?: AbortSignal) => Promise<void>;
 
 /** Full-episode retries are for transport/provider failures only. Contract and
  * business 4xx responses already exhausted the backend's bounded repair path. */
@@ -73,7 +75,7 @@ export function isTransientGenerationFailure(error: unknown): boolean {
     return TRANSIENT_STATUSES.has(status);
   }
   const message = error instanceof Error ? error.message : String(error);
-  return /(?:failed to fetch|fetch failed|load failed|network(?:error| request)?|connection\s+(?:reset|closed|refused)|connect(?:ion)?(?:error| failed)|socket|broken pipe|incomplete chunked|peer closed|eof|stream (?:disconnected|terminated|ended)|premature(?:ly)? (?:closed|ended)|response.?not.?read|timed out|timeout|(?:^|\D)(?:408|429|502|503|504)(?:\D|$))/i.test(message);
+  return /(?:failed to fetch|fetch failed|load failed|network(?:error| request)?|connection\s+(?:reset|closed|refused)|connect(?:ion)?(?:error| failed)|socket|broken pipe|incomplete chunked|peer closed|eof|stream (?:disconnected|terminated|ended)|premature(?:ly)? (?:closed|ended)|response.?not.?read|timed out|timeout|(?:^|\D)(?:408|429|502|503|504|524)(?:\D|$))/i.test(message);
 }
 
 export function generateWithAutomaticTransientRetry<T>({
@@ -82,12 +84,14 @@ export function generateWithAutomaticTransientRetry<T>({
   wait = waitForRetry,
   retryDelay = automaticRetryDelayMs,
   maxAutomaticAttempts = MAX_AUTOMATIC_GENERATION_ATTEMPTS,
+  signal,
 }: {
   generate: (attempt: number) => Promise<T>;
   onAutomaticRetry?: (event: AutomaticRetryEvent) => void;
-  wait?: (delayMs: number) => Promise<void>;
+  wait?: RetryWait;
   retryDelay?: RetryDelay;
   maxAutomaticAttempts?: number;
+  signal?: AbortSignal;
 }): Promise<T> {
   return generateWithFailurePolicy({
     generate,
@@ -97,6 +101,7 @@ export function generateWithAutomaticTransientRetry<T>({
     wait,
     retryDelay,
     maxAutomaticAttempts,
+    signal,
   });
 }
 
@@ -108,26 +113,33 @@ export async function generateWithFailurePolicy<T>({
   wait = waitForRetry,
   retryDelay = automaticRetryDelayMs,
   maxAutomaticAttempts = MAX_AUTOMATIC_GENERATION_ATTEMPTS,
+  signal,
 }: {
   generate: (attempt: number) => Promise<T>;
   mode: FailureRetryMode;
   onAutomaticRetry?: (event: AutomaticRetryEvent) => void;
   shouldRetry?: (error: unknown) => boolean;
-  wait?: (delayMs: number) => Promise<void>;
+  wait?: RetryWait;
   retryDelay?: RetryDelay;
   maxAutomaticAttempts?: number;
+  signal?: AbortSignal;
 }): Promise<T> {
   const maxAttempts = mode === "automatic"
     ? Math.max(1, Math.floor(maxAutomaticAttempts))
     : 1;
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    throwIfAborted(signal);
     try {
-      return await generate(attempt);
+      const result = await generate(attempt);
+      throwIfAborted(signal);
+      return result;
     } catch (error) {
+      if (signal?.aborted) throw createAbortError();
       lastError = error;
       if (attempt >= maxAttempts || !shouldRetry(error)) break;
       const delayMs = retryDelay(attempt, error);
+      throwIfAborted(signal);
       onAutomaticRetry?.({
         failedAttempt: attempt,
         nextAttempt: attempt + 1,
@@ -135,7 +147,8 @@ export async function generateWithFailurePolicy<T>({
         delayMs,
         error,
       });
-      await wait(delayMs);
+      await wait(delayMs, signal);
+      throwIfAborted(signal);
     }
   }
   throw lastError;
@@ -146,6 +159,22 @@ export function automaticRetryDelayMs(failedAttempt: number, error?: unknown): n
     ? (error as { status?: unknown }).status
     : undefined;
   const message = error instanceof Error ? error.message : String(error ?? "");
+  const errorType = typeof error === "object" && error !== null && "errorType" in error
+    ? (error as { errorType?: unknown }).errorType
+    : undefined;
+  const failureClass = typeof error === "object" && error !== null && "failureClass" in error
+    ? (error as { failureClass?: unknown }).failureClass
+    : undefined;
+  if (failureClass === "agent_in_progress" || errorType === "agent_run_in_progress") {
+    return failedAttempt <= 1 ? 30_000 : 60_000;
+  }
+  if (
+    status === 524
+    || errorType === "provider_gateway_deadline"
+    || /provider gateway deadline|网关.*(?:截止|超时)/i.test(message)
+  ) {
+    return failedAttempt <= 1 ? 10_000 : 30_000;
+  }
   if (status === 429 || /(?:^|\D)429(?:\D|$)|rate.?limit|too many requests/i.test(message)) {
     return failedAttempt <= 1 ? 10_000 : 30_000;
   }
@@ -155,7 +184,7 @@ export function automaticRetryDelayMs(failedAttempt: number, error?: unknown): n
     || status === 504
     || /(?:^|\D)50[234](?:\D|$)|bad gateway|provider gateway|供应商网关/i.test(message)
   ) {
-    return failedAttempt <= 1 ? 15_000 : 30_000;
+    return failedAttempt <= 1 ? 3_000 : 8_000;
   }
   return failedAttempt <= 1 ? 2_000 : 5_000;
 }
@@ -165,12 +194,39 @@ export function roadmapRetryDelayMs(failedAttempt: number, error: unknown): numb
   const status = typeof error === "object" && error !== null && "status" in error
     ? (error as { status?: unknown }).status
     : undefined;
+  const failureClass = typeof error === "object" && error !== null && "failureClass" in error
+    ? (error as { failureClass?: unknown }).failureClass
+    : undefined;
   const message = error instanceof Error ? error.message : String(error);
+  if (failureClass === "agent_in_progress") {
+    return failedAttempt <= 1 ? 30_000 : 60_000;
+  }
   const rateLimited = status === 429 || /(?:^|\D)429(?:\D|$)|rate.?limit|too many requests/i.test(message);
   if (rateLimited) return failedAttempt <= 1 ? 10_000 : 30_000;
   return automaticRetryDelayMs(failedAttempt, error);
 }
 
-function waitForRetry(delayMs: number): Promise<void> {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  return new Promise((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      globalThis.clearTimeout(timer);
+      reject(createAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function createAbortError(): Error {
+  const error = new Error("Generation request was aborted.");
+  error.name = "AbortError";
+  return error;
 }

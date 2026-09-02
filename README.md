@@ -1,23 +1,23 @@
 # AI Comic Content OS
 
-AI Comic Content OS 当前面向中国大陆漫剧市场。产品核心是生成优质、可控、可持续扩展的中文长剧本母本；当前可选最大目标档为约 40–50 万字正文，系统不绑定单一发行平台，红果仅作为市场参考。
+AI Comic Content OS 支持中国大陆与海外两条创作路径。创作者界面保持中文；中国大陆路径使用简体中文和中国大陆文化背景，海外路径使用海外/国际文化背景并沿用既有中英对照交付格式。
 
-当前唯一产品目标是把用户创作意图可靠展开为完整长篇：故事总纲 → 可变深度递归剧情树 → 分集计划 → 有界正文批次 → 连续性校验 → 完整 `MasterScript`。目标规模通过可暂停、可编辑、可恢复的多批次生成完成，不通过单次超长模型调用完成。当前不以内容深化、视频生成或海外适配为开发重点。
+当前唯一产品目标是把用户创作意图可靠展开为完整长篇：故事总纲 → 可变深度递归剧情树 → 分集计划 → 有界正文批次 → 连续性校验 → 完整 `MasterScript`。目标规模通过可暂停、可编辑、可恢复的多批次生成完成，不通过单次超长模型调用完成。当前不以内容深化或视频生成为开发重点。
 
 ## Current Stage
 
 项目处于 `Capability Optimization / System Validation`。
 
-当前市场开关：
+当前市场路径：
 
-- 默认：`SCRIPT_MARKET_PROFILE=cn_mainland`
-- 保留但关闭：`overseas_tiktok`
+- 默认新项目路径：`SCRIPT_MARKET_PROFILE=cn_mainland`
+- 输入页的“发行地区”可以为每个项目选择中国大陆或海外；启动时会初始化两条路径的运行资源
 - 暂停：Creative Deepening 前后端运行开关默认关闭，界面不展示入口；代码和历史数据兼容位保留
 - 已完成基础：Story Project、Story Bible、无固定层级且允许各分支不同深度的递归 Story Plan Node、兼容故事阶段、Episode Plan、Continuity Ledger、批次检查点契约，以及 PostgreSQL / JSONB schema、Alembic migration 和事务型 Repository
 - 已接入后端资源 API：Story Project、Frontend Workspace Snapshot、Story Bible、递归 Story Plan Node、故事阶段和 Episode Plan 的版本化保存与读取
 - Frontend 已采用 IndexedDB 本地优先 + PostgreSQL Workspace Snapshot 服务端同步；冲突不静默覆盖，删除使用版本保护的服务端软归档
-- Frontend 已按市场来源隔离项目；中国大陆模式只展示 `cn_mainland` 项目，海外/TikTok 与来源不明的历史项目在前端完全隐藏但不删除，切换市场后才重新加载对应项目
-- 中国大陆模式固定使用中文界面和中文剧本输出，隐藏语言切换与海外入口；英文资源和源稿仅保留在停用资产及持久化层，不进入当前创作界面
+- Frontend 项目按自身市场路径保存；中国大陆和海外项目可以在同一个中文创作工作区中并存
+- 创作者界面固定使用中文；海外项目生成时按海外/国际文化契约规划，并保留既有中文动作说明、英文对白和中文翻译交付格式
 - 已接入 Episode Artifact 里程碑：确认稿、规则修订稿和终稿按不可变服务端版本保存并保留来源 lineage
 - 已接入 runtime：Story Bible、可变深度递归 Story Plan Node、episode-ready 叶子到 Episode Plan，以及三类规划对象的草稿编辑、immutable version 保存和人工批准
 - 隔离容量验收脚本已支持按当前剧情分支深度优先执行递归拆分、叶子计划、叶子正文和本地连续性快照；尚未接入正式 runtime 的是后台可恢复执行、权威 ContinuityLedger 自动更新、人工审批编排和服务端跨批次自动续跑
@@ -100,14 +100,14 @@ LLM_PLANNING_WIRE_API=responses
 # LLM_SCRIPT_MODEL=your-fast-model-name
 # LLM_SCRIPT_REASONING_EFFORT=medium
 # LLM_SCRIPT_TIMEOUT_SECONDS=600
-# LLM_SCRIPT_MAX_RETRIES=0
+# LLM_SCRIPT_MAX_RETRIES=1
 # Episode body repair/recovery stays on the configured script model. Optional
 # LLM_SCRIPT_REPAIR_* values may tune its timeout/key pool without changing output rules.
 # LLM_SCRIPT_REPAIR_MODEL=your-fast-model-name
 # LLM_SCRIPT_REPAIR_REASONING_EFFORT=low
 # LLM_SCRIPT_REPAIR_WIRE_API=responses
-# Required production editor: DeepSeek writes the validated draft, then GPT
-# edits only performable action/dialogue and checks the existing 75-115s rule.
+# Legacy fallback editor: when market-specific routes are not configured, the
+# generic script profile can still use a separate post-editor model.
 # LLM_SCRIPT_EDITOR_PROVIDER=openai_compatible
 # LLM_SCRIPT_EDITOR_MODEL=your-gpt-model-name
 # LLM_SCRIPT_EDITOR_API_KEY=your-gpt-api-key
@@ -116,7 +116,7 @@ LLM_PLANNING_WIRE_API=responses
 # SCRIPT_GPT_POST_EDIT_ENABLED=true
 # Optional second inference host. All three values are required together and
 # the primary and alternate model names must match.
-# LLM_SCRIPT_ALTERNATE_MODEL=glm-5.2
+# LLM_SCRIPT_ALTERNATE_MODEL=gpt-5.6-sol
 # LLM_SCRIPT_ALTERNATE_API_KEY=your-key-for-the-alternate-host
 # LLM_SCRIPT_ALTERNATE_BASE_URL=https://your-second-provider.example
 # LLM_SCRIPT_ALTERNATE_WIRE_API=responses
@@ -125,7 +125,12 @@ SCRIPT_CREATIVE_DEEPENING_ENABLED=false
 DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/ai_comic_content_os
 ```
 
-只有需要恢复旧海外验证配置时才改为：
+生产配置按项目市场路径分流：大陆路径使用 GLM 构思、Qwen 总纲编辑/对话与剧情树/分级路线图、
+阿里云百炼 DeepSeek 正文与终审；海外路径使用 GPT 构思、Qwen 剧情树/分级路线图、
+GPT 总纲编辑/对话、正文与终审。两条路径共用同一中文创作界面、结构合同和修复流程，完整变量示例见
+`.env.example`，本地真实值见 `.env.local`。
+
+如需把新建项目的默认路径改为海外，可设置：
 
 ```dotenv
 SCRIPT_MARKET_PROFILE=overseas_tiktok

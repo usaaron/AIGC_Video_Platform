@@ -8,6 +8,9 @@ from app.modules.script_engine.continuity_qc import (
     evaluate_episode_continuity,
 )
 from app.modules.script_engine.models import (
+    ContinuityQCIssue,
+    ContinuityQCIssueSeverity,
+    ContinuityQCIssueType,
     ContinuityQCStatus,
     EpisodeGenerationContext,
     EpisodeGenerationMode,
@@ -69,6 +72,45 @@ def test_dead_character_current_timeline_action_is_blocking() -> None:
     assert report.issues[0].issue_type.value == "dead_character_action"
     with pytest.raises(BlockingContinuityConflictError, match="硬冲突"):
         raise BlockingContinuityConflictError(report)
+
+
+def test_blocking_error_message_excludes_non_blocking_warnings() -> None:
+    report = evaluate_episode_continuity(
+        build_draft(actions=["Mara opens the archive door."], speaker="Mara"),
+        context({
+            "through_episode_number": 2,
+            "character_states": [{
+                "character_ref": "character.mara",
+                "aliases": ["Mara"],
+                "life_status": "dead",
+                "last_updated_episode": 2,
+            }],
+        }),
+    )
+    report = report.model_copy(update={
+        "issues": [
+            *report.issues,
+            ContinuityQCIssue(
+                issue_id="warning.extra",
+                issue_type=ContinuityQCIssueType.capability_conflict,
+                severity=ContinuityQCIssueSeverity.warning,
+                entity_key="character.mara",
+                entity_name="Mara",
+                summary="能力警告不应出现在硬冲突摘要中。",
+                prior_state="受限",
+                current_evidence="动作",
+                scene_numbers=[1],
+                suggested_action="核对动作。",
+            ),
+        ],
+        "warning_count": 1,
+    })
+
+    with pytest.raises(BlockingContinuityConflictError) as raised:
+        raise BlockingContinuityConflictError(report)
+
+    assert "已经死亡" in str(raised.value)
+    assert "能力警告不应" not in str(raised.value)
 
 
 def test_dead_character_flashback_does_not_trigger_current_timeline_conflict() -> None:

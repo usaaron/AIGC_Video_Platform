@@ -18,7 +18,11 @@ from app.modules.content_spec.models import (
     TargetGoal,
 )
 from app.modules.content_spec.repository import ContentSpecRepository
-from app.modules.script_engine.llm_adapter import LLMAdapter, LLMStructuredOutputError
+from app.modules.script_engine.llm_adapter import (
+    LLMAdapter,
+    LLMRequestError,
+    LLMStructuredOutputError,
+)
 from app.modules.script_engine.mainland_language import planning_output_chinese_issues
 from app.modules.script_engine.long_story_models import (
     CreativeDirectionCandidate,
@@ -30,11 +34,24 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanGenerationItem,
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
+    EpisodePlanningContinuityMemory,
+    EpisodePlanningOpenHook,
+    EpisodePlanningStateHandoff,
     PlanningApprovalStatus,
     PlanningRevisionMode,
     StoryBibleCharacterInput,
     StoryBibleGenerationOutput,
     StoryBibleDraftRequest,
+    StoryBibleInteractiveStep,
+    StoryBibleInteractiveCompleteRequest,
+    StoryBibleInteractiveStepRequest,
+    StoryBibleInteractiveStepOutput,
+    StoryBibleInteractiveCandidate,
+    StoryInspirationBrief,
+    StoryInspirationChatOutput,
+    StoryInspirationChatRequest,
+    StoryInspirationFrontierQuestion,
+    StoryInspirationMessage,
     StoryBibleModificationRequest,
     StoryPlanExpansionStatus,
     StoryPlanNodeChildOutput,
@@ -44,6 +61,9 @@ from app.modules.script_engine.long_story_models import (
     StoryPlanNodeDraftRequest,
     StoryPlanNode,
     StoryPlanNodeModificationRequest,
+    StoryPlanQualityAuditRequest,
+    StoryPlanQualityEvaluation,
+    StoryPlanQualityModelOutput,
     StoryProject,
 )
 from app.modules.script_engine.long_story_service import (
@@ -62,10 +82,23 @@ from app.modules.script_engine.story_planning_service import (
     StoryPlanningInputError,
     StoryPlanningService,
     StoryPlanningTransientOutputError,
+    apply_episode_roadmap_modification_scope,
+    _without_adapter_metadata,
     _bounded_decomposition_child_repair_sources,
+    _compact_json_schema_for_prompt,
+    _complete_decomposition_children_from_partial_json,
+    _episode_title_quality_issues,
+    _narrative_decomposition_child_count,
+    _salvage_story_plan_child_from_partial_json,
     _fallback_decomposition_spans,
+    _story_bible_language_patch_token_budget,
     _story_decomposition_output_token_budget,
+    deterministic_interactive_story_bible_fallback,
+    infer_episode_roadmap_modification_scope,
+    infer_story_bible_modification_scope,
+    merge_interactive_story_bible_framework,
     merge_story_bible_repair_candidates,
+    normalize_interactive_story_bible_sections,
     normalize_story_bible_generation_output,
     normalize_story_plan_node_generation_output,
     planning_payload_for_validation,
@@ -105,6 +138,168 @@ def test_story_decomposition_output_budget_preserves_explicit_larger_strategy() 
     ) == 16_000
 
 
+def test_story_quality_hard_checks_localize_repeated_progression() -> None:
+    first = build_active_lineage_story_node(
+        node_id="story_plan.quality_first",
+        version=1,
+        start_episode=1,
+        end_episode=8,
+        expansion_status=StoryPlanExpansionStatus.episode_ready,
+    ).model_copy(update={
+        "central_conflict": "主角争夺唯一账本。",
+        "entry_state": "主角只掌握一条线索。",
+        "exit_state": "主角只掌握一条线索。",
+    })
+    second = build_active_lineage_story_node(
+        node_id="story_plan.quality_second",
+        version=1,
+        start_episode=9,
+        end_episode=16,
+        expansion_status=StoryPlanExpansionStatus.episode_ready,
+    ).model_copy(update={"central_conflict": "主角争夺唯一账本。"})
+
+    issues = StoryPlanningService._story_plan_quality_hard_issues([first, second])
+
+    assert "state_progression_missing" in issues[(first.node_id, first.version)]
+    assert "conflict_repeated" in issues[(first.node_id, first.version)]
+    assert "conflict_repeated" in issues[(second.node_id, second.version)]
+
+
+def test_story_quality_samples_always_keep_opening_quartiles_and_ending() -> None:
+    leaves = [
+        build_active_lineage_story_node(
+            node_id=f"story_plan.sample_{index}",
+            version=1,
+            start_episode=(index - 1) * 8 + 1,
+            end_episode=index * 8,
+            expansion_status=StoryPlanExpansionStatus.episode_ready,
+        )
+        for index in range(1, 21)
+    ]
+    issues = {
+        (node.node_id, node.version): {"conflict_repeated"}
+        for node in leaves[:15]
+    }
+
+    sampled = StoryPlanningService._story_plan_quality_samples(leaves, 160, issues)
+    sampled_ranges = {
+        (node.planned_start_episode, node.planned_end_episode) for node in sampled
+    }
+
+    assert len(sampled) == 12
+    assert {(1, 8), (33, 40), (73, 80), (113, 120), (153, 160)} <= sampled_ranges
+
+
+def test_story_quality_audit_covers_active_leaves_and_returns_version_refs() -> None:
+    root = build_active_lineage_story_node(
+        node_id="story_plan.quality_root",
+        version=1,
+        start_episode=1,
+        end_episode=16,
+        expansion_status=StoryPlanExpansionStatus.expanded,
+    )
+    first = build_active_lineage_story_node(
+        node_id="story_plan.quality_leaf_1",
+        version=1,
+        start_episode=1,
+        end_episode=8,
+        expansion_status=StoryPlanExpansionStatus.episode_ready,
+        parent_node_id=root.node_id,
+        parent_node_version=root.version,
+    ).model_copy(update={
+        "central_conflict": "主角必须在公开第一份账本与保护证人之间选择。",
+        "unit_resolution": "主角保护证人并固定第一份账本的原始凭证。",
+    })
+    second = build_active_lineage_story_node(
+        node_id="story_plan.quality_leaf_2",
+        version=1,
+        start_episode=9,
+        end_episode=16,
+        expansion_status=StoryPlanExpansionStatus.episode_ready,
+        parent_node_id=root.node_id,
+        parent_node_version=root.version,
+    ).model_copy(update={
+        "entry_state": first.exit_state,
+        "central_conflict": "对手切断资金证据链，主角必须暴露内部盟友才能继续追查。",
+        "unit_resolution": "主角锁定资金出口并迫使更高层对手公开应对。",
+        "exit_state": "主角锁定更高层对手，但内部盟友身份已经公开暴露。",
+    })
+
+    class AuditLongStoryService:
+        def get_project(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                active_story_bible_id=root.story_bible_id,
+                active_story_bible_version=root.story_bible_version,
+                planned_episode_count=16,
+            )
+
+        def get_story_bible(self, *_args, **_kwargs) -> SimpleNamespace:
+            return build_active_lineage_story_bible()
+
+        def list_story_plan_nodes(self, *_args, **_kwargs) -> list[StoryPlanNode]:
+            return [root, first, second]
+
+    service = object.__new__(StoryPlanningService)
+    service._long_story_service = AuditLongStoryService()
+    service._generation_strategy_repository = SimpleNamespace(
+        get=lambda _strategy_id: build_strategy()
+    )
+    captured: dict[str, Any] = {}
+
+    def generate_quality_output(**kwargs) -> StoryPlanQualityModelOutput:
+        captured.update(kwargs)
+        return StoryPlanQualityModelOutput(
+            overall_summary="抽查区段的剧情职责清晰，可以进入分集路线图。",
+            evaluations=[
+                StoryPlanQualityEvaluation(
+                    node_id=node.node_id,
+                    node_version=node.version,
+                    status="pass",
+                    summary="该区段具有独立冲突、选择、结算和后续压力。",
+                )
+                for node in (first, second)
+            ],
+        )
+
+    service._generate_planning_output = generate_quality_output
+    audit = service.audit_story_plan_quality(StoryPlanQualityAuditRequest(
+        story_project_id=root.story_project_id,
+        story_bible_id=root.story_bible_id,
+        story_bible_version=root.story_bible_version,
+        generation_strategy_id="strategy.agent_test",
+        node_refs=[
+            {"node_id": first.node_id, "node_version": first.version},
+            {"node_id": second.node_id, "node_version": second.version},
+        ],
+        agent_request_id="agent-request.story-quality.service-test",
+    ))
+
+    assert audit.status == "pass"
+    assert audit.audited_node_count == 2
+    assert [(item.node_id, item.node_version) for item in audit.node_refs] == [
+        (first.node_id, first.version),
+        (second.node_id, second.version),
+    ]
+    assert captured["strategy"].max_tokens <= 5_000
+
+
+def test_story_bible_language_patch_budget_scales_with_actual_short_values() -> None:
+    assert _story_bible_language_patch_token_budget(
+        field_values={"core_premise": "A reporter discovers an old case."},
+        configured_max_tokens=9_000,
+    ) == 1_600
+
+    role_values = {
+        f"character_registry.{index}.role": "supporting character"
+        for index in range(7)
+    }
+    budget = _story_bible_language_patch_token_budget(
+        field_values=role_values,
+        configured_max_tokens=9_000,
+    )
+    assert 1_600 < budget < 3_500
+
+
 @pytest.mark.parametrize(
     ("parent_span", "requested_child_count", "expected"),
     [
@@ -125,6 +320,87 @@ def test_segmented_decomposition_allocates_only_valid_child_spans(
         parent_span,
         requested_child_count,
     ) == expected
+
+
+def test_partial_decomposition_json_recovers_only_complete_children() -> None:
+    complete_child = {
+        "title": "第一段",
+        "planned_start_episode": 1,
+        "planned_end_episode": 8,
+    }
+    raw_content = (
+        '{"children":['
+        + json.dumps(complete_child, ensure_ascii=False)
+        + ',{"title":"第二段","planned_start_episode":9'
+    )
+
+    assert _complete_decomposition_children_from_partial_json(raw_content) == [
+        complete_child
+    ]
+
+
+def _complete_story_plan_child_fixture() -> dict[str, Any]:
+    return {
+        "title": "证人争夺与同盟裂缝",
+        "narrative_purpose": "让证人争夺改变主角与同盟者之间的合作条件。",
+        "synopsis": "主角找到掌握资金路径的证人，对手以家人安全施压，迫使主角先完成一次公开营救。",
+        "entry_state": "主角只掌握一条可疑资金线索，尚未确认证人是否安全。",
+        "central_conflict": "保护证人与固定证据无法同时完成，主角必须承担先救人再取证的代价。",
+        "turning_points": ["证人提出交换条件", "主角公开选择先救人"],
+        "emotional_direction": "从谨慎试探推进到主动承担关系代价。",
+        "exit_state": "证人获救但同盟者的隐瞒造成调查团队裂痕。",
+        "unit_story_beats": [
+            "主角确认证人被转移。",
+            "对手用家人安全迫使证人沉默。",
+            "主角放弃追踪资金账户转而组织营救。",
+            "证人获救并交出下一层证据入口。",
+        ],
+        "unit_resolution": "证人获救并建立一条可验证的新证据来源链。",
+        "handoff_pressure": "同盟者隐瞒的关联身份暴露，下一段必须处理合作裂痕。",
+        "character_refs": ["character.mara", "character.adrian"],
+        "story_line_refs": ["storyline.truth_network"],
+        "setup_refs": [],
+        "payoff_refs": [],
+        "estimated_episode_count": 8,
+        "estimated_script_body_characters": 8000,
+        "planned_start_episode": 9,
+        "planned_end_episode": 16,
+        "decomposition_reason": "该段拥有独立目标、阻力、回报和向下一段的因果压力。",
+        "recommended_next_step": "episode_ready",
+    }
+
+
+def test_compact_prompt_schema_preserves_contract_without_schema_prose() -> None:
+    schema = {
+        "title": "Decomposition",
+        "description": "Verbose transport prose.",
+        "type": "object",
+        "properties": {
+            "children": {
+                "title": "Children",
+                "type": "array",
+                "minItems": 2,
+                "items": {"$ref": "#/$defs/Child"},
+            }
+        },
+        "required": ["children"],
+        "$defs": {
+            "Child": {
+                "description": "One child.",
+                "type": "object",
+                "required": ["title"],
+            }
+        },
+    }
+
+    compact = _compact_json_schema_for_prompt(schema)
+
+    assert compact["type"] == "object"
+    assert compact["required"] == ["children"]
+    assert compact["properties"]["children"]["minItems"] == 2
+    assert compact["$defs"]["Child"]["required"] == ["title"]
+    assert "title" not in compact
+    assert "description" not in compact["$defs"]["Child"]
 
 
 def test_decomposition_child_repair_bounds_overproduced_candidates_to_parent_contract() -> None:
@@ -528,6 +804,100 @@ class FixedStoryBibleAdapter(LLMAdapter):
         )
 
 
+class MalformedSegmentedChildTransportAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.transport_modes: list[str] = []
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        self.transport_modes.append(
+            "schema" if output_schema is not None else "native_json"
+        )
+        if output_schema is not None:
+            raise LLMStructuredOutputError(
+                "Gateway returned malformed child JSON.",
+                raw_content='{"title":"证人争夺与同盟裂缝",',
+                stream_termination="completed",
+            )
+        return _complete_story_plan_child_fixture()
+
+
+class NoisyCompleteChildAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        raise LLMStructuredOutputError(
+            "Gateway appended non-JSON commentary.",
+            raw_content=(
+                "结果如下："
+                + json.dumps(_complete_story_plan_child_fixture(), ensure_ascii=False)
+                + "\n已完成。"
+            ),
+            stream_termination="completed",
+        )
+
+
+def test_story_plan_child_salvage_requires_a_complete_valid_object() -> None:
+    child = _complete_story_plan_child_fixture()
+    raw_content = "模型说明：\n```json\n" + json.dumps(
+        child,
+        ensure_ascii=False,
+    ) + "\n```\n以上为结果。"
+
+    assert _salvage_story_plan_child_from_partial_json(raw_content) == child
+    assert _salvage_story_plan_child_from_partial_json(
+        '{"title":"未完成节点", "synopsis":"'
+    ) is None
+
+
+def test_segmented_child_invalid_schema_transport_retries_as_native_json() -> None:
+    adapter = MalformedSegmentedChildTransportAdapter()
+
+    output = StoryPlanningService._generate_structured_planning_response(
+        adapter,
+        "Chinese mainland serialized comic child recovery.",
+        strategy=build_strategy(),
+        output_schema=StoryPlanNodeChildOutput.model_json_schema(),
+        artifact_name="Story Plan Node segmented child recovery node=test child=1/2",
+        allow_stream=False,
+    )
+
+    assert output["title"] == "证人争夺与同盟裂缝"
+    assert adapter.calls == 2
+    assert adapter.transport_modes == ["schema", "native_json"]
+
+
+def test_planning_output_accepts_noisy_but_complete_child_without_repair_call() -> None:
+    adapter = NoisyCompleteChildAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+
+    output = service._generate_planning_output(
+        prompt="Chinese mainland serialized comic child recovery.",
+        strategy=build_strategy(),
+        output_model=StoryPlanNodeChildOutput,
+        artifact_name="Story Plan Node segmented child recovery node=test child=1/2",
+    )
+
+    assert output.title == "证人争夺与同盟裂缝"
+    assert adapter.calls == 1
+
+
 class FixedCreativeDirectionAdapter(LLMAdapter):
     def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
         return ""
@@ -542,6 +912,8 @@ class FixedCreativeDirectionAdapter(LLMAdapter):
         assert "selected tags are authoritative" in prompt
         assert "悬疑、复仇" in prompt
         assert "exactly 4" in prompt
+        assert "character_changes" in prompt
+        assert "tradeoffs" in prompt
         assert output_schema is not None
         return {
             "directions": [
@@ -549,6 +921,12 @@ class FixedCreativeDirectionAdapter(LLMAdapter):
                     "title": f"方向{index}",
                     "style_description": f"以克制而紧张的方式推进第{index}种叙事质感。",
                     "content_description": f"侧重第{index}种证据压力与人物选择，不改变悬疑复仇前提。",
+                    "dramatic_goal": "让主角在公开真相与保护证人之间承担代价。",
+                    "character_changes": ["主角从旁观调查转为主动承担风险。"],
+                    "reveals_or_withholds": ["提前揭示证据被篡改，但保留幕后指使者。"],
+                    "story_line_effects": ["主线转向证据链与同盟关系的同步推进。"],
+                    "tradeoffs": ["节奏更紧，但会延后完整真相的揭示。"],
+                    "next_pressure": "对手开始争夺证人并切断公开发声渠道。",
                 }
                 for index in range(1, 5)
             ]
@@ -673,10 +1051,64 @@ class RepairingStoryBibleAdapter(FixedStoryBibleAdapter):
         )
 
 
+class TransientThenMalformedStoryBibleAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        if self.calls == 1:
+            raise LLMStructuredOutputError(
+                "Responses payload did not contain output text.",
+                raw_content="",
+                empty_response=True,
+                stream_termination="response.incomplete:incomplete:max_output_tokens",
+            )
+        raise LLMStructuredOutputError(
+            "Model returned invalid JSON content.",
+            raw_content='{"core_premise":"未闭合的总纲"',
+            stream_termination="completed",
+        )
+
+
+class MalformedThenInvalidStoryLineIdAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        if self.calls == 1:
+            raise LLMStructuredOutputError(
+                "Model returned invalid JSON content.",
+                raw_content='{"story_lines":[',
+                stream_termination="completed",
+            )
+        output = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        output["story_lines"][0]["story_line_id"] = "被封锁的证据链"
+        return output
+
+
 class LanguageRepairingStoryBibleAdapter(FixedStoryBibleAdapter):
     def __init__(self) -> None:
         self.calls = 0
         self.max_tokens: list[int] = []
+        self.prompts: list[str] = []
 
     def generate_structured_output(
         self,
@@ -687,6 +1119,18 @@ class LanguageRepairingStoryBibleAdapter(FixedStoryBibleAdapter):
     ) -> dict[str, Any]:
         self.calls += 1
         self.max_tokens.append(strategy.max_tokens)
+        self.prompts.append(prompt)
+        if output_schema and "patches" in output_schema.get("properties", {}):
+            assert "Exact field paths and current values" in prompt
+            return {
+                "patches": [
+                    {
+                        "path": "core_premise",
+                        "value": "一名记者发现自己的家族参与掩盖一桩旧案。",
+                    }
+                ],
+                "_meta": {"provider": "test-gateway"},
+            }
         output = super().generate_structured_output(
             prompt,
             strategy=strategy,
@@ -695,8 +1139,60 @@ class LanguageRepairingStoryBibleAdapter(FixedStoryBibleAdapter):
         if self.calls == 1:
             output["core_premise"] = "A reporter discovers that her family buried an old case."
             return output
-        assert "failed one or more Story Bible quality gates" in prompt
         return output
+
+
+class SubstantialInvalidStoryBibleAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        self.prompts.append(prompt)
+        output = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        if self.calls == 1:
+            output["project_title"] = "过长剧名" * 20
+        return output
+
+
+class SubstantialTruncatedStoryBibleAdapter(FixedStoryBibleAdapter):
+    """Return a usable prefix, then fail the bounded repair transport."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        if self.calls == 1:
+            output = super().generate_structured_output(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+            )
+            output["ending_direction"] = ""
+            return output
+        raise LLMStructuredOutputError(
+            "Model returned an incomplete repair response.",
+            raw_content='{"ending_direction":"',
+            stream_termination="completed",
+        )
 
 
 class InconsistentCharacterStoryBibleAdapter(FixedStoryBibleAdapter):
@@ -788,6 +1284,42 @@ class StreamingInvalidDecompositionAdapter(FixedStoryBibleAdapter):
         )
 
 
+class StoryBibleModificationTransportAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.stream_calls = 0
+        self.nonstream_calls = 0
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        self.stream_calls += 1
+        return FixedStoryBibleAdapter.generate_structured_output(
+            self,
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.nonstream_calls += 1
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+
+
 class EmptyPlanningOutputAdapter(FixedStoryBibleAdapter):
     def __init__(self) -> None:
         self.calls = 0
@@ -823,6 +1355,33 @@ class EmptyPlanningOutputAdapter(FixedStoryBibleAdapter):
         )
 
 
+class ReasoningOnlyDecompositionAdapter(FixedStoryBibleAdapter):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta=None,
+    ) -> dict[str, Any]:
+        self.calls += 1
+        error = LLMRequestError(
+            "LLM stream did not contain output text.",
+            category="empty_response",
+            recoverable=True,
+        )
+        setattr(
+            error,
+            "stream_termination",
+            "response.incomplete:incomplete:max_output_tokens",
+        )
+        setattr(error, "reasoning_characters", 20_000)
+        raise error
+
+
 class RelaxedTransportDecompositionAdapter(FixedStoryBibleAdapter):
     def __init__(self) -> None:
         self.calls = 0
@@ -856,6 +1415,7 @@ class IncompleteChildDecompositionAdapter(FixedStoryBibleAdapter):
     def __init__(self) -> None:
         self.stream_calls = 0
         self.batch_repair_calls = 0
+        self.batch_repair_max_tokens: list[int] = []
         self.child_repair_calls = 0
         self.child_repair_max_tokens: list[int] = []
         self.child_repair_prompt = ""
@@ -894,6 +1454,7 @@ class IncompleteChildDecompositionAdapter(FixedStoryBibleAdapter):
     ) -> dict[str, Any]:
         if output_schema and "children" in output_schema.get("properties", {}):
             self.batch_repair_calls += 1
+            self.batch_repair_max_tokens.append(strategy.max_tokens)
             output = self._decomposition(prompt, strategy=strategy)
             output["children"][0].pop("synopsis")
             return output
@@ -1498,6 +2059,43 @@ def test_story_bible_uses_supplied_name_when_registry_name_is_missing() -> None:
     assert normalized["character_registry"][0]["name"] == "林知夏"
 
 
+def test_story_bible_normalization_repairs_identity_ledger_and_safe_text_artifacts() -> None:
+    normalized = normalize_story_bible_generation_output(
+        {
+            "core_premise": "：主角追查一桩被掩盖的旧案。",
+            "character_refs": ["character.ally", "character.ally"],
+            "character_registry": [
+                {
+                    "character_ref": "character.ally",
+                    "name": "盟友",
+                    "role": "supporting",
+                }
+            ],
+            "world_rules": ["证据必须可验证", "证据必须可验证"],
+        },
+        supplied_characters=[
+            StoryBibleCharacterInput(
+                character_ref="character.protagonist",
+                name="林知夏",
+                role="protagonist",
+            )
+        ],
+    )
+
+    assert normalized["core_premise"] == "主角追查一桩被掩盖的旧案。"
+    assert normalized["world_rules"] == ["证据必须可验证"]
+    assert normalized["character_refs"] == [
+        "character.ally",
+        "character.protagonist",
+    ]
+    assert normalized["character_registry"][-1] == {
+        "character_ref": "character.protagonist",
+        "name": "林知夏",
+        "role": "主角",
+    }
+    assert normalized["character_registry"][0]["role"] == "配角"
+
+
 def test_story_bible_validation_projection_keeps_generated_title_and_drops_other_metadata() -> None:
     projected = story_bible_payload_for_validation(
         {
@@ -1526,6 +2124,207 @@ def test_story_bible_validation_projection_keeps_generated_title_and_drops_other
     assert "tags" not in projected
     assert projected["project_title"] == "输入标题副本"
     StoryBibleGenerationOutput.model_validate(projected)
+
+
+def test_interactive_story_bible_legacy_sections_are_projected_to_current_contract() -> None:
+    legacy = {
+        "project_title": "证据的代价",
+        "core_premise": "两名互不信任的行动者必须保护证人并追查一条被掩盖的责任链。",
+        "series_goal": "让证据链公开并完成对真正主谋的责任追究。",
+        "theme": "正义需要证据，也需要承担代价。",
+        "central_conflict": "两人必须在立即复仇和保护无辜证人之间作出选择。",
+        "ending_direction": "证人公开作证，主谋受到追究，两人承担各自造成的后果。",
+        "world_rules": ["证据必须经过多人核验才能公开。"],
+        "character_refs": ["Weight", "Troupe", "Mara Vale"],
+        "character_registry": [
+            {"name": "Weight", "function": "主角；负责保护证人。"},
+            {"name": "Troupe", "function": "主角；代表受害者的复仇冲动。"},
+            {"name": "Mara Vale", "function": "关键证人。"},
+        ],
+        "character_arc_targets": [
+            {"character": "砝码", "start": "只相信自己的判断。", "turn": "开始听取证人选择。", "target": "成为共同见证网络的保护者。"},
+            {"character": "剧团", "start": "把所有利益集团成员视为敌人。", "turn": "看到平民主动保存证据。", "target": "保护仍在发声的人。"},
+        ],
+        "relationships": [
+            {"between": ["砝码", "城市平民"], "start": "保护者与被保护者。", "turn": "平民开始主动传递证据。", "target": "共同承担见证风险。"},
+        ],
+        "story_lines": {
+            "main_line": "主角逐层确认责任链并推动公开追责。",
+            "sub_lines": "平民互助网络核验记录并保护证人。",
+            "character_lines": "两位主角从替别人决定转为尊重证人选择。",
+            "closure": "证据得到公开验证，责任完成结算。",
+        },
+        "escalation_stages": [
+            {"stage": 1, "conflict": "两人争夺一名关键证人。", "local_payoff": "证人暂时获救。", "larger_pressure": "更强的追捕力量开始清除证据。"},
+            {"stage": 2, "conflict": "对手切断证据来源并绑架证人。", "local_payoff": "两人救出证人并取得记录。", "larger_pressure": "主谋被迫公开反击。"},
+            {"stage": 3, "conflict": "主谋试图在公开听证前毁掉全部证据。", "local_payoff": "多名证人完成交叉验证。", "larger_pressure": "正式追责程序启动。"},
+        ],
+        "major_setup_payoff_refs": ["setup.old_record"],
+        "locked_facts": ["十七名同伴的死亡不能被抹去。"],
+        "avoid_patterns": ["避免让巧合直接解决核心谜团。"],
+    }
+
+    normalized = story_bible_payload_for_validation(
+        normalize_interactive_story_bible_sections(legacy),
+    )
+    output = StoryBibleGenerationOutput.model_validate(normalized)
+
+    assert output.character_refs[:3] == [
+        "Weight",
+        "Troupe",
+        "character.legacy.ref.3",
+    ]
+    assert output.character_arc_targets[0].character_ref == "Weight"
+    assert output.relationships[0].target_character_ref == "character.legacy.group.1"
+    assert len(output.story_lines) == 3
+    assert len(output.escalation_stages) == 3
+
+
+def test_interactive_story_bible_saved_dict_sections_are_projected_to_current_contract() -> None:
+    legacy = {
+        "project_title": "十七枚铭牌",
+        "core_premise": "失去同伴的剧团追查幕后联盟，前律师必须阻止复仇伤及无辜并查明真相。",
+        "series_goal": "两人从互相阻碍走向有限合作，并完成证据与代价的结算。",
+        "theme": "揭露真相不能成为另一种暴力。",
+        "central_conflict": "复仇速度、证据完整和城市安全彼此冲突。",
+        "ending_direction": "两人优先救人并摧毁设施，接受证据不完整和身份受损的代价。",
+        "world_rules": ["行会垄断城市运输和治安资源。"],
+        "character_refs": ["weight", "troupe", "courier_mara", "alliance_broker_calder"],
+        "character_registry": {
+            "weight": {"name": "砝码（Weight）", "function": "主角"},
+            "troupe": {"name": "剧团（Troupe）", "function": "复仇对手"},
+            "courier_mara": {"name": "玛拉（Mara）", "function": "证人"},
+            "alliance_broker_calder": {"name": "考尔德（Calder）", "function": "反派"},
+        },
+        "character_arc_targets": {
+            "砝码（Weight）": "从纠正剧团转为共同承担后果。",
+            "剧团（Troupe）": "从连坐复仇转为区分责任并放过无罪目标。",
+        },
+        "relationships": [
+            "砝码与剧团：敌对拦截→交换目标情报→订立合作规则。",
+            "两人与考尔德：分别被利用→识破离间→共同反制。",
+        ],
+        "story_lines": {
+            "main_line": "两人围绕旧剧院遗址追查联盟制造事故的责任链。",
+            "sub_lines": ["玛拉追查运输记录并保护证人。"],
+            "character_lines": ["剧团逐渐接受记住同伴不等于替所有人定罪。"],
+            "closure": "两人救出平民并摧毁联盟设施。",
+        },
+        "escalation_stages": [
+            {"层级": "双向利用", "冲突": "联盟诱导两人互相阻碍。", "局部回报": "两人识破一处谎言。", "更大压力": "他们暴露给治安机构。"},
+            {"层级": "有限同盟", "冲突": "两人潜入据点救出证人。", "局部回报": "取得部分账册。", "更大压力": "账册把他们引向遗址陷阱。"},
+            {"层级": "共同代价", "冲突": "两人必须在救人和追证之间选择。", "局部回报": "共同救出平民并摧毁设施。", "更大压力": "只能用不完整证据公开真相。"},
+        ],
+        "major_setup_payoff_refs": [{"setup": "账册留下线索", "payoff": "线索在遗址揭示联盟责任。"}],
+        "locked_facts": ["同伴死亡不能被抹去。"],
+        "avoid_patterns": ["避免巧合直接解决谜团。"],
+        "__author_notes": {},
+    }
+
+    normalized = normalize_interactive_story_bible_sections(legacy)
+    normalized.pop("__author_notes", None)
+    output = StoryBibleGenerationOutput.model_validate(normalized)
+
+    assert len(output.character_registry) == 4
+    assert len(output.character_arc_targets) == 2
+    assert len(output.relationships) == 2
+    assert len(output.story_lines) == 3
+    assert len(output.escalation_stages) == 3
+    assert output.major_setup_payoff_refs == ["账册留下线索 → 线索在遗址揭示联盟责任。"]
+
+
+def test_interactive_story_bible_historical_relationship_and_escalation_shapes_are_valid() -> None:
+    legacy = {
+        "project_title": "旧格式回归",
+        "core_premise": "两名角色必须在追查责任链时暂时合作并承担行动后果。",
+        "series_goal": "让责任链公开并完成主要人物的选择与代价收束。",
+        "theme": "合作与责任",
+        "central_conflict": "两名角色必须在互不信任和共同目标之间作出选择。",
+        "ending_direction": "证据公开后双方承担各自造成的后果并完成关系收束。",
+        "character_refs": ["weight", "troupe"],
+        "character_registry": [
+            {"character_ref": "weight", "name": "砝码", "role": "主角"},
+            {"character_ref": "troupe", "name": "剧团", "role": "主角"},
+        ],
+        "relationships": [
+            {"stage": "开始", "dynamic": "互相利用但围绕共同目标行动。"},
+        ],
+        "story_lines": {
+            "main_line": "两人追查责任链并在公开证据前完成一次反击。",
+            "closure": "责任链公开，双方承担行动后果。",
+        },
+        "escalation_stages": [
+            {
+                "level": 1,
+                "stage": "基层阻力",
+                "pressure": "对手阻断证据来源。",
+                "reward": "两人取得一份可核验记录。",
+            },
+        ],
+    }
+
+    normalized = story_bible_payload_for_validation(
+        normalize_interactive_story_bible_sections(legacy),
+    )
+    output = StoryBibleGenerationOutput.model_validate(normalized)
+
+    assert output.relationships[0].source_character_ref == "weight"
+    assert output.relationships[0].target_character_ref == "troupe"
+    assert output.escalation_stages[0].title == "基层阻力"
+    assert output.escalation_stages[0].stage_opposition == "对手阻断证据来源。"
+
+
+def test_interactive_story_bible_merge_keeps_valid_model_when_approved_framework_is_bad() -> None:
+    generated = StoryBibleGenerationOutput.model_validate(
+        {
+            "project_title": "完整结果",
+            "core_premise": "主角追查责任链并在关键选择中承担行动造成的真实代价。",
+            "series_goal": "推动证据链逐步公开，并完成主要人物关系与结局方向的收束。",
+            "theme": "证据与责任",
+            "central_conflict": "主角必须在快速复仇和保护无辜者之间作出选择。",
+            "ending_direction": "证据公开后主角承担代价，核心冲突在责任结算中收束。",
+            "character_refs": ["character.protagonist"],
+            "character_registry": [
+                {"character_ref": "character.protagonist", "name": "主角", "role": "主角"},
+            ],
+            "story_lines": [
+                {
+                    "story_line_id": "storyline.main",
+                    "title": "责任追查",
+                    "story_line_type": "main",
+                    "premise": "主角逐层核验责任链并逼近真相。",
+                    "planned_resolution": "证据公开并完成责任结算。",
+                    "character_refs": ["character.protagonist"],
+                }
+            ],
+        }
+    )
+    approved = {
+        "core_premise": "用户确认的核心 premise",
+        "relationships": [{"stage": "旧格式", "dynamic": "未转换"}],
+        "escalation_stages": [{"level": 1, "pressure": "旧格式"}],
+    }
+
+    output = merge_interactive_story_bible_framework(generated, approved)
+
+    assert output.project_title == "完整结果"
+    assert output.relationships == []
+    assert len(output.story_lines) == 1
+
+
+def test_interactive_story_bible_deterministic_fallback_is_persistable() -> None:
+    output = deterministic_interactive_story_bible_fallback(
+        {
+            "project_title": "断线后仍可恢复",
+            "core_premise": "主角在核心冲突中作出选择并承担代价。",
+            "story_lines": [{"legacy": "未转换"}],
+        },
+        project_title="断线后仍可恢复",
+    )
+
+    assert output.project_title == "断线后仍可恢复"
+    assert output.story_lines
+    StoryBibleGenerationOutput.model_validate(output.model_dump())
 
 
 def test_story_bible_language_check_ignores_refs_but_rejects_english_narrative() -> None:
@@ -1706,6 +2505,711 @@ def test_story_planning_service_repairs_invalid_structure_once(tmp_path) -> None
 
     assert adapter.calls == 2
     assert story_bible.core_premise.startswith("一名落魄调查记者")
+
+
+def test_inspiration_chat_uses_compact_dedicated_profile(tmp_path) -> None:
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'inspiration_chat.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    project = long_story.save_project(
+        StoryProject(
+            project_id="story_project.inspiration_chat",
+            title="灵感对话测试",
+            content_spec_id=content_spec.id,
+            planned_episode_count=100,
+        )
+    )
+
+    class InspirationAdapter(LLMAdapter):
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+            self.max_tokens: list[int] = []
+
+        def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
+            return ""
+
+        def generate_structured_output(
+            self,
+            prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.prompts.append(prompt)
+            self.max_tokens.append(strategy.max_tokens)
+            return {
+                "assistant_message": "保护证人已经成为主角不能退让的选择，本轮可以继续确认由此产生的直接风险。",
+                "questions": [{
+                    "question_id": "Q1",
+                    "decision_key": "stakes.first_irreversible_loss",
+                    "title": "第一次不可逆损失",
+                    "question": "主角为了保护证人第一次失败时，最具体且无法撤销的代价是什么？",
+                    "choices": ["失去重要关系", "身份被公开"],
+                    "recommended_answer": "优先让主角失去一段重要关系，因为它会同时抬高行动风险和情感压力。",
+                }],
+                "brief_patch": {
+                    "protagonist_and_goal": "主角要保护证人并公开真相。",
+                },
+                "ready_to_generate": False,
+            }
+
+        def validate_output(
+            self,
+            output: dict[str, Any],
+            *,
+            required_keys: Sequence[str] | None = None,
+        ) -> bool:
+            return True
+
+        def get_model_info(self) -> LLMModelInfo:
+            return LLMModelInfo(provider="fixed", model_name="inspiration-fast")
+
+    inspiration_adapter = InspirationAdapter()
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=FixedStoryBibleAdapter(),
+        inspiration_llm_adapter=inspiration_adapter,
+    )
+    messages = [
+        StoryInspirationMessage(
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"历史消息-{index}",
+        )
+        for index in range(12)
+    ]
+
+    result = service.generate_story_inspiration_turn(
+        StoryInspirationChatRequest(
+            story_project_id=project.project_id,
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="调查旧案并保护证人。",
+            messages=messages,
+            current_brief=StoryInspirationBrief(
+                story_promise="主角必须揭开被掩盖的责任链。",
+            ),
+            user_message="主角不能放弃证人。",
+            target_episode_count=100,
+        )
+    )
+
+    assert result.questions[0].question.startswith("主角为了保护证人")
+    assert result.brief.story_promise == "主角必须揭开被掩盖的责任链。"
+    assert result.brief.protagonist_and_goal == "主角要保护证人并公开真相。"
+    assert inspiration_adapter.max_tokens == [2_800]
+    assert "历史消息-0" in inspiration_adapter.prompts[0]
+    assert "历史消息-11" in inspiration_adapter.prompts[0]
+    assert "当前前沿" in inspiration_adapter.prompts[0]
+    assert "彼此独立" in inspiration_adapter.prompts[0]
+    assert "后续问题必须明显建立在使用者刚才的具体回答上" in inspiration_adapter.prompts[0]
+    assert "主动压力测试含糊、矛盾和未经证明的假设" in inspiration_adapter.prompts[0]
+    assert "基于当前故事的明确推荐及理由" in inspiration_adapter.prompts[0]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_message"),
+    [
+        (
+            LLMRequestError(
+                "LLM request timed out after exhausting retries.",
+                category="timeout",
+                recoverable=True,
+            ),
+            "达到 60 秒上限",
+        ),
+        (
+            LLMStructuredOutputError(
+                "Model returned invalid structured output.",
+                raw_content="{invalid",
+            ),
+            "当前不依赖其他未决答案的决策",
+        ),
+        (None, "当前不依赖其他未决答案的决策"),
+    ],
+)
+def test_inspiration_chat_failure_falls_back_without_second_model_call(
+    failure: Exception | None,
+    expected_message: str,
+) -> None:
+    content_spec = build_content_spec()
+    strategy = build_strategy()
+
+    class FailingInspirationAdapter(LLMAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
+            return ""
+
+        def generate_structured_output(
+            self,
+            prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.calls += 1
+            if failure is None:
+                return {
+                    "assistant_message": "我已经记录了目前明确的剧本方向。",
+                    "questions": [],
+                    "brief_patch": {},
+                    "ready_to_generate": False,
+                }
+            raise failure
+
+        def validate_output(
+            self,
+            output: dict[str, Any],
+            *,
+            required_keys: Sequence[str] | None = None,
+        ) -> bool:
+            return True
+
+        def get_model_info(self) -> LLMModelInfo:
+            return LLMModelInfo(provider="timeout", model_name="timeout")
+
+    adapter = FailingInspirationAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._long_story_service = SimpleNamespace(get_project=lambda _project_id: SimpleNamespace(
+        title="灵感超时测试",
+        content_spec_id=content_spec.id,
+    ))
+    service._content_spec_repository = SimpleNamespace(
+        get=lambda _content_spec_id: content_spec
+    )
+    service._generation_strategy_repository = SimpleNamespace(
+        get=lambda _strategy_id: strategy
+    )
+    service._inspiration_llm_adapter = adapter
+
+    result = service.generate_story_inspiration_turn(
+        StoryInspirationChatRequest(
+            story_project_id="story_project.inspiration_timeout",
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="一名调查记者要保护关键证人。",
+            user_message="我希望主角主动查清责任链。",
+            target_episode_count=100,
+        )
+    )
+
+    assert adapter.calls == 1
+    assert expected_message in result.assistant_message
+    assert result.questions
+    assert all(question.question.endswith("？") for question in result.questions)
+
+
+def test_inspiration_chat_fallback_explains_the_decision_and_consequences() -> None:
+    result = StoryPlanningService._fallback_story_inspiration_turn(
+        StoryInspirationChatRequest(
+            story_project_id="story_project.fallback",
+            content_spec_id="content_spec.fallback",
+            generation_strategy_id="strategy.fallback",
+            creative_prompt="一名调查记者试图保护关键证人。",
+            current_brief=StoryInspirationBrief(),
+            target_episode_count=100,
+        )
+    )
+
+    assert "当前不依赖其他未决答案的决策" in result.assistant_message
+    assert len(result.questions) == 3
+    assert [question.question_id for question in result.questions] == ["Q1", "Q2", "Q3"]
+    assert all(question.question.endswith("？") for question in result.questions)
+    assert all(len(question.choices) == 3 for question in result.questions)
+    assert all(question.recommended_choice in question.choices for question in result.questions)
+    assert all(question.recommended_answer for question in result.questions)
+
+
+@pytest.mark.parametrize(
+    "user_message",
+    [
+        (
+            "Q1：每次接近真相都会推翻一层旧认知。\n"
+            "Q2：在追兵找到证人前拿到可公开验证的责任链证据。"
+        ),
+        (
+            "Q1｜核心追看回报\n"
+            "方向：每次接近真相都会推翻一层旧认知。\n\n"
+            "Q2｜主角的可验证目标\n"
+            "方向：在追兵找到证人前拿到可公开验证的责任链证据。"
+        ),
+    ],
+)
+def test_inspiration_chat_fallback_maps_numbered_round_answers_to_their_branches(
+    user_message: str,
+) -> None:
+    frontier = [
+        StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="story_promise.foundation",
+            title="核心追看回报",
+            question="观众持续追看这部剧时，最主要等待的变化是什么？",
+            choices=[],
+            recommended_answer="让追看回报能在每个阶段兑现，而不是只依赖最后一次反转。",
+        ),
+        StoryInspirationFrontierQuestion(
+            question_id="Q2",
+            decision_key="protagonist_and_goal.foundation",
+            title="主角的可验证目标",
+            question="主角在故事开端必须完成的具体目标是什么？",
+            choices=[],
+            recommended_answer="把目标写成能看出完成或失败的主动行动。",
+        ),
+    ]
+    result = StoryPlanningService._fallback_story_inspiration_turn(
+        StoryInspirationChatRequest(
+            story_project_id="story_project.numbered_recovery",
+            content_spec_id="content_spec.numbered_recovery",
+            generation_strategy_id="strategy.numbered_recovery",
+            creative_prompt="一名记者保护证人并调查旧案。",
+            messages=[StoryInspirationMessage(
+                role="assistant",
+                content="本轮先确认追看回报和主角目标。",
+                questions=frontier,
+            )],
+            current_brief=StoryInspirationBrief(),
+            user_message=user_message,
+            target_episode_count=100,
+        )
+    )
+
+    assert result.brief.story_promise == "每次接近真相都会推翻一层旧认知。"
+    assert result.brief.protagonist_and_goal == "在追兵找到证人前拿到可公开验证的责任链证据。"
+    assert all(question.decision_key not in {
+        "story_promise.foundation",
+        "protagonist_and_goal.foundation",
+    } for question in result.questions)
+
+
+def test_inspiration_chat_replaces_semantically_repeated_questions() -> None:
+    payload = StoryInspirationChatRequest(
+        story_project_id="story_project.repeat_guard",
+        content_spec_id="content_spec.repeat_guard",
+        generation_strategy_id="strategy.repeat_guard",
+        messages=[
+            StoryInspirationMessage(
+                role="assistant",
+                content="我已经理解故事方向。\n\n需要你决定：观众为什么要继续追看这部剧？",
+            )
+        ],
+        current_brief=StoryInspirationBrief(),
+    )
+    repeated = StoryInspirationChatOutput(
+        assistant_message="我会继续确认故事的核心回报。",
+        questions=[StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="story_promise.rephrased",
+            title="持续追看原因",
+            question="观众继续追看这部剧的核心原因是什么？",
+            choices=["逆转", "揭密", "关系变化"],
+            recommended_answer="优先选择秘密逐层揭露，让每一阶段都能兑现一部分信息回报。",
+        )],
+        brief=StoryInspirationBrief(),
+        ready_to_generate=False,
+    )
+
+    result = StoryPlanningService._ensure_unique_story_inspiration_turn(payload, repeated)
+
+    assert all(question.question != repeated.questions[0].question for question in result.questions)
+    assert any("主角" in question.question for question in result.questions)
+
+
+def test_inspiration_chat_allows_distinct_downstream_question_in_same_topic() -> None:
+    payload = StoryInspirationChatRequest(
+        story_project_id="story_project.deep_followup",
+        content_spec_id="content_spec.deep_followup",
+        generation_strategy_id="strategy.deep_followup",
+        messages=[StoryInspirationMessage(
+            role="assistant",
+            content="先确认主角的行动目标。",
+            questions=[StoryInspirationFrontierQuestion(
+                question_id="Q1",
+                decision_key="protagonist.goal.observable",
+                title="可验证目标",
+                question="主角在故事开端必须完成的具体目标是什么？",
+                choices=[],
+                recommended_answer="把目标写成可观察的行动结果。",
+            )],
+        )],
+        current_brief=StoryInspirationBrief(
+            protagonist_and_goal="主角必须保护证人并公开责任链。",
+        ),
+    )
+    output = StoryInspirationChatOutput(
+        assistant_message="目标已经清楚，现在可以继续确认它会怎样改变主角。",
+        questions=[StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="protagonist.goal.moral_boundary",
+            title="目标的道德底线",
+            question="为了保护证人并公开责任链，主角绝不愿跨越哪条底线；对手怎样利用这条底线反制他？",
+            choices=[],
+            recommended_answer="保留一条会让主角失去捷径的底线，使胜利来自选择而不是能力碾压。",
+        )],
+        brief=payload.current_brief,
+        ready_to_generate=False,
+    )
+
+    result = StoryPlanningService._ensure_unique_story_inspiration_turn(payload, output)
+
+    assert result.questions == output.questions
+
+
+def test_inspiration_chat_requires_deep_coverage_before_auto_ready() -> None:
+    brief = StoryInspirationBrief(
+        story_promise="观众会追看主角揭开责任链。",
+        protagonist_and_goal="主角要保护证人并公开真相。",
+        core_obstacle="掌握规则的组织持续封锁证据。",
+        stakes="失败会让证人死亡且真相永久被掩埋。",
+        relationship_direction="两人从互相利用走向共同承担。",
+        reveal_or_twist="责任链指向更高层的决定者。",
+        ending_direction="主角公开真相但失去原有生活。",
+        tone_and_pacing="整体保持高压推进，在关键真相处短暂停顿。",
+    )
+    premature_payload = StoryInspirationChatRequest(
+        story_project_id="story_project.depth_guard",
+        content_spec_id="content_spec.depth_guard",
+        generation_strategy_id="strategy.depth_guard",
+        messages=[StoryInspirationMessage(role="user", content="已回答")],
+        current_brief=brief,
+    )
+    proposed_ready = StoryInspirationChatOutput(
+        assistant_message="核心方向已经明确。",
+        questions=[StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="ending.emotional_aftertaste",
+            title="结局的情绪余波",
+            question="当主线结果已经落定以后，最后一个人物选择要给观众留下怎样的情绪余波？",
+            choices=["释然但有损失", "胜利仍带怀疑", "关系留下裂痕"],
+            recommended_answer="优先选择释然但有损失，让结局完成回报又保留真实代价。",
+        )],
+        brief=brief,
+        ready_to_generate=True,
+    )
+
+    premature = StoryPlanningService._ensure_unique_story_inspiration_turn(
+        premature_payload,
+        proposed_ready,
+    )
+    assert premature.ready_to_generate is False
+
+    deep_payload = premature_payload.model_copy(update={
+        "messages": [
+            StoryInspirationMessage(role="user", content=f"已回答-{index}")
+            for index in range(3)
+        ],
+    })
+    deep = StoryPlanningService._ensure_unique_story_inspiration_turn(
+        deep_payload,
+        proposed_ready,
+    )
+    assert deep.ready_to_generate is True
+
+
+def test_inspiration_chat_honors_an_explicit_request_for_another_round() -> None:
+    brief = StoryInspirationBrief(
+        story_promise="观众会追看主角揭开责任链。",
+        protagonist_and_goal="主角要保护证人并公开真相。",
+        core_obstacle="掌握规则的组织持续封锁证据。",
+        stakes="失败会让证人死亡且真相永久被掩埋。",
+        relationship_direction="两人从互相利用走向共同承担。",
+        reveal_or_twist="责任链指向更高层的决定者。",
+        ending_direction="主角公开真相但失去原有生活。",
+        tone_and_pacing="整体保持高压推进，在关键真相处短暂停顿。",
+    )
+    payload = StoryInspirationChatRequest(
+        story_project_id="story_project.deeper_round",
+        content_spec_id="content_spec.deeper_round",
+        generation_strategy_id="strategy.deeper_round",
+        messages=[
+            StoryInspirationMessage(role="user", content=f"已回答-{index}")
+            for index in range(3)
+        ],
+        current_brief=brief,
+        user_message="请继续深入一轮，找出还没有明确的关键取舍。",
+    )
+    output = StoryInspirationChatOutput(
+        assistant_message="核心方向已经明确。",
+        questions=[StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="ending.emotional_aftertaste",
+            title="结局的情绪余波",
+            question="主线结果落定后，最后一个人物选择要留下怎样的情绪余波？",
+            choices=["释然但有损失", "胜利仍带怀疑", "关系留下裂痕"],
+            recommended_answer="优先选择释然但有损失，让结局完成回报又保留真实代价。",
+        )],
+        brief=brief,
+        ready_to_generate=True,
+    )
+
+    result = StoryPlanningService._ensure_unique_story_inspiration_turn(payload, output)
+
+    assert result.ready_to_generate is False
+    assert result.questions
+
+
+def test_inspiration_chat_caps_exploration_without_another_question() -> None:
+    payload = StoryInspirationChatRequest(
+        story_project_id="story_project.depth_cap",
+        content_spec_id="content_spec.depth_cap",
+        generation_strategy_id="strategy.depth_cap",
+        messages=[
+            StoryInspirationMessage(role="user", content=f"已回答-{index}")
+            for index in range(12)
+        ],
+    )
+    output = StoryInspirationChatOutput(
+        assistant_message="已经收集了足够的创作约束。",
+        questions=[StoryInspirationFrontierQuestion(
+            question_id="Q1",
+            decision_key="creative_boundaries.extra",
+            title="额外创作边界",
+            question="还有哪项会改变整条主线的创作边界没有被确认？",
+            choices=["人物边界", "冲突边界", "结局边界"],
+            recommended_answer="只补充会迫使主线重写的边界，局部偏好留到规划阶段。",
+        )],
+        brief=StoryInspirationBrief(),
+        ready_to_generate=False,
+    )
+
+    result = StoryPlanningService._ensure_unique_story_inspiration_turn(payload, output)
+
+    assert result.ready_to_generate is True
+    assert result.questions == []
+
+
+def test_complete_interactive_story_bible_accepts_historical_checkpoint_shapes(tmp_path) -> None:
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'interactive_complete.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    project = long_story.save_project(
+        StoryProject(
+            project_id="story_project.interactive_complete",
+            title="历史框架回归测试",
+            content_spec_id=content_spec.id,
+            planned_episode_count=334,
+        )
+    )
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=FixedStoryBibleAdapter(),
+    )
+
+    story_bible = service.complete_interactive_story_bible(
+        StoryBibleInteractiveCompleteRequest(
+            story_project_id=project.project_id,
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="调查旧案并保护证人。",
+            sections={
+                "project_title": "历史框架回归测试",
+                "core_premise": "两名角色必须在追查责任链时暂时合作并承担行动后果。",
+                "series_goal": "让责任链公开并完成主要人物的选择与代价收束。",
+                "theme": "合作与责任",
+                "central_conflict": "两名角色必须在互不信任和共同目标之间作出选择。",
+                "ending_direction": "证据公开后双方承担各自造成的后果并完成关系收束。",
+                "character_refs": ["weight", "troupe"],
+                "character_registry": [
+                    {"character_ref": "weight", "name": "砝码", "role": "主角"},
+                    {"character_ref": "troupe", "name": "剧团", "role": "主角"},
+                ],
+                "relationships": [{"stage": "开始", "dynamic": "互相利用但围绕共同目标行动。"}],
+                "story_lines": {"main_line": "两人追查责任链并完成一次反击。", "closure": "责任链公开。"},
+                "escalation_stages": [{"level": 1, "pressure": "对手阻断证据来源。", "reward": "两人取得记录。"}],
+            },
+        )
+    )
+
+    assert story_bible.project_title == "历史框架回归测试"
+    assert story_bible.relationships
+    assert len(story_bible.escalation_stages) >= 3
+
+
+def test_story_bible_preserves_initial_transient_failure_when_repair_is_malformed(
+    tmp_path,
+) -> None:
+    runtime = create_database_runtime(
+        f"sqlite:///{tmp_path / 'story_transient_repair.db'}"
+    )
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    project_id = "story_project.transient_repair"
+    long_story.save_project(StoryProject(
+        project_id=project_id,
+        title="瞬时故障恢复测试",
+        content_spec_id=content_spec.id,
+        planned_episode_count=100,
+    ))
+    adapter = TransientThenMalformedStoryBibleAdapter()
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=adapter,
+    )
+
+    with pytest.raises(StoryPlanningTransientOutputError):
+        service.generate_story_bible_draft(StoryBibleDraftRequest(
+            story_project_id=project_id,
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="调查旧案。",
+            target_episode_count=100,
+        ))
+
+    assert adapter.calls == 2
+    with pytest.raises(LongStoryNotFoundError):
+        long_story.get_story_bible(
+            project_id,
+            f"story_bible.{project_id}.main",
+        )
+    runtime.engine.dispose()
+
+
+def test_story_bible_accepts_repair_with_invalid_technical_story_line_id(
+    tmp_path,
+) -> None:
+    runtime = create_database_runtime(
+        f"sqlite:///{tmp_path / 'story_line_id_normalization.db'}"
+    )
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    project_id = "story_project.story_line_id_normalization"
+    long_story.save_project(StoryProject(
+        project_id=project_id,
+        title="故事线标识规范化测试",
+        content_spec_id=content_spec.id,
+        planned_episode_count=100,
+    ))
+    adapter = MalformedThenInvalidStoryLineIdAdapter()
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=adapter,
+    )
+
+    story_bible = service.generate_story_bible_draft(StoryBibleDraftRequest(
+        story_project_id=project_id,
+        content_spec_id=content_spec.id,
+        generation_strategy_id=strategy.id,
+        creative_prompt="调查旧案。",
+        target_episode_count=100,
+    ))
+
+    assert adapter.calls == 2
+    assert story_bible.story_lines[0].title == "被封锁的证据链"
+    assert story_bible.story_lines[0].story_line_id.startswith(
+        "storyline.generated.1."
+    )
+    runtime.engine.dispose()
+
+
+def test_story_bible_substantial_contract_repair_uses_compact_context(tmp_path) -> None:
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'story_compact_repair.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    long_story.save_project(
+        StoryProject(
+            project_id="story_project.compact_repair",
+            title="紧凑修复测试",
+            content_spec_id=content_spec.id,
+            planned_episode_count=334,
+        )
+    )
+    adapter = SubstantialInvalidStoryBibleAdapter()
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=adapter,
+    )
+
+    story_bible = service.generate_story_bible_draft(
+        StoryBibleDraftRequest(
+            story_project_id="story_project.compact_repair",
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="COMPACT_REPAIR_SOURCE_MARKER 调查旧案。",
+            target_episode_count=334,
+        )
+    )
+
+    assert adapter.calls == 2
+    assert "COMPACT_REPAIR_SOURCE_MARKER" in adapter.prompts[0]
+    assert "COMPACT_REPAIR_SOURCE_MARKER" not in adapter.prompts[1]
+    assert "sole narrative source" in adapter.prompts[1]
+    assert len(adapter.prompts[1]) < len(adapter.prompts[0])
+    assert story_bible.relationships[0].target_direction
+    assert story_bible.character_registry
+    assert story_bible.story_lines
+    runtime.engine.dispose()
+
+
+def test_story_bible_salvages_substantial_prefix_when_repair_is_truncated(tmp_path) -> None:
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'story_prefix_salvage.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    project_id = "story_project.prefix_salvage"
+    long_story.save_project(
+        StoryProject(
+            project_id=project_id,
+            title="截断前缀恢复测试",
+            content_spec_id=content_spec.id,
+            planned_episode_count=334,
+        )
+    )
+    adapter = SubstantialTruncatedStoryBibleAdapter()
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=adapter,
+    )
+
+    story_bible = service.generate_story_bible_draft(
+        StoryBibleDraftRequest(
+            story_project_id=project_id,
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="调查旧案。",
+            target_episode_count=334,
+        )
+    )
+
+    assert adapter.calls == 2
+    assert story_bible.ending_direction
+    assert len(story_bible.escalation_stages) >= 3
+    assert story_bible.story_lines
+    runtime.engine.dispose()
 
 
 def test_story_planning_service_accepts_canonical_name_alias_without_repair(
@@ -1923,8 +3427,10 @@ def test_story_planning_service_repairs_non_chinese_narrative_once(tmp_path) -> 
     )
 
     assert adapter.calls == 2
-    assert adapter.max_tokens == [9_000, 9_000]
-    assert story_bible.core_premise.startswith("一名落魄调查记者")
+    assert adapter.max_tokens == [9_000, 1_600]
+    assert '"core_premise":"A reporter discovers' in adapter.prompts[1]
+    assert '"relationships"' not in adapter.prompts[1]
+    assert story_bible.core_premise.startswith("一名记者发现")
     assert story_bible_non_chinese_fields(
         StoryBibleGenerationOutput.model_validate(
             story_bible.model_dump(
@@ -1965,6 +3471,77 @@ def test_planning_output_retries_invalid_json_once() -> None:
     assert output.title == "证据链的第一层追查"
 
 
+@pytest.mark.parametrize(
+    "artifact_name",
+    [
+        "Story Bible modification",
+        "Story Plan Node modification",
+    ],
+)
+def test_planning_modifications_use_streaming_transport(
+    artifact_name: str,
+) -> None:
+    adapter = StoryBibleModificationTransportAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_bible_editor_llm_adapter = adapter
+
+    output = service._generate_planning_output(
+        prompt=(
+            "Market path: cn_mainland. Revise this Chinese mainland serialized comic "
+            "Story Bible in Simplified Chinese. "
+            "Use the selected passage as the primary target and preserve unaffected facts. "
+            "Apply knowledge_bundle.draft.cn_mainland_longform_foundation.v1. "
+            "Use these principles as bounded guidance, not rigid plot formulas. "
+            "Do not assign episode numbers. "
+            "All human-readable output values must be written in Simplified Chinese."
+        ),
+        strategy=build_strategy(),
+        output_model=StoryBibleGenerationOutput,
+        artifact_name=artifact_name,
+    )
+
+    assert adapter.stream_calls == 1
+    assert adapter.nonstream_calls == 0
+    assert "调查记者" in output.core_premise
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "initial",
+        "interactive_synthesis",
+        "format_repair",
+        "quality_repair",
+        "modification_quality_repair",
+    ],
+)
+def test_full_story_bible_generation_stages_use_streaming_transport(
+    stage: str,
+) -> None:
+    adapter = StoryBibleModificationTransportAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._story_bible_llm_adapter = adapter
+    service._story_bible_editor_llm_adapter = adapter
+
+    output = service._generate_story_bible_model_output(
+        (
+            "Plan a Chinese mainland serialized comic in Simplified Chinese. "
+            "Apply knowledge_bundle.draft.cn_mainland_longform_foundation.v1. "
+            "Use these principles as bounded guidance, not rigid plot formulas. "
+            "Do not assign episode numbers. "
+            "All human-readable output values must be written in Simplified Chinese."
+        ),
+        strategy=build_strategy(),
+        output_schema=StoryBibleGenerationOutput.model_json_schema(),
+        stage=stage,
+    )
+
+    assert adapter.stream_calls == 1
+    assert adapter.nonstream_calls == 0
+    assert "core_premise" in output
+
+
 def test_decomposition_repairs_malformed_stream_with_raw_nonstream_response() -> None:
     adapter = StreamingInvalidDecompositionAdapter()
     service = object.__new__(StoryPlanningService)
@@ -1989,7 +3566,7 @@ def test_decomposition_repairs_malformed_stream_with_raw_nonstream_response() ->
     assert len(output.children) == 4
 
 
-def test_empty_decomposition_transport_is_exposed_as_transient_after_repair() -> None:
+def test_incomplete_decomposition_transport_switches_to_recovery_without_same_mode_retry() -> None:
     adapter = EmptyPlanningOutputAdapter()
     service = object.__new__(StoryPlanningService)
     service._llm_adapter = adapter
@@ -2006,7 +3583,25 @@ def test_empty_decomposition_transport_is_exposed_as_transient_after_repair() ->
             artifact_name="Story Plan Node decomposition",
         )
 
-    assert adapter.calls == 2
+    assert adapter.calls == 1
+
+
+def test_reasoning_only_decomposition_request_switches_to_segmented_recovery() -> None:
+    adapter = ReasoningOnlyDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = adapter
+    service._story_architect_llm_adapter = adapter
+
+    with pytest.raises(StoryPlanningTransientOutputError):
+        service._generate_structured_planning_response(
+            adapter,
+            "Plan a Chinese mainland serialized comic.",
+            strategy=build_strategy(),
+            output_schema=StoryPlanNodeDecompositionOutput.model_json_schema(),
+            artifact_name="Story Plan Node decomposition node=test-node",
+        )
+
+    assert adapter.calls == 1
 
 
 def test_empty_structured_decomposition_retries_once_without_response_schema() -> None:
@@ -2052,10 +3647,12 @@ def test_empty_decomposition_children_skip_redundant_repair_cascade() -> None:
 
 
 def test_decomposition_repairs_only_the_incomplete_child_after_batch_repair() -> None:
-    adapter = IncompleteChildDecompositionAdapter()
+    initial_adapter = IncompleteChildDecompositionAdapter()
+    recovery_adapter = IncompleteChildDecompositionAdapter()
     service = object.__new__(StoryPlanningService)
-    service._llm_adapter = adapter
-    service._story_architect_llm_adapter = adapter
+    service._llm_adapter = initial_adapter
+    service._story_architect_llm_adapter = initial_adapter
+    service._story_architect_recovery_llm_adapter = recovery_adapter
 
     output = service._generate_planning_output(
         prompt=(
@@ -2069,11 +3666,21 @@ def test_decomposition_repairs_only_the_incomplete_child_after_batch_repair() ->
         artifact_name="Story Plan Node decomposition",
     )
 
-    assert adapter.stream_calls == 1
-    assert adapter.batch_repair_calls == 1
-    assert adapter.child_repair_calls == 1
-    assert adapter.child_repair_max_tokens == [min(build_strategy().max_tokens, 4000)]
-    assert "REPAIR ONE INCOMPLETE DECOMPOSITION CHILD" in adapter.child_repair_prompt
+    assert initial_adapter.stream_calls == 1
+    assert initial_adapter.batch_repair_calls == 0
+    assert initial_adapter.child_repair_calls == 0
+    assert recovery_adapter.batch_repair_calls == 1
+    assert recovery_adapter.batch_repair_max_tokens == [
+        min(build_strategy().max_tokens, 6_000)
+    ]
+    assert recovery_adapter.child_repair_calls == 1
+    assert recovery_adapter.child_repair_max_tokens == [
+        min(build_strategy().max_tokens, 4000)
+    ]
+    assert (
+        "REPAIR ONE INCOMPLETE DECOMPOSITION CHILD"
+        in recovery_adapter.child_repair_prompt
+    )
     assert len(output.children) == 4
     assert output.children[0].synopsis.startswith("主角发现")
 
@@ -2152,6 +3759,81 @@ def test_segmented_decomposition_recovery_preserves_ranges_and_continuity() -> N
         and child.story_line_refs == ["storyline.truth"]
         for child in output.children
     )
+    assert all(
+        "Chinese mainland serialized comic decomposition contract." not in prompt
+        for prompt in adapter.prompts
+    )
+    previous_checkpoint = adapter.prompts[1].split(
+        "Previous accepted child, for distinctness and causal handoff:\n",
+        maxsplit=1,
+    )[1].split("\n\nReturn only", maxsplit=1)[0]
+    assert '"exit_state"' in previous_checkpoint
+    assert '"unit_resolution"' in previous_checkpoint
+    assert '"unit_story_beats"' not in previous_checkpoint
+    assert "Approved compact recovery context" in adapter.prompts[0]
+    StoryPlanningService._validate_decomposition_output(
+        output,
+        parent=parent,
+        story_bible=story_bible,
+        requested_child_count=3,
+        max_episode_ready_span=12,
+    )
+
+
+def test_segmented_decomposition_reuses_valid_prefix_and_generates_only_missing() -> None:
+    source_adapter = RecordingSegmentedDecompositionAdapter()
+    parent = SimpleNamespace(
+        node_id="story-node.segmented-reuse-parent",
+        planned_start_episode=1,
+        planned_end_episode=24,
+        entry_state="主角刚取得一份来源不明的旧账本。",
+        exit_state="主角完成证据固定并锁定幕后责任人。",
+        turning_points=["父级转折一", "父级转折二", "父级转折三"],
+        synopsis="主角逐层验证旧案证据，在保护证人与公开真相之间承担持续升级的代价。",
+        decomposition_reason="该父节点需要继续拆分为完整剧情单元。",
+    )
+    story_bible = SimpleNamespace(
+        character_refs=["character.mara"],
+        story_lines=[SimpleNamespace(story_line_id="storyline.truth")],
+    )
+    reusable_child = source_adapter.generate_structured_output(
+        "Build one reusable child.",
+        strategy=build_strategy(),
+        output_schema=StoryPlanNodeChildOutput.model_json_schema(),
+    )
+    reusable_child.update({
+        "title": "旧账本原件核验",
+        "narrative_purpose": "完成旧账本来源核验并取得第一份可追责登记页。",
+        "synopsis": "主角潜入档案库核验旧账本原件，在管理员遭到威胁后改变公开策略，带走被篡改的登记页并启动证人保护。",
+        "entry_state": parent.entry_state,
+        "exit_state": "主角带着已核验的登记页转入证人保护行动。",
+        "planned_start_episode": 1,
+        "planned_end_episode": 8,
+        "estimated_episode_count": 8,
+    })
+
+    recovery_adapter = RecordingSegmentedDecompositionAdapter()
+    service = object.__new__(StoryPlanningService)
+    service._llm_adapter = recovery_adapter
+    service._story_architect_llm_adapter = recovery_adapter
+    service._story_architect_recovery_llm_adapter = recovery_adapter
+
+    output = service._generate_segmented_decomposition_recovery(
+        original_prompt="Full decomposition prompt.",
+        strategy=build_strategy().model_copy(update={"max_tokens": 12_000}),
+        parent=parent,
+        story_bible=story_bible,
+        requested_child_count=3,
+        max_episode_ready_span=12,
+        source_children=[reusable_child],
+    )
+
+    assert len(recovery_adapter.prompts) == 2
+    assert "Child position: 2 of 3" in recovery_adapter.prompts[0]
+    assert output.children[0].title == reusable_child["title"]
+    assert output.children[1].entry_state == output.children[0].exit_state
+    assert output.children[2].entry_state == output.children[1].exit_state
+    assert output.children[-1].exit_state == parent.exit_state
     StoryPlanningService._validate_decomposition_output(
         output,
         parent=parent,
@@ -2620,10 +4302,10 @@ def test_episode_roadmap_starts_with_short_ordered_segments() -> None:
 
     assert [item.episode_number for item in output.episode_plans] == list(range(1, 9))
     assert len(adapter.prompts) == 2
-    assert "exact order:\n[1, 2, 3, 4]" in adapter.prompts[0]
-    assert "exact order:\n[5, 6, 7, 8]" in adapter.prompts[1]
+    assert "exact order:\n[1, 2, 3, 4, 5, 6]" in adapter.prompts[0]
+    assert "exact order:\n[7, 8]" in adapter.prompts[1]
     assert '"episode_goal"' not in adapter.prompts[1]
-    assert all(tokens <= 5_000 for tokens in adapter.max_tokens)
+    assert all(tokens <= 7_000 for tokens in adapter.max_tokens)
 
 
 def test_episode_roadmap_recovers_empty_large_segments_by_splitting() -> None:
@@ -2811,7 +4493,7 @@ def test_episode_roadmap_segmented_recovery_budget_covers_the_complete_split_tre
     assert [item.episode_number for item in output.episode_plans] == list(
         range(41, 53)
     )
-    assert adapter.calls == 23
+    assert adapter.calls == 24
 
 
 def test_decomposition_discards_ambiguous_body_weights_for_span_fallback() -> None:
@@ -2832,27 +4514,27 @@ def test_decomposition_discards_ambiguous_body_weights_for_span_fallback() -> No
     )
 
 
-def test_decomposition_sends_initial_flat_node_directly_to_envelope_repair() -> None:
+def test_decomposition_sends_initial_flat_node_directly_to_segmented_recovery() -> None:
     adapter = FlatThenEnvelopeDecompositionAdapter()
     service = object.__new__(StoryPlanningService)
     service._llm_adapter = adapter
     service._story_architect_llm_adapter = adapter
 
-    output = service._generate_planning_output(
-        prompt=(
-            "Plan a Chinese mainland serialized comic. "
-            "All human-readable output values must be written in Simplified Chinese. "
-            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1 "
-            "Use these principles as bounded guidance, not rigid plot formulas."
-        ),
-        strategy=build_strategy(),
-        output_model=StoryPlanNodeDecompositionOutput,
-        artifact_name="Story Plan Node decomposition",
-    )
+    with pytest.raises(StoryPlanningInputError, match="one flat child"):
+        service._generate_planning_output(
+            prompt=(
+                "Plan a Chinese mainland serialized comic. "
+                "All human-readable output values must be written in Simplified Chinese. "
+                "knowledge_bundle.draft.cn_mainland_longform_foundation.v1 "
+                "Use these principles as bounded guidance, not rigid plot formulas."
+            ),
+            strategy=build_strategy(),
+            output_model=StoryPlanNodeDecompositionOutput,
+            artifact_name="Story Plan Node decomposition",
+        )
 
     assert adapter.stream_calls == 1
-    assert adapter.nonstream_calls == 1
-    assert len(output.children) == 4
+    assert adapter.nonstream_calls == 0
 
 
 def test_decomposition_sends_plain_string_children_directly_to_envelope_repair() -> None:
@@ -2934,13 +4616,20 @@ def test_story_bible_and_tree_decomposition_use_separate_adapters() -> None:
 
 def test_story_planning_artifacts_use_role_specific_adapters() -> None:
     default_adapter = RepairingPlanningOutputAdapter(invalid_json=False)
+    story_bible_editor_adapter = RepairingPlanningOutputAdapter(invalid_json=False)
     architect_adapter = RepairingPlanningOutputAdapter(invalid_json=False)
     episode_plan_adapter = RepairingPlanningOutputAdapter(invalid_json=False)
     service = object.__new__(StoryPlanningService)
     service._llm_adapter = default_adapter
+    service._story_bible_llm_adapter = default_adapter
+    service._story_bible_editor_llm_adapter = story_bible_editor_adapter
     service._story_architect_llm_adapter = architect_adapter
     service._episode_plan_llm_adapter = episode_plan_adapter
 
+    assert (
+        service._adapter_for_artifact("Story Bible modification")
+        is story_bible_editor_adapter
+    )
     assert service._adapter_for_artifact("Story Plan Node") is architect_adapter
     assert (
         service._adapter_for_artifact("Story Plan Node decomposition repair")
@@ -3037,6 +4726,7 @@ def test_decomposition_prompt_uses_adaptive_child_count_and_project_capacity() -
         requested_child_count=None,
         max_episode_ready_span=12,
         knowledge_context="KnowledgeBundle: bounded",
+        author_instruction="先让主角公开对抗阻力，再把秘密揭示留到第二个子分支。",
     )
 
     assert "Choose between 2 and 3 children" in prompt
@@ -3059,6 +4749,24 @@ def test_decomposition_prompt_uses_adaptive_child_count_and_project_capacity() -
     assert "计划收束=公开完整证据" in prompt
     assert "Never emit id, conflict, episode_start, episode_end" in prompt
     assert "Return exactly 4 children" not in prompt
+    assert "先让主角公开对抗阻力，再把秘密揭示留到第二个子分支" in prompt
+
+
+def test_story_bible_prompt_contains_author_control_instruction() -> None:
+    request = StoryBibleDraftRequest(
+        story_project_id="story_project.prompt_control",
+        generation_strategy_id="strategy.prompt_control",
+        creative_prompt="调查一桩被掩盖的旧案。",
+        author_instruction="强化主角与证人的互不信任，但不要提前揭示最终真相。",
+    )
+    prompt = StoryPlanningService._build_prompt(
+        payload=request,
+        project_title="控制指令测试",
+        content_spec=SimpleNamespace(story_goal="形成可连载的完整故事。", tags=[]),
+        knowledge_context="KnowledgeBundle: bounded",
+    )
+    assert "强化主角与证人的互不信任，但不要提前揭示最终真相" in prompt
+    assert "可以选择、组合或补充候选方向" in prompt
 
 
 def test_short_project_becomes_one_leaf_without_tiny_sibling_decomposition() -> None:
@@ -3352,6 +5060,45 @@ def test_story_bible_normalizes_nested_story_line_aliases() -> None:
     assert line["planned_resolution"].startswith("证据链在公开听证")
 
 
+def test_story_bible_normalizes_invalid_and_duplicate_story_line_ids_locally() -> None:
+    payload = {
+        "story_lines": [
+            {
+                "story_line_id": "真相主线",
+                "title": "证据链追查",
+                "premise": "主角逐步验证被掩盖的旧案证据。",
+                "planned_resolution": "证据链在公开听证中完成独立验证。",
+            },
+            {
+                "story_line_id": "storyline.relationship",
+                "title": "关系裂痕",
+                "premise": "主角与盟友在证据选择中不断改变合作条件。",
+                "planned_resolution": "双方建立有边界的信任并承担关系代价。",
+            },
+            {
+                "story_line_id": "storyline.relationship",
+                "title": "关系代价",
+                "premise": "旧关系因真相公开承受不可逆的现实冲击。",
+                "planned_resolution": "主角接受关系变化并独立重建生活。",
+            },
+        ]
+    }
+
+    first = normalize_story_bible_generation_output(payload)["story_lines"]
+    second = normalize_story_bible_generation_output(payload)["story_lines"]
+
+    assert first == second
+    assert first[0]["story_line_id"].startswith("storyline.generated.1.")
+    assert first[1]["story_line_id"] == "storyline.relationship"
+    assert first[2]["story_line_id"].startswith("storyline.generated.3.")
+    assert len({item["story_line_id"].casefold() for item in first}) == 3
+    assert [item["title"] for item in first] == [
+        "证据链追查",
+        "关系裂痕",
+        "关系代价",
+    ]
+
+
 def build_active_lineage_story_node(
     *,
     node_id: str,
@@ -3431,6 +5178,39 @@ def build_active_lineage_story_bible() -> SimpleNamespace:
         locked_facts=[],
         avoid_patterns=[],
     )
+
+
+def test_narrative_decomposition_child_count_follows_story_density() -> None:
+    story_bible = build_active_lineage_story_bible()
+    low_density_parent = build_active_lineage_story_node(
+        node_id="story_plan.density.low",
+        version=1,
+        start_episode=1,
+        end_episode=24,
+        expansion_status=StoryPlanExpansionStatus.expanded,
+    )
+    high_density_parent = low_density_parent.model_copy(update={
+        "node_id": "story_plan.density.high",
+        "planned_end_episode": 48,
+        "turning_points": [f"独立转折{index}" for index in range(1, 9)],
+        "unit_story_beats": [f"因果节拍{index}" for index in range(1, 13)],
+        "story_line_refs": [
+            "storyline.truth_network",
+            "storyline.relationship",
+            "storyline.pressure",
+        ],
+        "setup_refs": [f"setup.{index}" for index in range(1, 5)],
+        "payoff_refs": [f"payoff.{index}" for index in range(1, 5)],
+    })
+
+    assert _narrative_decomposition_child_count(
+        low_density_parent,
+        story_bible,
+    ) == 2
+    assert _narrative_decomposition_child_count(
+        high_density_parent,
+        story_bible,
+    ) == 4
 
 
 def test_compiled_top_level_decomposition_normalizes_stage_punctuation() -> None:
@@ -3622,12 +5402,126 @@ def test_episode_item_fallback_builds_an_executable_scene_blueprint() -> None:
 
     prepared = StoryPlanningService._ensure_episode_item_short_drama_fields(item)
 
+    assert prepared.episode_title == "本集待命名"
     assert len(prepared.scene_execution_plan) == prepared.planned_scene_count
     assert [scene.scene_number for scene in prepared.scene_execution_plan] == [1, 2, 3]
-    assert sum(scene.dialogue_line_target for scene in prepared.scene_execution_plan) == 24
+    assert sum(scene.dialogue_line_target for scene in prepared.scene_execution_plan) == 30
     assert sum(scene.shot_target for scene in prepared.scene_execution_plan) == 16
     assert all(scene.scene_heading.startswith(("INT.", "EXT.")) for scene in prepared.scene_execution_plan)
     assert all(scene.character_refs == ["character.mara"] for scene in prepared.scene_execution_plan)
+    assert prepared.layer_contracts is not None
+    assert prepared.layer_contracts.pacing.shot_count == 16
+    assert prepared.layer_contracts.hook.ending_hook_count == 1
+    assert prepared.layer_contracts.story.causal_chain_complete is True
+
+
+def test_episode_title_quality_rejects_planning_report_language() -> None:
+    assert _episode_title_quality_issues("重锤救人") == []
+    assert "report_prefix" in _episode_title_quality_issues("完成送货员救援")
+    assert "planning_suffix" in _episode_title_quality_issues("追查行动")
+    assert "format" in _episode_title_quality_issues("第12集：追查")
+
+
+def test_episode_roadmap_modification_scope_keeps_title_in_sync_with_goal() -> None:
+    title_only = infer_episode_roadmap_modification_scope(
+        instruction="把本集标题改得更有悬念。",
+        selection_context=None,
+        revision_mode="targeted",
+    )
+    assert title_only == {"episode_title"}
+
+    goal_with_context = infer_episode_roadmap_modification_scope(
+        instruction="重写本集目标，并确保前后因果一致。",
+        selection_context=None,
+        revision_mode="targeted",
+    )
+    assert {"episode_title", "episode_goal", "entry_state", "central_conflict"} <= goal_with_context
+
+
+def test_episode_roadmap_targeted_revision_protects_unrelated_title() -> None:
+    source = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(),
+        "episode_title": "追查旧账本",
+    })
+    candidate = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(),
+        "episode_title": "不应采用的新标题",
+        "central_conflict": "证人已经被对手锁定，主角必须立即选择救人或保全证据。",
+    })
+    allowed_fields = infer_episode_roadmap_modification_scope(
+        instruction="只加强本集冲突。",
+        selection_context=None,
+        revision_mode="targeted",
+    )
+
+    revised = apply_episode_roadmap_modification_scope(source, candidate, allowed_fields)
+
+    assert revised.episode_title == "追查旧账本"
+    assert revised.episode_goal == source.episode_goal
+    assert revised.central_conflict == candidate.central_conflict
+
+
+def test_episode_planning_memory_preserves_cross_leaf_obligations() -> None:
+    first = EpisodePlanGenerationItem.model_validate(
+        build_active_lineage_episode_item(1)
+    ).model_copy(update={
+        "setup_refs": ["setup.early_clue"],
+        "payoff_refs": [],
+        "continuity_requirements": ["证人不能被公开身份暴露"],
+        "ending_hook_type": "身份压力",
+        "next_episode_obligation": "后续必须确认泄密源头。",
+        "hook_payoff_target_episode": None,
+    })
+    second = EpisodePlanGenerationItem.model_validate(
+        build_active_lineage_episode_item(2)
+    ).model_copy(update={
+        "setup_refs": ["setup.early_clue"],
+        "payoff_refs": ["payoff.local_result"],
+        "continuity_requirements": ["账本时间戳必须与原始凭证互证"],
+        "hook_payoff_target_episode": 4,
+    })
+    persisted_memory = EpisodePlanningContinuityMemory(
+        last_confirmed_episode=30,
+        active_continuity_requirements=["第3集留下的证人身份泄密仍未结算"],
+        unresolved_setup_refs=["setup.long_range"],
+        recorded_payoff_refs=["payoff.persisted"],
+        active_story_line_refs=["storyline.long_range"],
+        open_hooks=[EpisodePlanningOpenHook(
+            source_episode=3,
+            hook_type="证据追踪",
+            obligation="第30集前必须核对被篡改的授权编号。",
+            target_episode=None,
+        )],
+        recent_state_handoffs=[EpisodePlanningStateHandoff(
+            episode_number=30,
+            exit_state="主角获得一份尚未核验的授权编号。",
+            pressure_escalation="授权编号将在公开前失效。",
+            next_episode_obligation="必须在下一阶段完成核验。",
+        )],
+    )
+
+    merged = StoryPlanningService._compact_episode_continuity_memory(
+        [first, second],
+        current_episode_number=31,
+        planning_memory=persisted_memory,
+    )
+
+    assert merged["last_confirmed_episode"] == 30
+    assert "第3集留下的证人身份泄密仍未结算" in merged["active_continuity_requirements"]
+    assert "setup.long_range" in merged["unresolved_setup_refs"]
+    assert "storyline.long_range" in merged["active_story_line_refs"]
+    assert any(hook["source_episode"] == 3 for hook in merged["open_hooks"])
+    assert any(handoff["episode_number"] == 30 for handoff in merged["recent_state_handoffs"])
+
+
+def test_episode_planning_memory_is_optional_for_legacy_prompt_calls() -> None:
+    memory = StoryPlanningService._compact_episode_continuity_memory(
+        [],
+        current_episode_number=1,
+    )
+
+    assert memory["last_confirmed_episode"] is None
+    assert memory["open_hooks"] == []
 
 
 def test_episode_item_normalizes_english_hook_type_without_model_repair() -> None:
@@ -3753,6 +5647,46 @@ def episode_item_request(source: StoryPlanNode) -> EpisodePlanItemDraftRequest:
         generation_strategy_id="strategy.test",
         episode_number=1,
         accepted_plans=[],
+    )
+
+
+def test_episode_chunk_generates_six_items_per_model_call_and_resumes_prefix() -> None:
+    class ChunkAdapter(CountingFixedStoryBibleAdapter):
+        def generate_structured_output(self, *args, **kwargs):
+            assert kwargs["output_schema"] is None
+            kwargs["output_schema"] = (
+                EpisodePlanBatchGenerationOutput.model_json_schema()
+            )
+            output = super().generate_structured_output(*args, **kwargs)
+            for item in output["episode_plans"]:
+                item["character_refs"] = ["character.mara"]
+            return output
+
+    adapter = ChunkAdapter()
+    service, source = build_episode_item_generation_service(adapter)
+    service._knowledge_context = lambda **_kwargs: (
+        "Creative knowledge bundle: "
+        "knowledge_bundle.draft.cn_mainland_longform_foundation.v1\n"
+        "Use these principles as bounded guidance, not rigid plot formulas"
+    )
+    request = episode_item_request(source)
+
+    first_chunk = service.generate_episode_plan_chunk(request)
+    second_chunk = service.generate_episode_plan_chunk(
+        request.model_copy(update={
+            "episode_number": 7,
+            "accepted_plans": first_chunk,
+        })
+    )
+
+    roadmap = [*first_chunk, *second_chunk]
+    assert adapter.calls == 2
+    assert [item.episode_number for item in first_chunk] == [1, 2, 3, 4, 5, 6]
+    assert [item.episode_number for item in second_chunk] == [7, 8]
+    assert [item.episode_number for item in roadmap] == list(range(1, 9))
+    assert all(
+        len(item.scene_execution_plan) == item.planned_scene_count
+        for item in roadmap
     )
 
 
@@ -4361,6 +6295,61 @@ def test_decomposition_uses_segmented_recovery_after_incomplete_batch() -> None:
     assert len(long_story.saved_nodes) == 2
 
 
+def test_decomposition_keeps_all_siblings_when_provider_recovery_is_exhausted() -> None:
+    source = build_active_lineage_story_node(
+        node_id="story_plan.inflight.deterministic_fallback",
+        version=1,
+        start_episode=1,
+        end_episode=48,
+        expansion_status=StoryPlanExpansionStatus.expanded,
+    )
+    story_bible = build_active_lineage_story_bible()
+    long_story = MutableActiveLineageLongStoryService(
+        source,
+        source.model_copy(update={"version": 2}),
+        story_bible,
+    )
+    strategy = build_strategy()
+
+    service = object.__new__(StoryPlanningService)
+    service._long_story_service = long_story
+    service._generation_strategy_repository = SimpleNamespace(
+        get=lambda _strategy_id: strategy
+    )
+    service._content_spec_for_story_bible = lambda _story_bible: SimpleNamespace()
+    service._knowledge_context = lambda **_kwargs: ""
+
+    def always_fail(*_args, **_kwargs):
+        raise StoryPlanningInputError("provider returned an invalid sibling contract")
+
+    service._generate_planning_output = always_fail
+
+    children = service.decompose_story_plan_node(
+        StoryPlanNodeDecompositionRequest(
+            story_project_id=source.story_project_id,
+            parent_node_id=source.node_id,
+            parent_node_version=source.version,
+            generation_strategy_id=strategy.id,
+            requested_child_count=6,
+        )
+    )
+
+    assert len(children) == 6
+    assert len(long_story.saved_nodes) == 6
+    assert [
+        (child.planned_start_episode, child.planned_end_episode)
+        for child in children
+    ] == [(1, 8), (9, 16), (17, 24), (25, 32), (33, 40), (41, 48)]
+    assert children[0].entry_state == source.entry_state
+    assert children[1].entry_state == children[0].exit_state
+    assert all(
+        children[index].entry_state == children[index - 1].exit_state
+        for index in range(2, len(children))
+    )
+    assert children[-1].exit_state == source.exit_state
+    assert all("模型输出连续失败" in child.decomposition_reason for child in children)
+
+
 def test_episode_item_generation_and_modification_recheck_lineage_once() -> None:
     source = build_active_lineage_story_node(
         node_id="story_plan.inflight.episode_leaf",
@@ -4636,6 +6625,12 @@ def test_episode_plan_modification_preserves_approved_assignments() -> None:
             accepted_plans=[],
             current_plan=current,
             revision_mode=PlanningRevisionMode.rewrite,
+            selection_context={
+                "source_field": "第1集核心冲突",
+                "selected_text": "公开账本会立刻暴露证人",
+                "before_text": "主角刚取得一份来源不明的旧账本。",
+                "after_text": "主角决定先保护证人再验证账本。",
+            },
         )
     )
 
@@ -4649,6 +6644,8 @@ def test_episode_plan_modification_preserves_approved_assignments() -> None:
     assert revised.source_unit_story_beats == []
     assert adapter.schemas == [None]
     assert "Revision mode: rewrite" in adapter.prompts[0]
+    assert "Source field: 第1集核心冲突" in adapter.prompts[0]
+    assert "公开账本会立刻暴露证人" in adapter.prompts[0]
 
 
 def test_story_planning_service_generates_tag_constrained_direction_choices(
@@ -4689,6 +6686,8 @@ def test_story_planning_service_generates_tag_constrained_direction_choices(
 
     assert len(output.directions) == 4
     assert len({item.title for item in output.directions}) == 4
+    assert output.directions[0].character_changes == ["主角从旁观调查转为主动承担风险。"]
+    assert output.directions[0].tradeoffs == ["节奏更紧，但会延后完整真相的揭示。"]
 
 
 def test_creative_direction_validation_accepts_three_distinct_options() -> None:
@@ -4704,6 +6703,211 @@ def test_creative_direction_validation_accepts_three_distinct_options() -> None:
     )
 
     StoryPlanningService._validate_creative_directions(output)
+
+
+def test_interactive_story_bible_step_is_small_and_reviewable() -> None:
+    payload = StoryBibleInteractiveStepRequest(
+        story_project_id="story_project.interactive",
+        generation_strategy_id="strategy.interactive",
+        step=StoryBibleInteractiveStep.premise,
+        creative_prompt="调查记者追查旧案。",
+        previous_sections={},
+        author_instruction="先强调证人保护。",
+    )
+    output = StoryBibleInteractiveStepOutput(
+        step=payload.step,
+        question="故事第一步要先锁定什么核心？",
+        candidates=[
+            StoryBibleInteractiveCandidate(
+                candidate_id=f"premise.{index}",
+                title=f"核心方向{index}",
+                summary="主角先保护证人，再追查旧案的证据链。",
+                fields={
+                    "project_title": "证据的代价",
+                    "core_premise": "调查记者保护关键证人并追查被篡改的旧案证据链。",
+                    "series_goal": "她必须在保护证人与公开真相之间承担持续升级的代价。",
+                },
+            )
+            for index in range(1, 5)
+        ],
+    )
+    assert payload.step == output.step
+    assert len(output.candidates) == 4
+    assert output.candidates[0].fields["core_premise"]
+
+
+def test_interactive_story_bible_validation_ignores_adapter_metadata() -> None:
+    raw = {
+        "step": "premise",
+        "question": "故事第一步要先锁定什么核心？",
+        "candidates": [],
+        "_meta": {"provider": "openai_compatible", "model_name": "gpt-5.6-sol"},
+    }
+
+    cleaned = _without_adapter_metadata(raw)
+
+    assert isinstance(cleaned, dict)
+    assert "_meta" not in cleaned
+    assert cleaned["step"] == "premise"
+
+
+def test_interactive_story_bible_salvages_complete_raw_json_without_repair_round_trip(
+    tmp_path,
+) -> None:
+    class SalvageAdapter(FixedStoryBibleAdapter):
+        calls = 0
+
+        def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
+            return ""
+
+        def generate_structured_output(
+            self,
+            prompt: str,
+            *,
+            strategy: GenerationStrategy,
+            output_schema: dict[str, Any] | None = None,
+        ) -> object:
+            self.calls += 1
+            raw = {
+                "step": "premise",
+                "question": "先确定故事核心。",
+                "candidates": [
+                    {
+                        "candidate_id": f"premise.{index}",
+                        "title": f"方向{index}",
+                        "summary": "主角必须在保护证人与追查旧案之间持续承担代价。",
+                        "fields": {"core_premise": f"核心前提{index}"},
+                    }
+                    for index in range(1, 5)
+                ],
+            }
+            raise LLMStructuredOutputError(
+                "Model returned invalid JSON content.",
+                raw_content=json.dumps(raw, ensure_ascii=False) + "\n",
+            )
+
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'interactive_salvage.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    long_story.save_project(
+        StoryProject(
+            project_id="story_project.interactive_salvage",
+            title="真相的代价",
+            content_spec_id=content_spec.id,
+            planned_episode_count=334,
+        )
+    )
+    adapter = SalvageAdapter()
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=adapter,
+        story_bible_llm_adapter=adapter,
+    )
+
+    output = service.generate_story_bible_interactive_step(
+        StoryBibleInteractiveStepRequest(
+            story_project_id="story_project.interactive_salvage",
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            step=StoryBibleInteractiveStep.premise,
+            creative_prompt="调查记者追查旧案。",
+        )
+    )
+
+    assert adapter.calls == 1
+    assert len(output.candidates) == 4
+    assert output.candidates[0].fields["core_premise"] == "核心前提1"
+
+
+@pytest.mark.parametrize("candidate_count", [3, 5])
+def test_interactive_story_bible_step_requires_exactly_four_candidates(
+    candidate_count: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        StoryBibleInteractiveStepOutput(
+            step=StoryBibleInteractiveStep.premise,
+            question="故事第一步要先锁定什么核心？",
+            candidates=[
+                StoryBibleInteractiveCandidate(
+                    candidate_id=f"premise.{index}",
+                    title=f"核心方向{index}",
+                    summary="主角先保护证人，再追查旧案的证据链。",
+                )
+                for index in range(candidate_count)
+            ],
+        )
+
+
+def test_interactive_story_bible_prompt_includes_reference_context() -> None:
+    payload = StoryBibleInteractiveStepRequest(
+        story_project_id="story_project.interactive-prompt",
+        generation_strategy_id="strategy.interactive-prompt",
+        step=StoryBibleInteractiveStep.premise,
+        creative_prompt="调查记者追查旧案。",
+        reference_materials=[
+            CreativeReferenceMaterial(
+                file_name="人物资料.docx",
+                purpose="character_reference",
+                extracted_text="主角必须保护证人。",
+            )
+        ],
+    )
+
+    prompt = StoryPlanningService._build_interactive_story_bible_step_prompt(
+        payload=payload,
+        project_title="证据的代价",
+        content_spec=build_content_spec(),
+    )
+
+    assert "人物资料.docx" in prompt
+    assert "主角必须保护证人" in prompt
+
+
+def test_interactive_story_bible_output_coerces_gateway_variations_to_four_cards() -> None:
+    output = StoryPlanningService._coerce_interactive_story_bible_step_output(
+        {
+            "step": "wrong-step",
+            "question": "请选择故事核心。",
+            "candidates": [
+                {
+                    "candidate_id": "重复",
+                    "title": "方案一",
+                    "description": "保留主角与旧案的核心关系。",
+                },
+                {
+                    "candidate_id": "重复",
+                    "title": "方案二",
+                    "summary": "把冲突推进到公开调查阶段。",
+                },
+            ],
+        },
+        step=StoryBibleInteractiveStep.premise,
+    )
+
+    assert output is not None
+    assert output.step is StoryBibleInteractiveStep.premise
+    assert len(output.candidates) == 4
+    assert len({candidate.candidate_id for candidate in output.candidates}) == 4
+
+
+def test_interactive_story_bible_fallback_always_has_four_cards() -> None:
+    output = StoryPlanningService._fallback_interactive_story_bible_step(
+        StoryBibleInteractiveStep.world,
+    )
+
+    assert len(output.candidates) == 4
+    assert [candidate.candidate_id for candidate in output.candidates] == [
+        "world.fallback1",
+        "world.fallback2",
+        "world.fallback3",
+        "world.fallback4",
+    ]
 
 
 def test_story_bible_output_normalizes_project_summary_aliases() -> None:
@@ -5101,6 +7305,39 @@ def test_story_planning_service_uses_atomic_generated_story_bible_save(
     runtime.engine.dispose()
 
 
+def test_story_bible_targeted_revision_expands_only_when_context_is_affected() -> None:
+    local_only = infer_story_bible_modification_scope(
+        instruction="把这句话写得更紧张。",
+        selection_context={
+            "source_field": "故事核心",
+            "selected_text": "主角发现一条线索。",
+            "before_text": "她打开档案袋。",
+            "after_text": "她决定继续调查。",
+        },
+        revision_mode="targeted",
+    )
+    assert local_only == {"core_premise"}
+
+    expanded = infer_story_bible_modification_scope(
+        instruction="重写这段情节，并确保前后因果和结局一致。",
+        selection_context={
+            "source_field": "故事线：真相调查",
+            "selected_text": "主角公开第一份证据。",
+            "before_text": "她取得账本。",
+            "after_text": "对手开始反击。",
+        },
+        revision_mode="targeted",
+    )
+    assert {"story_lines", "escalation_stages", "major_setup_payoff_refs"} <= expanded
+
+    inferred = infer_story_bible_modification_scope(
+        instruction="加强阶段回报，但保留人物身份。",
+        selection_context=None,
+        revision_mode="targeted",
+    )
+    assert inferred == {"escalation_stages"}
+
+
 def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> None:
     runtime = create_database_runtime(f"sqlite:///{tmp_path / 'planning_modifications.db'}")
     SQLModel.metadata.create_all(runtime.engine)
@@ -5115,6 +7352,7 @@ def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> No
             project_id=project_id,
             title="AI修改候选测试",
             content_spec_id=content_spec.id,
+            output_language="en",
             planned_episode_count=80,
         )
     )
@@ -5137,9 +7375,23 @@ def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> No
     assert "Target episode count: 80" in adapter.prompts[0]
     assert "75-115 seconds" in adapter.prompts[0]
     assert "at least 100 minutes" in adapter.prompts[0]
-    assert "5-8 genuinely different dramatic stages" in adapter.prompts[0]
+    assert "3-5 genuinely different whole-story milestones" in adapter.prompts[0]
+    for section in (
+        "一、故事定位",
+        "二、核心故事",
+        "三、核心人物",
+        "四、核心关系",
+        "五、核心剧情线",
+        "六、核心冲突",
+        "七、故事发展方向",
+        "八、高潮方向",
+        "九、结局方向",
+        "十、创作核心原则",
+    ):
+        assert section in adapter.prompts[0]
     assert "normally no more than 120 Chinese characters" in adapter.prompts[0]
     assert "Detailed beats belong in the" in adapter.prompts[0]
+    assert adapter.prompts[0].count("WORKFLOW MARKET CONTRACT") == 1
 
     bible_candidate = service.modify_story_bible(
         StoryBibleModificationRequest(
@@ -5168,25 +7420,25 @@ def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> No
             }
         )
     )
-    approved_bible_candidate = service.modify_story_bible(
-        StoryBibleModificationRequest(
-            story_project_id=project_id,
-            story_bible_id=approved_bible.story_bible_id,
-            story_bible_version=approved_bible.version,
-            generation_strategy_id=strategy.id,
-            instruction="加强阶段回报，但保留已批准的故事边界。",
+    with pytest.raises(
+        StoryPlanningInputError,
+        match="Only an editable Story Bible draft can be modified",
+    ):
+        service.modify_story_bible(
+            StoryBibleModificationRequest(
+                story_project_id=project_id,
+                story_bible_id=approved_bible.story_bible_id,
+                story_bible_version=approved_bible.version,
+                generation_strategy_id=strategy.id,
+                instruction="加强阶段回报，但保留已批准的故事边界。",
+                selection_context={
+                    "source_field": "核心冲突",
+                    "selected_text": "主角必须在公开场合揭开真相。",
+                    "before_text": "她不再接受沉默。",
+                    "after_text": "这会迫使对手提前行动。",
+                },
+            )
         )
-    )
-
-    assert approved_bible_candidate.version == approved_bible.version
-    assert approved_bible_candidate.status == PlanningApprovalStatus.draft
-    assert approved_bible_candidate.approved_at is None
-    assert "Revision mode: targeted" in adapter.prompts[-1]
-    assert "Revise only the fields affected" in adapter.prompts[-1]
-    assert long_story.get_story_bible(
-        project_id,
-        approved_bible.story_bible_id,
-    ) == approved_bible
 
     node = service.generate_story_plan_node_draft(
         StoryPlanNodeDraftRequest(
@@ -5232,6 +7484,12 @@ def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> No
             node_version=approved_node.version,
             generation_strategy_id=strategy.id,
             instruction="增强中段反转，但保持集数边界。",
+            selection_context={
+                "source_field": "节点核心冲突",
+                "selected_text": "公开证据让对手提前行动",
+                "before_text": "主角取得账本。",
+                "after_text": "团队被迫转移。",
+            },
         )
     )
 
@@ -5240,6 +7498,8 @@ def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> No
     assert approved_node_candidate.approved_at is None
     assert "Revision mode: targeted" in adapter.prompts[-1]
     assert "Revise only the dramatic fields affected" in adapter.prompts[-1]
+    assert "Source field: 节点核心冲突" in adapter.prompts[-1]
+    assert "公开证据让对手提前行动" in adapter.prompts[-1]
     assert approved_node_candidate.planned_start_episode == approved_node.planned_start_episode
     assert approved_node_candidate.planned_end_episode == approved_node.planned_end_episode
     assert long_story.get_story_plan_node(project_id, approved_node.node_id) == approved_node

@@ -11,27 +11,37 @@ from app.dependencies import (
     get_story_planning_service,
 )
 from app.main import create_app
+from app.modules.script_engine.llm_adapter import LLMRequestError
 from app.modules.script_engine.long_story_models import (
     EpisodePlan,
+    GenerationBatchPlan,
+    GenerationJobCheckpoint,
+    GenerationTaskCheckpoint,
     PlanningApprovalStatus,
     StoryBible,
     StoryPlanNode,
     StoryProject,
     StoryStagePlan,
 )
+from app.modules.script_engine.long_story_repository import LongStoryRepository
 from app.modules.script_engine.long_story_service import LongStoryService
-from app.modules.script_engine.llm_adapter import LLMRequestError
 
 
 NOW = datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc)
 
 
-def build_project(*, revision: int = 1, title: str = "The Price of Truth") -> StoryProject:
+def build_project(
+    *,
+    revision: int = 1,
+    title: str = "The Price of Truth",
+    output_language: str = "zh",
+) -> StoryProject:
     return StoryProject(
         project_id="story_project.api_demo",
         revision=revision,
         title=title,
         content_spec_id="content_spec.api_demo",
+        output_language=output_language,
         planned_episode_count=60,
         default_batch_size=5,
         created_at=NOW,
@@ -61,6 +71,33 @@ def build_story_bible() -> StoryBible:
             }
         ],
         created_at=NOW,
+    )
+
+
+def build_generation_task() -> GenerationTaskCheckpoint:
+    batch = GenerationBatchPlan(
+        batch_id="generation-batch.api_demo.001",
+        story_project_id="story_project.api_demo",
+        batch_number=1,
+        start_episode=1,
+        end_episode=2,
+        episode_plan_ids=[
+            "episode-plan.api_demo.001",
+            "episode-plan.api_demo.002",
+        ],
+        status="running",
+        created_at=NOW,
+    )
+    return GenerationTaskCheckpoint(
+        batch=batch,
+        checkpoint=GenerationJobCheckpoint(
+            job_id="generation-job.api_demo.001",
+            batch_id=batch.batch_id,
+            status="running",
+            attempt_count=1,
+            completed_episode_numbers=[1],
+            checkpointed_at=NOW,
+        ),
     )
 
 
@@ -138,6 +175,71 @@ def build_episode_plan(*, episode_number: int = 1) -> EpisodePlan:
     )
 
 
+def test_script_phase_guard_accepts_only_complete_tree_and_roadmap_coverage() -> None:
+    project = build_project().model_copy(update={
+        "active_story_bible_id": "story_bible.api_demo",
+        "active_story_bible_version": 1,
+    })
+    story_bible = build_story_bible().model_copy(update={
+        "status": PlanningApprovalStatus.approved,
+        "approved_at": NOW,
+    })
+    root = build_story_plan_node(
+        planned_start_episode=1,
+        planned_end_episode=60,
+        expansion_status="expanded",
+    ).model_copy(update={
+        "status": PlanningApprovalStatus.approved,
+        "approved_at": NOW,
+    })
+    leaves = []
+    roadmaps = []
+    for index in range(6):
+        start_episode = index * 10 + 1
+        end_episode = start_episode + 9
+        leaf = build_story_plan_node(
+            node_id=f"story_plan.api_demo.leaf_{index + 1}",
+            parent_node_id=root.node_id,
+            sequence_order=index + 1,
+            planned_start_episode=start_episode,
+            planned_end_episode=end_episode,
+            expansion_status="episode_ready",
+        ).model_copy(update={
+            "status": PlanningApprovalStatus.approved,
+            "approved_at": NOW,
+        })
+        leaves.append(leaf)
+        roadmaps.extend({
+            "source_node_id": leaf.node_id,
+            "source_node_version": leaf.version,
+            "story_bible_version": 1,
+            "status": "approved",
+            "episode_number": episode_number,
+        } for episode_number in range(start_episode, end_episode + 1))
+
+    class CompletePlanningRepository:
+        @staticmethod
+        def get_story_bible(story_bible_id: str, *, version: int):
+            assert story_bible_id == story_bible.story_bible_id
+            assert version == story_bible.version
+            return story_bible
+
+        @staticmethod
+        def list_story_plan_nodes(*_args, **_kwargs):
+            return [root, *leaves]
+
+        @staticmethod
+        def get_workspace_snapshot(_project_id: str):
+            return type("Workspace", (), {
+                "workspace_payload": {"episodeRoadmaps": roadmaps},
+            })()
+
+    LongStoryService._require_complete_planning_before_script(
+        CompletePlanningRepository(),
+        project,
+    )
+
+
 @pytest.fixture
 def long_story_app(tmp_path):
     runtime = create_database_runtime(f"sqlite:///{tmp_path / 'long_story_api.db'}")
@@ -148,6 +250,39 @@ def long_story_app(tmp_path):
         yield app, runtime
     finally:
         runtime.engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_generation_task_can_be_reloaded_by_exact_job_id(long_story_app) -> None:
+    app, _runtime = long_story_app
+    task = build_generation_task()
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        saved = await client.put(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001",
+            json=task.model_dump(mode="json"),
+        )
+        loaded = await client.get(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001"
+        )
+        missing = await client.get(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.missing"
+        )
+
+    assert saved.status_code == 200, saved.text
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json()["data"] == saved.json()["data"]
+    assert missing.status_code == 200
+    assert missing.json()["data"] is None
 
 
 @pytest.mark.anyio
@@ -210,6 +345,188 @@ async def test_long_story_planning_api_persists_complete_planning_slice(
 
 
 @pytest.mark.anyio
+async def test_story_bible_requires_save_before_confirm_and_unchanged_revision_clone(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    story_bible_url = (
+        "/story-projects/story_project.api_demo/story-bibles/"
+        "story_bible.api_demo/versions"
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        project_response = await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        assert project_response.status_code == 200
+
+        draft_response = await client.put(
+            f"{story_bible_url}/1",
+            json=build_story_bible().model_dump(mode="json"),
+        )
+        assert draft_response.status_code == 200
+        initial_draft = draft_response.json()["data"]
+
+        changed_confirmation = await client.put(
+            f"{story_bible_url}/2",
+            json={
+                **initial_draft,
+                "version": 2,
+                "status": "approved",
+                "theme": "Truth costs more when it is delayed.",
+                "approved_at": NOW.isoformat(),
+            },
+        )
+        assert changed_confirmation.status_code == 409
+        assert "save" in changed_confirmation.json()["detail"].lower()
+
+        saved_draft_response = await client.put(
+            f"{story_bible_url}/2",
+            json={
+                **initial_draft,
+                "version": 2,
+                "theme": "Truth costs more when it is delayed.",
+            },
+        )
+        assert saved_draft_response.status_code == 200
+        saved_draft = saved_draft_response.json()["data"]
+
+        confirmed_response = await client.put(
+            f"{story_bible_url}/3",
+            json={
+                **saved_draft,
+                "version": 3,
+                "status": "approved",
+                "approved_at": NOW.isoformat(),
+            },
+        )
+        assert confirmed_response.status_code == 200
+        confirmed = confirmed_response.json()["data"]
+
+        changed_revision = await client.put(
+            f"{story_bible_url}/4",
+            json={
+                **confirmed,
+                "version": 4,
+                "status": "draft",
+                "theme": "A new theme cannot bypass the revision boundary.",
+                "approved_at": None,
+            },
+        )
+        assert changed_revision.status_code == 409
+        assert "unchanged editable" in changed_revision.json()["detail"].lower()
+
+        editable_clone_response = await client.put(
+            f"{story_bible_url}/4",
+            json={
+                **confirmed,
+                "version": 4,
+                "status": "draft",
+                "approved_at": None,
+            },
+        )
+        assert editable_clone_response.status_code == 200
+        editable_clone = editable_clone_response.json()["data"]
+
+        revised_draft_response = await client.put(
+            f"{story_bible_url}/5",
+            json={
+                **editable_clone,
+                "version": 5,
+                "theme": "A confirmed story can change only in an explicit new draft.",
+            },
+        )
+        assert revised_draft_response.status_code == 200
+        revised_draft = revised_draft_response.json()["data"]
+
+        reconfirmed_response = await client.put(
+            f"{story_bible_url}/6",
+            json={
+                **revised_draft,
+                "version": 6,
+                "status": "approved",
+                "approved_at": NOW.isoformat(),
+            },
+        )
+
+    assert reconfirmed_response.status_code == 200
+    assert reconfirmed_response.json()["data"]["status"] == "approved"
+    assert (
+        reconfirmed_response.json()["data"]["theme"]
+        == "A confirmed story can change only in an explicit new draft."
+    )
+
+
+@pytest.mark.anyio
+async def test_story_bible_versions_inherit_overseas_project_market_route(
+    long_story_app,
+) -> None:
+    app, runtime = long_story_app
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        project_response = await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project(output_language="en").model_dump(mode="json"),
+        )
+        assert project_response.status_code == 200
+
+        first_response = await client.put(
+            "/story-projects/story_project.api_demo/story-bibles/"
+            "story_bible.api_demo/versions/1",
+            json=build_story_bible().model_dump(mode="json"),
+        )
+        assert first_response.status_code == 200
+        assert "market_profile" not in first_response.json()["data"]
+
+        second_payload = {
+            **first_response.json()["data"],
+            "version": 2,
+            "status": "draft",
+            "approved_at": None,
+        }
+        second_response = await client.put(
+            "/story-projects/story_project.api_demo/story-bibles/"
+            "story_bible.api_demo/versions/2",
+            json=second_payload,
+        )
+        assert second_response.status_code == 200
+
+    with runtime.session() as session:
+        repository = LongStoryRepository(session)
+        persisted = repository.get_story_bible("story_bible.api_demo", version=2)
+        assert persisted is not None
+        assert persisted.market_profile == "overseas_tiktok"
+
+        # Simulate a historical version saved before market metadata inheritance.
+        repository.save_story_bible(
+            StoryBible.model_validate({**second_payload, "version": 3})
+        )
+
+    repaired = LongStoryService(runtime).get_story_bible(
+        "story_project.api_demo",
+        "story_bible.api_demo",
+        version=3,
+    )
+    assert repaired.market_profile == "overseas_tiktok"
+
+    regenerated = LongStoryService(runtime).save_generated_story_bible_draft(
+        StoryBible.model_validate({
+            **second_payload,
+            "version": 99,
+            "market_profile": "cn_mainland",
+        })
+    )
+    assert regenerated.version == 4
+    assert regenerated.market_profile == "overseas_tiktok"
+
+
+@pytest.mark.anyio
 async def test_confirmed_episode_artifacts_advance_durable_continuity_checkpoint(
     long_story_app,
 ) -> None:
@@ -245,12 +562,40 @@ async def test_confirmed_episode_artifacts_advance_durable_continuity_checkpoint
             json=approved_bible.model_dump(mode="json"),
         )).status_code == 200
 
+        # A revision is review material only; it must not create or win the
+        # continuity projection before a canonical artifact is confirmed.
+        derived_preview = {
+            "schema_version": "v1",
+            "artifact_id": "artifact.api_demo.episode_0001.revision_preview",
+            "story_project_id": "story_project.api_demo",
+            "episode_number": 1,
+            "artifact_kind": "revised",
+            "memory_layer": "derived",
+            "content_schema_version": "revised_draft_master_script.v1",
+            "content_payload": {"synopsis": "Unconfirmed revision preview."},
+            "lineage_refs": {},
+            "created_at": NOW.isoformat(),
+        }
+        preview_response = await client.post(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts",
+            json=derived_preview,
+        )
+        assert preview_response.status_code == 200, preview_response.text
+        assert (await client.get(
+            "/story-projects/story_project.api_demo/continuity-ledger/latest"
+        )).json()["data"] is None
+        assert (await client.get(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts/"
+            "artifact.api_demo.episode_0001.revision_preview/event-set"
+        )).json()["data"] is None
+
         first_artifact = {
             "schema_version": "v1",
             "artifact_id": "artifact.api_demo.episode_0001.draft",
             "story_project_id": "story_project.api_demo",
             "episode_number": 1,
             "artifact_kind": "draft",
+            "memory_layer": "canonical",
             "content_schema_version": "draft_master_script.v1",
             "content_payload": {
                 "synopsis": "Mara is killed after hiding the only copy of the ledger.",
@@ -310,6 +655,31 @@ async def test_confirmed_episode_artifacts_advance_durable_continuity_checkpoint
         ledger = checkpoint.json()["data"]
         assert ledger["version"] == 1
         assert ledger["through_episode_number"] == 1
+        assert ledger["source_artifact_id"] == first_artifact["artifact_id"]
+        event_set = (await client.get(
+            "/story-projects/story_project.api_demo/episodes/1/artifacts/"
+            "artifact.api_demo.episode_0001.draft/event-set"
+        )).json()["data"]
+        events = (await client.get(
+            "/story-projects/story_project.api_demo/episodes/1/events"
+        )).json()["data"]
+        assert event_set["source_artifact_id"] == first_artifact["artifact_id"]
+        assert event_set["status"] == "validated"
+        assert event_set["memory_layer"] == "canonical"
+        assert len(event_set["event_ids"]) == len(events)
+        assert {event["event_type"] for event in events} >= {
+            "episode_summary",
+            "character_state_changed",
+            "world_state_changed",
+            "story_line_progressed",
+            "hook_emitted",
+        }
+        assert all(
+            event["source_artifact_id"] == first_artifact["artifact_id"]
+            and event["memory_layer"] == "canonical"
+            and event["evidence_refs"]
+            for event in events
+        )
         assert ledger["character_states"][0]["character_ref"] == "character.mara"
         assert ledger["character_states"][0]["life_status"] == "dead"
         assert ledger["world_states"][0]["last_transition"] == "destroyed"
@@ -368,6 +738,7 @@ async def test_confirmed_episode_artifacts_advance_durable_continuity_checkpoint
             **first_artifact,
             "artifact_id": "artifact.api_demo.episode_0001.revised",
             "artifact_kind": "revised",
+            "memory_layer": "derived",
         }
         assert (await client.post(
             "/story-projects/story_project.api_demo/episodes/1/artifacts",
@@ -378,6 +749,43 @@ async def test_confirmed_episode_artifacts_advance_durable_continuity_checkpoint
         )).json()["data"]
         assert ledger_after_retry["version"] == 2
         assert ledger_after_retry["source_artifact_id"] == second_artifact["artifact_id"]
+
+        rebuilt_response = await client.post(
+            "/story-projects/story_project.api_demo/continuity-ledger/rebuild"
+        )
+        assert rebuilt_response.status_code == 200, rebuilt_response.text
+        rebuilt = rebuilt_response.json()["data"]
+        assert rebuilt["version"] == 4
+        assert rebuilt["through_episode_number"] == 2
+        assert rebuilt["source_artifact_id"] == second_artifact["artifact_id"]
+        assert rebuilt["character_states"][0]["life_status"] == "dead"
+        assert rebuilt["setup_payoffs"][0]["status"] == "paid_off"
+
+        audit_response = await client.get(
+            "/story-projects/story_project.api_demo/continuity-ledger/audit"
+        )
+        assert audit_response.status_code == 200, audit_response.text
+        audit = audit_response.json()["data"]
+        assert audit["status"] == "consistent"
+        assert audit["ledger_version"] == 4
+        assert audit["event_set_count"] == 2
+        assert audit["event_count"] >= len(events)
+
+        rollback_response = await client.post(
+            "/story-projects/story_project.api_demo/continuity-ledger/rollback",
+            json={"target_version": 2, "expected_current_version": 4},
+        )
+        assert rollback_response.status_code == 200, rollback_response.text
+        rolled_back = rollback_response.json()["data"]
+        assert rolled_back["version"] == 5
+        assert rolled_back["restored_from_version"] == 2
+        assert rolled_back["through_episode_number"] == 2
+
+        stale_rollback = await client.post(
+            "/story-projects/story_project.api_demo/continuity-ledger/rollback",
+            json={"target_version": 1, "expected_current_version": 4},
+        )
+        assert stale_rollback.status_code == 409
 
 
 @pytest.mark.anyio
@@ -920,6 +1328,8 @@ async def test_story_project_permanent_delete_removes_complete_owned_workspace(
     assert deleted.status_code == 200
     assert deleted.json()["data"]["deleted"] is True
     assert deleted.json()["data"]["deleted_records"] == {
+        "agent_steps": 0,
+        "agent_runs": 0,
         "generation_job_checkpoints": 0,
         "episode_artifact_versions": 0,
         "generation_batches": 0,
@@ -928,6 +1338,7 @@ async def test_story_project_permanent_delete_removes_complete_owned_workspace(
         "story_plan_node_versions": 0,
         "story_stage_plan_versions": 1,
         "story_project_workspace_snapshots": 1,
+        "planning_sessions": 0,
         "story_bible_versions": 1,
         "story_projects": 1,
     }
@@ -1001,6 +1412,124 @@ async def test_workspace_snapshot_api_restores_full_frontend_payload(
 
 
 @pytest.mark.anyio
+async def test_planning_session_api_is_versioned_and_recoverable(long_story_app) -> None:
+    app, _runtime = long_story_app
+    session_payload = {
+        "schema_version": "v1",
+        "session_id": "planning.story_project.api_demo",
+        "story_project_id": "story_project.api_demo",
+        "revision": 1,
+        "phase": "story_tree",
+        "status": "awaiting_review",
+        "story_bible_author_instruction": "保留人物之间的互不信任。",
+        "tree_author_instruction": "先推进主线冲突，不要提前揭示最终真相。",
+        "active_node_id": "story_plan.api_demo.root",
+        "reviewed_node_ids": [],
+        "turns": [{
+            "turn_id": "turn.api_demo.001",
+            "scope": "story_tree",
+            "node_id": None,
+            "instruction": "先推进主线冲突，不要提前揭示最终真相。",
+            "selected_candidate_titles": [],
+            "outcome": "proposed",
+            "created_at": NOW.isoformat(),
+        }],
+        "started_at": NOW.isoformat(),
+        "updated_at": NOW.isoformat(),
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        created_project = await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        assert created_project.status_code == 200
+        created = await client.put(
+            "/story-projects/story_project.api_demo/planning-session",
+            json={
+                "project_id": "story_project.api_demo",
+                "client_instance_id": "client.api_demo",
+                "session": session_payload,
+            },
+        )
+        loaded = await client.get(
+            "/story-projects/story_project.api_demo/planning-session",
+        )
+        stale = await client.put(
+            "/story-projects/story_project.api_demo/planning-session",
+            json={
+                "project_id": "story_project.api_demo",
+                "client_instance_id": "client.api_demo",
+                "session": {
+                    **session_payload,
+                    "tree_author_instruction": "尝试直接解决最终谜团。",
+                },
+            },
+        )
+        next_revision = await client.put(
+            "/story-projects/story_project.api_demo/planning-session",
+            json={
+                "project_id": "story_project.api_demo",
+                "client_instance_id": "client.api_demo",
+                "session": {
+                    **session_payload,
+                    "revision": 2,
+                    "tree_author_instruction": "提高中段反转密度，但保留未解压力。",
+                },
+            },
+        )
+
+    assert created.status_code == 200, created.text
+    assert created.json()["data"]["revision"] == 1
+    assert loaded.status_code == 200
+    assert loaded.json()["data"]["tree_author_instruction"] == session_payload["tree_author_instruction"]
+    assert loaded.json()["data"]["turns"][0]["outcome"] == "proposed"
+    assert stale.status_code == 409
+    assert next_revision.status_code == 200
+    assert next_revision.json()["data"]["revision"] == 2
+
+
+@pytest.mark.anyio
+async def test_planning_session_rejects_script_phase_before_roadmaps_complete(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        response = await client.put(
+            "/story-projects/story_project.api_demo/planning-session",
+            json={
+                "project_id": "story_project.api_demo",
+                "client_instance_id": "client.api_demo",
+                "session": {
+                    "schema_version": "v1",
+                    "session_id": "planning.story_project.api_demo",
+                    "story_project_id": "story_project.api_demo",
+                    "revision": 1,
+                    "phase": "script",
+                    "status": "active",
+                    "story_bible_author_instruction": "",
+                    "tree_author_instruction": "",
+                    "reviewed_node_ids": [],
+                    "turns": [],
+                    "updated_at": NOW.isoformat(),
+                },
+            },
+        )
+
+    assert response.status_code == 409
+    assert "active Story Bible" in response.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_episode_artifact_api_assigns_immutable_versions_and_lineage(
     long_story_app,
 ) -> None:
@@ -1047,6 +1576,7 @@ async def test_episode_artifact_api_assigns_immutable_versions_and_lineage(
         )
 
     assert first.status_code == 200
+    assert first.json()["data"]["memory_layer"] == "canonical"
     assert replay.json()["data"]["artifact_version"] == 1
     assert second.json()["data"]["artifact_version"] == 2
     assert second.json()["data"]["source_artifact_id"] == first_payload["artifact_id"]
@@ -1297,6 +1827,82 @@ async def test_episode_roadmap_preserves_provider_rate_limit_status(
         response = await client.post(
             "/story-projects/story_project.api_demo/plan-nodes/"
             "story_plan.api_demo.root/episode-plans/1/draft",
+            json={
+                "story_project_id": "story_project.api_demo",
+                "source_node_id": "story_plan.api_demo.root",
+                "source_node_version": 1,
+                "generation_strategy_id": "strategy.api_demo",
+                "episode_number": 1,
+                "accepted_plans": [],
+            },
+        )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "剧情规划模型当前请求较多，已保存的规划内容不会丢失，请稍后继续。"
+    )
+    assert "Too Many Requests" not in response.text
+
+
+@pytest.mark.anyio
+async def test_episode_roadmap_chunk_route_uses_static_path_and_returns_batch(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+
+    class EpisodeChunkStub:
+        def generate_episode_plan_chunk(self, payload):
+            assert payload.episode_number == 1
+            return []
+
+    app.dependency_overrides[get_story_planning_service] = lambda: EpisodeChunkStub()
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/story-projects/story_project.api_demo/plan-nodes/"
+            "story_plan.api_demo.root/episode-plans/chunk",
+            json={
+                "story_project_id": "story_project.api_demo",
+                "source_node_id": "story_plan.api_demo.root",
+                "source_node_version": 1,
+                "generation_strategy_id": "strategy.api_demo",
+                "episode_number": 1,
+                "accepted_plans": [],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"data": []}
+    assert response.headers["X-Agent-Run-ID"].startswith("agent-run.")
+
+
+@pytest.mark.anyio
+async def test_episode_roadmap_agent_preserves_provider_rate_limit_status(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+
+    class RateLimitedStoryPlanningStub:
+        def generate_episode_plan_item(self, _payload):
+            raise LLMRequestError(
+                "exceeded retry limit, last status: 429 Too Many Requests",
+                status_code=429,
+                category="provider_http",
+                recoverable=True,
+            )
+
+    app.dependency_overrides[get_story_planning_service] = (
+        lambda: RateLimitedStoryPlanningStub()
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/story-projects/story_project.api_demo/plan-nodes/"
+            "story_plan.api_demo.root/episode-plans/1/agent-run",
             json={
                 "story_project_id": "story_project.api_demo",
                 "source_node_id": "story_plan.api_demo.root",

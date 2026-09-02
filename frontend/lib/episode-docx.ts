@@ -1,14 +1,17 @@
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import {
-  applyOverseasCharacterNames,
-  englishDialogueTranslations,
+  applyChineseCharacterNames,
   mergeOverseasCharacterNames,
+  overseasDialoguePresentation,
+  overseasDialogueSpeaker,
+  overseasDialogueTextPair,
+  overseasNarrativeText,
 } from "./bilingual-dialogue.ts";
 import {
-  clientDialogueSpeaker,
   clientEpisodeTitle,
   clientSceneHeading,
 } from "./client-screenplay-format.ts";
+import { orderedScreenplayBody } from "./screenplay-body-order.ts";
 
 export interface ScreenplayDocxEpisode {
   episodeNumber: number;
@@ -48,8 +51,8 @@ export async function createScreenplayDocxBlob(
   const document = new docx.Document({
     creator: "剧本大师",
     title: projectTitle,
-    subject: "美式竖屏短剧中文执行稿",
-    description: "简体中文单语拍摄剧本",
+    subject: "竖屏短剧正式执行稿",
+    description: "合作方统一格式拍摄剧本",
     styles: {
       default: {
         document: {
@@ -67,7 +70,7 @@ export async function createScreenplayDocxBlob(
     sections: [{
       properties: {
         page: {
-          size: { width: 12240, height: 15840 },
+          size: { width: 11906, height: 16838 },
           margin: {
             top: docx.convertInchesToTwip(0.7),
             right: docx.convertInchesToTwip(0.8),
@@ -109,7 +112,7 @@ function coverParagraphs(
       size: 29,
     })], 90),
     centeredParagraph(docx, [new docx.TextRun({
-      text: "美式竖屏短剧中文执行稿",
+      text: "竖屏短剧正式执行稿",
       color: COLORS.muted,
       size: 24,
     })], 230),
@@ -131,26 +134,48 @@ function episodeParagraphs(
   episode: ScreenplayDocxEpisode,
 ): InstanceType<typeof docx.Paragraph>[] {
   const { draft, episodeNumber } = episode;
-  const translations = englishDialogueTranslations(episode.bilingualView);
+  const dialoguePresentation = overseasDialoguePresentation(episode.bilingualView);
   const characterNames = mergeOverseasCharacterNames(new Map(), episode.bilingualView);
   const paragraphs: InstanceType<typeof docx.Paragraph>[] = [];
-  const chineseEpisodeTitle = clientEpisodeTitle(draft.title);
-  paragraphs.push(centeredParagraph(docx, [new docx.TextRun({
-    text: `第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
-    bold: true,
-    color: COLORS.burgundy,
-    size: 29,
-    font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
-  })], 70));
-  paragraphs.push(centeredParagraph(docx, [new docx.TextRun({
-    text: `预计时长：${episodeDurationSeconds(draft)}秒`,
-    color: COLORS.bronze,
-    size: 19,
-  })], 180));
+  const chineseEpisodeTitle = applyChineseCharacterNames(
+    clientEpisodeTitle(
+      overseasNarrativeText(dialoguePresentation, "title", draft.title),
+    ),
+    characterNames,
+  );
+  paragraphs.push(new docx.Paragraph({
+    keepNext: true,
+    spacing: { after: 70 },
+    children: [new docx.TextRun({
+      text: `第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
+      bold: true,
+      color: COLORS.burgundy,
+      size: 29,
+      font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
+    })],
+  }));
+  paragraphs.push(new docx.Paragraph({
+    keepNext: true,
+    spacing: { after: 180 },
+    children: [new docx.TextRun({
+      text: `预计时长：${episodeDurationSeconds(draft)}秒`,
+      color: COLORS.bronze,
+      size: 19,
+    })],
+  }));
   paragraphs.push(screenplayMarker(docx, "FADE IN / 淡入："));
 
   draft.scenes.forEach((scene, sceneIndex) => {
-    const setting = clientSceneHeading(scene.setting_hint ?? scene.setting ?? scene.slug);
+    const setting = applyChineseCharacterNames(
+      clientSceneHeading(overseasNarrativeText(
+        dialoguePresentation,
+        scene.setting_hint
+          ? `scenes.${sceneIndex}.setting_hint`
+          : `scenes.${sceneIndex}.slug`,
+        scene.setting_hint ?? scene.setting ?? scene.slug,
+      )),
+      characterNames,
+    );
     paragraphs.push(new docx.Paragraph({
       keepNext: true,
       spacing: { before: sceneIndex === 0 ? 80 : 210, after: 100 },
@@ -162,22 +187,38 @@ function episodeParagraphs(
       })],
     }));
 
-    for (const action of scene.character_actions) {
-      paragraphs.push(new docx.Paragraph({
-        spacing: { after: 95, line: 270 },
-        children: [new docx.TextRun({
-          text: `△ ${applyOverseasCharacterNames(action, characterNames)}`,
-          color: COLORS.charcoal,
-          size: 20,
-        })],
-      }));
-    }
-
-    scene.dialogues.forEach((line, dialogueIndex) => {
+    for (const item of orderedScreenplayBody(scene)) {
+      if (item.kind === "action") {
+        paragraphs.push(new docx.Paragraph({
+          spacing: { after: 95, line: 270 },
+          children: [new docx.TextRun({
+            text: `△ ${applyChineseCharacterNames(
+              overseasNarrativeText(
+                dialoguePresentation,
+                `scenes.${sceneIndex}.character_actions.${item.index}`,
+                item.action,
+              ),
+              characterNames,
+            )}`,
+            color: COLORS.charcoal,
+            size: 20,
+          })],
+        }));
+        continue;
+      }
+      const line = item.dialogue;
+      const dialogueIndex = item.index;
       const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
-      const { speaker, marker } = clientDialogueSpeaker(
-        translations?.get(`${prefix}.character_name`) ?? line.character_name,
+      const text = overseasDialogueTextPair(
+        dialoguePresentation,
+        `${prefix}.text`,
+        line.text,
+      );
+      const { speaker, marker } = overseasDialogueSpeaker(
+        dialoguePresentation,
+        `${prefix}.character_name`,
         line.character_name,
+        characterNames,
       );
       paragraphs.push(new docx.Paragraph({
         keepNext: true,
@@ -203,7 +244,14 @@ function episodeParagraphs(
           },
           spacing: { after: 25 },
           children: [new docx.TextRun({
-            text: `（${line.intent.trim()}）`,
+            text: `（${applyChineseCharacterNames(
+              overseasNarrativeText(
+                dialoguePresentation,
+                `${prefix}.intent`,
+                line.intent.trim(),
+              ),
+              characterNames,
+            )}）`,
             italics: true,
             color: COLORS.muted,
             size: 18,
@@ -217,13 +265,13 @@ function episodeParagraphs(
         },
         spacing: { after: 105, line: 260 },
         children: [new docx.TextRun({
-          text: translations?.get(`${prefix}.text`) ?? line.text,
+          text: text.english,
           color: COLORS.charcoal,
           size: 21,
           font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
         })],
       }));
-      if (translations?.has(`${prefix}.text`)) {
+      if (text.chinese) {
         paragraphs.push(new docx.Paragraph({
           indent: {
             left: docx.convertInchesToTwip(0.9),
@@ -231,21 +279,21 @@ function episodeParagraphs(
           },
           spacing: { after: 105, line: 250 },
           children: [new docx.TextRun({
-            text: `中文：${line.text}`,
+            text: `中文：${text.chinese}`,
             color: COLORS.muted,
             size: 18,
             font: { ascii: "Arial", hAnsi: "Arial", eastAsia: "Microsoft YaHei" },
           })],
         }));
       }
-    });
+    }
   });
 
   paragraphs.push(screenplayMarker(docx, "FADE OUT / 淡出。"));
   paragraphs.push(new docx.Paragraph({
     spacing: { before: 100 },
     children: [new docx.TextRun({
-      text: `（尾钩：${episodeEndingHook(draft)}）`,
+      text: `（尾钩：${applyChineseCharacterNames(episodeEndingHook(draft), characterNames)}）`,
       italics: true,
       color: COLORS.burgundy,
       size: 19,

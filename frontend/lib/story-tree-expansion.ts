@@ -26,7 +26,7 @@ const FULL_TREE_SUCCESSES_BEFORE_INCREASE = 3;
 const FULL_TREE_SLOW_TASK_THRESHOLD_MS = 120_000;
 
 export interface StoryTreeExpansionProgress {
-  phase: "top_level" | "approving" | "decomposing" | "roadmap" | "complete";
+  phase: "top_level" | "approving" | "decomposing" | "roadmap" | "awaiting_review" | "complete";
   nodeTitle?: string;
   completedLeaves: number;
   level?: number;
@@ -53,6 +53,9 @@ export interface StoryTreeCheckpoint {
 export async function runFullStoryTreeExpansion(input: {
   project: ScriptProject;
   storyBible: StoryBible;
+  authorInstruction?: string;
+  /** Stop after the next pending tree depth so the author can review it. */
+  stopAfterLayer?: boolean;
   beforeStep?: () => Promise<void> | void;
   onProgress?: (progress: StoryTreeExpansionProgress) => Promise<void> | void;
   onTreeCheckpoint?: (checkpoint: StoryTreeCheckpoint) => Promise<void> | void;
@@ -66,6 +69,7 @@ export async function runFullStoryTreeExpansion(input: {
     storyBible.story_bible_id,
     storyBible.version,
   );
+  let generatedTopLevel = false;
   const root = await loadRootStoryPlanNode(
     project.id,
     storyBible.story_bible_id,
@@ -75,7 +79,12 @@ export async function runFullStoryTreeExpansion(input: {
     topLevelNodes = [];
   }
   if (!topLevelNodes.length) {
-    topLevelNodes = await generateTopLevelStoryPlanNodes(project, storyBible);
+    topLevelNodes = await generateTopLevelStoryPlanNodes(
+      project,
+      storyBible,
+      input.authorInstruction ?? "",
+    );
+    generatedTopLevel = true;
   }
   await input.onTreeCheckpoint?.({
     topLevelNodes,
@@ -89,6 +98,29 @@ export async function runFullStoryTreeExpansion(input: {
   let completedNodes = 0;
   let totalNodes = topLevelNodes.length;
   let deepestLevel = 1;
+  const successfulNodesByDepth = new Map<number, number>();
+  const initialActiveNodes = input.stopAfterLayer
+    ? await loadActiveStoryPlanNodes(
+      project.id,
+      storyBible.story_bible_id,
+      storyBible.version,
+    )
+    : [];
+  const targetDepth = input.stopAfterLayer
+    ? findNextExpansionDepth(initialActiveNodes, topLevelNodes)
+    : undefined;
+  if (input.stopAfterLayer && (generatedTopLevel || targetDepth === null)) {
+    const activeNodes = initialActiveNodes.length
+      ? initialActiveNodes
+      : await loadActiveStoryPlanNodes(
+        project.id,
+        storyBible.story_bible_id,
+        storyBible.version,
+      );
+    const completedLeaves = episodeReadyLeafNodes(activeNodes).length;
+    await input.onProgress?.({ phase: "awaiting_review", completedLeaves, level: 1 });
+    return { activeNodes, topLevelNodes, episodeRoadmaps: workingRoadmaps, completedLeaves };
+  }
   let roadmapMutationTail = Promise.resolve();
   const checkpointRebasedRoadmaps = async (
     previousSubtree: Map<string, number>,
@@ -126,6 +158,7 @@ export async function runFullStoryTreeExpansion(input: {
     breadthFirst: true,
     shouldReduceConcurrencyOnError: isPlanningPressureFailure,
     process: async ({ value: initialNode, depth }): Promise<StoryPlanNode[]> => {
+      if (input.stopAfterLayer && targetDepth !== undefined && targetDepth !== null && depth > targetDepth) return [];
       deepestLevel = Math.max(deepestLevel, depth);
       await input.beforeStep?.();
       let node = initialNode;
@@ -173,7 +206,7 @@ export async function runFullStoryTreeExpansion(input: {
             node.version,
           );
         }
-        return children;
+        return input.stopAfterLayer && targetDepth !== null && depth === targetDepth ? [] : children;
       }
 
       const span = storyPlanNodeEpisodeSpan(node);
@@ -213,15 +246,28 @@ export async function runFullStoryTreeExpansion(input: {
           node.story_bible_version,
           node.version,
         );
-        if (!children.length) children = await decomposeStoryPlanNode(project, node);
-        return children;
+        if (!children.length) {
+          children = await decomposeStoryPlanNode(
+            project,
+            node,
+            undefined,
+            { authorInstruction: input.authorInstruction },
+          );
+        }
+        return input.stopAfterLayer && targetDepth !== null && depth === targetDepth ? [] : children;
       }
 
       // Episode-ready leaves are exposed to the interactive roadmap workflow.
       return [];
     },
-    onProgress: async ({ item, depthCompleted, depthScheduled }) => {
-      completedNodes = depthCompleted;
+    onProgress: async ({ item, depthScheduled, error }) => {
+      if (!error) {
+        successfulNodesByDepth.set(
+          item.depth,
+          (successfulNodesByDepth.get(item.depth) ?? 0) + 1,
+        );
+      }
+      completedNodes = successfulNodesByDepth.get(item.depth) ?? 0;
       totalNodes = depthScheduled;
       deepestLevel = Math.max(deepestLevel, item.depth);
       topLevelNodes = await loadTopLevelStoryPlanNodes(
@@ -240,11 +286,13 @@ export async function runFullStoryTreeExpansion(input: {
         depth: item.depth,
         completedNodes,
         totalNodes,
-        completedNodeId: item.value.node_id,
-        refreshNodeIds: [
-          item.value.node_id,
-          ...(item.value.parent_node_id ? [item.value.parent_node_id] : []),
-        ],
+        ...(!error ? {
+          completedNodeId: item.value.node_id,
+          refreshNodeIds: [
+            item.value.node_id,
+            ...(item.value.parent_node_id ? [item.value.parent_node_id] : []),
+          ],
+        } : {}),
       });
       await input.onProgress?.({
         phase: "decomposing",
@@ -268,8 +316,44 @@ export async function runFullStoryTreeExpansion(input: {
   topLevelNodes = activeNodes
     .filter((node) => activeTopLevelIds.has(node.node_id))
     .sort((left, right) => left.sequence_order - right.sequence_order);
-  await input.onProgress?.({ phase: "complete", completedLeaves });
+  await input.onProgress?.({
+    phase: input.stopAfterLayer ? "awaiting_review" : "complete",
+    completedLeaves,
+    level: input.stopAfterLayer ? (targetDepth ?? undefined) : undefined,
+  });
   return { activeNodes, topLevelNodes, episodeRoadmaps: workingRoadmaps, completedLeaves };
+}
+
+function findNextExpansionDepth(
+  activeNodes: StoryPlanNode[],
+  topLevelNodes: StoryPlanNode[],
+): number | null {
+  const childrenByParent = new Map<string, StoryPlanNode[]>();
+  for (const candidate of activeNodes) {
+    if (candidate.parent_node_id === null || candidate.parent_node_version === null) continue;
+    const key = `${candidate.parent_node_id}:${candidate.parent_node_version}`;
+    childrenByParent.set(key, [...(childrenByParent.get(key) ?? []), candidate]);
+  }
+  let pendingDepth: number | null = null;
+  const visit = (nodes: StoryPlanNode[], depth: number) => {
+    for (const node of nodes) {
+      const children = childrenByParent.get(`${node.node_id}:${node.version}`) ?? [];
+      if (children.length && hasCompleteStoryPlanChildCoverage(node, children)) {
+        visit(children, depth + 1);
+        continue;
+      }
+      const span = storyPlanNodeEpisodeSpan(node);
+      const pending = children.length > 0
+        || node.status !== "approved"
+        || span === null
+        || span > MAX_EPISODE_READY_SPAN
+        || (span >= MIN_EPISODE_READY_SPAN && span <= MAX_EPISODE_READY_SPAN
+          && node.expansion_status !== "episode_ready");
+      if (pending && (pendingDepth === null || depth < pendingDepth)) pendingDepth = depth;
+    }
+  };
+  visit(topLevelNodes, 1);
+  return pendingDepth;
 }
 
 function episodeReadyLeafNodes(activeNodes: StoryPlanNode[]): StoryPlanNode[] {

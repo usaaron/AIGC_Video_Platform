@@ -80,6 +80,7 @@ export function summarizeStoryPlanTreeProgress(
 
   const generatedEpisodeKeys = new Set<string>();
   for (const item of episodeRoadmaps) {
+    if (item.status !== "approved") continue;
     const key = roadmapKey(item.source_node_id, item.source_node_version, item.episode_number);
     if (!expectedEpisodeKeys.has(key)) continue;
     generatedEpisodeKeys.add(key);

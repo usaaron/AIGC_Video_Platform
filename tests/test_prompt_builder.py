@@ -98,6 +98,34 @@ def test_template_prompt_builder_builds_traceable_prompt() -> None:
     assert "ResolvedCreativeContext:" not in result.prompt_text
 
 
+def test_partner_screenplay_contract_requires_interleaved_body_order() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_001",
+            "content_spec_title": "仓库对峙",
+            "creative_brief_summary": "用一次逼问揭开账本被调包的事实。",
+            "platform_profile_id": "tiktok_v1",
+            "audience_profile_summary": "短剧观众",
+            "commercial_goal_summary": "推动追看",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {"output_language": "zh"},
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "partner_screenplay.v1" in result.prompt_text
+    assert "body_order" in result.prompt_text
+    assert "不能先列完全部动作再集中列全部对白" in result.prompt_text
+
+
 def test_template_prompt_builder_injects_only_resolved_creative_context() -> None:
     builder = TemplatePromptBuilder(builder_version="v0.test")
     prompt = PromptLibraryItem.model_validate(build_prompt_item())
@@ -333,14 +361,22 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
 
     assert "PartnerScreenplayDeliveryContract:" in result.prompt_text
     assert "不写小说、提纲、分集计划或框架" in result.prompt_text
+    assert "人物名和人物对白直接使用简体中文" in result.prompt_text
+    assert "不得生成英文人物名、英文对白或中英对照" in result.prompt_text
     assert "不得少于75秒、不得超过115秒" in result.prompt_text
+    assert "优先落在90至105秒安全区" in result.prompt_text
+    assert "中文对白约每秒4.2个汉字" in result.prompt_text
+    assert "英文对白约每秒2.7个自然口语词" in result.prompt_text
     assert "每集场景总数必须为1至5个" in result.prompt_text
     assert "一场可以完成本集时不得强行拆场" in result.prompt_text
     assert "scene_execution_plan" in result.prompt_text
+    assert "approved_episode_plan.layer_contracts" in result.prompt_text
+    assert "冲突-决定-局部回报-压力升级-退出状态因果链" in result.prompt_text
     assert "不得重新设计场景结构" in result.prompt_text
     assert "INT.或EXT." in result.prompt_text
     assert "（O.S.）、（V.O.）" in result.prompt_text
-    assert "美国短剧" in result.prompt_text
+    assert "写完整的竖屏短剧执行稿" in result.prompt_text
+    assert "对白采用短剧所需的短句" in result.prompt_text
     assert "整部作品的目标成片总时长不少于100分钟" in result.prompt_text
     assert "通常安排2至3次短循环" in result.prompt_text
     assert "character_actions" in result.prompt_text
@@ -348,7 +384,7 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
     assert "统一添加△" in result.prompt_text
     assert "不写特写、镜头推进等镜头语言" in result.prompt_text
     assert "character_actions合计必须为15至20项" in result.prompt_text
-    assert "dialogues合计必须为20至30条" in result.prompt_text
+    assert "dialogues合计必须为25至35条" in result.prompt_text
     assert "不得拆句、重复或添加解释性台词凑数" in result.prompt_text
     assert "LedgerCompressionContract:" in result.prompt_text
     assert "normally no more than 80 visible characters" in result.prompt_text
@@ -387,8 +423,18 @@ def test_partner_delivery_contract_localizes_only_overseas_dialogue_path() -> No
     )
 
     assert "PartnerScreenplayDeliveryContract:" in result.prompt_text
-    assert "海外路径的动作与画面描述使用简体中文" in result.prompt_text
-    assert "人物使用稳定英文名" in result.prompt_text
-    assert "dialogues.text使用自然的美国短剧英语" in result.prompt_text
+    assert "所有可见叙事字段统一使用简体中文" in result.prompt_text
+    assert "动作中提到人物时只用对应中文名" in result.prompt_text
+    assert "character_name使用稳定英文名" in result.prompt_text
+    assert "中文名（ENGLISH NAME）" in result.prompt_text
+    assert "dialogues.text使用自然英文" in result.prompt_text
+    assert "dialogues.chinese_translation" in result.prompt_text
+    assert "OutputLanguage=en仅表示dialogues.text使用英文" in result.prompt_text
+    assert "dialogues.chinese_character_name写该说话人的稳定中文名" in result.prompt_text
+    assert "在同一次输出中写该句准确、自然的简体中文对照" in result.prompt_text
+    assert "characters中的name、role、description、motivation全部只用简体中文" in result.prompt_text
+    assert "绝不能据此新建重复人物" in result.prompt_text
+    assert "写完整的竖屏短剧执行稿" in result.prompt_text
+    assert "对白采用短剧所需的短句" in result.prompt_text
     assert "TargetDurationSeconds: 108" in result.prompt_text
     assert "不得少于75秒、不得超过115秒" in result.prompt_text

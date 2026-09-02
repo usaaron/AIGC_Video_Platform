@@ -6,12 +6,10 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-test("approved story planning hides candidate regeneration and relabels the input link", async () => {
-  const directions = await source("components/creative-direction-panel.tsx");
+test("approved story planning relabels the input link", async () => {
   const workspace = await source("components/story-planning-workspace.tsx");
   const locale = await source("providers/locale-provider.tsx");
 
-  assert.match(directions, /\{!locked \? \([\s\S]*creativeDirection\.regenerate[\s\S]*\) : null\}/);
   assert.match(workspace, /creativeInputLocked \? "planningWorkspace\.viewInput" : "planningWorkspace\.editInput"/);
   assert.match(locale, /"planningWorkspace\.viewInput": "查看创作输入"/);
 });

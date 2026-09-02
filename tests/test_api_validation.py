@@ -42,6 +42,29 @@ def test_generation_retry_metadata_separates_transient_and_deterministic_failure
 
     assert _llm_request_is_retryable(transient) is True
     assert _llm_request_is_retryable(rejected) is False
+    hard_deadline = LLMRequestError(
+        "provider gateway deadline",
+        status_code=524,
+        category="provider_gateway",
+        recoverable=True,
+    )
+    assert _llm_request_is_retryable(hard_deadline) is True
+    combined_after_deadline = LLMRequestError(
+        "all routes failed",
+        status_code=502,
+        category="failover_exhausted",
+        recoverable=True,
+    )
+    setattr(combined_after_deadline, "gateway_deadline", True)
+    assert _llm_request_is_retryable(combined_after_deadline) is True
+
+    with pytest.raises(HTTPException) as deadline:
+        _raise_llm_upstream_unavailable(hard_deadline)
+    assert deadline.value.headers == {
+        "X-Generation-Retryable": "true",
+        "X-Generation-Failure-Class": "checkpoint_recoverable",
+        "X-Generation-Error-Type": "provider_gateway_deadline",
+    }
 
     with pytest.raises(HTTPException) as script_transient:
         _raise_llm_upstream_unavailable(transient)
@@ -194,10 +217,13 @@ def test_frontend_workflow_endpoints_exist_with_expected_http_methods() -> None:
         "/story-projects/{project_id}": {"get", "put"},
         "/story-projects/{project_id}/permanent": {"delete"},
         "/story-projects/{project_id}/workspace": {"get", "put"},
+        "/story-projects/{project_id}/planning-session": {"get", "put"},
         "/story-projects/{project_id}/generation-tasks/recoverable": {"get"},
-        "/story-projects/{project_id}/generation-tasks/{job_id}": {"put"},
+        "/story-projects/{project_id}/generation-tasks/{job_id}": {"get", "put"},
         "/story-projects/{project_id}/creative-directions/draft": {"post"},
         "/story-projects/{project_id}/story-bibles/draft": {"post"},
+        "/story-projects/{project_id}/story-bibles/interactive-step": {"post"},
+        "/story-projects/{project_id}/story-bibles/interactive-complete": {"post"},
         "/story-projects/{project_id}/story-bibles/{story_bible_id}": {"get"},
         "/story-projects/{project_id}/story-bibles/{story_bible_id}/modify": {"post"},
         "/story-projects/{project_id}/story-bibles/{story_bible_id}/versions/{version}": {"put"},
@@ -208,10 +234,15 @@ def test_frontend_workflow_endpoints_exist_with_expected_http_methods() -> None:
         "/story-projects/{project_id}/plan-nodes/{node_id}/decompose": {"post"},
         "/story-projects/{project_id}/plan-nodes/{node_id}/versions/{version}": {"put"},
         "/story-projects/{project_id}/plan-nodes/{node_id}/episode-plans/{episode_number}/draft": {"post"},
+        "/story-projects/{project_id}/plan-nodes/{node_id}/episode-plans/{episode_number}/agent-run": {"post"},
+        "/story-projects/{project_id}/plan-nodes/{node_id}/episode-plans/chunk": {"post"},
+        "/story-projects/{project_id}/plan-nodes/quality-audit/agent-run": {"post"},
         "/story-projects/{project_id}/episode-plans": {"get"},
         "/story-projects/{project_id}/episode-plans/{episode_plan_id}/versions/{version}": {"put"},
         "/story-projects/{project_id}/episodes/{episode_number}/artifacts": {"post"},
         "/story-projects/{project_id}/continuity-ledger/latest": {"get"},
+        "/story-projects/{project_id}/agent-runs": {"get"},
+        "/story-projects/{project_id}/agent-runs/{run_id}": {"get"},
         "/script-generation/generate-draft": {"post"},
         "/script-generation/generate-draft/stream": {"post"},
         "/script-generation/review-draft": {"post"},

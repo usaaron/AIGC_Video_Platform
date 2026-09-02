@@ -8,6 +8,11 @@ from app.modules.script_engine.models import (
     GenerationStrategy,
     GenerationBatchContext,
     EpisodeGenerationContext,
+    EpisodeGenerationMode,
+    MemoryCapsule,
+    MemoryCapsuleType,
+    MemoryRecall,
+    MemoryRecallStatus,
     KnowledgeBundle,
     PromptLibraryItem,
     PromptRetrievalResult,
@@ -16,6 +21,7 @@ from app.modules.script_engine.models import (
     RevisionPolicy,
     RevisionStrategy,
     ScriptGenerationDraftRequest,
+    ScriptReleaseRegion,
     ScriptRevisionRun,
     StoryQCReport,
 )
@@ -227,7 +233,31 @@ def test_generation_request_keeps_body_target_optional_and_bounded() -> None:
     )
 
     assert legacy.target_script_body_characters is None
+    assert legacy.release_region == ScriptReleaseRegion.cn_mainland
     assert targeted.target_script_body_characters == 1797
+
+    overseas = ScriptGenerationDraftRequest(
+        content_spec_id="content_spec_001",
+        generation_strategy_id="strategy.overseas.v1",
+        release_region="overseas",
+        output_language="en",
+    )
+    assert overseas.release_region == ScriptReleaseRegion.overseas
+
+    legacy_overseas = ScriptGenerationDraftRequest(
+        content_spec_id="content_spec_001",
+        generation_strategy_id="strategy.overseas.v1",
+        output_language="en",
+    )
+    assert legacy_overseas.release_region == ScriptReleaseRegion.overseas
+
+    with pytest.raises(ValidationError, match="release_region and output_language conflict"):
+        ScriptGenerationDraftRequest(
+            content_spec_id="content_spec_001",
+            generation_strategy_id="strategy.mainland.v1",
+            release_region="cn_mainland",
+            output_language="en",
+        )
 
     one_scene = ScriptGenerationDraftRequest(
         content_spec_id="content_spec_001",
@@ -702,3 +732,64 @@ def test_script_revision_run_accepts_valid_payload() -> None:
     )
     assert model.improved is True
     assert model.acceptance_decision is None
+
+
+def test_memory_recall_requires_source_linked_capsules_and_reports_gaps() -> None:
+    recall = MemoryRecall(
+        task="episode_generation",
+        through_episode_number=8,
+        status=MemoryRecallStatus.insufficient,
+        required_refs=["character.lead", "setup.witness"],
+        missing_requirements=["setup.witness"],
+        capsules=[
+            MemoryCapsule(
+                capsule_id="memory.character.lead",
+                memory_type=MemoryCapsuleType.character_state,
+                summary="林夏仍需保护证人。",
+                source_episode=8,
+                source_scene_numbers=[2],
+                entity_refs=["character.lead"],
+                evidence_refs=["episode:8:scene:2"],
+                mandatory=True,
+            )
+        ],
+    )
+    context = EpisodeGenerationContext(
+        generation_mode=EpisodeGenerationMode.sequential,
+        episode_number=9,
+        total_episodes=20,
+        memory_recall=recall,
+    )
+
+    assert context.memory_recall is not None
+    assert context.memory_recall.missing_requirements == ["setup.witness"]
+
+
+def test_memory_recall_rejects_capsules_after_recall_boundary() -> None:
+    with pytest.raises(ValidationError, match="source episode"):
+        MemoryRecall(
+            through_episode_number=2,
+            status=MemoryRecallStatus.sufficient,
+            capsules=[
+                MemoryCapsule(
+                    capsule_id="memory.fact.future",
+                    memory_type=MemoryCapsuleType.hard_fact,
+                    summary="未来事件。",
+                    source_episode=3,
+                )
+            ],
+        )
+
+
+def test_memory_recall_deduplicates_legacy_reference_lists() -> None:
+    recall = MemoryRecall(
+        through_episode_number=4,
+        status=MemoryRecallStatus.insufficient,
+        required_refs=["character.lead", "CHARACTER.LEAD"],
+        missing_requirements=["setup.witness", " setup.witness "],
+        omitted_records=["memory.route.episode-2", "MEMORY.ROUTE.EPISODE-2"],
+    )
+
+    assert recall.required_refs == ["character.lead"]
+    assert recall.missing_requirements == ["setup.witness"]
+    assert recall.omitted_records == ["memory.route.episode-2"]

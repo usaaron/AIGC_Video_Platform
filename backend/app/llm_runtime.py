@@ -2,19 +2,31 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from dataclasses import dataclass
 from functools import lru_cache
 
 from app.modules.script_engine.llm_adapter import (
+    AdaptiveTransportLLMAdapter,
+    AdaptiveTransportState,
     LLMAdapter,
+    MarketRoutedLLMAdapter,
     MockLLMAdapter,
     MissingLLMConfigurationError,
     ModelFailoverLLMAdapter,
+    ModelFailoverCircuitState,
     RealLLMAdapter,
 )
 
 
 logger = logging.getLogger(__name__)
+_SCRIPT_ROUTE_STATE_LOCK = threading.Lock()
+_SCRIPT_TRANSPORT_STATES: dict[tuple[str, str, str], AdaptiveTransportState] = {}
+_SCRIPT_FAILOVER_STATES: dict[
+    tuple[tuple[str, str, str], tuple[str, str, str]],
+    ModelFailoverCircuitState,
+] = {}
+_SCRIPT_MARKET_ROLES = frozenset({"SCRIPT", "SCRIPT_REPAIR", "SCRIPT_EDITOR"})
 
 
 @dataclass(frozen=True)
@@ -65,10 +77,13 @@ class LLMRuntimeConfig:
         parsed_script_max_retries = _parse_optional_non_negative_int(
             "LLM_SCRIPT_MAX_RETRIES"
         )
+        # Script generation is the user-visible long-running workflow. Keep
+        # one bounded retry by default so a transient gateway/empty response
+        # does not become a manual "continue" action.
         script_max_retries = (
             parsed_script_max_retries
             if parsed_script_max_retries is not None
-            else 0
+            else 1
         )
         script_reasoning_effort = (
             os.getenv("LLM_SCRIPT_REASONING_EFFORT", "high").strip().casefold()
@@ -204,7 +219,7 @@ def build_story_bible_llm_adapter_from_env() -> LLMAdapter:
 
 
 def build_story_architect_llm_adapter_from_env() -> LLMAdapter:
-    """Build the recursive-planning adapter with an independent bounded fallback."""
+    """Build recursive planning without crossing into the screenplay model role."""
 
     primary = _build_role_adapter_from_env(
         "LLM_STORY_ARCHITECT",
@@ -212,26 +227,27 @@ def build_story_architect_llm_adapter_from_env() -> LLMAdapter:
         default_model_env="LLM_MODEL",
         default_timeout_seconds=240,
         default_max_retries=0,
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
     )
-    fallback_prefixes = (
-        "LLM_STORY_ARCHITECT_FALLBACK",
-        "LLM_SCRIPT_REPAIR",
-        "LLM_SCRIPT",
-    )
+    fallback_prefix = "LLM_STORY_ARCHITECT_FALLBACK"
     if not any(
         key.startswith(f"{fallback_prefix}_") and value.strip()
-        for fallback_prefix in fallback_prefixes
         for key, value in os.environ.items()
     ):
         return primary
     try:
         fallback = _build_role_adapter_from_env(
-            "LLM_STORY_ARCHITECT_FALLBACK",
-            fallback_prefixes=("LLM_SCRIPT_REPAIR", "LLM_SCRIPT"),
+            fallback_prefix,
+            fallback_prefixes=("LLM_STORY_ARCHITECT", "LLM_PLANNING"),
             default_model_env="LLM_MODEL",
-            default_timeout_seconds=300,
+            default_timeout_seconds=240,
             default_max_retries=0,
             default_use_strict_schema=False,
+            default_retry_empty_response=False,
+            defer_schema_container_repair=True,
+            retry_gateway_stream_as_non_stream=False,
         )
     except MissingLLMConfigurationError as exc:
         logger.warning(
@@ -242,12 +258,41 @@ def build_story_architect_llm_adapter_from_env() -> LLMAdapter:
         return primary
     primary_info = primary.get_model_info()
     fallback_info = fallback.get_model_info()
+    if primary_info.model_name.casefold() != fallback_info.model_name.casefold():
+        logger.warning(
+            "Ignoring story-architect fallback model '%s'; recursive planning "
+            "fallbacks must use the primary model '%s'.",
+            fallback_info.model_name,
+            primary_info.model_name,
+        )
+        return primary
     if (
         primary_info.provider.casefold() == fallback_info.provider.casefold()
-        and primary_info.model_name.casefold() == fallback_info.model_name.casefold()
+        and getattr(primary, "_base_url", None)
+        == getattr(fallback, "_base_url", None)
     ):
         return primary
     return ModelFailoverLLMAdapter(primary=primary, fallback=fallback)
+
+
+def build_story_architect_recovery_llm_adapter_from_env() -> LLMAdapter:
+    """Build the compact GLM profile used only for tree contract recovery."""
+
+    return _build_role_adapter_from_env(
+        "LLM_STORY_ARCHITECT_RECOVERY",
+        fallback_prefixes=("LLM_STORY_ARCHITECT", "LLM_PLANNING"),
+        default_model_env="LLM_MODEL",
+        default_timeout_seconds=180,
+        default_max_retries=0,
+        default_use_strict_schema=False,
+        default_reasoning_effort="medium",
+        default_thinking_mode="disabled",
+        default_retry_empty_response=False,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=False,
+        inherit_fallback_runtime_tuning=False,
+        inherit_fallback_flags=False,
+    )
 
 
 def build_episode_plan_llm_adapter_from_env() -> LLMAdapter:
@@ -257,8 +302,8 @@ def build_episode_plan_llm_adapter_from_env() -> LLMAdapter:
         "LLM_EPISODE_PLAN",
         fallback_prefixes=("LLM_STORY_ARCHITECT", "LLM_PLANNING"),
         default_model_env="LLM_MODEL",
-        default_timeout_seconds=600,
-        default_max_retries=1,
+        default_timeout_seconds=180,
+        default_max_retries=0,
         default_thinking_mode="disabled",
     )
     routes: list[LLMAdapter] = [primary]
@@ -392,14 +437,14 @@ def build_script_repair_llm_adapter_from_env() -> LLMAdapter:
         fallback_prefixes=("LLM_SCRIPT",),
         default_model_env="LLM_MODEL",
         default_timeout_seconds=300,
-        default_max_retries=0,
+        default_max_retries=1,
         default_reasoning_effort="high",
         default_thinking_mode="enabled",
-        default_retry_empty_response=False,
+        default_retry_empty_response=True,
         defer_schema_container_repair=True,
-        retry_gateway_stream_as_non_stream=False,
+        retry_gateway_stream_as_non_stream=True,
     )
-    return _with_optional_script_alternate(primary)
+    return _with_optional_script_alternate(_with_adaptive_script_transport(primary))
 
 
 def build_continuity_llm_adapter_from_env() -> LLMAdapter:
@@ -430,9 +475,9 @@ def build_script_generation_adapter(config: LLMRuntimeConfig) -> LLMAdapter:
             reasoning_effort=config.script_reasoning_effort,
             thinking_mode=config.script_thinking_mode,
             wire_api=config.script_wire_api,
-            retry_empty_response=False,
+            retry_empty_response=True,
             defer_schema_container_repair=True,
-            retry_gateway_stream_as_non_stream=False,
+            retry_gateway_stream_as_non_stream=True,
         )
 
     from app.modules.script_engine.llm_adapter import PooledLLMAdapter
@@ -447,9 +492,9 @@ def build_script_generation_adapter(config: LLMRuntimeConfig) -> LLMAdapter:
         wire_api=config.script_wire_api or config.wire_api,
         reasoning_effort=config.script_reasoning_effort or config.reasoning_effort,
         thinking_mode=config.script_thinking_mode or config.thinking_mode,
-        retry_empty_response=False,
+        retry_empty_response=True,
         defer_schema_container_repair=True,
-        retry_gateway_stream_as_non_stream=False,
+        retry_gateway_stream_as_non_stream=True,
     )
 
 
@@ -465,14 +510,55 @@ def build_script_generation_adapter_from_env() -> LLMAdapter:
             "LLM_SCRIPT",
             default_model_env="LLM_MODEL",
             default_timeout_seconds=600,
-            default_max_retries=0,
+            default_max_retries=1,
             default_reasoning_effort="high",
             default_thinking_mode="enabled",
-            default_retry_empty_response=False,
+            default_retry_empty_response=True,
             defer_schema_container_repair=True,
-            retry_gateway_stream_as_non_stream=False,
+            retry_gateway_stream_as_non_stream=True,
         )
-    return _with_optional_script_alternate(primary, enable_slow_hedge=True)
+    return _with_optional_script_alternate(
+        _with_adaptive_script_transport(primary),
+        enable_slow_hedge=True,
+    )
+
+
+def _with_adaptive_script_transport(
+    adapter: LLMAdapter,
+    *,
+    settings_prefix: str = "LLM_SCRIPT",
+) -> LLMAdapter:
+    if isinstance(adapter, AdaptiveTransportLLMAdapter):
+        return adapter
+    info = adapter.get_model_info()
+    if "deepseek" not in f"{info.provider} {info.model_name}".casefold():
+        return adapter
+    route_identity = _adapter_route_identity(adapter)
+    with _SCRIPT_ROUTE_STATE_LOCK:
+        state = _SCRIPT_TRANSPORT_STATES.setdefault(
+            route_identity,
+            AdaptiveTransportState(),
+        )
+    return AdaptiveTransportLLMAdapter(
+        adapter=adapter,
+        failure_threshold=_parse_positive_int(
+            _script_setting_name(
+                settings_prefix,
+                "ADAPTIVE_NON_STREAM_THRESHOLD",
+            )
+            or "LLM_SCRIPT_ADAPTIVE_NON_STREAM_THRESHOLD",
+            default=1,
+        ),
+        cooldown_seconds=_parse_positive_float_env(
+            _script_setting_name(
+                settings_prefix,
+                "ADAPTIVE_NON_STREAM_COOLDOWN_SECONDS",
+            )
+            or "LLM_SCRIPT_ADAPTIVE_NON_STREAM_COOLDOWN_SECONDS",
+            default=900.0,
+        ),
+        state=state,
+    )
 
 
 def _with_optional_script_alternate(
@@ -480,56 +566,156 @@ def _with_optional_script_alternate(
     *,
     enable_slow_hedge: bool = False,
 ) -> LLMAdapter:
-    """Add an explicitly configured second screenplay inference route.
+    """Add explicitly configured same-model screenplay inference routes.
 
     API keys are scoped to their configured host and are never reused for the
-    alternate route. The alternate model must match the primary model so a
+    alternate route. Every alternate model must match the primary model so a
     transport failover cannot silently change screenplay behavior.
     """
-
-    alternate_fields = {
-        suffix: os.getenv(f"LLM_SCRIPT_ALTERNATE_{suffix}", "").strip()
-        for suffix in ("MODEL", "API_KEY", "BASE_URL")
-    }
-    if not any(alternate_fields.values()):
-        return primary
-    missing = [suffix for suffix, value in alternate_fields.items() if not value]
-    if missing:
-        raise MissingLLMConfigurationError(
-            "LLM_SCRIPT_ALTERNATE requires MODEL, API_KEY and BASE_URL together; "
-            "missing: " + ", ".join(missing)
-        )
-    primary_model = primary.get_model_info().model_name
-    alternate_model = alternate_fields["MODEL"]
-    if primary_model.casefold() != alternate_model.casefold():
-        raise MissingLLMConfigurationError(
-            "Script primary and alternate routes must use the same model."
-        )
-    alternate = _build_role_adapter_from_env(
-        "LLM_SCRIPT_ALTERNATE",
-        default_model_env="LLM_SCRIPT_MODEL",
+    return _with_script_alternates(
+        primary,
+        alternate_root="LLM_SCRIPT_ALTERNATE",
+        settings_prefix="LLM_SCRIPT",
+        enable_slow_hedge=enable_slow_hedge,
         default_timeout_seconds=180,
-        default_max_retries=0,
+        default_max_retries=1,
         default_reasoning_effort="high",
         default_thinking_mode="enabled",
-        default_retry_empty_response=False,
+        default_retry_empty_response=True,
         defer_schema_container_repair=True,
-        retry_gateway_stream_as_non_stream=False,
+        retry_gateway_stream_as_non_stream=True,
     )
-    return ModelFailoverLLMAdapter(
-        primary=primary,
-        fallback=alternate,
-        circuit_failure_threshold=1,
-        circuit_cooldown_seconds=180,
-        hedge_delay_seconds=(
-            _parse_positive_float_env(
-                "LLM_SCRIPT_HEDGE_DELAY_SECONDS",
-                default=35.0,
+
+
+def _has_script_alternate_config(alternate_root: str) -> bool:
+    """Return whether an alternate route root has any explicit settings."""
+
+    prefixes = [alternate_root]
+    prefixes.extend(f"{alternate_root}_{index:02d}" for index in range(2, 101))
+    return any(_has_script_route_fields(prefix) for prefix in prefixes)
+
+
+def _has_script_route_fields(prefix: str) -> bool:
+    return bool(
+        any(
+            os.getenv(f"{prefix}_{suffix}", "").strip()
+            for suffix in ("PROVIDER", "MODEL", "API_KEY", "BASE_URL", "WIRE_API")
+        )
+        or _role_api_key_pool(prefix)
+    )
+
+
+def _with_script_alternates(
+    primary: LLMAdapter,
+    *,
+    alternate_root: str,
+    settings_prefix: str,
+    enable_slow_hedge: bool,
+    default_timeout_seconds: int,
+    default_max_retries: int,
+    default_reasoning_effort: str | None,
+    default_thinking_mode: str | None,
+    default_use_strict_schema: bool = True,
+    default_send_response_format: bool = True,
+    default_retry_empty_response: bool,
+    defer_schema_container_repair: bool,
+    retry_gateway_stream_as_non_stream: bool,
+) -> LLMAdapter:
+    """Attach explicitly configured same-model routes to one screenplay role."""
+
+    alternate_prefixes = [alternate_root]
+    for index in range(2, 101):
+        prefix = f"{alternate_root}_{index:02d}"
+        if any(
+            os.getenv(f"{prefix}_{suffix}", "").strip()
+            for suffix in ("PROVIDER", "MODEL", "API_KEY", "BASE_URL", "WIRE_API")
+        ) or _role_api_key_pool(prefix):
+            alternate_prefixes.append(prefix)
+
+    routes: list[LLMAdapter] = []
+    primary_info = primary.get_model_info()
+    primary_model = primary_info.model_name
+    for prefix in alternate_prefixes:
+        alternate_fields = {
+            suffix: os.getenv(f"{prefix}_{suffix}", "").strip()
+            for suffix in ("MODEL", "API_KEY", "BASE_URL")
+        }
+        if not _has_script_route_fields(prefix):
+            continue
+        missing = [suffix for suffix, value in alternate_fields.items() if not value]
+        if missing:
+            raise MissingLLMConfigurationError(
+                f"{prefix} requires MODEL, API_KEY and BASE_URL together; "
+                "missing: " + ", ".join(missing)
             )
-            if enable_slow_hedge
-            else None
-        ),
+        if primary_model.casefold() != alternate_fields["MODEL"].casefold():
+            raise MissingLLMConfigurationError(
+                f"{settings_prefix} primary and alternate routes must use the same model."
+            )
+        alternate = _build_role_adapter_from_env(
+            prefix,
+            fallback_prefixes=(),
+            default_model_env=f"{settings_prefix}_MODEL",
+            default_provider=primary_info.provider,
+            default_timeout_seconds=default_timeout_seconds,
+            default_max_retries=default_max_retries,
+            default_use_strict_schema=default_use_strict_schema,
+            default_send_response_format=default_send_response_format,
+            default_reasoning_effort=default_reasoning_effort,
+            default_thinking_mode=default_thinking_mode,
+            default_retry_empty_response=default_retry_empty_response,
+            defer_schema_container_repair=defer_schema_container_repair,
+            retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
+            inherit_fallback_runtime_tuning=False,
+            inherit_fallback_flags=False,
+        )
+        routes.append(
+            _with_adaptive_script_transport(
+                alternate,
+                settings_prefix=settings_prefix,
+            )
+        )
+    if not routes:
+        return primary
+
+    circuit_failure_threshold = _parse_positive_int(
+        _script_setting_name(settings_prefix, "CIRCUIT_FAILURE_THRESHOLD")
+        or "LLM_SCRIPT_CIRCUIT_FAILURE_THRESHOLD",
+        default=1,
     )
+    circuit_cooldown_seconds = _parse_positive_float_env(
+        _script_setting_name(settings_prefix, "CIRCUIT_COOLDOWN_SECONDS")
+        or "LLM_SCRIPT_CIRCUIT_COOLDOWN_SECONDS",
+        default=600.0,
+    )
+    hedge_delay_name = _script_setting_name(settings_prefix, "HEDGE_DELAY_SECONDS")
+    route = primary
+    for index, alternate in enumerate(routes):
+        failover_identity = (
+            _adapter_route_identity(route),
+            _adapter_route_identity(alternate),
+        )
+        with _SCRIPT_ROUTE_STATE_LOCK:
+            circuit_state = _SCRIPT_FAILOVER_STATES.setdefault(
+                failover_identity,
+                ModelFailoverCircuitState(),
+            )
+        route = ModelFailoverLLMAdapter(
+            primary=route,
+            fallback=alternate,
+            circuit_failure_threshold=circuit_failure_threshold,
+            circuit_cooldown_seconds=circuit_cooldown_seconds,
+            hedge_delay_seconds=(
+                _parse_positive_float_env(
+                    hedge_delay_name or "LLM_SCRIPT_HEDGE_DELAY_SECONDS",
+                    default=35.0,
+                )
+                if enable_slow_hedge and index == 0
+                else None
+            ),
+            circuit_state=circuit_state,
+        )
+    return route
 
 
 def build_script_fallback_llm_adapter_from_env() -> LLMAdapter:
@@ -539,7 +725,7 @@ def build_script_fallback_llm_adapter_from_env() -> LLMAdapter:
 
 
 def build_script_editor_llm_adapter_from_env() -> LLMAdapter:
-    """Build the mandatory GPT editor used after a validated DeepSeek draft."""
+    """Build the quality-gated editor used only when a draft needs repair."""
 
     return _build_role_adapter_from_env(
         "LLM_SCRIPT_EDITOR",
@@ -547,6 +733,7 @@ def build_script_editor_llm_adapter_from_env() -> LLMAdapter:
         default_model_env="LLM_MODEL",
         default_timeout_seconds=600,
         default_max_retries=1,
+        default_reasoning_effort="medium",
     )
 
 
@@ -562,20 +749,125 @@ def build_dialogue_polish_adapter_from_env() -> LLMAdapter:
     )
 
 
+def build_market_routed_role_adapter_from_env(
+    role: str,
+    *,
+    fallback: LLMAdapter,
+    default_timeout_seconds: int,
+    default_max_retries: int,
+    default_reasoning_effort: str | None = None,
+    default_thinking_mode: str | None = None,
+    default_use_strict_schema: bool = True,
+    default_send_response_format: bool = True,
+    default_retry_empty_response: bool = True,
+    defer_schema_container_repair: bool = False,
+    retry_gateway_stream_as_non_stream: bool = True,
+) -> LLMAdapter:
+    """Build mainland/overseas role routes while retaining legacy fallback config.
+
+    Only screenplay roles get the transport/circuit/failover wrappers. Planning
+    roles intentionally remain direct market adapters so a screenplay outage
+    cannot silently change the planning execution path.
+    """
+
+    normalized_role = role.strip().upper()
+    screenplay_role = normalized_role in _SCRIPT_MARKET_ROLES
+    routes: dict[str, LLMAdapter] = {}
+    for market_key, market_name in (
+        ("cn_mainland", "CN"),
+        ("overseas_tiktok", "OVERSEAS"),
+    ):
+        prefix = f"LLM_{market_name}_{normalized_role}"
+        route = fallback
+        configured = any(
+            os.getenv(f"{prefix}_{suffix}", "").strip()
+            for suffix in ("PROVIDER", "MODEL", "API_KEY", "BASE_URL", "WIRE_API")
+        )
+        if configured:
+            missing = [
+                suffix
+                for suffix in ("MODEL", "API_KEY", "BASE_URL")
+                if not os.getenv(f"{prefix}_{suffix}", "").strip()
+            ]
+            if missing:
+                logger.warning(
+                    "Ignoring incomplete market route %s; missing %s",
+                    prefix,
+                    ", ".join(missing),
+                )
+            else:
+                try:
+                    route = _build_role_adapter_from_env(
+                        prefix,
+                        fallback_prefixes=(),
+                        default_model_env=f"{prefix}_MODEL",
+                        default_timeout_seconds=default_timeout_seconds,
+                        default_max_retries=default_max_retries,
+                        default_use_strict_schema=default_use_strict_schema,
+                        default_send_response_format=default_send_response_format,
+                        default_reasoning_effort=default_reasoning_effort,
+                        default_thinking_mode=default_thinking_mode,
+                        default_retry_empty_response=default_retry_empty_response,
+                        defer_schema_container_repair=defer_schema_container_repair,
+                        retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
+                        inherit_fallback_runtime_tuning=False,
+                        inherit_fallback_flags=False,
+                    )
+                except MissingLLMConfigurationError as exc:
+                    logger.warning("Ignoring invalid market route %s: %s", prefix, exc)
+                    route = fallback
+        if screenplay_role and (
+            route is not fallback
+            or _has_script_alternate_config(f"{prefix}_ALTERNATE")
+        ):
+            # Market-specific alternates are scoped to the selected market and
+            # role. Their credentials are validated independently below;
+            # generic LLM_SCRIPT alternates are handled by the role builders.
+            route = _with_adaptive_script_transport(
+                route,
+                settings_prefix=prefix,
+            )
+            route = _with_script_alternates(
+                route,
+                alternate_root=f"{prefix}_ALTERNATE",
+                settings_prefix=prefix,
+                enable_slow_hedge=normalized_role == "SCRIPT",
+                default_timeout_seconds=default_timeout_seconds,
+                default_max_retries=default_max_retries,
+                default_reasoning_effort=default_reasoning_effort,
+                default_thinking_mode=default_thinking_mode,
+                default_use_strict_schema=default_use_strict_schema,
+                default_send_response_format=default_send_response_format,
+                default_retry_empty_response=default_retry_empty_response,
+                defer_schema_container_repair=defer_schema_container_repair,
+                retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
+            )
+        routes[market_key] = route
+    if routes["cn_mainland"] is fallback and routes["overseas_tiktok"] is fallback:
+        return fallback
+    return MarketRoutedLLMAdapter(
+        mainland=routes["cn_mainland"],
+        overseas=routes["overseas_tiktok"],
+    )
+
+
 def _build_role_adapter_from_env(
     prefix: str,
     *,
     fallback_prefixes: tuple[str, ...] = (),
     default_model_env: str,
+    default_provider: str | None = None,
     default_timeout_seconds: int,
     default_max_retries: int,
     default_use_strict_schema: bool = True,
+    default_send_response_format: bool = True,
     default_reasoning_effort: str | None = None,
     default_thinking_mode: str | None = None,
     default_retry_empty_response: bool = True,
     defer_schema_container_repair: bool = False,
     retry_gateway_stream_as_non_stream: bool = True,
     inherit_fallback_runtime_tuning: bool = True,
+    inherit_fallback_flags: bool = True,
 ) -> LLMAdapter:
     """Build one independently configurable model role with safe legacy fallbacks."""
 
@@ -602,8 +894,11 @@ def _build_role_adapter_from_env(
     runtime_fallback_prefixes = (
         fallback_prefixes if inherit_fallback_runtime_tuning else ()
     )
+    flag_fallback_prefixes = fallback_prefixes if inherit_fallback_flags else ()
 
-    provider = value("PROVIDER", config.provider) or config.provider
+    provider = value("PROVIDER", default_provider or config.provider) or (
+        default_provider or config.provider
+    )
     model_name = value("MODEL", os.getenv(default_model_env, config.model_name).strip())
     api_key = value("API_KEY", config.api_key)
     base_url = value("BASE_URL", config.base_url)
@@ -636,7 +931,7 @@ def _build_role_adapter_from_env(
     )
     retry_empty_response = _parse_role_flag(
         prefix,
-        fallback_prefixes=fallback_prefixes,
+        fallback_prefixes=flag_fallback_prefixes,
         suffix="RETRY_EMPTY_RESPONSE",
         default=default_retry_empty_response,
     )
@@ -664,15 +959,15 @@ def _build_role_adapter_from_env(
 
         use_strict_schema = _parse_role_flag(
             prefix,
-            fallback_prefixes=fallback_prefixes,
+            fallback_prefixes=flag_fallback_prefixes,
             suffix="USE_STRICT_SCHEMA",
             default=default_use_strict_schema,
         )
         send_response_format = _parse_role_flag(
             prefix,
-            fallback_prefixes=fallback_prefixes,
+            fallback_prefixes=flag_fallback_prefixes,
             suffix="SEND_RESPONSE_FORMAT",
-            default=True,
+            default=default_send_response_format,
         )
         return PooledLLMAdapter(
             provider=provider,
@@ -702,15 +997,15 @@ def _build_role_adapter_from_env(
         wire_api=wire_api,
         use_strict_schema=_parse_role_flag(
             prefix,
-            fallback_prefixes=fallback_prefixes,
+            fallback_prefixes=flag_fallback_prefixes,
             suffix="USE_STRICT_SCHEMA",
             default=default_use_strict_schema,
         ),
         send_response_format=_parse_role_flag(
             prefix,
-            fallback_prefixes=fallback_prefixes,
+            fallback_prefixes=flag_fallback_prefixes,
             suffix="SEND_RESPONSE_FORMAT",
-            default=True,
+            default=default_send_response_format,
         ),
         retry_empty_response=retry_empty_response,
         defer_schema_container_repair=defer_schema_container_repair,
@@ -817,6 +1112,31 @@ def _parse_role_flag(
     raise MissingLLMConfigurationError(
         f"{prefix}_{suffix} must be true or false, received '{raw}'."
     )
+
+
+def _script_setting_name(settings_prefix: str, suffix: str) -> str | None:
+    """Return the first configured script resilience setting.
+
+    Market routes may override a setting with ``LLM_CN_*``/``LLM_OVERSEAS_*``;
+    role-scoped and generic screenplay settings remain valid fallbacks.
+    """
+
+    prefixes = [settings_prefix]
+    if settings_prefix.startswith("LLM_CN_"):
+        prefixes.append(
+            f"LLM_{settings_prefix.removeprefix('LLM_CN_')}"
+        )
+    elif settings_prefix.startswith("LLM_OVERSEAS_"):
+        prefixes.append(
+            f"LLM_{settings_prefix.removeprefix('LLM_OVERSEAS_')}"
+        )
+    if "LLM_SCRIPT" not in prefixes:
+        prefixes.append("LLM_SCRIPT")
+    for prefix in prefixes:
+        name = f"{prefix}_{suffix}"
+        if os.getenv(name, "").strip():
+            return name
+    return None
 
 
 def _parse_positive_int(name: str, *, default: int) -> int:

@@ -70,7 +70,7 @@ export function SectionHelp({ content, label }: { content: string; label: string
         }}
         type="button"
       >
-        <CircleHelp aria-hidden="true" size={26} />
+        <CircleHelp aria-hidden="true" size={15} strokeWidth={1.8} />
       </button>
       {open ? <span className="section-help-popover" id={tooltipId} role="tooltip">{content}</span> : null}
     </span>

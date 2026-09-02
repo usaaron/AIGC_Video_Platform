@@ -1,7 +1,9 @@
 import { CURRENT_MARKET_PROFILE } from "@/lib/types";
 import { visibleApiError } from "@/lib/api-error";
+import type { paths as ApiPaths } from "@/lib/generated/api-schema";
 
 export { visibleApiError } from "@/lib/api-error";
+export type { ApiPaths };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -181,5 +183,5 @@ function formatApiError(
   }
   return CURRENT_MARKET_PROFILE === "cn_mainland"
     ? "请求暂未完成，已保存的内容不会丢失，请稍后重试。"
-    : "The request could not be completed. Previously saved work is safe; please try again.";
+    : "请求暂未完成，已保存的内容不会丢失，请稍后重试。";
 }

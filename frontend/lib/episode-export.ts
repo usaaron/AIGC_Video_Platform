@@ -1,14 +1,17 @@
 import { createScreenplayDocxBlob } from "./episode-docx.ts";
 import {
-  applyOverseasCharacterNames,
-  englishDialogueTranslations,
+  applyChineseCharacterNames,
   mergeOverseasCharacterNames,
+  overseasNarrativeText,
+  overseasDialoguePresentation,
+  overseasDialogueSpeaker,
+  overseasDialogueTextPair,
 } from "./bilingual-dialogue.ts";
 import {
-  clientDialogueSpeaker,
   clientEpisodeTitle,
   clientSceneHeading,
 } from "./client-screenplay-format.ts";
+import { orderedScreenplayBody } from "./screenplay-body-order.ts";
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import type JSZip from "jszip";
 
@@ -30,48 +33,71 @@ export function toEpisodeMarkdown(
   episodeNumber: number,
   bilingualView?: BilingualScriptView,
 ): string {
-  if (isChineseDraft(draft)) {
-    const translations = englishDialogueTranslations(bilingualView);
-    const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
-    const chineseEpisodeTitle = clientEpisodeTitle(draft.title);
-    const scenes = draft.scenes.map((scene, sceneIndex) => {
-      const actions = scene.character_actions.map((action) => (
-        `△ ${applyOverseasCharacterNames(action, characterNames)}`
-      )).join("\n\n");
-      const dialogues = scene.dialogues.map((line, dialogueIndex) => {
-        const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
-        const { speaker, marker } = clientDialogueSpeaker(
-          translations?.get(`${prefix}.character_name`) ?? line.character_name,
-          line.character_name,
-        );
-        const cue = line.intent.trim() ? `\n（${line.intent.trim()}）` : "";
-        const translatedText = translations?.get(`${prefix}.text`);
-        return `**${speaker}${marker ? ` (${marker})` : ""}**${cue}\n${translatedText
-          ? `${translatedText}\n\n> 中文：${line.text}`
-          : line.text}`;
-      }).join("\n\n");
-      const heading = clientSceneHeading(scene.setting_hint ?? scene.setting ?? scene.slug);
-      return `## ${heading}\n\n${actions}\n\n${dialogues}`;
+  const dialoguePresentation = overseasDialoguePresentation(bilingualView);
+  const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
+  const chineseEpisodeTitle = applyChineseCharacterNames(
+    clientEpisodeTitle(
+      overseasNarrativeText(dialoguePresentation, "title", draft.title),
+    ),
+    characterNames,
+  );
+  const scenes = draft.scenes.map((scene, sceneIndex) => {
+    const body = orderedScreenplayBody(scene).map((item) => {
+      if (item.kind === "action") {
+        return `△ ${applyChineseCharacterNames(
+          overseasNarrativeText(
+            dialoguePresentation,
+            `scenes.${sceneIndex}.character_actions.${item.index}`,
+            item.action,
+          ),
+          characterNames,
+        )}`;
+      }
+      const line = item.dialogue;
+      const dialogueIndex = item.index;
+      const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
+      const { speaker, marker } = overseasDialogueSpeaker(
+        dialoguePresentation,
+        `${prefix}.character_name`,
+        line.character_name,
+        characterNames,
+      );
+      const cue = line.intent.trim()
+        ? `\n（${applyChineseCharacterNames(
+          overseasNarrativeText(dialoguePresentation, `${prefix}.intent`, line.intent.trim()),
+          characterNames,
+        )}）`
+        : "";
+      const text = overseasDialogueTextPair(
+        dialoguePresentation,
+        `${prefix}.text`,
+        line.text,
+      );
+      return `**${speaker}${marker ? ` (${marker})` : ""}**${cue}\n${text.english}${text.chinese
+        ? `\n\n> 中文：${text.chinese}`
+        : ""}`;
     }).join("\n\n");
-    return [
-      `# 第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
-      `预计时长：${episodeDurationSeconds(draft)}秒`,
-      "FADE IN / 淡入：",
-      scenes,
-      "FADE OUT / 淡出。",
-      `（尾钩：${episodeEndingHook(draft)}）`,
-      "",
-    ].filter(Boolean).join("\n\n");
-  }
-
-  const characters = draft.characters.map((character) => `- **${character.name}** (${character.role}): ${character.description}`).join("\n");
-  const scenes = draft.scenes.map((scene) => {
-    const causality = scene.scene_causality ? `**Goal:** ${scene.scene_causality.goal}\n\n**Conflict:** ${scene.scene_causality.conflict}\n\n**Outcome:** ${scene.scene_causality.outcome}\n\n` : "";
-    const actions = scene.character_actions.map((action) => `- ${action}`).join("\n");
-    const dialogues = scene.dialogues.map((line) => `**${line.character_name}** _(${line.intent})_: ${line.text}`).join("\n\n");
-    return `## Scene ${scene.scene_number}: ${scene.slug}\n\n${scene.purpose}\n\n${scene.beat_summary}\n\n${causality}### Actions\n\n${actions}\n\n### Dialogue\n\n${dialogues}`;
+    const heading = applyChineseCharacterNames(
+      clientSceneHeading(overseasNarrativeText(
+        dialoguePresentation,
+        scene.setting_hint
+          ? `scenes.${sceneIndex}.setting_hint`
+          : `scenes.${sceneIndex}.slug`,
+        scene.setting_hint ?? scene.setting ?? scene.slug,
+      )),
+      characterNames,
+    );
+    return `## ${heading}\n\n${body}`;
   }).join("\n\n");
-  return `# Episode ${episodeNumber}\n\n${draft.logline}\n\n**Hook:** ${draft.hook}\n\n## Characters\n\n${characters}\n\n${scenes}\n\n## Next Episode Question\n\n${draft.next_episode_question ?? "-"}\n`;
+  return [
+    `# 第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
+    `预计时长：${episodeDurationSeconds(draft)}秒`,
+    "FADE IN / 淡入：",
+    scenes,
+    "FADE OUT / 淡出。",
+    `（尾钩：${applyChineseCharacterNames(episodeEndingHook(draft), characterNames)}）`,
+    "",
+  ].filter(Boolean).join("\n\n");
 }
 
 export function toEpisodePlainText(
@@ -79,75 +105,71 @@ export function toEpisodePlainText(
   episodeNumber: number,
   bilingualView?: BilingualScriptView,
 ): string {
-  if (isChineseDraft(draft)) {
-    const translations = englishDialogueTranslations(bilingualView);
-    const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
-    const chineseEpisodeTitle = clientEpisodeTitle(draft.title);
-    const scenes = draft.scenes.map((scene, sceneIndex) => [
-      clientSceneHeading(scene.setting_hint ?? scene.setting ?? scene.slug),
-      ...scene.character_actions.map((action) => (
-        `△ ${applyOverseasCharacterNames(action, characterNames)}`
+  const dialoguePresentation = overseasDialoguePresentation(bilingualView);
+  const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
+  const chineseEpisodeTitle = applyChineseCharacterNames(
+    clientEpisodeTitle(
+      overseasNarrativeText(dialoguePresentation, "title", draft.title),
+    ),
+    characterNames,
+  );
+  const scenes = draft.scenes.map((scene, sceneIndex) => [
+    applyChineseCharacterNames(
+      clientSceneHeading(overseasNarrativeText(
+        dialoguePresentation,
+        scene.setting_hint
+          ? `scenes.${sceneIndex}.setting_hint`
+          : `scenes.${sceneIndex}.slug`,
+        scene.setting_hint ?? scene.setting ?? scene.slug,
       )),
-      ...scene.dialogues.flatMap((line, dialogueIndex) => {
-        const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
-        const { speaker, marker } = clientDialogueSpeaker(
-          translations?.get(`${prefix}.character_name`) ?? line.character_name,
-          line.character_name,
-        );
-        const translatedText = translations?.get(`${prefix}.text`);
-        return [
-          `${speaker}${marker ? ` (${marker})` : ""}`,
-          line.intent.trim() ? `（${line.intent.trim()}）` : "",
-          translatedText ?? line.text,
-          translatedText ? `中文：${line.text}` : "",
-        ];
-      }),
-    ].filter(Boolean).join("\n\n")).join("\n\n");
-    return [
-      `第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
-      `预计时长：${episodeDurationSeconds(draft)}秒`,
-      "FADE IN / 淡入：",
-      scenes,
-      "FADE OUT / 淡出。",
-      `（尾钩：${episodeEndingHook(draft)}）`,
-      "",
-    ].filter(Boolean).join("\n\n");
-  }
-
-  const characters = draft.characters.map((character) => (
-    `${character.name} (${character.role}): ${character.description}`
-  ));
-  const scenes = draft.scenes.map((scene) => {
-    const causality = scene.scene_causality
-      ? [
-          `Goal: ${scene.scene_causality.goal}`,
-          `Conflict: ${scene.scene_causality.conflict}`,
-          `Outcome: ${scene.scene_causality.outcome}`,
-        ]
-      : [];
-    return [
-      `Scene ${scene.scene_number}: ${scene.slug}`,
-      scene.purpose,
-      scene.beat_summary,
-      ...causality,
-      "Actions",
-      ...scene.character_actions,
-      "Dialogue",
-      ...scene.dialogues.flatMap((line) => [
-        `${line.character_name} (${line.intent})`,
+      characterNames,
+    ),
+    ...orderedScreenplayBody(scene).flatMap((item) => {
+      if (item.kind === "action") {
+        return [`△ ${applyChineseCharacterNames(
+          overseasNarrativeText(
+            dialoguePresentation,
+            `scenes.${sceneIndex}.character_actions.${item.index}`,
+            item.action,
+          ),
+          characterNames,
+        )}`];
+      }
+      const line = item.dialogue;
+      const dialogueIndex = item.index;
+      const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
+      const { speaker, marker } = overseasDialogueSpeaker(
+        dialoguePresentation,
+        `${prefix}.character_name`,
+        line.character_name,
+        characterNames,
+      );
+      const text = overseasDialogueTextPair(
+        dialoguePresentation,
+        `${prefix}.text`,
         line.text,
-      ]),
-    ].filter(Boolean).join("\n\n");
-  });
+      );
+      return [
+        `${speaker}${marker ? ` (${marker})` : ""}`,
+        line.intent.trim()
+          ? `（${applyChineseCharacterNames(
+            overseasNarrativeText(dialoguePresentation, `${prefix}.intent`, line.intent.trim()),
+            characterNames,
+          )}）`
+          : "",
+        text.english,
+        text.chinese ? `中文：${text.chinese}` : "",
+      ];
+    }),
+  ].filter(Boolean).join("\n\n")).join("\n\n");
   return [
-    `Episode ${episodeNumber}`,
-    draft.logline,
-    `Hook: ${draft.hook}`,
-    "Characters",
-    ...characters,
-    ...scenes,
-    "Next Episode Question",
-    draft.next_episode_question ?? "-",
+    `第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
+    `预计时长：${episodeDurationSeconds(draft)}秒`,
+    "FADE IN / 淡入：",
+    scenes,
+    "FADE OUT / 淡出。",
+    `（尾钩：${applyChineseCharacterNames(episodeEndingHook(draft), characterNames)}）`,
+    "",
   ].filter(Boolean).join("\n\n") + "\n";
 }
 
@@ -260,10 +282,6 @@ export function seriesArchiveFilename(
   mode: "episodes" | "collection",
 ): string {
   return `${safeFilename(projectTitle)}-${mode === "episodes" ? "episodes" : "full-script"}.zip`;
-}
-
-function isChineseDraft(draft: GeneratedDraft): boolean {
-  return /^(zh|zh-cn|zh-hans|chinese|中文)/i.test(draft.language.trim());
 }
 
 function episodeDurationSeconds(draft: GeneratedDraft): number {

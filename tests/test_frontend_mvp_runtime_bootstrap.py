@@ -123,6 +123,8 @@ def test_overseas_tiktok_runtime_remains_switchable_but_is_not_default() -> None
         for payload in asset_payloads
     )
     assert len(strategy_payloads) == 2
+    assert platform_payload["metadata"]["market_profile"] == "overseas_tiktok"
+    assert platform_payload["metadata"]["runtime_status"] == "active"
     assert dark_romance_strategy["draft_knowledge_bundle_id"] == (
         "knowledge_bundle.draft.dark_romance_tiktok.v1"
     )

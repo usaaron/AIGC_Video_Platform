@@ -3,7 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
-from app.modules.master_script.models import DraftMasterScript, DraftSceneCard
+from app.modules.master_script.models import (
+    DraftMasterScript,
+    DraftSceneCard,
+    build_screenplay_body_order,
+)
 from app.modules.script_engine.models import (
     ProtectedScopeStatus,
     RevisionAction,
@@ -518,7 +522,15 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
             [scene.turning_point],
             max_items=10,
         )
-        return scene.model_copy(update={"character_actions": actions})
+        return scene.model_copy(
+            update={
+                "character_actions": actions,
+                "body_order": build_screenplay_body_order(
+                    len(actions),
+                    len(scene.dialogues),
+                ),
+            }
+        )
 
     def _append_descriptive_sentence(
         self,

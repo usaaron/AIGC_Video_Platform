@@ -3,8 +3,19 @@ import type {
   StoryBible,
   StoryPlanNode,
 } from "@/lib/story-planning-client";
-import type { EpisodeRoadmapItem, EpisodeSceneExecutionBeat } from "@/lib/types";
-import { normalizeEpisodeDurationSeconds } from "./generation-planning.ts";
+import type {
+  EpisodeRoadmapItem,
+  EpisodeSceneExecutionBeat,
+  ScriptProject,
+  StorylineDuty,
+  StorylineDutyRole,
+} from "@/lib/types";
+import type { EpisodeThreeLayerContract } from "@/lib/types";
+import type { MemoryRecall } from "@/lib/memory-recall";
+import {
+  normalizeEpisodeDialogueLines,
+  normalizeEpisodeDurationSeconds,
+} from "./generation-planning.ts";
 
 export { episodeRoadmapCoverageThrough } from "./planning-coverage.ts";
 
@@ -25,6 +36,9 @@ export interface EpisodeGenerationLedgerPlan {
   plannedPayoffRefs: string[];
   plannedStoryBeat?: string;
 }
+
+const STORYLINE_SILENCE_THRESHOLD = 3;
+const STORYLINE_DUTY_LIMIT = 20;
 
 export interface EpisodeExecutionPlan {
   episode_number: number;
@@ -54,6 +68,7 @@ export interface EpisodeExecutionPlan {
   next_episode_obligation?: string | null;
   hook_payoff_target_episode?: number | null;
   scene_execution_plan: EpisodeSceneExecutionBeat[];
+  layer_contracts?: EpisodeThreeLayerContract | null;
 }
 
 export interface StoryNodeExecutionContext {
@@ -92,6 +107,13 @@ export function episodeGenerationExecutionPlan(
   const plan = planningContract(constraint);
   if (!plan) return undefined;
   const storyLineRefs = "story_line_refs" in plan ? plan.story_line_refs : [];
+  const plannedDialogueLineCount = normalizeEpisodeDialogueLines(
+    "planned_dialogue_line_count" in plan ? plan.planned_dialogue_line_count : undefined,
+  );
+  const sceneExecutionPlan = "scene_execution_plan" in plan
+    && Array.isArray(plan.scene_execution_plan)
+    ? rebalanceSceneDialogueTargets(plan.scene_execution_plan, plannedDialogueLineCount)
+    : [];
   return {
     episode_number: plan.episode_number,
     target_duration_seconds: "target_duration_seconds" in plan
@@ -103,10 +125,7 @@ export function episodeGenerationExecutionPlan(
     planned_shot_count: "planned_shot_count" in plan
       ? Math.min(20, Math.max(15, Math.round(plan.planned_shot_count)))
       : 16,
-    planned_dialogue_line_count: "planned_dialogue_line_count" in plan
-      && typeof plan.planned_dialogue_line_count === "number"
-      ? Math.min(30, Math.max(20, Math.round(plan.planned_dialogue_line_count)))
-      : 24,
+    planned_dialogue_line_count: plannedDialogueLineCount,
     episode_goal: plan.episode_goal,
     entry_state: plan.entry_state,
     central_conflict: plan.central_conflict,
@@ -132,11 +151,39 @@ export function episodeGenerationExecutionPlan(
     hook_payoff_target_episode: "hook_payoff_target_episode" in plan
       ? plan.hook_payoff_target_episode
       : null,
-    scene_execution_plan: "scene_execution_plan" in plan
-      && Array.isArray(plan.scene_execution_plan)
-      ? plan.scene_execution_plan
-      : [],
+    scene_execution_plan: sceneExecutionPlan,
+    ...("layer_contracts" in plan && plan.layer_contracts
+      ? { layer_contracts: plan.layer_contracts }
+      : {}),
   };
+}
+
+function rebalanceSceneDialogueTargets(
+  scenes: EpisodeSceneExecutionBeat[],
+  target: number,
+): EpisodeSceneExecutionBeat[] {
+  if (!scenes.length) return [];
+  const counts = scenes.map((scene) => Math.max(0, Math.round(scene.dialogue_line_target)));
+  let total = counts.reduce((sum, count) => sum + count, 0);
+  let cursor = 0;
+  while (total < target) {
+    counts[cursor % counts.length] += 1;
+    total += 1;
+    cursor += 1;
+  }
+  while (total > target) {
+    const index = counts.reduce(
+      (largest, count, candidate) => count > counts[largest] ? candidate : largest,
+      0,
+    );
+    if (counts[index] === 0) break;
+    counts[index] -= 1;
+    total -= 1;
+  }
+  return scenes.map((scene, index) => ({
+    ...scene,
+    dialogue_line_target: counts[index],
+  }));
 }
 
 export function storyNodeExecutionContext(
@@ -397,6 +444,16 @@ export function contiguousEpisodeCoverageThrough(episodeNumbers: number[]): numb
   return generatedThrough;
 }
 
+export function nextReadyScriptPartEpisode(
+  generatedEpisodeNumbers: number[],
+  plannedThrough: number,
+  totalEpisodes: number,
+): number | null {
+  const nextEpisode = contiguousEpisodeCoverageThrough(generatedEpisodeNumbers) + 1;
+  const readyThrough = Math.min(plannedThrough, totalEpisodes);
+  return nextEpisode <= readyThrough ? nextEpisode : null;
+}
+
 export function nextApprovedScriptLeafRange(
   storyPlanNodes: StoryPlanNode[],
   episodeRoadmaps: EpisodeRoadmapItem[],
@@ -615,6 +672,129 @@ export function episodeGenerationLedgerPlan(
     plannedPayoffRefs: [...new Set(plannedPayoffRefs)],
     ...(plannedStoryBeat ? { plannedStoryBeat: plannedStoryBeat.slice(0, 1_000) } : {}),
   };
+}
+
+/**
+ * Compile a bounded narrative-resource schedule for one episode.
+ *
+ * The approved route remains the source of episode intent. This additional
+ * schedule only decides which existing story lines must receive visible
+ * scene time, including quiet subplots that have not been named by the route.
+ */
+export function buildStorylineDuties(
+  project: Pick<ScriptProject, "storyLines">,
+  episodeNumber: number,
+  plannedStoryLineRefs: string[] = [],
+  sceneCount = 3,
+  memoryRecall?: Pick<MemoryRecall, "capsules"> | null,
+): StorylineDuty[] {
+  const recalledProgress = new Map<string, number>();
+  for (const capsule of memoryRecall?.capsules ?? []) {
+    if (capsule.memory_type !== "story_line" || capsule.source_episode == null) continue;
+    for (const ref of capsule.entity_refs) {
+      const key = normalizeStorylineRef(ref);
+      recalledProgress.set(key, Math.max(recalledProgress.get(key) ?? 0, capsule.source_episode));
+    }
+  }
+  const planned = new Set(plannedStoryLineRefs.map(normalizeStorylineRef));
+  const linesById = new Map(
+    (project.storyLines ?? []).map((line) => [normalizeStorylineRef(line.id), line]),
+  );
+  const candidateIds = new Set<string>([
+    ...planned,
+    ...linesById.keys(),
+  ]);
+  const candidates = [...candidateIds]
+    .map((id) => linesById.get(id) ?? {
+      id,
+      title: id,
+      type: "subplot" as const,
+      summary: "本集需要通过可见事件补足该故事线。",
+      currentState: "",
+      lastProgressedEpisode: 0,
+      nextRequiredStep: null,
+      status: "active" as const,
+      characterIds: [],
+      episodeBeats: [],
+      userEdited: false,
+    })
+    .filter((line) => line.status !== "resolved" || planned.has(normalizeStorylineRef(line.id)))
+    .map((line) => {
+      const lineId = normalizeStorylineRef(line.id);
+      const role = storylineRole(line.type);
+      const lastProgressedEpisode = Math.max(
+        0,
+        line.lastProgressedEpisode ?? 0,
+        line.episodeBeats.at(-1)?.episodeNumber ?? 0,
+        recalledProgress.get(lineId) ?? 0,
+      );
+      const silenceEpisodes = Math.max(
+        0,
+        episodeNumber - lastProgressedEpisode - 1,
+      );
+      const isPlanned = planned.has(lineId);
+      const isMain = role === "main";
+      const mustProgress = isMain || isPlanned || silenceEpisodes >= STORYLINE_SILENCE_THRESHOLD;
+      const nextRequiredStep = line.nextRequiredStep?.trim() || null;
+      const objective = isPlanned && nextRequiredStep
+        ? `完成${line.title}的本集局部目标：${nextRequiredStep}`
+        : `推进${line.title}：${line.currentState?.trim() || line.summary.trim()}`;
+      const requiredProgress = nextRequiredStep
+        ? `通过可见事件让${line.title}完成：${nextRequiredStep}`
+        : `通过可见事件改变${line.title}当前状态，并留下可验证结果。`;
+      const canDefer = !isMain;
+      return {
+        story_line_id: line.id,
+        role,
+        must_progress: mustProgress,
+        objective: compactDutyText(objective),
+        required_progress: compactDutyText(requiredProgress),
+        assigned_scene_numbers: [],
+        can_defer: canDefer,
+        defer_until_episode: mustProgress ? null : episodeNumber + 2,
+        defer_reason: mustProgress
+          ? null
+          : silenceEpisodes > 0
+            ? `本集资源优先给已批准职责；连续沉默${silenceEpisodes}集，下一次应重新评估。`
+            : "尚未达到支线沉默阈值，暂不占用本集场景。",
+        last_progressed_episode: lastProgressedEpisode,
+        silence_episodes: silenceEpisodes,
+        next_required_step: nextRequiredStep,
+      } satisfies StorylineDuty;
+    })
+    .sort((left, right) => (
+      Number(right.must_progress) - Number(left.must_progress)
+      || Number(right.role === "main") - Number(left.role === "main")
+      || Number(planned.has(normalizeStorylineRef(right.story_line_id)))
+        - Number(planned.has(normalizeStorylineRef(left.story_line_id)))
+      || right.silence_episodes - left.silence_episodes
+      || left.story_line_id.localeCompare(right.story_line_id)
+    ))
+    .slice(0, STORYLINE_DUTY_LIMIT);
+
+  const safeSceneCount = Math.max(1, Math.min(50, Math.round(sceneCount) || 1));
+  const sceneNumbers = Array.from({ length: safeSceneCount }, (_, index) => index + 1);
+  let nextSupportScene = 1;
+  return candidates.map((duty) => {
+    if (!duty.must_progress) return duty;
+    const isMain = duty.role === "main";
+    const assigned = isMain
+      ? [sceneNumbers[0]]
+      : [sceneNumbers[Math.min(nextSupportScene++, sceneNumbers.length - 1)]];
+    return { ...duty, assigned_scene_numbers: assigned };
+  });
+}
+
+function storylineRole(value: string): StorylineDutyRole {
+  return value === "main" || value === "character_arc" ? value : "subplot";
+}
+
+function normalizeStorylineRef(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function compactDutyText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 800);
 }
 
 function directScriptEndingHook(

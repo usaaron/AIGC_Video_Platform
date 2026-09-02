@@ -1,6 +1,11 @@
-import type { ProjectMarketProfile, ScriptProject } from "@/lib/types";
+import {
+  enforceMarketDeliveryContract,
+  type ProjectMarketProfile,
+  type ScriptProject,
+} from "@/lib/types";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
 import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
+import { migrateProjectScreenplayFormat } from "@/lib/canonical-character-names";
 
 const DATABASE_NAME = "ai-comic-content-os";
 const DATABASE_VERSION = 1;
@@ -65,16 +70,20 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             ? [{
                 id: `episode-${project.id}-1`,
                 episodeNumber: 1,
-                status: project.finalizationResult ? "final" as const : "framework" as const,
+                status: project.finalizationResult ? "final" as const : "confirmed" as const,
                 generationRun: project.generationRun,
                 workingDraftJson: project.workingDraftJson
                   ?? JSON.stringify(project.generationRun.draft_master_script, null, 2),
-                confirmedDraftJson: project.finalizationResult
-                  ? JSON.stringify(project.generationRun.draft_master_script, null, 2)
-                  : undefined,
+                confirmedDraftJson: JSON.stringify(
+                  project.finalizationResult?.master_script
+                    ?? project.generationRun.draft_master_script,
+                  null,
+                  2,
+                ),
                 hasLocalDraftEdits: project.hasLocalDraftEdits ?? false,
                 revisionRun: project.revisionRun,
                 finalizationResult: project.finalizationResult,
+                confirmedAt: project.updatedAt,
                 createdAt: project.createdAt,
                 updatedAt: project.updatedAt,
               }]
@@ -83,7 +92,7 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
         const recoveredPlanningCoverage = project.episodeRoadmapRequired === true
           ? episodeRoadmapCoverageThrough(episodeRoadmaps)
           : project.episodePlansReadyThrough ?? 0;
-        return {
+        return migrateProjectScreenplayFormat({
           ...project,
           marketProfile,
           customTags: project.customTags ?? [],
@@ -115,14 +124,14 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             ...character,
             role: character.role ?? "",
           })),
-          generationSettings: {
-            ...normalizeGenerationSettings(
+          generationSettings: enforceMarketDeliveryContract(
+            normalizeGenerationSettings(
               { ...project.generationSettings, mode: generationMode },
               { legacy: project.generationSettings?.episodeCountMode === undefined },
             ),
-            ...(marketProfile === "cn_mainland" ? { outputLanguage: "zh" as const } : {}),
-          },
-        };
+            marketProfile,
+          ),
+        });
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } finally {
@@ -133,6 +142,9 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
 export function inferProjectMarketProfile(
   project: Partial<ScriptProject>,
 ): ProjectMarketProfile {
+  if (project.generationSettings?.releaseRegion === "overseas") {
+    return "overseas_tiktok";
+  }
   const strategyId = project.generationRun?.generation_strategy_id
     ?? project.episodes?.[0]?.generationRun?.generation_strategy_id
     ?? "";

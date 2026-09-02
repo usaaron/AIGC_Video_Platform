@@ -1,5 +1,7 @@
 export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "deepened" | "final";
 
+export type MemoryLayer = "canonical" | "derived" | "provisional";
+
 export type ProjectTitleSource = "derived" | "user" | "generated";
 export type ProjectMarketProfile = "cn_mainland" | "overseas_tiktok" | "legacy_unknown";
 
@@ -96,6 +98,18 @@ export type StoryDensity = "compact" | "balanced" | "detailed";
 export type FailureRetryMode = "automatic" | "manual";
 export type ReleaseRegion = "cn_mainland" | "overseas";
 
+export function marketProfileForReleaseRegion(
+  releaseRegion: ReleaseRegion,
+): Exclude<ProjectMarketProfile, "legacy_unknown"> {
+  return releaseRegion === "overseas" ? "overseas_tiktok" : "cn_mainland";
+}
+
+export function releaseRegionForMarketProfile(
+  marketProfile: ProjectMarketProfile,
+): ReleaseRegion {
+  return marketProfile === "overseas_tiktok" ? "overseas" : "cn_mainland";
+}
+
 export interface GenerationSettings {
   mode: GenerationMode;
   episodeCountMode: EpisodeCountMode;
@@ -127,6 +141,28 @@ export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
   customInstructions: "",
 };
 
+/** Keep delivery-only settings aligned with the active workflow market path. */
+export function enforceMarketDeliveryContract(
+  settings: GenerationSettings,
+  marketProfile: ProjectMarketProfile,
+): GenerationSettings {
+  if (marketProfile === "cn_mainland") {
+    return {
+      ...settings,
+      outputLanguage: "zh",
+      releaseRegion: "cn_mainland",
+    };
+  }
+  if (marketProfile === "overseas_tiktok") {
+    return {
+      ...settings,
+      outputLanguage: "en",
+      releaseRegion: "overseas",
+    };
+  }
+  return settings;
+}
+
 export interface ScriptProject {
   id: string;
   title: string;
@@ -137,6 +173,10 @@ export interface ScriptProject {
   selectedTagIds: string[];
   customTags: CustomTagDraft[];
   characters: CharacterDraft[];
+  /** Explicit bilingual names extracted from user-provided reference material. */
+  canonicalCharacterNames?: Record<string, string>;
+  /** Advisory input diagnosis for a future import adapter; never grants stage access. */
+  inputReadiness?: InputReadinessAnalysis;
   generationSettings: GenerationSettings;
   episodes: EpisodeWorkspace[];
   generationBatches: GenerationBatchRecord[];
@@ -153,12 +193,15 @@ export interface ScriptProject {
   creativeDirectionCandidates?: CreativeDirectionCandidate[];
   creativeDirectionInputSignature?: string;
   selectedCreativeDirection?: CreativeDirectionCandidate;
+  storyBibleAuthorInstruction?: string;
+  planningSession?: PlanningSession;
   storyBibleInputSignature?: string;
   storyBibleVersion?: number;
   storyBibleStatus?: "draft" | "approved" | "superseded";
   episodePlansReadyThrough?: number;
   episodeRoadmapRequired?: boolean;
   episodeRoadmaps?: EpisodeRoadmapItem[];
+  storyTreeQualityAudit?: StoryTreeQualityAudit;
   sourceProjectId?: string;
   serverSync?: ProjectServerSyncState;
   // Legacy single-episode fields remain readable during local project migration.
@@ -172,10 +215,152 @@ export interface ScriptProject {
   updatedAt: string;
 }
 
+export interface StoryTreeQualityFinding {
+  node_id: string;
+  node_version: number;
+  title: string;
+  start_episode: number;
+  end_episode: number;
+  summary: string;
+  issue_codes: string[];
+  repair_instruction: string;
+}
+
+export interface StoryTreeQualityAudit {
+  schema_version: string;
+  story_project_id: string;
+  story_bible_id: string;
+  story_bible_version: number;
+  node_refs: Array<{ node_id: string; node_version: number }>;
+  node_signature: string;
+  status: "pass" | "needs_revision";
+  summary: string;
+  audited_node_count: number;
+  semantic_sample_count: number;
+  findings: StoryTreeQualityFinding[];
+  created_at: string;
+}
+
 export interface CreativeDirectionCandidate {
   title: string;
   style_description: string;
   content_description: string;
+  dramatic_goal?: string;
+  character_changes?: string[];
+  reveals_or_withholds?: string[];
+  story_line_effects?: string[];
+  tradeoffs?: string[];
+  next_pressure?: string;
+}
+
+export type PlanningPhase =
+  | "creative_intent"
+  | "story_bible"
+  | "story_tree"
+  | "episode_roadmap"
+  | "script";
+
+export type PlanningSessionStatus =
+  | "idle"
+  | "active"
+  | "awaiting_review"
+  | "approved"
+  | "paused";
+
+export type PlanningTurnScope =
+  | "creative_intent"
+  | "story_bible"
+  | "story_tree"
+  | "story_node";
+
+export interface PlanningTurn {
+  turnId: string;
+  scope: PlanningTurnScope;
+  nodeId?: string;
+  instruction: string;
+  selectedCandidateTitles?: string[];
+  outcome: "proposed" | "accepted" | "rejected";
+  createdAt: string;
+}
+
+/** Durable human decisions shared by the creative direction and story tree views. */
+export interface PlanningSession {
+  schemaVersion: "v1";
+  sessionId: string;
+  revision?: number;
+  storyProjectId?: string;
+  phase: PlanningPhase;
+  status: PlanningSessionStatus;
+  storyBibleAuthorInstruction: string;
+  treeAuthorInstruction: string;
+  storyBibleStep?: StoryBibleInteractiveStep;
+  storyBibleSections?: Record<string, unknown>;
+  activeNodeId?: string;
+  reviewedNodeIds: string[];
+  turns: PlanningTurn[];
+  startedAt?: string;
+  updatedAt: string;
+}
+
+export type StoryBibleInteractiveStep =
+  | "premise"
+  | "goal"
+  | "conflict"
+  | "ending"
+  | "world"
+  | "characters"
+  | "arcs"
+  | "story_lines"
+  | "escalation"
+  | "safeguards";
+
+export interface StoryBibleInteractiveCandidate {
+  candidate_id: string;
+  title: string;
+  summary: string;
+  fields: Record<string, unknown>;
+}
+
+export interface StoryInspirationBrief {
+  story_promise: string;
+  protagonist_and_goal: string;
+  core_obstacle: string;
+  stakes: string;
+  relationship_direction: string;
+  reveal_or_twist: string;
+  ending_direction: string;
+  tone_and_pacing: string;
+  must_keep: string[];
+  must_avoid: string[];
+  unresolved: string[];
+  additional_notes: string[];
+}
+
+export interface StoryInspirationFrontierQuestion {
+  question_id: string;
+  decision_key: string;
+  title: string;
+  question: string;
+  choices: string[];
+  recommended_choice?: string | null;
+  recommended_answer: string;
+}
+
+export interface StoryInspirationMessage {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  questions: StoryInspirationFrontierQuestion[];
+  createdAt: string;
+}
+
+export interface StoryInspirationSession {
+  schemaVersion: "v1";
+  status: "active" | "ready" | "completed";
+  messages: StoryInspirationMessage[];
+  brief: StoryInspirationBrief;
+  readyToGenerate: boolean;
+  updatedAt: string;
 }
 
 export type ProjectServerSyncStatus =
@@ -249,12 +434,79 @@ export interface EpisodeSceneExecutionBeat {
   exit_state: string;
 }
 
+export type StorylineDutyRole = "main" | "subplot" | "character_arc";
+
+/**
+ * Per-episode narrative resource contract compiled from continuity and the
+ * approved route. It is optional on legacy episode payloads.
+ */
+export interface StorylineDuty {
+  story_line_id: string;
+  role: StorylineDutyRole;
+  must_progress: boolean;
+  objective: string;
+  required_progress: string;
+  assigned_scene_numbers: number[];
+  can_defer: boolean;
+  defer_until_episode: number | null;
+  defer_reason: string | null;
+  last_progressed_episode: number;
+  silence_episodes: number;
+  next_required_step: string | null;
+}
+
+export type EpisodeHookCategory =
+  | "疑问悬念"
+  | "爽点升级"
+  | "事实反转"
+  | "关系变化"
+  | "强制选择"
+  | "倒计时"
+  | "危机升级";
+
+export interface EpisodeThreeLayerContract {
+  schema_version: "episode_three_layer_contract.v1";
+  pacing: {
+    duration_seconds: number;
+    scene_count: number;
+    shot_count: number;
+    dialogue_line_count: number;
+    average_shot_interval_seconds: number;
+    dialogue_lines_per_minute: number;
+    information_progression_count: number;
+    information_progression_per_minute: number;
+    meets_contract: boolean;
+  };
+  hook: {
+    category: EpisodeHookCategory;
+    ending_hook_count: number;
+    planned_hook_beat_count: number;
+    planned_hook_beats_per_minute: number;
+    has_next_episode_obligation: boolean;
+    payoff_target_episode: number | null;
+    meets_contract: boolean;
+  };
+  story: {
+    causal_step_count: number;
+    distinct_causal_step_count: number;
+    continuity_anchor_count: number;
+    character_count: number;
+    story_line_count: number;
+    local_resolution_planned: boolean;
+    escalation_planned: boolean;
+    causal_chain_complete: boolean;
+    meets_contract: boolean;
+  };
+  meets_contract: boolean;
+}
+
 export interface EpisodeRoadmapItem {
   source_node_id: string;
   source_node_version: number;
   story_bible_version: number;
   status: "draft" | "approved";
   episode_number: number;
+  episode_title?: string | null;
   target_duration_seconds: number;
   planned_scene_count: number;
   planned_shot_count: number;
@@ -281,11 +533,13 @@ export interface EpisodeRoadmapItem {
   next_episode_obligation: string;
   hook_payoff_target_episode: number | null;
   scene_execution_plan?: EpisodeSceneExecutionBeat[];
+  layer_contracts?: EpisodeThreeLayerContract | null;
 }
 
 export type EpisodeStatus =
   | "framework"
   | "editing"
+  | "saved"
   | "confirmed"
   | "deepening"
   | "deepened"
@@ -304,9 +558,10 @@ export interface EpisodeWorkspace {
   revisionRun?: ScriptRevisionRun;
   finalizationResult?: MasterScriptFinalizationResult;
   artifactRefs?: Partial<Record<EpisodeArtifactKind, EpisodeArtifactReference>>;
-  bilingualViews?: Record<string, BilingualScriptView>;
   continuationInstruction?: string;
   confirmedAt?: string;
+  /** Explicit author confirmation. Legacy generated episodes have confirmedAt but no lock. */
+  lockedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -316,6 +571,7 @@ export type EpisodeArtifactKind = "draft" | "revised" | "final";
 export interface EpisodeArtifactReference {
   artifactId: string;
   artifactKind: EpisodeArtifactKind;
+  memoryLayer?: MemoryLayer;
   artifactVersion: number;
   payloadChecksum: string;
   createdAt: string;
@@ -440,8 +696,10 @@ export interface CharacterRelationship {
 
 export interface GeneratedDialogue {
   character_name: string;
+  chinese_character_name?: string | null;
   intent: string;
   text: string;
+  chinese_translation?: string | null;
 }
 
 export interface GeneratedSceneCausality {
@@ -462,6 +720,7 @@ export interface GeneratedScene {
   emotional_shift?: string;
   emotional_objective?: string;
   character_actions: string[];
+  body_order?: Array<`action:${number}` | `dialogue:${number}`>;
   turning_point?: string;
   scene_causality?: GeneratedSceneCausality;
   dialogues: GeneratedDialogue[];
@@ -474,6 +733,7 @@ export interface GeneratedDraft {
   logline: string;
   synopsis: string;
   hook: string;
+  target_audience?: string;
   episode_goal?: string;
   language: string;
   characters: Array<{ name: string; role: string; description: string; motivation: string }>;
@@ -590,6 +850,7 @@ export interface ScriptGenerationRun {
   content_spec_id?: string;
   generation_strategy_id: string;
   generation_strategy_version: string;
+  release_region?: ReleaseRegion;
   draft_master_script: GeneratedDraft;
   episode_context?: GeneratedEpisodeGenerationContext | null;
   continuity_qc_report?: ContinuityQCReport | null;
@@ -603,9 +864,11 @@ export interface GeneratedEpisodeGenerationContext {
   episode_number: number;
   relevant_character_refs?: string[];
   planned_story_line_refs?: string[];
+  storyline_duties?: StorylineDuty[];
   planned_setup_refs?: string[];
   planned_payoff_refs?: string[];
   planned_story_beat?: string | null;
+  memory_recall?: unknown;
 }
 
 export interface ContinuityQCReport {
@@ -692,6 +955,35 @@ export interface ProjectDraft {
   customTags: CustomTagDraft[];
   characters: CharacterDraft[];
   generationSettings: GenerationSettings;
+  inputReadiness?: InputReadinessAnalysis;
+}
+
+export type InputReadinessLevel =
+  | "premise"
+  | "story_bible"
+  | "episode_plan"
+  | "script";
+
+export type InputReadinessStage = "story_bible" | "planning" | "script";
+
+export interface InputReadinessAnalysis {
+  schemaVersion: "input_readiness.v1";
+  detectedLevel: InputReadinessLevel;
+  recommendedStage: InputReadinessStage;
+  confidence: number;
+  coverage: {
+    premise: number;
+    storyBible: number;
+    episodePlan: number;
+    script: number;
+  };
+  missingItems: string[];
+  evidence: string[];
+  requiresUserConfirmation: boolean;
+  analysisMethod: "heuristic" | "model_assisted";
+  analyzedAt: string;
+  selectedPath?: "recommended" | "full_workflow";
+  selectedAt?: string;
 }
 
 export type TagCategory = "Genre" | "Story Element" | "Emotion" | "Audience" | "My Tags";

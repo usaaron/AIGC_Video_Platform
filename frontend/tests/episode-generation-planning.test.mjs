@@ -17,6 +17,7 @@ import {
   mergeEpisodeRoadmaps,
   replaceEpisodeRoadmapItem,
   nextApprovedScriptLeafRange,
+  nextReadyScriptPartEpisode,
   plannedEpisodeBodyReference,
   plannedEpisodeDurationSeconds,
   plannedEpisodeShotCount,
@@ -27,6 +28,21 @@ import {
   storySegmentBodyReference,
 } from "../lib/episode-generation-planning.ts";
 import { nextLeafBatchRange } from "../lib/generation-planning.ts";
+
+test("completed script sections expose the next planned episode without requiring approval", () => {
+  assert.equal(
+    nextReadyScriptPartEpisode([1, 2, 3, 4, 5, 6, 7, 8], 16, 100),
+    9,
+  );
+  assert.equal(
+    nextReadyScriptPartEpisode([1, 2, 3, 4, 5, 6, 7, 8], 8, 100),
+    null,
+  );
+  assert.equal(
+    nextReadyScriptPartEpisode([1, 2, 3, 4, 5, 6, 8], 16, 100),
+    7,
+  );
+});
 
 test("scene count adapts to each episode's planned dramatic load", () => {
   const lightPlan = {
@@ -82,9 +98,38 @@ test("roadmap production values carry scene, dialogue, and shot execution budget
   assert.equal(plannedEpisodeDurationSeconds(constraint), 114);
   assert.equal(adaptiveEpisodeSceneCount(constraint), 5);
   assert.equal(plannedEpisodeShotCount(constraint), 20);
-  assert.equal(executionPlan?.planned_dialogue_line_count, 24);
-  assert.deepEqual(executionPlan?.scene_execution_plan, sceneExecutionPlan);
+  assert.equal(executionPlan?.planned_dialogue_line_count, 25);
+  assert.equal(
+    executionPlan?.scene_execution_plan.reduce(
+      (total, scene) => total + scene.dialogue_line_target,
+      0,
+    ),
+    25,
+  );
+  assert.deepEqual(executionPlan?.scene_execution_plan, [
+    { ...sceneExecutionPlan[0], dialogue_line_target: 6 },
+    ...sceneExecutionPlan.slice(1),
+  ]);
   assert.ok(plannedEpisodeBodyReference(constraint, 1000) > 1000);
+});
+
+test("roadmap three-layer contract is handed to screenplay generation unchanged", () => {
+  const layerContracts = {
+    schema_version: "episode_three_layer_contract.v1",
+    pacing: { meets_contract: true },
+    hook: { category: "关系变化", meets_contract: true },
+    story: { causal_chain_complete: true, meets_contract: true },
+    meets_contract: true,
+  };
+  const executionPlan = episodeGenerationExecutionPlan({
+    episodeNumber: 1,
+    episodeRoadmap: {
+      ...episodePlan(1),
+      layer_contracts: layerContracts,
+    },
+  });
+
+  assert.strictEqual(executionPlan?.layer_contracts, layerContracts);
 });
 
 test("legacy roadmap duration is normalized into the current editing range", () => {
@@ -361,7 +406,7 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       target_duration_seconds: 90,
       planned_scene_count: 3,
       planned_shot_count: 16,
-      planned_dialogue_line_count: 24,
+      planned_dialogue_line_count: 30,
       episode_goal: "迫使主角确认线索来源",
       entry_state: "主角持有未经验证的证据",
       central_conflict: "公开证据会暴露证人",

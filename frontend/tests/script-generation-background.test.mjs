@@ -7,10 +7,14 @@ import {
   failScriptGenerationTask,
   getScriptGenerationTask,
   isScriptGenerationRunning,
+  isScriptGenerationPauseAbort,
   requestScriptGenerationPause,
+  registerScriptGenerationAbortController,
   resumeScriptGenerationTask,
+  scriptGenerationElapsedSeconds,
   updateScriptGenerationProgress,
   waitForScriptGenerationResume,
+  waitForScriptGenerationIdle,
 } from "../lib/script-generation-background.ts";
 import {
   applyEpisodeStreamEvent,
@@ -132,4 +136,68 @@ test("script generation pauses only at a cooperative episode boundary", async ()
   assert.equal(await paused, true);
   assert.equal(getScriptGenerationTask(projectId)?.status, "running");
   completeScriptGenerationTask(projectId);
+});
+
+test("script generation pause aborts active requests and freezes elapsed time", () => {
+  const projectId = `project.script.pause.abort.${crypto.randomUUID()}`;
+  beginScriptGenerationTask({
+    projectId,
+    startEpisode: 51,
+    endEpisode: 51,
+  });
+  updateScriptGenerationProgress(projectId, createEpisodeStreamBatch(51, 51, 1800));
+  updateScriptGenerationProgress(projectId, (batch) => startEpisodeStream(batch, 51, 1800));
+
+  const controller = new AbortController();
+  const unregister = registerScriptGenerationAbortController(projectId, controller);
+  requestScriptGenerationPause(projectId);
+
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(isScriptGenerationPauseAbort(controller.signal), true);
+  const paused = getScriptGenerationTask(projectId);
+  assert.equal(paused?.status, "pausing");
+  const current = paused?.progress[0];
+  assert.ok(current?.pausedAt);
+  const frozen = scriptGenerationElapsedSeconds(
+    paused,
+    Date.parse(paused.pausedAt) + 60_000,
+  );
+  assert.equal(
+    scriptGenerationElapsedSeconds(paused, Date.parse(paused.pausedAt) + 300_000),
+    frozen,
+  );
+
+  const lateController = new AbortController();
+  const unregisterLate = registerScriptGenerationAbortController(projectId, lateController);
+  assert.equal(lateController.signal.aborted, true);
+  assert.equal(isScriptGenerationPauseAbort(lateController.signal), true);
+
+  resumeScriptGenerationTask(projectId);
+  const resumed = getScriptGenerationTask(projectId);
+  assert.equal(resumed?.status, "running");
+  assert.equal(resumed?.progress[0].pausedAt, undefined);
+  assert.ok((resumed?.progress[0].pausedDurationMs ?? 0) >= 0);
+  unregister();
+  unregisterLate();
+  completeScriptGenerationTask(projectId);
+});
+
+test("idle waiters release when the primary script task finishes", async () => {
+  const projectId = `project.script.idle.${crypto.randomUUID()}`;
+  beginScriptGenerationTask({
+    projectId,
+    startEpisode: 41,
+    endEpisode: 48,
+  });
+
+  let released = false;
+  const idle = waitForScriptGenerationIdle(projectId).then(() => {
+    released = true;
+  });
+  await Promise.resolve();
+  assert.equal(released, false);
+
+  failScriptGenerationTask(projectId, new Error("episode 45 failed"));
+  await idle;
+  assert.equal(released, true);
 });

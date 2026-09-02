@@ -20,6 +20,8 @@ export interface EpisodeStreamProgress {
   error?: string;
   startedAt?: number;
   completedAt?: number;
+  pausedAt?: number;
+  pausedDurationMs?: number;
   modelPassCount?: number;
   generationElapsedMs?: number;
   firstPassAccepted?: boolean;

@@ -16,10 +16,14 @@ from app.script_delivery_contract import (
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_RUNTIME_PREFERRED_MAX_SECONDS,
+    EPISODE_RUNTIME_PREFERRED_MIN_SECONDS,
     EPISODE_SCENE_MAX,
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
+    PARTNER_SCREENPLAY_FORMAT_VERSION,
     SERIES_RUNTIME_MIN_MINUTES,
 )
 from app.modules.script_engine.script_body_length import script_body_length_guidance
@@ -124,6 +128,7 @@ class TemplatePromptBuilder(PromptBuilder):
             ("ContentSpec", rendered_variables.get("content_spec_json", "{}")),
             ("CreativeBrief", rendered_variables.get("creative_brief_json", "{}")),
             ("PlatformProfile", rendered_variables.get("platform_profile_json", "{}")),
+            ("MarketProfileContract", rendered_variables.get("market_profile_contract", "")),
             ("RetrievedAssets", rendered_variables.get("retrieved_assets_json", "[]")),
             ("GenerationStrategy", rendered_variables.get("generation_strategy_json", "{}")),
             ("OutputLanguage", rendered_variables.get("output_language", "")),
@@ -250,23 +255,27 @@ class TemplatePromptBuilder(PromptBuilder):
                 build_purpose,
             )
             language_contract = (
-                "中国大陆路径的动作、画面描述和人物对白全部使用简体中文。"
+                    "动作与画面描述使用简体中文；人物名和人物对白直接使用简体中文，"
+                "dialogues.chinese_character_name和dialogues.chinese_translation填写null，"
+                "不得生成英文人物名、英文对白或中英对照。"
                 if is_mainland_chinese
-                else (
-                    "海外路径的动作与画面描述使用简体中文，人物使用稳定英文名，"
-                    "dialogues.text使用自然的美国短剧英语；中文翻译由后续双语显示层生成，"
-                    "不要在同一个text字段中混写中英两种台词。"
-                )
+                else OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT
             )
             context_fields.insert(
                 0,
                 (
                     "PartnerScreenplayDeliveryContract",
-                    "写完整的美式竖屏短剧执行稿，不写小说、提纲、分集计划或框架。"
+                    f"执行合作方正文格式合同{PARTNER_SCREENPLAY_FORMAT_VERSION}。"
+                    "写完整的竖屏短剧执行稿，不写小说、提纲、分集计划或框架。"
                     f"{language_contract}"
                     f"单集最终成片不得少于{EPISODE_RUNTIME_MIN_SECONDS}秒、不得超过"
                     f"{EPISODE_RUNTIME_MAX_SECONDS}秒，以TargetDurationSeconds为参考，"
-                    "并为后期剪辑预留空间。"
+                    f"无特殊剧情理由时优先落在{EPISODE_RUNTIME_PREFERRED_MIN_SECONDS}至"
+                    f"{EPISODE_RUNTIME_PREFERRED_MAX_SECONDS}秒安全区，为后期剪辑预留空间。"
+                    "输出前按与终审相同的估时口径自检：中文对白约每秒4.2个汉字，英文对白"
+                    "约每秒2.7个自然口语词；每场取对白时长与可见动作时长的较大值，再计入"
+                    "约1.5秒进出场与反应余量。若估时不足，只在批准场景内补充有因果作用的"
+                    "动作反应、打断、潜台词和事件后果；不得用复述、空镜或新增剧情凑时长。"
                     f"每集场景总数必须为{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个；"
                     f"一场可以完成本集时不得强行拆场，绝不超过{EPISODE_SCENE_MAX}场。"
                     "若EpisodeContext.approved_episode_plan.scene_execution_plan存在，"
@@ -274,6 +283,10 @@ class TemplatePromptBuilder(PromptBuilder):
                     "对白目的和退出状态写作；每场dialogues数量贴合dialogue_line_target，"
                     "每场character_actions数量贴合shot_target。不得重新设计场景结构，"
                     "只把该执行蓝图扩写成正式可拍正文。"
+                    "若approved_episode_plan.layer_contracts存在，它是系统从同一份路线图"
+                    "本地编译出的节奏层、钩子层和剧情层审计合同：必须保持其中的时长、"
+                    "场景、台词、镜头密度，落实标准化钩子类别与结尾义务，并完整执行"
+                    "冲突-决定-局部回报-压力升级-退出状态因果链；不得把它另写成说明文字。"
                     "每场setting必须直接写成场景标题：INT.或EXT. + 具体地点 + 日/夜/黄昏/黎明，"
                     "需要时在末尾加 - CONTINUOUS、- LATER、- SAME TIME或（FLASHBACK）。"
                     "△是对白之外的画面描述、场景动作和演员调度指示符；系统会在导出时为"
@@ -286,12 +299,18 @@ class TemplatePromptBuilder(PromptBuilder):
                     "动作、堆空镜或写镜头语言凑数。"
                     "dialogues中character_name是人物名，可在人物名后使用（O.S.）、（V.O.）、"
                     "（continued）或（pre-lap）；intent只写可表演的括号提示，如低声、停顿、"
-                    "头也不抬或beat；text只写演员真正说出口的台词。对白采用美国短剧的短句、"
+                    "头也不抬或beat；text只写演员真正说出口的台词。对白采用短剧所需的短句、"
                     "打断、反击和潜台词节奏：嘴上说A，实际目的为B；删掉不推进冲突、关系、"
                     f"信息或选择的台词。每集所有场景的dialogues合计必须为{EPISODE_DIALOGUE_LINE_MIN}"
                     f"至{EPISODE_DIALOGUE_LINE_MAX}条，每个dialogues条目按一句演员实际说出的台词"
                     "计数；不得拆句、重复或添加解释性台词凑数。尽量少留空镜，增加可拍画面，"
                     "但不堆砌无效环境描写。"
+                    "每场body_order必须保存正式正文的真实表演顺序。它是由action:0、dialogue:0"
+                    "这类零基引用组成的数组，必须把本场每个character_actions和dialogues条目"
+                    "各引用且只引用一次，不得缺失、重复或越界。顺序必须像合作方样本一样让"
+                    "△动作、人物名及表演提示、台词自然交错，不能先列完全部动作再集中列全部对白。"
+                    "每句对白必须出现在触发它的动作或上一句对白之后，人物反应动作必须出现在"
+                    "它所回应的台词之后；最后一个引用必须真正落到本场退出状态或结尾钩子。"
                     "允许FADE IN、FADE OUT、SMASH CUT TO、DISSOLVE TO和MONTAGE语义，"
                     "但只在时空跳转确有必要时使用。每场必须发生冲突并改变状态；每个非大结局"
                     "的最后可见动作或最后一句对白必须形成悬念和钩子，并与continuation_hook及"
@@ -409,8 +428,11 @@ class TemplatePromptBuilder(PromptBuilder):
                     "Write only this requested episode from its approved route. Begin from prior "
                     "consequences, advance rather than repeat resolved beats, and reach the assigned "
                     "exit state and hook/payoff. Treat Story Bible, locked facts and the newest explicit "
-                    "continuity state as canonical; continuity_checkpoint is the newest compact dynamic "
-                    "state slice and overrides older state only for its recorded entities. "
+                    "continuity state as canonical; memory_recall is the task-scoped, source-linked working "
+                    "memory and should be used only for the capsules it contains. Its authority field tells "
+                    "whether a capsule is canonical, derived, or provisional; never promote a provisional "
+                    "capsule into canon. continuity_checkpoint is the legacy compact dynamic state fallback "
+                    "when memory_recall is absent and overrides older state only for its recorded entities. "
                     "episode_instruction may add detail but "
                     "cannot contradict them. approved_story_node is the approved recursive-tree boundary: "
                     "stay inside its unit purpose, current episode function, resolution and handoff pressure. "
@@ -418,7 +440,15 @@ class TemplatePromptBuilder(PromptBuilder):
                     "outline or defer its work. Convert it directly into the shortest causal scene chain: "
                     "entry consequence -> conflict/opposition -> protagonist decision and reveal -> visible "
                     "payoff -> escalated pressure -> exit state and ending hook. Every scene must perform one "
-                    "or more assigned duties; do not add recap or connective filler. title is the dramatic "
+                    "or more assigned duties; do not add recap or connective filler. If "
+                    "EpisodeContext.storyline_duties is present, it is the narrative-resource schedule: "
+                    "every duty with must_progress=true must receive visible action in at least one of its "
+                    "assigned_scene_numbers, produce a changed state or causal result, and have a matching "
+                    "story_line_updates entry whose evidence_scene_numbers stays inside those assigned scenes. "
+                    "Do not satisfy a duty by writing a ledger row alone. A duty with must_progress=false may "
+                    "only be deferred when can_defer=true, defer_until_episode and defer_reason are explicit; "
+                    "never silently omit a quiet subplot. The main line may carry the largest conflict, but it "
+                    "must not consume every scene when another mandatory duty is scheduled. title is the dramatic "
                     "title only, with no "
                     "第N集/Episode N prefix.",
                 ),
@@ -437,6 +467,39 @@ class TemplatePromptBuilder(PromptBuilder):
             )
             context_fields.insert(
                 2,
+                (
+                    "CanonicalCharacterNameContract",
+                    "EpisodeContext.canonical_character_names contains explicit Chinese-to-English "
+                    "names copied from user-uploaded reference files. These names are immutable: "
+                    "copy the supplied English name exactly only for dialogues.character_name, "
+                    "write characters.name and every creator-visible identity field with its paired "
+                    "Chinese name, and use that Chinese name in actions and intent. Never transliterate, "
+                    "rename, decorate, or replace an explicit name. Only invent a natural English "
+                    "name when no mapping exists for that character. canonical_character_name_sources "
+                    "records the source declarations for audit and has the same authority.",
+                ),
+            )
+            context_fields.insert(
+                3,
+                (
+                    "CharacterIdentityLedgerContract",
+                    "Every characters entry represents one real story identity, not one name, title, "
+                    "job, disguise, cover identity, family address, nickname, alias, or social role. "
+                    "Resolve every mention against the approved Story Bible, character cards, canonical "
+                    "name map, and newest continuity checkpoint before creating a character. Reuse the "
+                    "existing identity when the person is the same; keep separate people distinct even "
+                    "when they share a name or role. For the overseas path, every characters field is "
+                    "Simplified Chinese and characters.name is the stable Chinese identity name. Record "
+                    "alternate names and identities as facts in role/description or continuity state, "
+                    "never as duplicate character cards. If two distinct people truly share a Chinese "
+                    "name, preserve a stable Chinese-only disambiguator such as 李伟（医生） and "
+                    "李伟（记者） for all later episodes; never use English to disambiguate them. "
+                    "Output exactly one characters entry and one "
+                    "character_state_updates entry per involved identity in the episode.",
+                ),
+            )
+            context_fields.insert(
+                4,
                 (
                     "CharacterStateContinuityContract",
                     "Keep identity, backstory, personality baseline, appearance, moral boundaries and "
@@ -468,16 +531,20 @@ class TemplatePromptBuilder(PromptBuilder):
                     "evidence. Never use 剧情关联、有关联、认识 or 关系复杂.",
                 ),
             )
-            context_fields.insert(4, ("EpisodeContext", episode_context))
+            context_fields.insert(5, ("EpisodeContext", episode_context))
         modification_instruction = rendered_variables.get("user_modification_instruction")
         source_draft = rendered_variables.get("source_draft_master_script_json")
+        selection_context = rendered_variables.get("document_selection_context_json")
         if modification_instruction and source_draft and build_purpose == KnowledgeTargetStage.draft_generation:
             context_fields.insert(
                 0,
                 (
                     "UserDirectedModificationContract",
                     "Create one complete replacement candidate for the supplied source draft. "
-                    "Follow the user's instruction, preserve the series premise, character "
+                    "Follow the user's instruction only inside the hard boundaries in EpisodeContext. "
+                    "story_bible_context, approved_story_node, approved_episode_plan, and the newest "
+                    "continuity state take precedence over the instruction; never change their required "
+                    "outcome, route obligations, or locked facts. Preserve the series premise, character "
                     "identity and locked facts, maintain valid Scene Goal/Conflict/Outcome "
                     "causality, and keep the final scene as a cliffhanger or payoff. Do not "
                     "return a patch, commentary, or alternative options.",
@@ -485,6 +552,18 @@ class TemplatePromptBuilder(PromptBuilder):
             )
             context_fields.insert(1, ("UserModificationInstruction", modification_instruction))
             context_fields.insert(2, ("SourceDraftMasterScript", source_draft))
+            if selection_context:
+                context_fields.insert(
+                    3,
+                    (
+                        "DocumentSelectionContract",
+                        "The author selected this exact passage inside the screenplay as the primary "
+                        "revision target. Preserve the selected passage's scene and field role, apply "
+                        "the user instruction to it, and preserve unrelated scenes and fields unless "
+                        "a continuity change is strictly required.",
+                    ),
+                )
+                context_fields.insert(4, ("DocumentSelectionContext", selection_context))
         if build_purpose == KnowledgeTargetStage.creative_deepening:
             context_fields.insert(
                 0,

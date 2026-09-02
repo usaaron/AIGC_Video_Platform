@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from app.modules.master_script.models import DraftMasterScript
@@ -50,7 +51,12 @@ _CAPABILITY_RESTRICTION_MARKERS = (
 class BlockingContinuityConflictError(ValueError):
     def __init__(self, report: ContinuityQCReport) -> None:
         self.report = report
-        details = "；".join(issue.summary for issue in report.issues[:3])
+        blocking_issues = [
+            issue
+            for issue in report.issues
+            if issue.severity == ContinuityQCIssueSeverity.blocking
+        ]
+        details = "；".join(issue.summary for issue in blocking_issues[:3])
         super().__init__(
             f"本集连续性检查发现 {report.blocking_issue_count} 个硬冲突：{details}"
         )
@@ -60,26 +66,29 @@ def evaluate_episode_continuity(
     draft: DraftMasterScript,
     context: EpisodeGenerationContext | None,
 ) -> ContinuityQCReport:
-    if context is None or not (
-        context.provisional_continuity_checkpoint
-        or context.confirmed_continuity_checkpoint
-    ):
+    if context is None:
         return ContinuityQCReport(
             status=ContinuityQCStatus.not_applicable,
             current_episode_number=context.episode_number if context else None,
         )
-    try:
-        checkpoint = json.loads(
-            context.provisional_continuity_checkpoint
-            or context.confirmed_continuity_checkpoint
-            or ""
-        )
-    except (TypeError, ValueError):
-        return ContinuityQCReport(
-            status=ContinuityQCStatus.not_applicable,
-            current_episode_number=context.episode_number,
-        )
-    if not isinstance(checkpoint, dict):
+    checkpoint: dict[str, Any] = {}
+    checkpoint_payload = (
+        context.provisional_continuity_checkpoint
+        or context.confirmed_continuity_checkpoint
+    )
+    if checkpoint_payload:
+        try:
+            decoded_checkpoint = json.loads(checkpoint_payload)
+        except (TypeError, ValueError):
+            decoded_checkpoint = None
+        if isinstance(decoded_checkpoint, dict):
+            checkpoint = decoded_checkpoint
+        elif not context.storyline_duties:
+            return ContinuityQCReport(
+                status=ContinuityQCStatus.not_applicable,
+                current_episode_number=context.episode_number,
+            )
+    elif not context.storyline_duties:
         return ContinuityQCReport(
             status=ContinuityQCStatus.not_applicable,
             current_episode_number=context.episode_number,
@@ -90,6 +99,7 @@ def evaluate_episode_continuity(
     issues.extend(_character_issues(draft, checkpoint, aliases_by_entity))
     issues.extend(_world_state_issues(draft, checkpoint, aliases_by_entity))
     issues.extend(_story_line_issues(draft, checkpoint, context))
+    issues.extend(_storyline_duty_issues(draft, checkpoint, context))
     issues.extend(_setup_payoff_issues(draft, checkpoint, context))
     issues.extend(_hook_issues(draft, checkpoint, context))
     issues = _deduplicate_issues(issues)[:50]
@@ -234,11 +244,12 @@ def _story_line_issues(
     planned_refs = {
         value.strip() for value in context.planned_story_line_refs if value.strip()
     }
+    scheduled_refs = {duty.story_line_id for duty in context.storyline_duties}
     updates = {update.story_line_id: update for update in draft.story_line_updates}
 
     if known_states:
         for story_line_id, update in updates.items():
-            if story_line_id in known_states:
+            if story_line_id in known_states or story_line_id in scheduled_refs:
                 continue
             issues.append(_issue(
                 issue_type=ContinuityQCIssueType.unknown_story_line,
@@ -253,20 +264,21 @@ def _story_line_issues(
                 suggested_action="改用本集规划中的故事线 ID，或先回到总纲正式新增该故事线。",
             ))
 
-    for story_line_id in sorted(planned_refs - updates.keys()):
-        state = known_states.get(story_line_id, {})
-        issues.append(_issue(
-            issue_type=ContinuityQCIssueType.missing_planned_story_line_progress,
-            severity=ContinuityQCIssueSeverity.warning,
-            entity_key=story_line_id,
-            entity_name=story_line_id,
-            summary=f"本集规划要求推进 {story_line_id}，但正文没有提供可验证的推进记录。",
-            prior_state=str(state.get("current_state") or "本集规划明确要求推进该故事线。")[:500],
-            current_evidence="story_line_updates 中缺少该故事线及其场景证据。",
-            prior_episode_number=_optional_int(state.get("last_progressed_episode")),
-            scene_numbers=[],
-            suggested_action="让正文通过可见事件推进该线，并补充 progress_summary、原因和证据场次。",
-        ))
+    if not context.storyline_duties:
+        for story_line_id in sorted(planned_refs - updates.keys()):
+            state = known_states.get(story_line_id, {})
+            issues.append(_issue(
+                issue_type=ContinuityQCIssueType.missing_planned_story_line_progress,
+                severity=ContinuityQCIssueSeverity.warning,
+                entity_key=story_line_id,
+                entity_name=story_line_id,
+                summary=f"本集规划要求推进 {story_line_id}，但正文没有提供可验证的推进记录。",
+                prior_state=str(state.get("current_state") or "本集规划明确要求推进该故事线。")[:500],
+                current_evidence="story_line_updates 中缺少该故事线及其场景证据。",
+                prior_episode_number=_optional_int(state.get("last_progressed_episode")),
+                scene_numbers=[],
+                suggested_action="让正文通过可见事件推进该线，并补充 progress_summary、原因和证据场次。",
+            ))
 
     for story_line_id, update in updates.items():
         if update.planned_alignment == "deviated":
@@ -305,6 +317,167 @@ def _story_line_issues(
                 suggested_action="恢复原状态，或把该收束正式加入本集规划并写出完整可见因果。",
             ))
     return issues
+
+
+def _storyline_duty_issues(
+    draft: DraftMasterScript,
+    checkpoint: dict[str, Any],
+    context: EpisodeGenerationContext,
+) -> list[ContinuityQCIssue]:
+    """Verify scene-level evidence for the optional storyline duty schedule.
+
+    The legacy planned-ref checks remain above for old payloads. This stricter
+    path only runs when a new schedule is present, so persisted episodes and
+    requests created before the scheduler remain valid.
+    """
+    duties = context.storyline_duties
+    if not duties:
+        return []
+    scenes_by_number = {scene.scene_number: scene for scene in draft.scenes}
+    updates_by_id = {update.story_line_id: update for update in draft.story_line_updates}
+    known_states = {
+        str(item.get("story_line_id", "")).strip(): item
+        for item in _records(checkpoint.get("story_line_states"))
+        if str(item.get("story_line_id", "")).strip()
+    }
+    issues: list[ContinuityQCIssue] = []
+    for duty in duties:
+        duty_id = duty.story_line_id
+        update = updates_by_id.get(duty_id)
+        assigned = set(duty.assigned_scene_numbers)
+        valid_assigned = assigned.intersection(scenes_by_number)
+        if duty.must_progress:
+            if not valid_assigned:
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.storyline_duty_scene_mismatch,
+                    severity=ContinuityQCIssueSeverity.blocking,
+                    entity_key=duty_id,
+                    entity_name=duty_id,
+                    summary=f"故事线职责 {duty_id} 没有对应的有效场景分配。",
+                    prior_state=duty.required_progress,
+                    current_evidence="assigned_scene_numbers 不存在于本集正文场景。",
+                    prior_episode_number=duty.last_progressed_episode,
+                    scene_numbers=sorted(assigned),
+                    suggested_action="为该职责分配本集真实场景，并在场景中完成可见推进。",
+                ))
+            if update is None:
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.missing_storyline_duty_progress,
+                    severity=ContinuityQCIssueSeverity.blocking,
+                    entity_key=duty_id,
+                    entity_name=duty_id,
+                    summary=f"本集强制故事线职责 {duty_id} 没有状态推进记录。",
+                    prior_state=duty.required_progress,
+                    current_evidence="story_line_updates 中没有对应记录。",
+                    prior_episode_number=duty.last_progressed_episode,
+                    scene_numbers=sorted(valid_assigned),
+                    suggested_action="通过可见动作和结果推进该线，并写入对应场景证据。",
+                ))
+                continue
+            evidence = set(update.evidence_scene_numbers)
+            if not evidence or not evidence.issubset(valid_assigned):
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.storyline_duty_scene_mismatch,
+                    severity=ContinuityQCIssueSeverity.blocking,
+                    entity_key=duty_id,
+                    entity_name=duty_id,
+                    summary=f"故事线职责 {duty_id} 的状态记录没有落在指定场景内。",
+                    prior_state=duty.required_progress,
+                    current_evidence=(update.progress_summary or "未提供推进摘要")[:500],
+                    prior_episode_number=duty.last_progressed_episode,
+                    scene_numbers=sorted(evidence),
+                    suggested_action="让 evidence_scene_numbers 与 assigned_scene_numbers 一致，并在这些场景完成推进。",
+                ))
+            unsupported = [
+                scene_number
+                for scene_number in sorted(evidence.intersection(valid_assigned))
+                if not _storyline_scene_has_evidence(scenes_by_number[scene_number], update)
+            ]
+            if unsupported:
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.storyline_duty_unsupported_evidence,
+                    severity=ContinuityQCIssueSeverity.blocking,
+                    entity_key=duty_id,
+                    entity_name=duty_id,
+                    summary=f"故事线职责 {duty_id} 只有账本记录，没有匹配的场景动作或状态变化。",
+                    prior_state=duty.required_progress,
+                    current_evidence=update.progress_summary[:500],
+                    prior_episode_number=duty.last_progressed_episode,
+                    scene_numbers=unsupported,
+                    suggested_action="在指定场景加入改变人物处境、信息或关系的可见动作，并让场景结果与推进摘要一致。",
+                ))
+            prior_state = str(known_states.get(duty_id, {}).get("current_state") or "").strip()
+            if prior_state and _normalize_storyline_text(prior_state) == _normalize_storyline_text(
+                update.progress_summary
+            ):
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.missing_storyline_duty_progress,
+                    severity=ContinuityQCIssueSeverity.blocking,
+                    entity_key=duty_id,
+                    entity_name=duty_id,
+                    summary=f"故事线职责 {duty_id} 的记录没有产生新的状态变化。",
+                    prior_state=prior_state[:500],
+                    current_evidence=update.progress_summary[:500],
+                    prior_episode_number=duty.last_progressed_episode,
+                    scene_numbers=sorted(evidence),
+                    suggested_action="让本集改变该故事线的目标、信息、关系或处境，并更新 current_state 摘要。",
+                ))
+        elif not duty.can_defer or duty.defer_until_episode is None or not duty.defer_reason:
+            issues.append(_issue(
+                issue_type=ContinuityQCIssueType.missing_storyline_duty_progress,
+                severity=ContinuityQCIssueSeverity.warning,
+                entity_key=duty_id,
+                entity_name=duty_id,
+                summary=f"故事线 {duty_id} 被延期但没有完整的延期说明。",
+                prior_state=duty.required_progress,
+                current_evidence=duty.defer_reason or "缺少 defer_until_episode/defer_reason。",
+                prior_episode_number=duty.last_progressed_episode,
+                scene_numbers=[],
+                suggested_action="明确延期到哪一集以及为什么本集暂不推进，避免支线无声遗忘。",
+            ))
+    return issues
+
+
+def _storyline_scene_has_evidence(scene: Any, update: Any) -> bool:
+    """Require more than an update row: scene text must carry a causal trace."""
+    action_values = [value for value in scene.character_actions if value]
+    if not action_values:
+        return False
+    values = [
+        scene.purpose,
+        scene.beat_summary,
+        scene.turning_point or "",
+        scene.scene_causality.outcome if scene.scene_causality else "",
+        *action_values,
+    ]
+    normalized_values = " ".join(value.casefold() for value in values if value)
+    summary_tokens = _storyline_evidence_tokens(update.progress_summary)
+    cause_tokens = _storyline_evidence_tokens(update.change_cause)
+    # A matching phrase in the scene's visible/cause text is required. Merely
+    # returning a well-formed scene_causality object must not satisfy a duty.
+    if update.progress_summary.casefold() in normalized_values:
+        return True
+    summary_matches = sum(
+        token in normalized_values for token in summary_tokens[:8]
+    )
+    cause_matches = sum(
+        token in normalized_values for token in cause_tokens[:8]
+    )
+    return summary_matches >= (1 if len(summary_tokens) <= 2 else 2) or cause_matches >= 2
+
+
+def _storyline_evidence_tokens(value: str) -> list[str]:
+    tokens: list[str] = []
+    for chunk in re.findall(r"[A-Za-z0-9_]{3,}|[\u4e00-\u9fff]{2,}", value.casefold()):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", chunk):
+            tokens.extend(chunk[index:index + 2] for index in range(len(chunk) - 1))
+        else:
+            tokens.append(chunk)
+    return list(dict.fromkeys(tokens))
+
+
+def _normalize_storyline_text(value: str) -> str:
+    return re.sub(r"\s+", "", value.casefold()).strip("，。；;,.、:：")
 
 
 def _hook_issues(

@@ -8,7 +8,7 @@
 - Local script project creation and selection
 - Creative Input editor
 - Backend Ontology-driven tag selection with an explicit local-authoring fallback
-- Mainland Chinese interface and output; overseas locale assets remain dormant behind the market switch
+- Chinese creator interface with per-project Mainland China / Overseas market selection
 - IndexedDB project persistence
 - Startup restoration of every episode framework, edit, candidate, revision and final snapshot
 - Generated projects open directly from Home/Sidebar into the episode workspace
@@ -66,3 +66,20 @@ cd ..
 Reload the frontend afterward. The bootstrap is idempotent and uses existing APIs only.
 Browser-local drafts remain readable and exportable after a backend restart, but their temporary ContentSpec lineage cannot be used for new AI modification, Deepening, or Finalization calls. The workspace shows a recovery message; regenerate the affected episode to establish fresh backend lineage.
 Persistence is scoped to the same browser profile and origin. Clearing site data, private browsing, or changing between hosts/ports uses a different local workspace.
+
+## Local validation
+
+The frontend uses the manually started local services at `127.0.0.1:3000` and
+`127.0.0.1:8000`. It never starts them as part of tests.
+
+```bash
+npm run api:check
+npm run typecheck
+npm test
+npm run test:e2e
+```
+
+`test:e2e` covers desktop and mobile smoke flows, browser/server errors, market
+route selection, and page performance budgets. Install its browser once with
+`npm run test:e2e:install`. Performance results are attached to the Playwright
+report rather than written into the application runtime.

@@ -1,10 +1,11 @@
 from copy import deepcopy
 import json
+import time
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.dependencies import get_script_generation_service
+from app.dependencies import get_episode_script_agent, get_script_generation_service
 from app.main import create_app
 from app.modules.script_engine.generation_service import (
     InvalidDraftMasterScriptOutputError,
@@ -368,6 +369,55 @@ async def test_generate_script_draft_stream_reports_progress_and_result() -> Non
 
 
 @pytest.mark.anyio
+async def test_generate_script_draft_stream_sends_heartbeat_during_long_model_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long model gaps emit SSE comments without adding a client event type."""
+
+    class SlowEpisodeAgent:
+        def run(self, _payload, *, progress_callback=None):
+            if progress_callback is not None:
+                progress_callback("stage", {"stage": "preparing"})
+            time.sleep(0.04)
+            raise InvalidDraftMasterScriptOutputError("test failure")
+
+    import app.api.routes.script_generation as script_generation_route
+
+    monkeypatch.setattr(
+        script_generation_route,
+        "SCRIPT_GENERATION_SSE_HEARTBEAT_SECONDS",
+        0.01,
+    )
+    app = create_app()
+    app.dependency_overrides[get_episode_script_agent] = lambda: SlowEpisodeAgent()
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/script-generation/generate-draft/stream",
+            json={
+                "content_spec_id": "content.heartbeat",
+                "generation_strategy_id": "strategy.heartbeat",
+                "output_language": "zh",
+                "desired_scene_count": 3,
+            },
+        )
+
+    assert response.status_code == 200
+    assert any(
+        line.startswith(": heartbeat ")
+        for line in response.text.splitlines()
+    )
+    data_events = [
+        json.loads(line[5:].strip())
+        for line in response.text.splitlines()
+        if line.startswith("data:")
+    ]
+    assert [event["type"] for event in data_events] == ["stage", "error"]
+
+
+@pytest.mark.anyio
 async def test_generate_script_draft_stream_hides_internal_model_diagnostics() -> None:
     private_diagnostic = (
         "Real LLM output did not validate; Invalid paths: scenes.1.slug; "
@@ -512,6 +562,12 @@ async def test_episode_context_review_and_user_modification_api() -> None:
                 "source_generation_run": reviewed_run,
                 "source_draft_master_script": edited_draft,
                 "instruction": "Increase the cost of the ally's decision.",
+                "selection_context": {
+                    "source_field": "Scene 1 dialogue (scenes.0.dialogues.0.text)",
+                    "selected_text": "You cannot hide behind that promise.",
+                    "before_text": "Mara steps forward. ",
+                    "after_text": " Adrian lowers his voice.",
+                },
             },
         )
 
@@ -526,6 +582,9 @@ async def test_episode_context_review_and_user_modification_api() -> None:
     modification = modification_response.json()["data"]
     assert modification["instruction"] == "Increase the cost of the ally's decision."
     assert "UserDirectedModificationContract:" in (
+        modification["candidate_generation_run"]["prompt_build_result"]["prompt_text"]
+    )
+    assert "DocumentSelectionContext:" in (
         modification["candidate_generation_run"]["prompt_build_result"]["prompt_text"]
     )
 

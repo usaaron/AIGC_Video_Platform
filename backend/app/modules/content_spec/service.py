@@ -9,6 +9,7 @@ from app.modules.content_spec.models import (
     ResolvedCreativeContext,
     TagRef,
 )
+from app.modules.content_spec.market_profile import market_profile_metadata
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.ontology_node.repository import OntologyNodeRepository
 from app.modules.platform_profile.repository import PlatformProfileRepository
@@ -28,6 +29,10 @@ class InvalidTagReferenceError(ValueError):
 
 class CreativeIntentConflictError(ValueError):
     """Raised when explicit creative intent inputs cannot be resolved safely."""
+
+
+class MarketProfileConflictError(ValueError):
+    """Raised when ContentSpec and platform market declarations disagree."""
 
 
 class InactiveOntologyNodeError(ValueError):
@@ -65,7 +70,17 @@ class ContentSpecService:
                     f"'{tag.ontology_node_id}'."
                 )
 
-        content_spec = ContentSpec.model_validate(payload.model_dump())
+        platform_profile = self._platform_profile_repository.get(platform_profile_id)
+        content_spec_payload = payload.model_dump()
+        try:
+            content_spec_payload["metadata"] = market_profile_metadata(
+                profile=platform_profile,
+                platform_profile_id=platform_profile_id,
+                existing=payload.metadata,
+            )
+        except ValueError as exc:
+            raise MarketProfileConflictError(str(exc)) from exc
+        content_spec = ContentSpec.model_validate(content_spec_payload)
         return self._repository.save(content_spec)
 
     def resolve_creative_intent(

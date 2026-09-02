@@ -29,7 +29,7 @@ const secondLeaf = node({
   expansion_status: "episode_ready",
 });
 
-test("a complete tree reports saved roadmap coverage without a separate approval stage", () => {
+test("a complete tree counts only approved roadmaps from the active leaf version", () => {
   const progress = summarizeStoryPlanTreeProgress(
     [root, firstLeaf, secondLeaf],
     [
@@ -44,7 +44,7 @@ test("a complete tree reports saved roadmap coverage without a separate approval
     expansionComplete: true,
     readyLeafCount: 2,
     plannedEpisodeCount: 16,
-    generatedRoadmapCount: 2,
+    generatedRoadmapCount: 1,
   });
 });
 

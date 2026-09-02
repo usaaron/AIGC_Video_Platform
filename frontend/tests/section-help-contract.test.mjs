@@ -14,9 +14,9 @@ test("section help opens after two seconds and can be pinned by click", async ()
   assert.match(component, /onClick=/);
   assert.match(component, /setPinned/);
   assert.match(component, /event\.key === "Escape"/);
-  assert.match(component, /<CircleHelp aria-hidden="true" size=\{26\}/);
-  assert.match(styles, /\.section-help > button \{[\s\S]*width: 30px;[\s\S]*height: 30px;[\s\S]*border: 0;/);
-  assert.match(styles, /\.section-help > button svg \{[^}]*width: 26px;[^}]*height: 26px;/);
+  assert.match(component, /<CircleHelp aria-hidden="true" size=\{15\} strokeWidth=\{1\.8\}/);
+  assert.match(styles, /\.section-help > button \{[\s\S]*width: 20px;[\s\S]*height: 20px;[\s\S]*border: 0;/);
+  assert.match(styles, /\.section-help > button svg \{[^}]*width: 15px;[^}]*height: 15px;/);
 });
 
 test("help is present across creation, planning, script, navigation, and detail areas", async () => {
@@ -30,7 +30,6 @@ test("help is present across creation, planning, script, navigation, and detail 
     "components/project-continuity-panel.tsx",
     "components/character-relationship-network.tsx",
     "components/story-line-timeline.tsx",
-    "components/background-generation-dock.tsx",
   ];
 
   for (const file of files) {

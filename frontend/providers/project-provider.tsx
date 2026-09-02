@@ -22,8 +22,9 @@ import {
   queueProjectServerSync,
 } from "@/lib/project-sync";
 import {
-  CURRENT_MARKET_PROFILE,
   DEFAULT_GENERATION_SETTINGS,
+  enforceMarketDeliveryContract,
+  marketProfileForReleaseRegion,
   type ProjectDraft,
   type ProjectServerSyncState,
   type ScriptProject,
@@ -116,17 +117,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   async function createProject(draft: ProjectDraft): Promise<ScriptProject> {
     const now = new Date().toISOString();
     const generationSettings = draft.generationSettings ?? DEFAULT_GENERATION_SETTINGS;
+    const marketProfile = marketProfileForReleaseRegion(generationSettings.releaseRegion);
     const project: ScriptProject = {
       id: crypto.randomUUID(),
       ...draft,
       referenceMaterials: draft.referenceMaterials ?? [],
-      marketProfile: CURRENT_MARKET_PROFILE,
-      generationSettings: {
-        ...generationSettings,
-        outputLanguage: CURRENT_MARKET_PROFILE === "cn_mainland"
-          ? "zh"
-          : generationSettings.outputLanguage,
-      },
+      marketProfile,
+      generationSettings: enforceMarketDeliveryContract(
+        generationSettings,
+        marketProfile,
+      ),
       episodes: [],
       generationBatches: [],
       episodeRoadmaps: [],
@@ -168,16 +168,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           return current;
         }
 
+        const nextMarketProfile = resolvedPatch.generationSettings
+          ? marketProfileForReleaseRegion(resolvedPatch.generationSettings.releaseRegion)
+          : existing.marketProfile;
         const updated: ScriptProject = {
           ...existing,
           ...resolvedPatch,
+          marketProfile: nextMarketProfile,
           generationSettings: resolvedPatch.generationSettings
-            ? {
-                ...resolvedPatch.generationSettings,
-                outputLanguage: existing.marketProfile === "cn_mainland"
-                  ? "zh"
-                  : resolvedPatch.generationSettings.outputLanguage,
-              }
+            ? enforceMarketDeliveryContract(
+                resolvedPatch.generationSettings,
+                nextMarketProfile,
+              )
             : existing.generationSettings,
           id: existing.id,
           createdAt: existing.createdAt,
@@ -232,9 +234,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   function getProject(projectId: string): ScriptProject | undefined {
-    return projects.find((project) => (
-      project.id === projectId && project.marketProfile === CURRENT_MARKET_PROFILE
-    ));
+    return projects.find((project) => project.id === projectId);
   }
 
   async function syncProjectSnapshot(
@@ -348,9 +348,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   return (
     <ProjectContext.Provider
       value={{
-        projects: projects.filter((project) => (
-          project.marketProfile === CURRENT_MARKET_PROFILE
-        )),
+        projects,
         isReady,
         storageError,
         serverPersistenceAvailable,

@@ -7,6 +7,7 @@ import { ArrowIcon, PlusIcon, ScriptIcon } from "@/components/icons";
 import { SectionHelp } from "@/components/section-help";
 import { formatRelativeTime } from "@/lib/format";
 import { getLocalizedTagLabel, getTag } from "@/lib/tag-catalog";
+import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
@@ -68,9 +69,7 @@ export function HomeDashboard() {
           <div className="project-library-grid">
             {projects.slice(0, 6).map((project, index) => {
               const primaryTag = getTag(project.selectedTagIds[0] ?? "");
-              const projectHref = project.episodes.length
-                ? `/projects/${project.id}/workspace`
-                : `/projects/${project.id}/planning`;
+              const projectHref = currentWorkspaceHref(project);
               return (
                 <article
                   className="project-folder-card"

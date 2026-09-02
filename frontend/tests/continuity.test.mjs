@@ -70,6 +70,89 @@ test("generated episode characters become stable character cards", () => {
   assert.equal(result.characters[0].lastUpdatedEpisode, 1);
 });
 
+test("saved scripts remain provisional until the author explicitly locks them", () => {
+  const generated = episode(1, [{
+    name: "林夏",
+    role: "主角",
+    description: "谨慎的工程师。",
+    motivation: "找到妹妹。",
+  }], [], [{
+    character_name: "林夏",
+    current_goal: "进入封锁区。",
+    emotional_state: "警惕",
+    knowledge_changes: [],
+    active_constraints: [],
+    change_summary: "确定下一步行动。",
+    change_cause: "发现新的入口。",
+    evidence_scene_numbers: [1],
+  }]);
+  generated.status = "framework";
+
+  const savedResult = synchronizeContinuity("末世求生", [], [generated]);
+
+  assert.equal(savedResult.characters[0].stateHistory[0].status, "provisional");
+
+  generated.status = "confirmed";
+  generated.lockedAt = "2026-08-31T00:00:00.000Z";
+  const confirmedResult = synchronizeContinuity("末世求生", [], [generated]);
+
+  assert.equal(confirmedResult.characters[0].stateHistory[0].status, "confirmed");
+});
+
+test("character card identities reuse bilingual aliases without duplicating the cast", () => {
+  const result = synchronizeContinuity("王室审判", [{
+    id: "character.fama",
+    name: "法码（Fama）",
+    age: "30",
+    gender: "男",
+    role: "关键证人",
+    background: "",
+    appearance: "",
+    description: "用户锁定的人物",
+    source: "user",
+  }], [episode(1, [
+    { name: "Fama", role: "模型角色", description: "重复人物", motivation: "查明真相" },
+    { name: "法码", role: "模型角色", description: "重复人物", motivation: "查明真相" },
+  ], [])]);
+
+  assert.equal(result.characters.length, 1);
+  assert.equal(result.characters[0].name, "法码");
+  assert.equal(result.characters[0].role, "关键证人");
+  assert.equal(result.characters[0].motivation, "查明真相");
+});
+
+test("overseas dialogue aliases produce one pure-Chinese character card", () => {
+  const result = synchronizeContinuity("海外身份测试", [], [episode(1, [
+    { name: "WEIGHT", role: "证人", description: "掌握关键账本的人。", motivation: "公开真相。" },
+    { name: "砝码", role: "证人", description: "掌握关键账本的人。", motivation: "公开真相。" },
+  ], [{
+    scene_number: 1,
+    character_actions: ["砝码展开账本。"],
+    dialogues: [{
+      character_name: "WEIGHT",
+      chinese_character_name: "砝码",
+      intent: "压低声音",
+      text: "This ledger remembers everything.",
+      chinese_translation: "这本账记得一切。",
+    }],
+  }])]);
+
+  assert.equal(result.characters.length, 1);
+  assert.equal(result.characters[0].name, "砝码");
+});
+
+test("same-name people with Chinese disambiguators remain separate cards", () => {
+  const result = synchronizeContinuity("同名身份测试", [], [episode(1, [
+    { name: "李伟（医生）", role: "医生", description: "负责抢救证人。", motivation: "保护病历。" },
+    { name: "李伟（记者）", role: "记者", description: "负责调查资金。", motivation: "公开真相。" },
+  ], [])]);
+
+  assert.deepEqual(result.characters.map((character) => character.name), [
+    "李伟（医生）",
+    "李伟（记者）",
+  ]);
+});
+
 test("user character fields are preserved while missing motivation is supplemented", () => {
   const result = synchronizeContinuity("末世求生", [{
     id: "character.lin_xia",
@@ -191,6 +274,7 @@ test("episode state updates advance dynamic state without overwriting the fixed 
     evidence_scene_numbers: [1],
   }]);
   first.status = "confirmed";
+  first.lockedAt = "2026-08-31T00:00:00.000Z";
   const second = episode(2, [{
     name: "林夏",
     role: "主角",
@@ -583,6 +667,19 @@ test("world state index keeps transitions and rebuilds without duplicate history
   assert.equal(result.continuityStates.length, 1);
   assert.equal(result.continuityStates[0].currentState, "门禁卡芯片被替换后恢复可用。");
   assert.equal(result.continuityStates[0].history.length, 2);
+  first.status = "confirmed";
+  first.lockedAt = "2026-08-31T00:00:00.000Z";
+  const promoted = synchronizeContinuity(
+    "封锁区调查",
+    [],
+    [first, second],
+    [],
+    [],
+    result.continuityStates,
+  );
+  assert.equal(promoted.continuityStates[0].history.length, 2);
+  assert.equal(promoted.continuityStates[0].history[0].status, "confirmed");
+  assert.equal(promoted.continuityStates[0].history[1].status, "provisional");
   const summary = buildContinuityGenerationSummary([], [], [], [], result.continuityStates);
   assert.match(summary, /item\.access_card_001/);
   assert.match(summary, /门禁卡只能使用一次/);

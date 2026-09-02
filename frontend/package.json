@@ -8,7 +8,13 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --no-warnings --experimental-strip-types --test tests/*.test.mjs",
-    "test:metrics": "node --no-warnings --experimental-strip-types --test tests/script-metrics.test.mjs"
+    "test:metrics": "node --no-warnings --experimental-strip-types --test tests/script-metrics.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:list": "playwright test --list",
+    "test:e2e:install": "playwright install chromium",
+    "api:generate": "node scripts/generate-api-contract.mjs",
+    "api:check": "node scripts/generate-api-contract.mjs --check",
+    "check": "npm run api:check && npm run typecheck && npm test"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.7",
@@ -23,13 +29,15 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3"
   },
   "overrides": {
-    "postcss": "8.5.10",
+    "postcss": "8.5.26",
     "sharp": "0.35.0",
     "uuid": "11.1.1"
   }

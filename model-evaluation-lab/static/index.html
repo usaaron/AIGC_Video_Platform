@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>模型能力评测台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <span class="product-mark">序幕 TV · 剧本大师</span>
+          <h1>模型能力评测台</h1>
+        </div>
+        <div class="service-status" id="service-status"><span></span>本地服务</div>
+      </header>
+
+      <nav class="stage-tabs" id="stage-tabs" aria-label="测试阶段"></nav>
+
+      <section class="stage-heading">
+        <div>
+          <p class="eyebrow">独立测试</p>
+          <h2 id="stage-title">加载中</h2>
+          <p id="stage-description"></p>
+        </div>
+        <div class="input-count"><strong id="input-count">0</strong><span>输入字数</span></div>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="input-panel" aria-labelledby="input-title">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">统一测试输入</p>
+              <h3 id="input-title">文本与附件</h3>
+            </div>
+            <button class="quiet-button" id="clear-stage" type="button">清空</button>
+          </div>
+          <label class="field-label" for="stage-input">测试输入</label>
+          <textarea id="stage-input" rows="15"></textarea>
+
+          <div class="upload-zone" id="upload-zone">
+            <input id="file-input" type="file" multiple accept=".docx,.txt,.md,.markdown,.json,.csv,.srt" />
+            <strong>添加参考文件</strong>
+            <span>DOCX、TXT、MD、JSON、CSV、SRT，单个不超过 8 MB</span>
+          </div>
+          <div class="file-list" id="file-list"></div>
+        </section>
+
+        <aside class="model-panel" aria-labelledby="model-title">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow">本阶段线路</p>
+              <h3 id="model-title">全部并行参评模型</h3>
+            </div>
+            <span class="selection-count" id="selection-count">0 个并行</span>
+          </div>
+          <div class="model-list" id="model-list"></div>
+          <button class="run-button" id="run-evaluation" type="button">并行生成</button>
+          <p class="action-message" id="action-message" aria-live="polite"></p>
+        </aside>
+      </div>
+
+      <section class="results-section" aria-labelledby="results-title">
+        <div class="section-title-row results-heading">
+          <div>
+            <p class="eyebrow">同一输入 · 同时生成</p>
+            <h3 id="results-title">本阶段结果</h3>
+          </div>
+          <span id="run-meta"></span>
+        </div>
+        <div class="empty-results" id="empty-results">尚未运行本阶段测试</div>
+        <div class="result-grid" id="result-grid"></div>
+      </section>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

@@ -14,6 +14,7 @@ from app.modules.content_spec.service import (
     CreativeIntentConflictError,
     InactiveOntologyNodeError,
     InvalidTagReferenceError,
+    MarketProfileConflictError,
     MissingOntologyNodeError,
     MissingPlatformProfileError,
 )
@@ -52,6 +53,11 @@ def create_content_spec(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
+    except MarketProfileConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
     return ContentSpecResponse(data=content_spec)
 
@@ -77,7 +83,11 @@ def resolve_creative_intent(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-    except (CreativeIntentConflictError, InactiveOntologyNodeError) as exc:
+    except (
+        CreativeIntentConflictError,
+        InactiveOntologyNodeError,
+        MarketProfileConflictError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),

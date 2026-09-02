@@ -13,7 +13,11 @@ import {
   storyPlanNodeEpisodeSpan,
 } from "@/lib/episode-generation-planning";
 import { hasCompleteStoryPlanChildCoverage as hasCompleteCoverage } from "@/lib/story-plan-coverage";
-import { recordProjectServerRevisions } from "@/lib/project-sync";
+import {
+  buildEpisodePlanningMemory,
+} from "@/lib/episode-planning-memory";
+export { buildEpisodePlanningMemory } from "@/lib/episode-planning-memory";
+import { getClientInstanceId, recordProjectServerRevisions } from "@/lib/project-sync";
 import { normalizeEpisodeDurationSeconds } from "@/lib/generation-planning";
 import {
   hasUsableCreativeSource,
@@ -31,10 +35,18 @@ import {
 import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
 import { mainlandTextIsEnglishDominant } from "@/lib/mainland-language";
 import {
-  CURRENT_MARKET_PROFILE,
+  marketProfileForReleaseRegion,
   type CreativeDirectionCandidate,
   type EpisodeRoadmapItem,
+  type PlanningSession,
+  type PlanningTurn,
   type ScriptProject,
+  type StoryBibleInteractiveCandidate,
+  type StoryBibleInteractiveStep,
+  type StoryInspirationBrief,
+  type StoryInspirationFrontierQuestion,
+  type StoryInspirationMessage,
+  type StoryTreeQualityAudit,
 } from "@/lib/types";
 
 interface GenerationStrategySummary {
@@ -55,7 +67,32 @@ interface PlatformProfile {
 interface ResolutionResponse {
   data: { content_spec: { id: string }; resolved_creative_context: unknown };
 }
+interface StoryPlanningCatalog {
+  nodes: OntologyNode[];
+  profiles: PlatformProfile[];
+  strategies: GenerationStrategySummary[];
+}
 interface StoryBibleResponse { data: StoryBible }
+interface StoryBibleInteractiveStepResponse {
+  data: {
+    step: StoryBibleInteractiveStep;
+    question: string;
+    candidates: StoryBibleInteractiveCandidate[];
+  };
+}
+interface StoryInspirationChatResponse {
+  data: {
+    assistant_message: string;
+    questions: StoryInspirationFrontierQuestion[];
+    brief: StoryInspirationBrief;
+    ready_to_generate: boolean;
+  };
+}
+
+const interactiveStoryBibleRequests = new Map<
+  string,
+  Promise<StoryBibleInteractiveStepResponse["data"]>
+>();
 interface CreativeDirectionResponse {
   data: { directions: CreativeDirectionCandidate[] };
 }
@@ -65,6 +102,206 @@ interface StoryBibleDraftResponse extends StoryBibleResponse {
 }
 
 interface StoryPlanNodeResponse { data: StoryPlanNode }
+
+interface PlanningSessionApi {
+  schema_version: string;
+  session_id: string;
+  story_project_id: string;
+  revision: number;
+  phase: PlanningSession["phase"];
+  status: PlanningSession["status"];
+  story_bible_author_instruction: string;
+  tree_author_instruction: string;
+  story_bible_step?: PlanningSession["storyBibleStep"];
+  story_bible_sections?: Record<string, unknown>;
+  active_node_id: string | null;
+  reviewed_node_ids: string[];
+  turns: Array<{
+    turn_id: string;
+    scope: PlanningTurn["scope"];
+    node_id: string | null;
+    instruction: string;
+    selected_candidate_titles: string[];
+    outcome: PlanningTurn["outcome"];
+    created_at: string;
+  }>;
+  started_at: string | null;
+  updated_at: string;
+  client_instance_id: string;
+  payload_checksum: string;
+  payload_size_bytes: number;
+}
+
+interface PlanningSessionResponse { data: PlanningSessionApi }
+type PlanningSessionPayload = Omit<
+  PlanningSessionApi,
+  "client_instance_id" | "payload_checksum" | "payload_size_bytes"
+>;
+
+function planningSessionFromApi(value: PlanningSessionApi): PlanningSession {
+  return {
+    schemaVersion: value.schema_version as "v1",
+    sessionId: value.session_id,
+    storyProjectId: value.story_project_id,
+    revision: value.revision,
+    phase: value.phase,
+    status: value.status,
+    storyBibleAuthorInstruction: value.story_bible_author_instruction,
+    treeAuthorInstruction: value.tree_author_instruction,
+    storyBibleStep: value.story_bible_step,
+    storyBibleSections: value.story_bible_sections ?? {},
+    activeNodeId: value.active_node_id ?? undefined,
+    reviewedNodeIds: [...value.reviewed_node_ids],
+    turns: value.turns.map((turn) => ({
+      turnId: turn.turn_id,
+      scope: turn.scope,
+      nodeId: turn.node_id ?? undefined,
+      instruction: turn.instruction,
+      selectedCandidateTitles: [...turn.selected_candidate_titles],
+      outcome: turn.outcome,
+      createdAt: turn.created_at,
+    })),
+    startedAt: value.started_at ?? undefined,
+    updatedAt: value.updated_at,
+  };
+}
+
+function planningSessionToApi(session: PlanningSession, projectId: string): PlanningSessionPayload {
+  return {
+    schema_version: session.schemaVersion,
+    session_id: session.sessionId,
+    story_project_id: session.storyProjectId ?? projectId,
+    revision: session.revision ?? 1,
+    phase: session.phase,
+    status: session.status,
+    story_bible_author_instruction: session.storyBibleAuthorInstruction,
+    tree_author_instruction: session.treeAuthorInstruction,
+    story_bible_step: session.storyBibleStep,
+    story_bible_sections: session.storyBibleSections ?? {},
+    active_node_id: session.activeNodeId ?? null,
+    reviewed_node_ids: [...session.reviewedNodeIds],
+    turns: session.turns.map((turn) => ({
+      turn_id: turn.turnId,
+      scope: turn.scope,
+      node_id: turn.nodeId ?? null,
+      instruction: turn.instruction,
+      selected_candidate_titles: [...(turn.selectedCandidateTitles ?? [])],
+      outcome: turn.outcome,
+      created_at: turn.createdAt,
+    })),
+    started_at: session.startedAt ?? null,
+    updated_at: session.updatedAt,
+  };
+}
+
+const planningSessionSaveQueues = new Map<string, Promise<PlanningSession>>();
+const planningSessionSnapshots = new Map<string, PlanningSession | null>();
+const pendingPlanningSessionReads = new Map<string, Promise<PlanningSession | null>>();
+
+export async function loadPlanningSession(projectId: string): Promise<PlanningSession | null> {
+  const pending = pendingPlanningSessionReads.get(projectId);
+  if (pending) return pending;
+  let request!: Promise<PlanningSession | null>;
+  request = apiRequest<PlanningSessionResponse>(
+    `/story-projects/${projectId}/planning-session`,
+  )
+    .then((response) => planningSessionFromApi(response.data))
+    .catch((error) => {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    })
+    .then((session) => {
+      planningSessionSnapshots.set(projectId, session);
+      return session;
+    })
+    .finally(() => {
+      if (pendingPlanningSessionReads.get(projectId) === request) {
+        pendingPlanningSessionReads.delete(projectId);
+      }
+    });
+  pendingPlanningSessionReads.set(projectId, request);
+  return request;
+}
+
+function mergePlanningSessionForRetry(
+  local: PlanningSession,
+  remote: PlanningSession,
+): PlanningSession {
+  const turns = new Map(remote.turns.map((turn) => [turn.turnId, turn]));
+  local.turns.forEach((turn) => turns.set(turn.turnId, turn));
+  return {
+    ...remote,
+    ...local,
+    revision: remote.revision ? remote.revision + 1 : 1,
+    storyBibleSections: {
+      ...(remote.storyBibleSections ?? {}),
+      ...(local.storyBibleSections ?? {}),
+    },
+    turns: [...turns.values()],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function putPlanningSession(
+  projectId: string,
+  session: PlanningSession,
+): Promise<PlanningSession> {
+  const response = await apiRequest<PlanningSessionResponse>(
+    `/story-projects/${projectId}/planning-session`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        schema_version: "v1",
+        project_id: projectId,
+        client_instance_id: getClientInstanceId(),
+        session: planningSessionToApi(session, projectId),
+      }),
+    },
+  );
+  const saved = planningSessionFromApi(response.data);
+  planningSessionSnapshots.set(projectId, saved);
+  return saved;
+}
+
+export async function savePlanningSession(
+  project: Pick<ScriptProject, "id">,
+  session: PlanningSession,
+): Promise<PlanningSession> {
+  const previous = planningSessionSaveQueues.get(project.id);
+  const queued = (previous ?? Promise.resolve(null))
+    .catch(() => null)
+    .then(async (latest) => {
+      // Reuse the last acknowledged revision. A stale tab is still safe: its
+      // direct PUT receives 409 and rebases against the authoritative row.
+      const hasSnapshot = planningSessionSnapshots.has(project.id);
+      const snapshot = latest
+        ?? (hasSnapshot ? planningSessionSnapshots.get(project.id) : undefined)
+        ?? (session.revision ? session : undefined);
+      const remote = snapshot === undefined
+        ? await loadPlanningSession(project.id)
+        : snapshot;
+      let nextSession = remote
+        ? mergePlanningSessionForRetry(session, remote)
+        : { ...session, revision: 1 };
+      try {
+        return await putPlanningSession(project.id, nextSession);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409) throw error;
+        // Another tab or an older in-flight request may have won the race
+        // between the GET and PUT. Rebase once against the authoritative row.
+        const fresh = await loadPlanningSession(project.id);
+        if (!fresh) throw error;
+        nextSession = mergePlanningSessionForRetry(session, fresh);
+        return putPlanningSession(project.id, nextSession);
+      }
+    });
+  planningSessionSaveQueues.set(project.id, queued);
+  return queued.finally(() => {
+    if (planningSessionSaveQueues.get(project.id) === queued) {
+      planningSessionSaveQueues.delete(project.id);
+    }
+  });
+}
 
 let nextPlanningRequestRetryAt = 0;
 
@@ -132,6 +369,13 @@ export interface StoryBible {
   avoid_patterns: string[];
   created_at: string;
   approved_at: string | null;
+}
+
+export interface StoryBibleSelectionContext {
+  source_field: string;
+  selected_text: string;
+  before_text: string;
+  after_text: string;
 }
 
 export interface StoryPlanNode {
@@ -202,6 +446,7 @@ export interface EpisodePlan {
   stage_id: string;
   stage_version: number;
   episode_number: number;
+  episode_title?: string | null;
   episode_goal: string;
   entry_state: string;
   central_conflict: string;
@@ -231,12 +476,8 @@ export async function prepareStoryPlanningProject(
     && project.storyBibleInputSignature === signature
   );
 
-  const [nodesResponse, profilesResponse, strategiesResponse] = await Promise.all([
-    apiRequest<ApiList<OntologyNode>>("/ontology-nodes"),
-    apiRequest<ApiList<PlatformProfile>>("/platform-profiles"),
-    apiRequest<ApiList<GenerationStrategySummary>>("/generation-strategies"),
-  ]);
-  const activeNodes = nodesResponse.data.filter((node) => node.is_active);
+  const catalog = await loadStoryPlanningCatalog();
+  const activeNodes = catalog.nodes.filter((node) => node.is_active);
   const activeNodeIds = new Set(activeNodes.map((node) => node.id));
   const customTagMap = new Map((project.customTags ?? []).map((tag) => [tag.id, tag]));
   const systemTagIds = Array.from(new Set(
@@ -251,15 +492,24 @@ export async function prepareStoryPlanningProject(
   if (!hasUsableCreativeSource(project.creativePrompt, project.referenceMaterials) && systemTagIds.length === 0) {
     throw new Error("仅使用“我的标签”时，需要补充创作描述或选择至少一个系统标签。");
   }
-  const platform = profilesResponse.data.find(
-    (item) => item.metadata?.runtime_status === "active",
-  ) ?? profilesResponse.data[0];
-  if (!platform || platform.metadata?.market_profile !== CURRENT_MARKET_PROFILE) {
-    throw new Error("当前中国大陆市场配置不可用，请重新初始化运行资源。");
+  const projectMarketProfile = marketProfileForReleaseRegion(
+    project.generationSettings.releaseRegion,
+  );
+  const platform = catalog.profiles.find(
+    (item) => item.metadata?.runtime_status === "active"
+      && item.metadata?.market_profile === projectMarketProfile,
+  );
+  const isMainlandMarket = projectMarketProfile === "cn_mainland";
+  if (!platform) {
+    throw new Error(
+      isMainlandMarket
+        ? "当前中国大陆市场配置不可用，请重新初始化运行资源。"
+        : "当前海外市场配置不可用，请重新初始化运行资源。",
+    );
   }
   const platformName = platform.platform_name.trim().toLowerCase();
   const selectedTagIds = new Set(systemTagIds);
-  const strategy = strategiesResponse.data
+  const strategy = catalog.strategies
     .filter((item) => (
       item.status === "active"
       && item.target_platform.trim().toLowerCase() === platformName
@@ -270,8 +520,17 @@ export async function prepareStoryPlanningProject(
       - Number(Boolean(left.draft_knowledge_bundle_id))
       || right.applicable_tags.length - left.applicable_tags.length
     ))[0]
-    ?? strategiesResponse.data.find((item) => item.status === "active");
-  if (!strategy) throw new Error("后端没有可用的中国大陆生成策略。");
+    ?? catalog.strategies.find((item) => (
+      item.status === "active"
+      && item.target_platform.trim().toLowerCase() === platformName
+    ));
+  if (!strategy) {
+    throw new Error(
+      isMainlandMarket
+        ? "后端没有可用的中国大陆生成策略。"
+        : "后端没有可用的海外生成策略。",
+    );
+  }
 
   if (hasCurrentCreativeContext) {
     if (project.generationStrategyId === strategy.id) return project;
@@ -304,7 +563,9 @@ export async function prepareStoryPlanningProject(
         schema_version: "v1",
         title: safeTitle,
         audience_goal: {
-          summary: "中国大陆连载漫剧与网络故事受众",
+          summary: isMainlandMarket
+            ? "中国大陆连载漫剧与网络故事受众"
+            : "英语母语的海外/国际连载漫剧与网络故事受众",
           priority: "primary",
           success_metric: "持续阅读与分集追更意愿",
         },
@@ -315,7 +576,9 @@ export async function prepareStoryPlanningProject(
         },
         platform_goal: {
           platform_profile_id: platform.id,
-          objective: "生成可递归规划的中国大陆中文长篇故事母本",
+          objective: isMainlandMarket
+            ? "生成可递归规划的中国大陆中文长篇故事母本"
+            : "生成可递归规划的海外英语文化语境长篇故事母本",
           target_duration_seconds: normalizeEpisodeDurationSeconds(
             project.generationSettings.preferredEpisodeDurationMinutes * 60,
           ),
@@ -366,6 +629,42 @@ export async function prepareStoryPlanningProject(
     storyBibleStatus: undefined,
     storyBibleVersion: undefined,
   };
+}
+
+const STORY_PLANNING_CATALOG_TTL_MS = 5 * 60_000;
+let storyPlanningCatalogCache: {
+  expiresAt: number;
+  value: StoryPlanningCatalog;
+} | null = null;
+let pendingStoryPlanningCatalog: Promise<StoryPlanningCatalog> | null = null;
+
+async function loadStoryPlanningCatalog(): Promise<StoryPlanningCatalog> {
+  if (storyPlanningCatalogCache && storyPlanningCatalogCache.expiresAt > Date.now()) {
+    return storyPlanningCatalogCache.value;
+  }
+  if (pendingStoryPlanningCatalog) return pendingStoryPlanningCatalog;
+  const request = Promise.all([
+    apiRequest<ApiList<OntologyNode>>("/ontology-nodes"),
+    apiRequest<ApiList<PlatformProfile>>("/platform-profiles"),
+    apiRequest<ApiList<GenerationStrategySummary>>("/generation-strategies"),
+  ]).then(([nodes, profiles, strategies]) => {
+    const value = {
+      nodes: nodes.data,
+      profiles: profiles.data,
+      strategies: strategies.data,
+    };
+    storyPlanningCatalogCache = {
+      expiresAt: Date.now() + STORY_PLANNING_CATALOG_TTL_MS,
+      value,
+    };
+    return value;
+  });
+  pendingStoryPlanningCatalog = request;
+  try {
+    return await request;
+  } finally {
+    if (pendingStoryPlanningCatalog === request) pendingStoryPlanningCatalog = null;
+  }
 }
 
 export async function generateCreativeDirections(
@@ -422,6 +721,8 @@ export async function loadStoryBible(
 export async function generateStoryBibleDraft(
   project: ScriptProject,
   onAutomaticRetry?: (event: AutomaticRetryEvent) => void,
+  authorInstruction = "",
+  signal?: AbortSignal,
 ): Promise<StoryBible> {
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法生成长篇总纲。");
@@ -448,9 +749,11 @@ export async function generateStoryBibleDraft(
               reference_materials: referenceMaterialsForApi(project.referenceMaterials),
               selected_tag_labels: selectedTagLabels,
               selected_creative_direction: project.selectedCreativeDirection ?? null,
+              author_instruction: authorInstruction.trim(),
               characters: [],
               target_episode_count: project.generationSettings.episodeCount,
             }),
+            signal,
           },
         );
       } catch (error) {
@@ -482,11 +785,133 @@ export async function generateStoryBibleDraft(
   return response.data;
 }
 
+export async function generateStoryBibleInteractiveStep(
+  project: ScriptProject,
+  step: StoryBibleInteractiveStep,
+  previousSections: Record<string, unknown>,
+  authorInstruction = "",
+  onAutomaticRetry?: (event: AutomaticRetryEvent) => void,
+): Promise<StoryBibleInteractiveStepResponse["data"]> {
+  if (!project.contentSpecId || !project.generationStrategyId) {
+    throw new Error("当前项目尚未形成创作规格，无法继续构建故事总纲。");
+  }
+  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
+  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
+    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
+  ));
+  const requestBody = {
+    story_project_id: project.id,
+    content_spec_id: project.contentSpecId,
+    generation_strategy_id: project.generationStrategyId,
+    creative_prompt: (project.creativePrompt
+      || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
+    reference_materials: referenceMaterialsForApi(project.referenceMaterials),
+    selected_creative_direction: project.selectedCreativeDirection ?? null,
+    selected_tag_labels: selectedTagLabels,
+    step,
+    previous_sections: previousSections,
+    author_instruction: authorInstruction.trim(),
+    target_episode_count: project.generationSettings.episodeCount,
+  };
+  const requestKey = JSON.stringify(requestBody);
+  const existing = interactiveStoryBibleRequests.get(requestKey);
+  if (existing) return existing;
+  const request = generateWithAutomaticTransientRetry({
+    generate: () => apiRequest<StoryBibleInteractiveStepResponse>(
+      `/story-projects/${project.id}/story-bibles/interactive-step`,
+      {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      },
+    ),
+    onAutomaticRetry,
+    wait: waitForSharedPlanningRetry,
+  }).then((response) => response.data).finally(() => {
+    interactiveStoryBibleRequests.delete(requestKey);
+  });
+  interactiveStoryBibleRequests.set(requestKey, request);
+  return request;
+}
+
+export async function generateStoryInspirationTurn(
+  project: ScriptProject,
+  messages: StoryInspirationMessage[],
+  currentBrief: StoryInspirationBrief,
+  userMessage = "",
+  signal?: AbortSignal,
+): Promise<StoryInspirationChatResponse["data"]> {
+  if (!project.contentSpecId || !project.generationStrategyId) {
+    throw new Error("当前项目尚未形成创作规格，无法开始寻找灵感。");
+  }
+  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
+  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
+    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
+  ));
+  const response = await apiRequest<StoryInspirationChatResponse>(
+    `/story-projects/${project.id}/story-bibles/inspiration-chat`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        story_project_id: project.id,
+        content_spec_id: project.contentSpecId,
+        generation_strategy_id: project.generationStrategyId,
+        creative_prompt: (project.creativePrompt
+          || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
+        reference_materials: referenceMaterialsForApi(project.referenceMaterials),
+        selected_tag_labels: selectedTagLabels,
+        messages: messages.slice(-30).map((message) => ({
+          role: message.role,
+          content: message.content,
+          questions: message.questions,
+        })),
+        current_brief: currentBrief,
+        user_message: userMessage.trim(),
+        target_episode_count: project.generationSettings.episodeCount,
+      }),
+      signal,
+    },
+  );
+  return response.data;
+}
+
+export async function completeStoryBibleInteractive(
+  project: ScriptProject,
+  sections: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<StoryBible> {
+  if (!project.contentSpecId) throw new Error("当前项目缺少创作规格。");
+  if (!project.generationStrategyId) throw new Error("当前项目缺少生成策略。");
+  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
+  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
+    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
+  ));
+  const response = await apiRequest<StoryBibleResponse>(
+    `/story-projects/${project.id}/story-bibles/interactive-complete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        story_project_id: project.id,
+        content_spec_id: project.contentSpecId,
+        generation_strategy_id: project.generationStrategyId,
+        creative_prompt: (project.creativePrompt
+          || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
+        reference_materials: referenceMaterialsForApi(project.referenceMaterials),
+        selected_tag_labels: selectedTagLabels,
+        sections,
+      }),
+      signal,
+    },
+  );
+  return response.data;
+}
+
 export async function modifyStoryBibleDraft(
   project: ScriptProject,
   storyBible: StoryBible,
   instruction: string,
   revisionMode: PlanningRevisionMode = "targeted",
+  selectionContext?: StoryBibleSelectionContext | null,
+  signal?: AbortSignal,
 ): Promise<StoryBible> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法使用 AI 修改故事总纲。");
@@ -507,7 +932,9 @@ export async function modifyStoryBibleDraft(
               ? "请在现有项目边界内重新构思并整体重写完整故事总纲。"
               : ""
           ),
+          selection_context: selectionContext ?? null,
         }),
+        signal,
       },
     ),
     wait: waitForSharedPlanningRetry,
@@ -516,7 +943,7 @@ export async function modifyStoryBibleDraft(
 }
 
 export async function confirmStoryBible(storyBible: StoryBible): Promise<StoryBible> {
-  assertMainlandNarrative(storyBibleNarrative(storyBible));
+  assertCreatorNarrativeChinese(storyBibleNarrative(storyBible));
   const approved: StoryBible = {
     ...storyBible,
     version: storyBible.version + 1,
@@ -535,7 +962,7 @@ export async function confirmStoryBible(storyBible: StoryBible): Promise<StoryBi
 }
 
 export async function saveStoryBibleDraft(storyBible: StoryBible): Promise<StoryBible> {
-  assertMainlandNarrative(storyBibleNarrative(storyBible));
+  assertCreatorNarrativeChinese(storyBibleNarrative(storyBible));
   const draft: StoryBible = {
     ...storyBible,
     version: storyBible.version + 1,
@@ -630,19 +1057,51 @@ export async function loadStoryPlanNodes(
   storyBibleId: string,
   storyBibleVersion: number,
 ): Promise<StoryPlanNode[]> {
+  const history = await loadStoryPlanNodeHistory(
+    projectId,
+    storyBibleId,
+    storyBibleVersion,
+  );
+  return latestPlanningVersions(history, "node_id");
+}
+
+async function loadStoryPlanNodeHistory(
+  projectId: string,
+  storyBibleId: string,
+  storyBibleVersion: number,
+): Promise<StoryPlanNode[]> {
   const params = new URLSearchParams({
     story_bible_id: storyBibleId,
     story_bible_version: String(storyBibleVersion),
   });
-  return dedupeStoryPlanNodeRead(
-    `all:${projectId}:${storyBibleId}:${storyBibleVersion}`,
-    async () => {
-      const response = await apiRequest<{ data: StoryPlanNode[] }>(
-        `/story-projects/${projectId}/plan-nodes?${params.toString()}`,
-      );
-      return latestPlanningVersions(response.data, "node_id");
-    },
+  const response = await apiRequest<{ data: StoryPlanNode[] }>(
+    `/story-projects/${projectId}/plan-nodes?${params.toString()}`,
   );
+  return response.data;
+}
+
+export function activeStoryPlanNodesFromHistory(
+  history: StoryPlanNode[],
+): StoryPlanNode[] {
+  const root = latestPlanningVersions(
+    history.filter((node) => node.parent_node_id === null),
+    "node_id",
+  )[0];
+  if (!root) return [];
+  const active = [root];
+  let frontier = [root];
+  while (frontier.length) {
+    const children = frontier.flatMap((parent) => latestPlanningVersions(
+      history.filter((node) => (
+        node.parent_node_id === parent.node_id
+        && node.parent_node_version === parent.version
+      )),
+      "node_id",
+    ).sort((left, right) => left.sequence_order - right.sequence_order));
+    active.push(...children);
+    frontier = children;
+  }
+  return active;
 }
 
 /**
@@ -655,24 +1114,12 @@ export async function loadActiveStoryPlanNodes(
   storyBibleId: string,
   storyBibleVersion: number,
 ): Promise<StoryPlanNode[]> {
-  const root = await loadRootStoryPlanNode(projectId, storyBibleId, storyBibleVersion);
-  if (!root) return [];
-  const active: StoryPlanNode[] = [root];
-  let frontier: StoryPlanNode[] = [root];
-  while (frontier.length) {
-    const levels = await Promise.all(frontier.map((parent) => (
-      loadChildStoryPlanNodes(
-        projectId,
-        parent.node_id,
-        storyBibleId,
-        storyBibleVersion,
-        parent.version,
-      )
-    )));
-    frontier = levels.flat();
-    active.push(...frontier);
-  }
-  return active;
+  const history = await loadStoryPlanNodeHistory(
+    projectId,
+    storyBibleId,
+    storyBibleVersion,
+  );
+  return activeStoryPlanNodesFromHistory(history);
 }
 
 export async function generateStoryPlanNodeDraft(
@@ -705,6 +1152,7 @@ export async function generateStoryPlanNodeDraft(
 export async function generateTopLevelStoryPlanNodes(
   project: ScriptProject,
   storyBible: StoryBible,
+  authorInstruction = "",
 ): Promise<StoryPlanNode[]> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法生成剧情规划。");
@@ -717,6 +1165,7 @@ export async function generateTopLevelStoryPlanNodes(
       story_bible_id: storyBible.story_bible_id,
       story_bible_version: storyBible.version,
       generation_strategy_id: project.generationStrategyId,
+      author_instruction: authorInstruction.trim(),
       sequence_order: 1,
       target_episode_count: project.generationSettings.episodeCount,
     }),
@@ -767,7 +1216,7 @@ export async function confirmStoryPlanNode(
   node: StoryPlanNode,
   descendantPolicy: DescendantRevisionPolicy = "invalidate",
 ): Promise<StoryPlanNode> {
-  assertMainlandNarrative(storyPlanNodeNarrative(node));
+  assertCreatorNarrativeChinese(storyPlanNodeNarrative(node));
   const episodeSpan = storyPlanNodeEpisodeSpan(node);
   if (
     episodeSpan !== null
@@ -811,7 +1260,7 @@ export async function saveStoryPlanNodeDraft(
   node: StoryPlanNode,
   descendantPolicy: DescendantRevisionPolicy = "invalidate",
 ): Promise<StoryPlanNode> {
-  assertMainlandNarrative(storyPlanNodeNarrative(node));
+  assertCreatorNarrativeChinese(storyPlanNodeNarrative(node));
   const draft: StoryPlanNode = {
     ...node,
     version: node.version + 1,
@@ -831,6 +1280,8 @@ export async function modifyStoryPlanNode(
   node: StoryPlanNode,
   instruction: string,
   revisionMode: PlanningRevisionMode = "targeted",
+  selectionContext?: StoryBibleSelectionContext | null,
+  signal?: AbortSignal,
 ): Promise<StoryPlanNode> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法使用 AI 修改剧情树节点。");
@@ -846,12 +1297,14 @@ export async function modifyStoryPlanNode(
           node_version: node.version,
           generation_strategy_id: project.generationStrategyId,
           revision_mode: revisionMode,
+          selection_context: selectionContext ?? null,
           instruction: instruction.trim() || (
             revisionMode === "rewrite"
               ? "请在固定的剧情树位置、集数范围和连续性边界内整体重写这个剧情部分。"
               : ""
           ),
         }),
+        signal,
       },
     ),
     wait: waitForSharedPlanningRetry,
@@ -865,6 +1318,11 @@ export async function decomposeStoryPlanNode(
   project: ScriptProject,
   node: StoryPlanNode,
   requestedChildCount?: number,
+  options?: {
+    regenerate?: boolean;
+    baselineChildVersions?: Readonly<Record<string, number>>;
+    authorInstruction?: string;
+  },
 ): Promise<StoryPlanNode[]> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法拆分剧情规划。");
@@ -884,6 +1342,7 @@ export async function decomposeStoryPlanNode(
               ...(requestedChildCount === undefined
                 ? {}
                 : { requested_child_count: requestedChildCount }),
+              author_instruction: options?.authorInstruction?.trim() ?? "",
               max_episode_ready_span: MAX_EPISODE_READY_SPAN,
             }),
           },
@@ -902,7 +1361,14 @@ export async function decomposeStoryPlanNode(
             node.story_bible_version,
             node.version,
           );
-          if (hasCompleteStoryPlanChildCoverage(node, recovered)) return recovered;
+          const baselineVersions = options?.baselineChildVersions ?? {};
+          const isFreshRegenerationCheckpoint = !options?.regenerate || recovered.every(
+            (child) => child.version > (baselineVersions[child.node_id] ?? 0),
+          );
+          if (
+            hasCompleteStoryPlanChildCoverage(node, recovered)
+            && isFreshRegenerationCheckpoint
+          ) return recovered;
         } catch {
           // No complete checkpoint exists yet; retry only this parent node.
         }
@@ -962,6 +1428,7 @@ export async function generateEpisodePlanBatch(
   node: StoryPlanNode,
   onCheckpoint?: (plan: EpisodeRoadmapItem) => Promise<void> | void,
   beforeNextEpisode?: () => Promise<void> | void,
+  options?: { regenerate?: boolean; activeNodes?: StoryPlanNode[] },
 ): Promise<EpisodeRoadmapItem[]> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法生成分集计划。");
@@ -978,7 +1445,7 @@ export async function generateEpisodePlanBatch(
     throw new Error("可进入正文的剧情叶节点必须定义完整集数范围。");
   }
   const predecessorPlan = episodeRoadmapPredecessor(project, node);
-  const existing = (project.episodeRoadmaps ?? [])
+  const existing = (options?.regenerate ? [] : (project.episodeRoadmaps ?? []))
     .filter((item) => (
       item.source_node_id === node.node_id
       && item.source_node_version === node.version
@@ -994,30 +1461,33 @@ export async function generateEpisodePlanBatch(
     accepted.push(saved);
   }
 
-  for (let episodeNumber = node.planned_start_episode + accepted.length;
-    episodeNumber <= node.planned_end_episode;
-    episodeNumber += 1) {
+  while (node.planned_start_episode + accepted.length <= node.planned_end_episode) {
+    const episodeNumber = node.planned_start_episode + accepted.length;
     await beforeNextEpisode?.();
-    const alreadySaved = existing.find((item) => item.episode_number === episodeNumber);
-    if (alreadySaved) {
-      accepted.push(alreadySaved);
-      continue;
-    }
+    const requestPayload = {
+      story_project_id: project.id,
+      source_node_id: node.node_id,
+      source_node_version: node.version,
+      generation_strategy_id: project.generationStrategyId,
+      episode_number: episodeNumber,
+      predecessor_plan: predecessorPlan
+        ? roadmapItemForApi(predecessorPlan)
+        : null,
+      accepted_plans: accepted.map(roadmapItemForApi),
+      planning_memory: buildEpisodePlanningMemory(project, node, options?.activeNodes),
+    };
+    const agentRequestId = await stableAgentRequestId(
+      "episode-roadmap-chunk",
+      requestPayload,
+    );
     const response = await generateWithFailurePolicy({
-      generate: () => apiRequest<{ data: RoadmapApiItem }>(
-        `/story-projects/${project.id}/plan-nodes/${node.node_id}/episode-plans/${episodeNumber}/draft`,
+      generate: () => apiRequest<{ data: RoadmapApiItem[] }>(
+        `/story-projects/${project.id}/plan-nodes/${node.node_id}/episode-plans/chunk`,
         {
           method: "POST",
           body: JSON.stringify({
-            story_project_id: project.id,
-            source_node_id: node.node_id,
-            source_node_version: node.version,
-            generation_strategy_id: project.generationStrategyId,
-            episode_number: episodeNumber,
-            predecessor_plan: predecessorPlan
-              ? roadmapItemForApi(predecessorPlan)
-              : null,
-            accepted_plans: accepted.map(roadmapItemForApi),
+            ...requestPayload,
+            agent_request_id: agentRequestId,
           }),
         },
       ),
@@ -1027,21 +1497,40 @@ export async function generateEpisodePlanBatch(
       maxAutomaticAttempts: MAX_EPISODE_ROADMAP_API_ATTEMPTS,
       wait: waitForSharedPlanningRetry,
     });
-    const checkpoint: EpisodeRoadmapItem = {
-      ...response.data,
-      source_node_id: node.node_id,
-      source_node_version: node.version,
-      story_bible_version: node.story_bible_version,
-      status: "approved",
-    };
-    accepted.push(checkpoint);
-    await onCheckpoint?.(checkpoint);
+    const remainingEpisodeCount = node.planned_end_episode - episodeNumber + 1;
+    if (
+      response.data.length === 0
+      || response.data.length > remainingEpisodeCount
+    ) {
+      throw new Error(
+        `分集路线图返回数量异常：本段剩余 ${remainingEpisodeCount} 集，实际返回 ${response.data.length} 集。`,
+      );
+    }
+    for (const [offset, generated] of response.data.entries()) {
+      if (generated.episode_number !== episodeNumber + offset) {
+        throw new Error("分集路线图返回的集号不连续，已停止保存本轮结果。");
+      }
+      const checkpoint: EpisodeRoadmapItem = {
+        ...generated,
+        source_node_id: node.node_id,
+        source_node_version: node.version,
+        story_bible_version: node.story_bible_version,
+        status: "approved",
+      };
+      accepted.push(checkpoint);
+      await onCheckpoint?.(checkpoint);
+    }
   }
   return accepted;
 }
 
 type RoadmapApiItem = Omit<EpisodeRoadmapItem,
-  "source_node_id" | "source_node_version" | "story_bible_version" | "status">;
+  | "source_node_id"
+  | "source_node_version"
+  | "story_bible_version"
+  | "status"
+  | "scene_execution_plan"
+  | "layer_contracts">;
 
 function roadmapItemForApi(item: EpisodeRoadmapItem): RoadmapApiItem {
   const {
@@ -1049,9 +1538,79 @@ function roadmapItemForApi(item: EpisodeRoadmapItem): RoadmapApiItem {
     source_node_version: _sourceNodeVersion,
     story_bible_version: _storyBibleVersion,
     status: _status,
+    scene_execution_plan: _sceneExecutionPlan,
+    layer_contracts: _layerContracts,
     ...apiItem
   } = item;
   return apiItem;
+}
+
+async function stableAgentRequestId(
+  kind: string,
+  payload: object,
+): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const fingerprint = Array.from(new Uint8Array(digest), (value) => (
+    value.toString(16).padStart(2, "0")
+  )).join("");
+  return `agent-request.${kind}.${fingerprint}`;
+}
+
+export function storyPlanQualityAuditMatchesNodes(
+  audit: StoryTreeQualityAudit | undefined,
+  nodes: StoryPlanNode[],
+): boolean {
+  if (!audit || audit.story_bible_id !== (nodes[0]?.story_bible_id ?? "")) return false;
+  const expected = [...nodes]
+    .sort((left, right) => left.node_id.localeCompare(right.node_id))
+    .map((node) => `${node.node_id}:${node.version}`);
+  const actual = [...audit.node_refs]
+    .sort((left, right) => left.node_id.localeCompare(right.node_id))
+    .map((node) => `${node.node_id}:${node.node_version}`);
+  return expected.length === actual.length
+    && expected.every((identity, index) => identity === actual[index]);
+}
+
+export async function auditStoryPlanQuality(
+  project: ScriptProject,
+  storyBible: StoryBible,
+  leaves: StoryPlanNode[],
+  options: { timeoutMs?: number } = {},
+): Promise<StoryTreeQualityAudit> {
+  if (!project.generationStrategyId) {
+    throw new Error("当前项目尚未形成生成策略，无法进行剧情质量审校。");
+  }
+  const nodeRefs = leaves.map((node) => ({
+    node_id: node.node_id,
+    node_version: node.version,
+  }));
+  const requestBase = {
+    story_project_id: project.id,
+    story_bible_id: storyBible.story_bible_id,
+    story_bible_version: storyBible.version,
+    generation_strategy_id: project.generationStrategyId,
+    node_refs: nodeRefs,
+  };
+  const agentRequestId = await stableAgentRequestId("story-quality", requestBase);
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? 12_000,
+  );
+  try {
+    const response = await apiRequest<{ data: StoryTreeQualityAudit }>(
+      `/story-projects/${project.id}/plan-nodes/quality-audit/agent-run`,
+      {
+        method: "POST",
+        body: JSON.stringify({ ...requestBase, agent_request_id: agentRequestId }),
+        signal: controller.signal,
+      },
+    );
+    return response.data;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 export async function modifyEpisodePlanItem(
@@ -1061,6 +1620,9 @@ export async function modifyEpisodePlanItem(
   acceptedPlans: EpisodeRoadmapItem[],
   instruction: string,
   revisionMode: PlanningRevisionMode = "targeted",
+  selectionContext?: StoryBibleSelectionContext | null,
+  signal?: AbortSignal,
+  activeNodes?: StoryPlanNode[],
 ): Promise<EpisodeRoadmapItem> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法使用 AI 修改分集路线图。");
@@ -1082,14 +1644,21 @@ export async function modifyEpisodePlanItem(
             ? roadmapItemForApi(predecessorPlan)
             : null,
           accepted_plans: acceptedPlans.map(roadmapItemForApi),
-          current_plan: roadmapItemForApi(item),
+          current_plan: {
+            ...roadmapItemForApi(item),
+            scene_execution_plan: item.scene_execution_plan,
+            layer_contracts: item.layer_contracts,
+          },
+          planning_memory: buildEpisodePlanningMemory(project, node, activeNodes),
           revision_mode: revisionMode,
+          selection_context: selectionContext ?? null,
           instruction: instruction.trim() || (
             revisionMode === "rewrite"
               ? "请保持本集位置、连续性引用和因果职责，整体重写这一集的路线图。"
               : ""
           ),
         }),
+        signal,
       },
     ),
     wait: waitForSharedPlanningRetry,
@@ -1119,7 +1688,7 @@ function episodeRoadmapPredecessor(
 }
 
 export async function approveEpisodePlan(plan: EpisodePlan): Promise<EpisodePlan> {
-  assertMainlandNarrative(episodePlanNarrative(plan));
+  assertCreatorNarrativeChinese(episodePlanNarrative(plan));
   const approved = {
     ...plan,
     version: plan.version + 1,
@@ -1134,7 +1703,7 @@ export async function approveEpisodePlan(plan: EpisodePlan): Promise<EpisodePlan
 }
 
 export async function saveEpisodePlanDraft(plan: EpisodePlan): Promise<EpisodePlan> {
-  assertMainlandNarrative(episodePlanNarrative(plan));
+  assertCreatorNarrativeChinese(episodePlanNarrative(plan));
   const draft: EpisodePlan = {
     ...plan,
     version: plan.version + 1,
@@ -1206,6 +1775,7 @@ function storyPlanNodeNarrative(node: StoryPlanNode): MainlandNarrativeField[] {
 
 function episodePlanNarrative(plan: EpisodePlan): MainlandNarrativeField[] {
   return [
+    narrativeField("本集标题", plan.episode_title),
     narrativeField("本集目标", plan.episode_goal),
     narrativeField("进入状态", plan.entry_state),
     narrativeField("核心冲突", plan.central_conflict),
@@ -1226,8 +1796,7 @@ function episodePlanNarrative(plan: EpisodePlan): MainlandNarrativeField[] {
   ];
 }
 
-function assertMainlandNarrative(fields: MainlandNarrativeField[]): void {
-  if (CURRENT_MARKET_PROFILE !== "cn_mainland") return;
+function assertCreatorNarrativeChinese(fields: MainlandNarrativeField[]): void {
   const issues = fields.filter((field) => mainlandTextIsEnglishDominant(field.value));
   if (!issues.length) return;
   const issueSummary = issues.slice(0, 5).map((field) => field.path).join("、");

@@ -19,8 +19,18 @@ from app.script_delivery_contract import (
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    normalize_episode_dialogue_plan_payload,
 )
-from app.modules.script_engine.long_story_models import EpisodeSceneExecutionBeat
+from app.modules.script_engine.long_story_models import (
+    EpisodeSceneExecutionBeat,
+    MemoryLayer,
+    StoryBibleSelectionContext,
+    StorylineDuty,
+)
+from app.modules.script_engine.episode_layer_contracts import (
+    EpisodeThreeLayerContract,
+    compile_episode_three_layer_contract,
+)
 
 
 class PromptType(str, Enum):
@@ -35,6 +45,11 @@ class PromptType(str, Enum):
     localization = "localization"
     negative_prompt = "negative_prompt"
     creative_deepening = "creative_deepening"
+
+
+class ScriptReleaseRegion(str, Enum):
+    cn_mainland = "cn_mainland"
+    overseas = "overseas"
 
 
 class GenerationStrategyStatus(str, Enum):
@@ -102,6 +117,106 @@ class EpisodeGenerationMode(str, Enum):
     full = "full"
 
 
+class MemoryRecallStatus(str, Enum):
+    sufficient = "sufficient"
+    insufficient = "insufficient"
+    not_applicable = "not_applicable"
+
+
+class MemoryCapsuleType(str, Enum):
+    hard_fact = "hard_fact"
+    character_state = "character_state"
+    story_line = "story_line"
+    relationship = "relationship"
+    setup_payoff = "setup_payoff"
+    route_constraint = "route_constraint"
+    hook = "hook"
+
+
+class MemoryAuthority(str, Enum):
+    canonical = "canonical"
+    derived = "derived"
+    provisional = "provisional"
+
+
+class MemoryCapsule(BaseModel):
+    """A bounded, source-linked memory selected for one generation task."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    capsule_id: str = Field(min_length=3, max_length=160)
+    memory_type: MemoryCapsuleType
+    summary: str = Field(min_length=1, max_length=1_500)
+    source_episode: int | None = Field(default=None, ge=0, le=2_000)
+    source_scene_numbers: list[int] = Field(default_factory=list, max_length=20)
+    entity_refs: list[str] = Field(default_factory=list, max_length=20)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=20)
+    authority: MemoryAuthority = MemoryAuthority.derived
+    priority: int = Field(default=50, ge=0, le=100)
+    mandatory: bool = False
+    conflict_note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("source_scene_numbers")
+    @classmethod
+    def ensure_unique_memory_scene_numbers(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("Memory capsule scene numbers must be unique.")
+        return values
+
+    @field_validator("entity_refs", "evidence_refs")
+    @classmethod
+    def ensure_unique_memory_refs(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Memory capsule references must be unique.")
+        return values
+
+
+class MemoryRecall(BaseModel):
+    """Task-scoped recall result; it is a prompt input, never a canon write."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = Field(default="memory_recall.v1", pattern=r"^memory_recall\.v\d+$")
+    memory_layer: MemoryLayer = MemoryLayer.provisional
+    task: str = Field(default="episode_generation", min_length=3, max_length=80)
+    through_episode_number: int = Field(default=0, ge=0, le=2_000)
+    status: MemoryRecallStatus = MemoryRecallStatus.not_applicable
+    required_refs: list[str] = Field(default_factory=list, max_length=60)
+    missing_requirements: list[str] = Field(default_factory=list, max_length=30)
+    capsules: list[MemoryCapsule] = Field(default_factory=list, max_length=50)
+    omitted_records: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("required_refs", "missing_requirements", "omitted_records")
+    @classmethod
+    def ensure_unique_recall_values(cls, values: list[str]) -> list[str]:
+        # Recall packets are assembled from multiple projections on the
+        # client. Keep the API boundary tolerant of a duplicate emitted by an
+        # older client while preserving the first occurrence and its order.
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for value in values:
+            normalized = value.strip().casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(value)
+        return deduped
+
+    @model_validator(mode="after")
+    def ensure_recall_status_matches_requirements(self) -> "MemoryRecall":
+        if self.memory_layer != MemoryLayer.provisional:
+            raise ValueError("Memory recall is a provisional working context.")
+        if self.missing_requirements and self.status == MemoryRecallStatus.sufficient:
+            raise ValueError("A recall with missing requirements cannot be sufficient.")
+        if not self.missing_requirements and self.status == MemoryRecallStatus.insufficient:
+            raise ValueError("An insufficient recall must identify missing requirements.")
+        for capsule in self.capsules:
+            if capsule.source_episode is not None and capsule.source_episode > self.through_episode_number:
+                raise ValueError("Memory capsule source episode cannot exceed through_episode_number.")
+        return self
+
+
 class ContinuityQCStatus(str, Enum):
     not_applicable = "not_applicable"
     passed = "passed"
@@ -123,6 +238,9 @@ class ContinuityQCIssueType(str, Enum):
     unavailable_entity_usage = "unavailable_entity_usage"
     unknown_story_line = "unknown_story_line"
     missing_planned_story_line_progress = "missing_planned_story_line_progress"
+    missing_storyline_duty_progress = "missing_storyline_duty_progress"
+    storyline_duty_scene_mismatch = "storyline_duty_scene_mismatch"
+    storyline_duty_unsupported_evidence = "storyline_duty_unsupported_evidence"
     story_line_plan_deviation = "story_line_plan_deviation"
     premature_story_line_resolution = "premature_story_line_resolution"
     missing_hook_response = "missing_hook_response"
@@ -1024,7 +1142,10 @@ class ScriptGenerationDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content_spec_id: str = Field(min_length=3, max_length=120)
+    story_project_id: str | None = Field(default=None, min_length=3, max_length=120)
+    agent_request_id: str | None = Field(default=None, min_length=3, max_length=240)
     generation_strategy_id: str = Field(min_length=3, max_length=120)
+    release_region: ScriptReleaseRegion = ScriptReleaseRegion.cn_mainland
     output_language: str = Field(min_length=2, max_length=20)
     desired_scene_count: int = Field(
         default=3,
@@ -1060,6 +1181,30 @@ class ScriptGenerationDraftRequest(BaseModel):
             return value
         return min(EPISODE_SCENE_MAX, max(EPISODE_SCENE_MIN, round(value)))
 
+    @model_validator(mode="after")
+    def align_release_region_and_dialogue_language(self) -> "ScriptGenerationDraftRequest":
+        language = self.output_language.strip().casefold().replace("_", "-")
+        if language.startswith("zh"):
+            language_region = ScriptReleaseRegion.cn_mainland
+        elif language.startswith("en"):
+            language_region = ScriptReleaseRegion.overseas
+        else:
+            raise ValueError(
+                "output_language must be Chinese for cn_mainland or English for overseas."
+            )
+
+        # Requests saved before release_region existed used output_language as
+        # the route selector. Preserve those checkpoints while making explicit
+        # new requests reject contradictory language contracts.
+        if "release_region" not in self.model_fields_set:
+            self.release_region = language_region
+        elif self.release_region != language_region:
+            raise ValueError(
+                "release_region and output_language conflict: cn_mainland requires Chinese "
+                "names/dialogue; overseas requires English names/dialogue."
+            )
+        return self
+
 
 class GenerationBatchContext(BaseModel):
     """Optional lineage for one bounded stage of a longer serialized project."""
@@ -1083,6 +1228,11 @@ class ApprovedEpisodePlanContext(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_dialogue_plan(cls, value: Any) -> Any:
+        return normalize_episode_dialogue_plan_payload(value)
+
     episode_number: int = Field(ge=1, le=2_000)
     target_duration_seconds: int = Field(
         default=90,
@@ -1100,7 +1250,7 @@ class ApprovedEpisodePlanContext(BaseModel):
         le=EPISODE_SHOT_UNIT_MAX,
     )
     planned_dialogue_line_count: int = Field(
-        default=24,
+        default=30,
         ge=EPISODE_DIALOGUE_LINE_MIN,
         le=EPISODE_DIALOGUE_LINE_MAX,
     )
@@ -1129,6 +1279,7 @@ class ApprovedEpisodePlanContext(BaseModel):
         default_factory=list,
         max_length=EPISODE_SCENE_MAX,
     )
+    layer_contracts: EpisodeThreeLayerContract | None = None
 
     @field_validator("target_duration_seconds", mode="before")
     @classmethod
@@ -1164,6 +1315,7 @@ class ApprovedEpisodePlanContext(BaseModel):
     @model_validator(mode="after")
     def validate_scene_execution_plan(self) -> "ApprovedEpisodePlanContext":
         if not self.scene_execution_plan:
+            self.layer_contracts = compile_episode_three_layer_contract(self)
             return self
         if len(self.scene_execution_plan) != self.planned_scene_count:
             raise ValueError("scene_execution_plan must match planned_scene_count.")
@@ -1186,6 +1338,7 @@ class ApprovedEpisodePlanContext(BaseModel):
             for item in self.scene_execution_plan
         ):
             raise ValueError("Scene character_refs must exist in the episode plan.")
+        self.layer_contracts = compile_episode_three_layer_contract(self)
         return self
 
     @field_validator(
@@ -1259,6 +1412,7 @@ class EpisodeGenerationContext(BaseModel):
     long_range_anchor: str | None = Field(default=None, max_length=2400)
     relevant_character_refs: list[str] = Field(default_factory=list, max_length=20)
     planned_story_line_refs: list[str] = Field(default_factory=list, max_length=20)
+    storyline_duties: list[StorylineDuty] = Field(default_factory=list, max_length=20)
     planned_setup_refs: list[str] = Field(default_factory=list, max_length=30)
     planned_payoff_refs: list[str] = Field(default_factory=list, max_length=30)
     planned_story_beat: str | None = Field(default=None, max_length=1_000)
@@ -1266,9 +1420,13 @@ class EpisodeGenerationContext(BaseModel):
     approved_episode_plan: ApprovedEpisodePlanContext | None = None
     story_bible_context: str | None = Field(default=None, max_length=7000)
     reference_material_context: str | None = Field(default=None, max_length=6000)
+    canonical_character_names: dict[str, str] = Field(default_factory=dict, max_length=100)
+    canonical_character_name_sources: list[str] = Field(default_factory=list, max_length=100)
     project_continuity_summary: str | None = Field(default=None, max_length=7000)
     confirmed_continuity_checkpoint: str | None = Field(default=None, max_length=7000)
     provisional_continuity_checkpoint: str | None = Field(default=None, max_length=7000)
+    memory_recall: MemoryRecall | None = None
+    memory_layer: MemoryLayer = MemoryLayer.provisional
     batch_context: GenerationBatchContext | None = None
 
     @field_validator(
@@ -1276,6 +1434,7 @@ class EpisodeGenerationContext(BaseModel):
         "planned_setup_refs",
         "planned_payoff_refs",
         "relevant_character_refs",
+        "canonical_character_name_sources",
     )
     @classmethod
     def ensure_unique_planning_refs(cls, values: list[str]) -> list[str]:
@@ -1284,8 +1443,21 @@ class EpisodeGenerationContext(BaseModel):
             raise ValueError("Episode planning references must be unique.")
         return values
 
+    @field_validator("storyline_duties")
+    @classmethod
+    def ensure_unique_storyline_duties(
+        cls,
+        values: list[StorylineDuty],
+    ) -> list[StorylineDuty]:
+        refs = [value.story_line_id.casefold() for value in values]
+        if len(set(refs)) != len(refs):
+            raise ValueError("Storyline duties must reference unique story lines.")
+        return values
+
     @model_validator(mode="after")
     def ensure_episode_number_within_series(self) -> "EpisodeGenerationContext":
+        if self.memory_layer != MemoryLayer.provisional:
+            raise ValueError("Episode generation context must remain provisional memory.")
         if self.episode_number > self.total_episodes:
             raise ValueError("episode_number must not exceed total_episodes.")
         if self.episode_number == 1 and (
@@ -1328,8 +1500,10 @@ class ScriptGenerationDraftRun(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content_spec_id: str = Field(min_length=3, max_length=120)
+    story_project_id: str | None = Field(default=None, min_length=3, max_length=120)
     generation_strategy_id: str = Field(min_length=3, max_length=120)
     generation_strategy_version: str = Field(min_length=1, max_length=40)
+    release_region: ScriptReleaseRegion = ScriptReleaseRegion.cn_mainland
     orchestration_plan: OrchestrationPlan
     retrieval_result: RetrievalPlanResult
     prompt_retrieval_result: PromptRetrievalResult
@@ -1370,6 +1544,7 @@ class ScriptDraftModificationRequest(BaseModel):
     source_generation_run: ScriptGenerationDraftRun
     source_draft_master_script: DraftMasterScript
     instruction: str = Field(min_length=3, max_length=500)
+    selection_context: StoryBibleSelectionContext | None = None
 
 
 class ScriptDraftModificationResult(BaseModel):

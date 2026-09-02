@@ -1,4 +1,5 @@
 import json
+import inspect
 import logging
 import queue
 import threading
@@ -6,15 +7,23 @@ import time
 from datetime import datetime, timezone
 from typing import Iterator, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
 from app.dependencies import (
     get_bilingual_script_view_service,
+    get_episode_script_agent,
     get_revision_planner,
     get_script_generation_service,
     get_script_revision_service,
 )
+from app.modules.agent_runtime.episode_roadmap import AgentOutputRejectedError
+from app.modules.agent_runtime.episode_script import EpisodeScriptAgent
+from app.modules.agent_runtime.repository import (
+    AgentRunInProgressError,
+    AgentRunPersistenceConflictError,
+)
+from app.modules.agent_runtime.service import AgentRunPersistenceUnavailableError
 from app.modules.script_engine.bilingual_view import (
     BilingualScriptViewService,
     InvalidBilingualViewOutputError,
@@ -33,6 +42,7 @@ from app.modules.script_engine.generation_service import (
 from app.modules.script_engine.continuity_qc import BlockingContinuityConflictError
 from app.modules.script_engine.llm_adapter import (
     LLMRequestError,
+    LLMRequestCancelledError,
     LLMStructuredOutputError,
     MissingLLMConfigurationError,
 )
@@ -65,6 +75,11 @@ from app.modules.script_engine.service import MissingPromptLibraryItemError
 
 router = APIRouter(prefix="/script-generation", tags=["Script Generation"])
 logger = logging.getLogger(__name__)
+
+# Keep long model calls observable to browsers and reverse proxies without
+# introducing a new JSON event that existing stream consumers would need to
+# understand. SSE comment frames are ignored by EventSource-style parsers.
+SCRIPT_GENERATION_SSE_HEARTBEAT_SECONDS = 15.0
 
 
 def _generation_failure_headers(
@@ -127,6 +142,12 @@ def _public_llm_request_message(error: LLMRequestError) -> str:
 
 def _llm_request_is_retryable(error: LLMRequestError) -> bool:
     provider_status = error.status_code
+    # The adapter must not repeat a long 524 request on the same route. The
+    # browser may, however, make one bounded reconnect with the same stable
+    # Agent request key. That resumes a validated editor checkpoint when one
+    # exists and never expands into an unbounded provider retry loop.
+    if provider_status == 524 or getattr(error, "gateway_deadline", False):
+        return True
     return (
         provider_status in {408, 429}
         or (provider_status is not None and provider_status >= 500)
@@ -148,6 +169,9 @@ def _llm_request_is_retryable(error: LLMRequestError) -> bool:
 def _raise_llm_upstream_unavailable(error: LLMRequestError) -> NoReturn:
     provider_status = error.status_code
     retryable = _llm_request_is_retryable(error)
+    gateway_deadline = (
+        provider_status == 524 or getattr(error, "gateway_deadline", False)
+    )
     raise HTTPException(
         status_code=(
             status.HTTP_429_TOO_MANY_REQUESTS
@@ -158,7 +182,9 @@ def _raise_llm_upstream_unavailable(error: LLMRequestError) -> NoReturn:
         headers=_generation_failure_headers(
             retryable=retryable,
             failure_class=(
-                "transient_upstream"
+                "checkpoint_recoverable"
+                if gateway_deadline
+                else "transient_upstream"
                 if retryable
                 else "auth"
                 if provider_status in {401, 403}
@@ -167,7 +193,11 @@ def _raise_llm_upstream_unavailable(error: LLMRequestError) -> NoReturn:
                 else "input"
             ),
             error_type=(
-                "upstream_unavailable" if retryable else "provider_request_rejected"
+                "provider_gateway_deadline"
+                if gateway_deadline
+                else "upstream_unavailable"
+                if retryable
+                else "provider_request_rejected"
             ),
         ),
     ) from error
@@ -237,10 +267,12 @@ def build_bilingual_script_view(
 )
 def generate_script_draft(
     payload: ScriptGenerationDraftRequest,
-    service: ScriptGenerationService = Depends(get_script_generation_service),
+    response: Response,
+    agent: EpisodeScriptAgent = Depends(get_episode_script_agent),
 ) -> ScriptGenerationDraftResponse:
     try:
-        result = service.generate_draft(payload)
+        agent_result = agent.run(payload)
+        result = agent_result.draft_run
     except (
         MissingContentSpecError,
         MissingGenerationStrategyError,
@@ -258,6 +290,7 @@ def generate_script_draft(
         InvalidDraftMasterScriptOutputError,
         InvalidScriptPostEditError,
         BlockingContinuityConflictError,
+        AgentOutputRejectedError,
         LLMStructuredOutputError,
     ) as exc:
         _raise_script_output_incomplete(exc)
@@ -265,7 +298,45 @@ def generate_script_draft(
         _raise_llm_upstream_unavailable(exc)
     except MissingLLMConfigurationError as exc:
         _raise_llm_configuration_unavailable(exc)
+    except AgentRunInProgressError as exc:
+        same_request = exc.same_request
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if same_request
+                else status.HTTP_409_CONFLICT
+            ),
+            detail=(
+                "当前单集仍在处理中，请稍后继续。"
+                if same_request
+                else "当前集已在另一个页面或任务中生成，无需重复提交。"
+            ),
+            headers={
+                **_generation_failure_headers(
+                    retryable=same_request,
+                    failure_class=("agent_in_progress" if same_request else "business"),
+                    error_type=(
+                        "agent_run_in_progress"
+                        if same_request
+                        else "episode_generation_in_progress"
+                    ),
+                ),
+                "X-Agent-Run-ID": exc.run_id,
+            },
+        ) from exc
+    except AgentRunPersistenceConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="当前生成请求的恢复标识与原始输入不一致，请重新生成当前集。",
+        ) from exc
+    except AgentRunPersistenceUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="生成服务暂时无法保存恢复状态，请稍后重试。",
+        ) from exc
 
+    response.headers["X-Agent-Run-ID"] = agent_result.run.run_id
+    response.headers["X-Agent-Run-Attempt"] = str(agent_result.run.attempt_count)
     return ScriptGenerationDraftResponse(data=result)
 
 
@@ -276,12 +347,13 @@ def generate_script_draft(
 )
 def stream_script_draft(
     payload: ScriptGenerationDraftRequest,
-    service: ScriptGenerationService = Depends(get_script_generation_service),
+    agent: EpisodeScriptAgent = Depends(get_episode_script_agent),
 ) -> StreamingResponse:
     """Stream model deltas and validation stages for one episode draft."""
 
     def event_stream() -> Iterator[str]:
         events: queue.Queue[dict[str, object] | None] = queue.Queue()
+        cancel_event = threading.Event()
         generation_started_at = time.perf_counter()
         last_stage = "queued"
         episode_number = (
@@ -292,6 +364,8 @@ def stream_script_draft(
 
         def publish(event_type: str, event_payload: dict[str, object]) -> None:
             nonlocal last_stage
+            if cancel_event.is_set():
+                return
             if event_type == "stage":
                 stage = event_payload.get("stage")
                 if isinstance(stage, str) and stage.strip():
@@ -305,22 +379,42 @@ def stream_script_draft(
 
         def generate() -> None:
             try:
-                result = service.generate_draft(
-                    payload,
-                    progress_callback=publish,
-                )
+                run_kwargs: dict[str, object] = {"progress_callback": publish}
+                try:
+                    run_parameters = inspect.signature(agent.run).parameters
+                except (TypeError, ValueError):
+                    run_parameters = {}
+                if (
+                    "cancel_event" in run_parameters
+                    or any(
+                        parameter.kind == inspect.Parameter.VAR_KEYWORD
+                        for parameter in run_parameters.values()
+                    )
+                ):
+                    run_kwargs["cancel_event"] = cancel_event
+                result = agent.run(payload, **run_kwargs).draft_run
                 runtime_metadata = result.draft_master_script.llm_metadata
                 logger.info(
                     "Episode generation completed episode=%s elapsed_ms=%s "
-                    "first_delta_ms=%s initial_model_ms=%s passes=%s prompt_chars=%s "
-                    "execution_context_chars=%s",
+                    "first_delta_ms=%s initial_model_ms=%s editor_ms=%s passes=%s "
+                    "editor_required=%s editor_skipped=%s editor_passes=%s "
+                    "editor_scene_counts=%s soft_target_met=%s prompt_chars=%s "
+                    "execution_context_chars=%s context_saved_chars=%s repairs=%s",
                     episode_number,
                     runtime_metadata.get("generation_elapsed_ms"),
                     runtime_metadata.get("first_draft_delta_elapsed_ms"),
                     runtime_metadata.get("initial_model_elapsed_ms"),
+                    runtime_metadata.get("agent_finalization_elapsed_ms"),
                     runtime_metadata.get("model_pass_count"),
+                    runtime_metadata.get("script_editor_required"),
+                    runtime_metadata.get("script_editor_skipped"),
+                    runtime_metadata.get("script_editor_pass_count"),
+                    runtime_metadata.get("script_editor_editable_scene_counts"),
+                    runtime_metadata.get("generation_soft_target_met"),
                     runtime_metadata.get("prompt_characters"),
                     runtime_metadata.get("episode_execution_context_characters"),
+                    runtime_metadata.get("episode_execution_context_saved_characters"),
+                    runtime_metadata.get("model_repair_phases"),
                 )
                 result_payload = result.model_dump(mode="json")
                 # The streamed draft already contains the parsed screenplay. The
@@ -336,6 +430,11 @@ def stream_script_draft(
                     prompt_build["rendered_variables"] = {}
                 result_payload["llm_raw_output"] = {}
                 publish("result", {"data": result_payload})
+            except LLMRequestCancelledError:
+                logger.info(
+                    "Streamed episode generation cancelled by client episode=%s",
+                    episode_number,
+                )
             except Exception as exc:  # The response has already started with HTTP 200.
                 elapsed_ms = round((time.perf_counter() - generation_started_at) * 1000)
                 logger.exception(
@@ -356,8 +455,16 @@ def stream_script_draft(
                         "editing_with_gpt",
                         "validating_gpt_edit",
                     }
+                    gateway_deadline = (
+                        exc.status_code == 524
+                        or getattr(exc, "gateway_deadline", False)
+                    )
                     error_payload.update({
-                        "error_type": "upstream_unavailable",
+                        "error_type": (
+                            "provider_gateway_deadline"
+                            if gateway_deadline
+                            else "upstream_unavailable"
+                        ),
                         "message": (
                             "GPT正文终审服务暂时未完成本集优化，请从当前失败集重试。"
                             if in_gpt_edit
@@ -365,6 +472,43 @@ def stream_script_draft(
                         ),
                         "status": exc.status_code or 503,
                         "recoverable": _llm_request_is_retryable(exc),
+                    })
+                elif isinstance(exc, AgentRunInProgressError):
+                    same_request = exc.same_request
+                    error_payload.update({
+                        "error_type": (
+                            "agent_run_in_progress"
+                            if same_request
+                            else "episode_generation_in_progress"
+                        ),
+                        "message": (
+                            "当前集仍在处理中，请稍后继续。"
+                            if same_request
+                            else "当前集已在另一个页面或任务中生成，无需重复提交。"
+                        ),
+                        "status": 503 if same_request else 409,
+                        "recoverable": same_request,
+                    })
+                elif isinstance(exc, AgentRunPersistenceConflictError):
+                    error_payload.update({
+                        "error_type": "agent_request_conflict",
+                        "message": "当前生成请求与原始输入不一致，请重新生成当前集。",
+                        "status": 409,
+                        "recoverable": False,
+                    })
+                elif isinstance(exc, AgentRunPersistenceUnavailableError):
+                    error_payload.update({
+                        "error_type": "persistence_unavailable",
+                        "message": "生成服务暂时无法保存恢复状态，请稍后重试。",
+                        "status": 503,
+                        "recoverable": False,
+                    })
+                elif isinstance(exc, AgentOutputRejectedError):
+                    error_payload.update({
+                        "error_type": "output_incomplete",
+                        "message": "本集正文未通过完整性检查，请重试当前集。",
+                        "status": 422,
+                        "recoverable": False,
                     })
                 elif isinstance(exc, InvalidScriptPostEditError):
                     error_payload.update({
@@ -416,17 +560,37 @@ def stream_script_draft(
                 events.put(None)
 
         threading.Thread(target=generate, daemon=True).start()
-        yield ": connected\n\n"
-        sequence = 0
-        while True:
-            event = events.get()
-            if event is None:
-                break
-            sequence += 1
-            yield (
-                f"id: {sequence}\n"
-                f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
-            )
+        try:
+            yield ": connected\n\n"
+            sequence = 0
+            while True:
+                try:
+                    event = events.get(timeout=SCRIPT_GENERATION_SSE_HEARTBEAT_SECONDS)
+                except queue.Empty:
+                    elapsed_ms = round((time.perf_counter() - generation_started_at) * 1000)
+                    heartbeat = json.dumps(
+                        {
+                            "stage": last_stage,
+                            "elapsed_ms": elapsed_ms,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    # A comment is valid SSE, flushes through common proxies, and
+                    # is intentionally invisible to the existing data-frame parser.
+                    yield f": heartbeat {heartbeat}\n\n"
+                    continue
+                if event is None:
+                    break
+                sequence += 1
+                yield (
+                    f"id: {sequence}\n"
+                    f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
+                )
+        finally:
+            # Closing the browser's fetch closes this generator. Propagate that
+            # disconnect to the existing cancellable model-stream adapters.
+            cancel_event.set()
 
     return StreamingResponse(
         event_stream(),

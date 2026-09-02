@@ -8,10 +8,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.routes.assets import router as asset_router
+from app.api.routes.agent_runs import router as agent_run_router
 from app.api.routes.benchmarks import router as benchmark_router
 from app.api.routes.content_specs import router as content_spec_router
 from app.api.routes.data_intelligence import router as data_intelligence_router
 from app.api.routes.generation_strategies import router as generation_strategy_router
+from app.api.routes.input_readiness import router as input_readiness_router
 from app.api.routes.master_scripts import router as master_script_router
 from app.api.routes.story_projects import router as story_project_router
 from app.api.routes.ontology_nodes import router as ontology_node_router
@@ -74,13 +76,17 @@ def create_app() -> FastAPI:
             "X-Generation-Retryable",
             "X-Generation-Failure-Class",
             "X-Generation-Error-Type",
+            "X-Agent-Run-ID",
+            "X-Agent-Run-Attempt",
         ],
     )
     app.include_router(asset_router)
+    app.include_router(agent_run_router)
     app.include_router(benchmark_router)
     app.include_router(content_spec_router)
     app.include_router(data_intelligence_router)
     app.include_router(generation_strategy_router)
+    app.include_router(input_readiness_router)
     app.include_router(master_script_router)
     app.include_router(story_project_router)
     app.include_router(ontology_node_router)

@@ -6,12 +6,15 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 import unicodedata
+from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
 from app.modules.content_spec.models import ResolvedCreativeContext
+from app.modules.content_spec.market_profile import content_spec_market_contract
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.master_script.models import (
     CharacterProfile,
@@ -21,6 +24,7 @@ from app.modules.master_script.models import (
     LLMContinuityRepairPatch,
     LLMGeneratedDraftMasterScript,
     LLMMainlandBodyRepairPatch,
+    LLMTargetedScriptTextPatch,
     ScriptTone,
 )
 from app.modules.orchestrator.models import OrchestrationPlanCreate
@@ -33,9 +37,11 @@ from app.modules.retrieval.models import RetrievalPlanResult, RetrievalResolveRe
 from app.modules.retrieval.service import RetrievalService
 from app.modules.script_engine.llm_adapter import (
     LLMAdapter,
+    LLMRequestCancelledError,
     LLMRequestError,
     LLMStructuredOutputError,
     MockLLMAdapter,
+    bind_llm_log_context,
     is_recoverable_llm_request_error,
 )
 from app.modules.script_engine.creative_deepening import (
@@ -47,10 +53,14 @@ from app.script_delivery_contract import (
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    EPISODE_RUNTIME_PREFERRED_MAX_SECONDS,
+    EPISODE_RUNTIME_PREFERRED_MIN_SECONDS,
     EPISODE_SCENE_MAX,
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
+    PARTNER_SCREENPLAY_FORMAT_VERSION,
 )
 from app.modules.script_engine.continuity_qc import (
     BlockingContinuityConflictError,
@@ -73,14 +83,17 @@ from app.modules.script_engine.models import (
     KnowledgeBundle,
     LLMModelInfo,
     PromptBuildContext,
+    PromptBuildResult,
     ScriptRevisionPlanRequest,
     ScriptGenerationDraftRequest,
     ScriptGenerationDraftRun,
+    ScriptReleaseRegion,
     ScriptCreativeDeepeningRequest,
     ScriptDraftModificationRequest,
     ScriptDraftModificationResult,
     ScriptDraftReviewRequest,
     StaticKnowledgeItem,
+    StoryBibleSelectionContext,
 )
 from app.modules.script_engine.prompt_builder import PromptBuilder, TemplatePromptBuilder
 from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
@@ -96,6 +109,7 @@ from app.modules.script_engine.screenplay_duration import (
 )
 from app.modules.script_engine.script_post_editor import (
     InvalidScriptPostEditError,
+    ScriptPostEditCheckpoint,
     ScriptPostEditor,
 )
 from app.modules.script_engine.story_qc import PlaceholderStoryQC, StoryQC
@@ -148,18 +162,63 @@ MAINLAND_DURATION_TARGET_MAX_SECONDS = EPISODE_RUNTIME_MAX_SECONDS
 # Browser-level automatic retry remains a separate outer safety net.
 INITIAL_DRAFT_GENERATION_MAX_ATTEMPTS = 2
 
-# The persisted strategy predates long-form mainland episodes and its 6K output
-# ceiling can stop a valid screenplay in the middle of a JSON string. Raising a
-# ceiling does not force the model to consume it; it only gives the closing
-# scenes and contract fields enough room to finish.
-EPISODE_DRAFT_MIN_OUTPUT_TOKENS = 16_000
-EPISODE_DRAFT_MAX_OUTPUT_TOKENS = 16_000
+# The persisted strategy predates long-form episodes and its small output
+# ceiling can stop a valid screenplay in the middle of a JSON string. The
+# provider contract allows 32K output tokens; success-first generation uses the
+# full allowance so closing scenes and contract fields have room to finish.
+INITIAL_EPISODE_DRAFT_MIN_OUTPUT_TOKENS = 32_000
+INITIAL_EPISODE_DRAFT_MAX_OUTPUT_TOKENS = 32_000
 
-# Non-creative repair calls should return only the requested patch. Keeping
-# these calls below the full-episode budget prevents a one-field correction
-# from spending time reproducing the entire screenplay.
-REPAIR_PATCH_MAX_OUTPUT_TOKENS = 8_000
-FULL_DRAFT_REPAIR_MIN_OUTPUT_TOKENS = 10_000
+# Keep the historical names as aliases for callers/tests that imported these
+# module constants. They intentionally point only at the initial-draft budget;
+# repair budgets below have their own explicit caps.
+EPISODE_DRAFT_MIN_OUTPUT_TOKENS = INITIAL_EPISODE_DRAFT_MIN_OUTPUT_TOKENS
+EPISODE_DRAFT_MAX_OUTPUT_TOKENS = INITIAL_EPISODE_DRAFT_MAX_OUTPUT_TOKENS
+
+# A repair response can contain every scene in an episode and reasoning output
+# is counted by several compatible gateways toward the same completion limit.
+# Since completion reliability is more important than token cost here, all
+# screenplay repair paths receive the provider's full 32K allowance. The final
+# character total is still measured by the application; this is not a character
+# quota.
+REPAIR_PATCH_MIN_OUTPUT_TOKENS = 32_000
+REPAIR_PATCH_MAX_OUTPUT_TOKENS = 32_000
+EPISODE_PRODUCTION_COUNT_REPAIR_MIN_OUTPUT_TOKENS = 32_000
+EPISODE_PRODUCTION_COUNT_REPAIR_MAX_OUTPUT_TOKENS = 32_000
+FULL_DRAFT_REPAIR_MIN_OUTPUT_TOKENS = 32_000
+FULL_DRAFT_REPAIR_MAX_OUTPUT_TOKENS = 32_000
+
+# A selected-text revision returns at most one replacement fragment. Keeping a
+# dedicated completion ceiling avoids asking the gateway to reserve a complete
+# 32K episode response while leaving ample room for high-effort reasoning.
+TARGETED_MODIFICATION_OUTPUT_TOKENS = 16_000
+
+TARGETED_MODIFICATION_ROOT_FIELDS = {
+    "hook",
+    "synopsis",
+    "next_episode_question",
+}
+TARGETED_MODIFICATION_SCENE_FIELDS = {
+    "slug",
+    "purpose",
+    "setting_hint",
+    "beat_summary",
+}
+TARGETED_MODIFICATION_CAUSALITY_FIELDS = {
+    "goal",
+    "conflict",
+    "outcome",
+    "causal_link",
+}
+
+# A continuity patch can legitimately fix one conflict while exposing another
+# related evidence mismatch. Allow one bounded follow-up against the fresh QC
+# report, while keeping the final blocking check strict.
+CONTINUITY_REPAIR_MAX_ATTEMPTS = 2
+
+# This is an observability target, not a destructive deadline. Required repairs
+# are still allowed to finish; validated first drafts avoid optional model work.
+SCRIPT_GENERATION_SOFT_TARGET_MS = 300_000
 
 DRAFT_RESPONSE_ENVELOPE_KEYS = (
     "draft_master_script",
@@ -186,6 +245,8 @@ class ScriptGenerationService:
         prompt_builder: PromptBuilder | None = None,
         llm_adapter: LLMAdapter | None = None,
         repair_llm_adapter: LLMAdapter | None = None,
+        json_repair_llm_adapter: LLMAdapter | None = None,
+        production_count_llm_adapter: LLMAdapter | None = None,
         initial_fallback_llm_adapter: LLMAdapter | None = None,
         contract_fallback_llm_adapter: LLMAdapter | None = None,
         continuity_llm_adapter: LLMAdapter | None = None,
@@ -206,6 +267,13 @@ class ScriptGenerationService:
         self._prompt_builder = prompt_builder or TemplatePromptBuilder(builder_version="v0.3")
         self._llm_adapter = llm_adapter or MockLLMAdapter()
         self._repair_llm_adapter = repair_llm_adapter or self._llm_adapter
+        self._json_repair_llm_adapter = (
+            json_repair_llm_adapter or self._repair_llm_adapter
+        )
+        # Count normalization is a constrained editorial task. Keep it on a
+        # separate route so high-reasoning screenplay repair cannot exhaust
+        # its output budget before returning the small JSON patch.
+        self._production_count_llm_adapter = production_count_llm_adapter
         self._initial_fallback_llm_adapter = (
             initial_fallback_llm_adapter or self._repair_llm_adapter
         )
@@ -244,15 +312,58 @@ class ScriptGenerationService:
     ) -> ScriptGenerationDraftRun:
         """Generate one draft while containing provider JSON failures at this boundary."""
 
+        return self._generate_draft_with_failure_boundary(
+            payload,
+            progress_callback=progress_callback,
+            defer_agent_finalization=False,
+        )
+
+    def generate_pre_edit_draft(
+        self,
+        payload: ScriptGenerationDraftRequest,
+        *,
+        progress_callback: Callable[[str, dict[str, object]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> ScriptGenerationDraftRun:
+        """Generate a validated DeepSeek checkpoint before GPT final editing."""
+
+        return self._generate_draft_with_failure_boundary(
+            payload,
+            progress_callback=progress_callback,
+            defer_agent_finalization=True,
+            cancel_event=cancel_event,
+        )
+
+    def _generate_draft_with_failure_boundary(
+        self,
+        payload: ScriptGenerationDraftRequest,
+        *,
+        progress_callback: Callable[[str, dict[str, object]], None] | None,
+        defer_agent_finalization: bool,
+        cancel_event: threading.Event | None = None,
+    ) -> ScriptGenerationDraftRun:
         try:
             return self._generate_draft(
                 payload,
                 progress_callback=progress_callback,
+                defer_agent_finalization=defer_agent_finalization,
+                cancel_event=cancel_event,
             )
-        except InvalidDraftMasterScriptOutputError:
+        except InvalidDraftMasterScriptOutputError as error:
+            # A provider can return an HTTP-successful but empty/truncated
+            # repair response. Preserve deterministic contract failures as
+            # hard errors, but let the outer current-episode retry handle a
+            # transport-shaped failure instead of launching another full-root
+            # repair request.
+            if self._exception_chain_has_transient_llm_failure(error):
+                raise LLMRequestError(
+                    "正文模型的结构修复响应为空或被截断；可从当前集重新尝试。",
+                    category="empty_response",
+                    recoverable=True,
+                ) from error
             raise
         except LLMStructuredOutputError as error:
-            if getattr(error, "empty_response_retry_attempted", False):
+            if self._structured_output_error_is_transient(error):
                 # An HTTP-successful but textless Responses envelope is a
                 # provider protocol failure, not an invalid screenplay. Keep
                 # it out of the artifact repair loop so callers can retry the
@@ -270,16 +381,36 @@ class ScriptGenerationService:
                 "正文模型未返回可验证的完整结构化初稿。诊断："
                 + diagnostic
             ) from error
+        except ValidationError as error:
+            # The provider-facing contract is validated before internal draft
+            # assembly. A bare Pydantic error here therefore identifies a
+            # local contract mismatch, not an opaque server failure.
+            paths = self._validation_error_paths(error)
+            logger.warning(
+                "Validated episode draft failed internal assembly paths=%s",
+                paths,
+            )
+            raise InvalidDraftMasterScriptOutputError(
+                "正文已生成，但内部装配合同未通过。Invalid fields: "
+                + ", ".join(paths)
+            ) from error
 
     def _generate_draft(
         self,
         payload: ScriptGenerationDraftRequest,
         *,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
+        defer_agent_finalization: bool = False,
+        cancel_event: threading.Event | None = None,
     ) -> ScriptGenerationDraftRun:
         generation_started_at = time.perf_counter()
         model_pass_count = 0
         script_editor_pass_count = 0
+        script_editor_deferred = False
+        script_editor_skipped = False
+        script_editor_gate_passed: bool | None = None
+        script_editor_gate_issues: list[str] = []
+        dialogue_pair_repair_count = 0
         model_repair_phases: list[str] = []
         first_draft_delta_elapsed_ms: int | None = None
         initial_model_elapsed_ms = 0
@@ -297,6 +428,26 @@ class ScriptGenerationService:
                 "Resolved creative context content_spec_id does not match the requested "
                 "ContentSpec."
             )
+
+        if isinstance(content_spec.metadata, dict) and "market_profile" in content_spec.metadata:
+            market_contract = content_spec_market_contract(content_spec)
+            language = payload.output_language.strip().casefold().replace("_", "-")
+            if not language.startswith(market_contract.output_language):
+                raise ValueError(
+                    "ContentSpec market path and output_language conflict: "
+                    f"{market_contract.profile} requires delivery output language "
+                    f"{market_contract.output_language}."
+                )
+            expected_region = (
+                ScriptReleaseRegion.cn_mainland
+                if market_contract.is_mainland
+                else ScriptReleaseRegion.overseas
+            )
+            if payload.release_region != expected_region:
+                raise ValueError(
+                    "ContentSpec market path and release_region conflict: "
+                    f"{market_contract.profile} requires {expected_region.value}."
+                )
 
         generation_strategy = self._generation_strategy_repository.get(
             payload.generation_strategy_id
@@ -390,9 +541,21 @@ class ScriptGenerationService:
         )
         draft_output = self._generate_initial_draft_output(
             prompt=prompt_build_result.prompt_text,
+            compact_recovery_prompt=(
+                self._build_compact_episode_recovery_prompt(
+                    content_spec=content_spec,
+                    payload=payload,
+                    target_duration_seconds=effective_target_duration_seconds,
+                )
+                if payload.episode_context is not None
+                else None
+            ),
             strategy=llm_generation_strategy,
             progress_callback=track_initial_progress,
+            cancel_event=cancel_event,
         )
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRequestCancelledError()
         initial_model_elapsed_ms = round(
             (time.perf_counter() - initial_model_started_at) * 1000
         )
@@ -426,6 +589,11 @@ class ScriptGenerationService:
             model_repair_phases.append("generation_fallback")
         if (
             isinstance(initial_metadata, dict)
+            and initial_metadata.get("initial_generation_compact_recovery_used") is True
+        ):
+            model_repair_phases.append("compact_generation_recovery")
+        if (
+            isinstance(initial_metadata, dict)
             and initial_metadata.get("json_format_repaired") is True
         ):
             model_repair_phases.append("json_format")
@@ -456,6 +624,8 @@ class ScriptGenerationService:
                         else 1
                     )
                     model_repair_phases.append("structure")
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
         requires_mainland_acceptance = self._requires_mainland_screenplay_style(
             output_language=payload.output_language,
             platform_profile_id=content_spec.platform_goal.platform_profile_id,
@@ -474,6 +644,7 @@ class ScriptGenerationService:
                     target_duration_seconds=effective_target_duration_seconds,
                     progress_callback=progress_callback,
                 ),
+                cancel_event=cancel_event,
             )
             added_model_passes = (
                 self._acceptance_model_pass_count(draft_output)
@@ -494,6 +665,7 @@ class ScriptGenerationService:
                         strategy=generation_strategy,
                         progress_callback=progress_callback,
                     ),
+                    cancel_event=cancel_event,
                 )
                 if draft_output is not previous_output:
                     model_pass_count += 1
@@ -504,16 +676,18 @@ class ScriptGenerationService:
                     output=draft_output,
                     phase="body_length",
                     operation=lambda checkpoint: self._ensure_script_body_length(
-                        original_prompt=prompt_build_result.prompt_text,
                         output=checkpoint,
                         strategy=generation_strategy,
                         target_characters=payload.target_script_body_characters,
                         progress_callback=progress_callback,
                     ),
+                    cancel_event=cancel_event,
                 )
                 if draft_output is not previous_output:
                     model_pass_count += 1
                     model_repair_phases.append("length")
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRequestCancelledError()
         self._emit_progress(progress_callback, "stage", stage="assembling")
         draft_master_script = self._build_draft_master_script(
             content_spec=content_spec,
@@ -533,23 +707,35 @@ class ScriptGenerationService:
             draft_master_script,
             payload.episode_context,
         )
-        if (
+        continuity_repair_attempt = 0
+        while (
             continuity_qc_report.blocking_issue_count
             and not self._is_mock_output(draft_output)
+            and continuity_repair_attempt < CONTINUITY_REPAIR_MAX_ATTEMPTS
         ):
+            continuity_repair_attempt += 1
+            repair_phase = (
+                "continuity"
+                if continuity_repair_attempt == 1
+                else "continuity_retry"
+            )
             draft_output = self._run_valid_draft_postprocess_stage(
                 output=draft_output,
-                phase="continuity",
-                operation=lambda checkpoint: self._repair_blocking_continuity(
-                    original_prompt=prompt_build_result.prompt_text,
-                    output=checkpoint,
-                    report=continuity_qc_report,
-                    strategy=generation_strategy,
-                    progress_callback=progress_callback,
+                phase=repair_phase,
+                operation=lambda checkpoint, attempt=continuity_repair_attempt: (
+                    self._repair_blocking_continuity(
+                        original_prompt=prompt_build_result.prompt_text,
+                        output=checkpoint,
+                        report=continuity_qc_report,
+                        strategy=generation_strategy,
+                        repair_attempt=attempt,
+                        progress_callback=progress_callback,
+                    )
                 ),
+                cancel_event=cancel_event,
             )
             model_pass_count += 1
-            model_repair_phases.append("continuity")
+            model_repair_phases.append(repair_phase)
             previous_output = draft_output
             draft_output = self._ensure_valid_draft_contract(
                 output=draft_output,
@@ -561,9 +747,7 @@ class ScriptGenerationService:
                 normalization_metadata = draft_output.get("_meta")
                 contract_repaired = (
                     isinstance(normalization_metadata, dict)
-                    and normalization_metadata.get(
-                        "draft_contract_repaired"
-                    ) is True
+                    and normalization_metadata.get("draft_contract_repaired") is True
                 )
                 if contract_repaired:
                     recorded_contract_passes = normalization_metadata.get(
@@ -576,6 +760,8 @@ class ScriptGenerationService:
                         else 1
                     )
                     model_repair_phases.append("post_continuity_structure")
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
             if requires_mainland_acceptance:
                 previous_model_passes = self._acceptance_model_pass_count(draft_output)
                 draft_output = self._run_valid_draft_postprocess_stage(
@@ -589,6 +775,7 @@ class ScriptGenerationService:
                         target_duration_seconds=effective_target_duration_seconds,
                         progress_callback=progress_callback,
                     ),
+                    cancel_event=cancel_event,
                 )
                 added_model_passes = (
                     self._acceptance_model_pass_count(draft_output)
@@ -615,6 +802,8 @@ class ScriptGenerationService:
                 draft_master_script,
                 payload.episode_context,
             )
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
         if continuity_qc_report.blocking_issue_count:
             raise BlockingContinuityConflictError(continuity_qc_report)
 
@@ -623,8 +812,12 @@ class ScriptGenerationService:
             draft_output = self._ensure_episode_production_counts(
                 output=draft_output,
                 strategy=generation_strategy,
+                release_region=payload.release_region,
+                target_duration_seconds=effective_target_duration_seconds,
                 progress_callback=progress_callback,
             )
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
             added_count_passes = (
                 self._episode_count_model_pass_count(draft_output)
                 - previous_count_passes
@@ -654,7 +847,13 @@ class ScriptGenerationService:
                     "正文台词与镜头数量修订改变了本集必须保留的连续性证据。"
                 )
 
-        if self._script_editor_enabled and not self._is_mock_output(draft_output):
+        if (
+            not defer_agent_finalization
+            and self._script_editor_enabled
+            and not self._is_mock_output(draft_output)
+        ):
+            pre_editor_draft_master_script = draft_master_script
+            pre_editor_continuity_qc_report = continuity_qc_report
             self._emit_progress(
                 progress_callback,
                 "stage",
@@ -663,32 +862,119 @@ class ScriptGenerationService:
                     estimate_screenplay_duration(draft_master_script).total_seconds  # type: ignore[arg-type]
                 ),
             )
-            editor_result = self._script_post_editor.edit(
-                draft_master_script,
-                strategy=generation_strategy,
-                target_duration_seconds=effective_target_duration_seconds,
-                progress_callback=progress_callback,
-            )
-            draft_master_script = editor_result.draft
-            script_editor_pass_count = editor_result.attempt_count
-            model_pass_count += script_editor_pass_count
-            self._emit_progress(
-                progress_callback,
-                "stage",
-                stage="validating_gpt_edit",
-                estimated_duration_seconds=editor_result.duration.total_seconds,
-            )
-            continuity_qc_report = evaluate_episode_continuity(
-                draft_master_script,
-                payload.episode_context,
-            )
-            if continuity_qc_report.blocking_issue_count:
-                raise InvalidScriptPostEditError(
-                    "GPT正文终审改变了本集必须保留的可见连续性证据。"
+            editor_kwargs = {}
+            canonical_names: dict[str, str] = {}
+            if payload.episode_context and payload.episode_context.canonical_character_names:
+                canonical_names = dict(
+                    payload.episode_context.canonical_character_names
                 )
+                editor_kwargs["canonical_character_names"] = canonical_names
+            editor_assessment = self._script_post_editor.assess_source(
+                draft_master_script,
+                overseas_release=(
+                    payload.release_region == ScriptReleaseRegion.overseas
+                ),
+                canonical_character_names=canonical_names,
+                require_overseas_narrative_language=(
+                    payload.release_region == ScriptReleaseRegion.overseas
+                ),
+            )
+            script_editor_gate_issues = list(editor_assessment.issues)
+            script_editor_gate_passed = not editor_assessment.requires_edit
+            if script_editor_gate_passed:
+                draft_master_script = self._script_post_editor.accept_without_edit(
+                    draft_master_script,
+                    assessment=editor_assessment,
+                )
+                script_editor_skipped = True
+                self._emit_progress(
+                    progress_callback,
+                    "stage",
+                    stage="gpt_edit_not_needed",
+                    estimated_duration_seconds=(
+                        editor_assessment.duration.total_seconds
+                    ),
+                )
+            else:
+                editor_result = self._script_post_editor.edit(
+                    draft_master_script,
+                    # The editor receives a complete episode patch. Keep the
+                    # same success-first output allowance as other screenplay
+                    # recovery calls; the editor may narrow the editable scene
+                    # set, but must not inherit a legacy 3K/4K strategy ceiling.
+                    strategy=self._with_full_draft_repair_output_budget(
+                        generation_strategy
+                    ),
+                    target_duration_seconds=effective_target_duration_seconds,
+                    overseas_release=(
+                        payload.release_region == ScriptReleaseRegion.overseas
+                    ),
+                    **editor_kwargs,
+                    require_overseas_narrative_language=(
+                        payload.release_region == ScriptReleaseRegion.overseas
+                    ),
+                    progress_callback=progress_callback,
+                )
+                draft_master_script = editor_result.draft
+                script_editor_pass_count = editor_result.attempt_count
+                script_editor_deferred = bool(
+                    draft_master_script.llm_metadata.get("script_editor_deferred")
+                )
+                model_pass_count += script_editor_pass_count
+                self._emit_progress(
+                    progress_callback,
+                    "stage",
+                    stage="validating_gpt_edit",
+                    estimated_duration_seconds=editor_result.duration.total_seconds,
+                )
+                continuity_qc_report = evaluate_episode_continuity(
+                    draft_master_script,
+                    payload.episode_context,
+                )
+                if continuity_qc_report.blocking_issue_count:
+                    # The pre-edit draft is the last validated artifact. Even
+                    # when it already carries a continuity warning, never let
+                    # an optional editorial pass turn that recoverable state
+                    # into a hard generation failure. Keep the source and
+                    # record the regression for a later targeted edit.
+                    draft_master_script = self._defer_script_editor_candidate(
+                        source=pre_editor_draft_master_script,
+                        reason="continuity_regression",
+                    )
+                    script_editor_deferred = True
+                    continuity_qc_report = pre_editor_continuity_qc_report
+                    self._emit_progress(
+                        progress_callback,
+                        "stage",
+                        stage="gpt_edit_deferred",
+                        reason="continuity_regression",
+                        estimated_duration_seconds=(
+                            estimate_screenplay_duration(draft_master_script).total_seconds  # type: ignore[arg-type]
+                        ),
+                    )
+        if (
+            not defer_agent_finalization
+            and self._script_editor_enabled
+            and payload.release_region == ScriptReleaseRegion.overseas
+            and not self._is_mock_output(draft_output)
+        ):
+            draft_master_script, dialogue_pair_repair_count = (
+                self._script_post_editor.ensure_overseas_dialogue_pairs(
+                    draft_master_script,
+                    strategy=self._with_full_draft_repair_output_budget(
+                        generation_strategy
+                    ),
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event,
+                )
+            )
+            if dialogue_pair_repair_count:
+                model_pass_count += dialogue_pair_repair_count
+                model_repair_phases.append("overseas_dialogue_pairs")
         creative_deepening_run = None
         if (
-            self._creative_deepening_enabled
+            not defer_agent_finalization
+            and self._creative_deepening_enabled
             and generation_strategy.deepening_mode == CreativeDeepeningMode.shadow
         ):
             deepening_bundle = None
@@ -776,15 +1062,34 @@ class ScriptGenerationService:
         episode_execution_context = prompt_build_result.rendered_variables.get(
             "episode_context_json"
         )
+        source_episode_context_characters = (
+            len(json.dumps(
+                payload.episode_context.model_dump(mode="json", exclude_none=True),
+                ensure_ascii=True,
+            ))
+            if payload.episode_context is not None
+            else 0
+        )
+        compiled_episode_context_characters = (
+            len(episode_execution_context)
+            if isinstance(episode_execution_context, str)
+            else 0
+        )
         runtime_metadata = {
             "generation_elapsed_ms": generation_elapsed_ms,
             "initial_model_elapsed_ms": initial_model_elapsed_ms,
             "first_draft_delta_elapsed_ms": first_draft_delta_elapsed_ms,
             "prompt_characters": len(prompt_build_result.prompt_text),
             "episode_execution_context_characters": (
-                len(episode_execution_context)
-                if isinstance(episode_execution_context, str)
-                else 0
+                compiled_episode_context_characters
+            ),
+            "episode_execution_context_source_characters": (
+                source_episode_context_characters
+            ),
+            "episode_execution_context_saved_characters": max(
+                0,
+                source_episode_context_characters
+                - compiled_episode_context_characters,
             ),
             "approved_story_node_applied": bool(
                 payload.episode_context
@@ -796,9 +1101,41 @@ class ScriptGenerationService:
             ),
             "model_pass_count": model_pass_count,
             "script_editor_enabled": self._script_editor_enabled,
+            "script_editor_policy": "quality_gated_v1",
+            "script_editor_required": (
+                not script_editor_gate_passed
+                if script_editor_gate_passed is not None
+                else None
+            ),
+            "script_editor_gate_passed": script_editor_gate_passed,
+            "script_editor_gate_issues": script_editor_gate_issues,
+            "script_editor_skipped": script_editor_skipped,
             "script_editor_pass_count": script_editor_pass_count,
+            "overseas_dialogue_pair_repair_count": dialogue_pair_repair_count,
+            "script_editor_deferred": (
+                script_editor_deferred
+                or (
+                    defer_agent_finalization
+                    and self._script_editor_enabled
+                    and not self._is_mock_output(draft_output)
+                )
+            ),
             "model_repair_phases": model_repair_phases,
-            "first_pass_accepted": not model_repair_phases,
+            # Keep the initial-model result separate from the stricter
+            # end-to-end first-pass signal. A draft that needed JSON/length
+            # repair or an editor retry is not a first-pass success, even if
+            # the final artifact is ultimately usable.
+            "first_model_pass_accepted": not model_repair_phases,
+            "first_pass_accepted": (
+                not model_repair_phases
+                and script_editor_pass_count == 0
+                and not script_editor_deferred
+                and not defer_agent_finalization
+            ),
+            "generation_soft_target_ms": SCRIPT_GENERATION_SOFT_TARGET_MS,
+            "generation_soft_target_met": (
+                generation_elapsed_ms <= SCRIPT_GENERATION_SOFT_TARGET_MS
+            ),
         }
         raw_metadata = draft_output.setdefault("_meta", {})
         if isinstance(raw_metadata, dict):
@@ -813,6 +1150,7 @@ class ScriptGenerationService:
         )
         result = ScriptGenerationDraftRun(
             content_spec_id=content_spec.id,
+            story_project_id=payload.story_project_id,
             generation_strategy_id=generation_strategy.id,
             generation_strategy_version=generation_strategy.version,
             orchestration_plan=orchestration_plan,
@@ -824,6 +1162,7 @@ class ScriptGenerationService:
             llm_raw_output=draft_output,
             resolved_creative_context=payload.resolved_creative_context,
             episode_context=payload.episode_context,
+            release_region=payload.release_region,
             knowledge_bundle=knowledge_bundle,
             knowledge_selection_trace=knowledge_selection_trace,
             creative_deepening_run=creative_deepening_run,
@@ -832,14 +1171,336 @@ class ScriptGenerationService:
             story_qc_report=story_qc_report,
             revision_plan=revision_plan,
         )
+        if not defer_agent_finalization:
+            self._emit_progress(
+                progress_callback,
+                "stage",
+                stage="completed",
+                generation_elapsed_ms=generation_elapsed_ms,
+                model_pass_count=model_pass_count,
+            )
+        return result
+
+    def finalize_pre_edit_draft(
+        self,
+        source_run: ScriptGenerationDraftRun,
+        *,
+        progress_callback: Callable[[str, dict[str, object]], None] | None = None,
+        script_editor_checkpoint: ScriptPostEditCheckpoint | None = None,
+        script_editor_checkpoint_callback: (
+            Callable[[ScriptPostEditCheckpoint], None] | None
+        ) = None,
+        cancel_event: threading.Event | None = None,
+    ) -> ScriptGenerationDraftRun:
+        """Resume from a validated pre-edit checkpoint and finish the episode."""
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRequestCancelledError()
+
+        finalization_started_at = time.perf_counter()
+        source_draft = source_run.draft_master_script
+        generation_strategy = self._validate_source_run(source_run, source_draft)
+        draft_master_script = source_draft
+        script_editor_pass_count = 0
+        script_editor_deferred = False
+        script_editor_skipped = False
+        script_editor_gate_passed: bool | None = None
+        script_editor_gate_issues: list[str] = []
+        dialogue_pair_repair_count = 0
+        source_is_mock = source_run.llm_model_info.provider.strip().casefold() == "mock"
+
+        if self._script_editor_enabled and not source_is_mock:
+            pre_editor_continuity_report = evaluate_episode_continuity(
+                source_draft,
+                source_run.episode_context,
+            )
+            if pre_editor_continuity_report.blocking_issue_count:
+                raise BlockingContinuityConflictError(pre_editor_continuity_report)
+            editor_kwargs = {}
+            canonical_names: dict[str, str] = {}
+            if source_run.episode_context and source_run.episode_context.canonical_character_names:
+                canonical_names = dict(
+                    source_run.episode_context.canonical_character_names
+                )
+                editor_kwargs["canonical_character_names"] = canonical_names
+            editor_assessment = self._script_post_editor.assess_source(
+                source_draft,
+                overseas_release=(
+                    source_run.release_region == ScriptReleaseRegion.overseas
+                ),
+                canonical_character_names=canonical_names,
+                require_overseas_narrative_language=(
+                    source_run.release_region == ScriptReleaseRegion.overseas
+                ),
+            )
+            script_editor_gate_issues = list(editor_assessment.issues)
+            script_editor_gate_passed = not editor_assessment.requires_edit
+            self._emit_progress(
+                progress_callback,
+                "stage",
+                stage="checking_gpt_edit",
+                estimated_duration_seconds=editor_assessment.duration.total_seconds,
+                editor_required=editor_assessment.requires_edit,
+            )
+            if script_editor_gate_passed:
+                draft_master_script = self._script_post_editor.accept_without_edit(
+                    source_draft,
+                    assessment=editor_assessment,
+                )
+                script_editor_skipped = True
+                self._emit_progress(
+                    progress_callback,
+                    "stage",
+                    stage="gpt_edit_not_needed",
+                    estimated_duration_seconds=(
+                        editor_assessment.duration.total_seconds
+                    ),
+                )
+            else:
+                if script_editor_checkpoint is not None:
+                    checkpoint_continuity = evaluate_episode_continuity(
+                        script_editor_checkpoint.working_draft,
+                        source_run.episode_context,
+                    )
+                    checkpoint_issues = ScriptPostEditor._acceptance_issues(  # noqa: SLF001
+                        source=source_draft,
+                        candidate=script_editor_checkpoint.working_draft,
+                        duration=estimate_screenplay_duration(
+                            script_editor_checkpoint.working_draft  # type: ignore[arg-type]
+                        ),
+                        overseas_release=(
+                            source_run.release_region == ScriptReleaseRegion.overseas
+                        ),
+                        canonical_character_names=canonical_names,
+                        require_overseas_narrative_language=(
+                            source_run.release_region == ScriptReleaseRegion.overseas
+                        ),
+                    )
+                    unsafe_issue_markers = (
+                        "受保护",
+                        "严格沿用资料明确",
+                        "场景共",
+                        "台词共",
+                        "镜头执行单元共",
+                    )
+                    if (
+                        checkpoint_continuity.blocking_issue_count
+                        or any(
+                            marker in issue
+                            for issue in checkpoint_issues
+                            for marker in unsafe_issue_markers
+                        )
+                    ):
+                        script_editor_checkpoint = None
+
+                def save_editor_checkpoint(checkpoint: ScriptPostEditCheckpoint) -> None:
+                    if script_editor_checkpoint_callback is None:
+                        return
+                    continuity = evaluate_episode_continuity(
+                        checkpoint.working_draft,
+                        source_run.episode_context,
+                    )
+                    if continuity.blocking_issue_count == 0:
+                        script_editor_checkpoint_callback(checkpoint)
+
+                def run_editor(
+                    checkpoint: ScriptPostEditCheckpoint | None,
+                ) -> object:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise LLMRequestCancelledError()
+                    editor_call_kwargs = {
+                        "strategy": self._with_full_draft_repair_output_budget(
+                            generation_strategy
+                        ),
+                        "target_duration_seconds": draft_master_script.target_duration_seconds,
+                        "overseas_release": (
+                            source_run.release_region == ScriptReleaseRegion.overseas
+                        ),
+                        **editor_kwargs,
+                        "require_overseas_narrative_language": (
+                            source_run.release_region == ScriptReleaseRegion.overseas
+                        ),
+                        "progress_callback": progress_callback,
+                        "resume_checkpoint": checkpoint,
+                        "checkpoint_callback": save_editor_checkpoint,
+                    }
+                    if cancel_event is not None:
+                        editor_call_kwargs["cancel_event"] = cancel_event
+                    return self._script_post_editor.edit(
+                        draft_master_script,
+                        **editor_call_kwargs,
+                    )
+
+                try:
+                    editor_result = run_editor(script_editor_checkpoint)
+                except InvalidScriptPostEditError:
+                    if script_editor_checkpoint is None:
+                        raise
+                    # A stale editor checkpoint must not invalidate the
+                    # validated pre-edit source. Discard only that checkpoint
+                    # and retry the bounded quality pass from the source.
+                    logger.warning(
+                        "Discarding stale screenplay editor checkpoint and "
+                        "retrying from validated pre-edit draft run=%s",
+                        source_draft.id,
+                    )
+                    script_editor_checkpoint = None
+                    editor_result = run_editor(None)
+                draft_master_script = editor_result.draft
+                if cancel_event is not None and cancel_event.is_set():
+                    raise LLMRequestCancelledError()
+                script_editor_pass_count = editor_result.attempt_count
+                script_editor_deferred = bool(
+                    draft_master_script.llm_metadata.get("script_editor_deferred")
+                )
+                self._emit_progress(
+                    progress_callback,
+                    "stage",
+                    stage="validating_gpt_edit",
+                    estimated_duration_seconds=editor_result.duration.total_seconds,
+                )
+                continuity_report = evaluate_episode_continuity(
+                    draft_master_script,
+                    source_run.episode_context,
+                )
+                if continuity_report.blocking_issue_count:
+                    # Preserve the validated pre-edit checkpoint on any
+                    # editorial regression. A quality pass must not erase a
+                    # usable episode or force repeated manual resumes.
+                    draft_master_script = self._defer_script_editor_candidate(
+                        source=source_draft,
+                        reason="continuity_regression",
+                    )
+                    script_editor_deferred = True
+                    continuity_report = pre_editor_continuity_report
+                    self._emit_progress(
+                        progress_callback,
+                        "stage",
+                        stage="gpt_edit_deferred",
+                        reason="continuity_regression",
+                        estimated_duration_seconds=(
+                            estimate_screenplay_duration(draft_master_script).total_seconds  # type: ignore[arg-type]
+                        ),
+                    )
+
+        if (
+            self._script_editor_enabled
+            and source_run.release_region == ScriptReleaseRegion.overseas
+            and not source_is_mock
+        ):
+            draft_master_script, dialogue_pair_repair_count = (
+                self._script_post_editor.ensure_overseas_dialogue_pairs(
+                    draft_master_script,
+                    strategy=self._with_full_draft_repair_output_budget(
+                        generation_strategy
+                    ),
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event,
+                )
+            )
+
+        finalization_elapsed_ms = round(
+            (time.perf_counter() - finalization_started_at) * 1000
+        )
+        source_metadata = source_draft.llm_metadata
+        prior_model_pass_count = source_metadata.get("model_pass_count", 0)
+        prior_generation_elapsed_ms = source_metadata.get("generation_elapsed_ms", 0)
+        runtime_metadata = {
+            "generation_elapsed_ms": (
+                prior_generation_elapsed_ms
+                if isinstance(prior_generation_elapsed_ms, int)
+                else 0
+            ) + finalization_elapsed_ms,
+            "agent_finalization_elapsed_ms": finalization_elapsed_ms,
+            "model_pass_count": (
+                prior_model_pass_count
+                if isinstance(prior_model_pass_count, int)
+                else 0
+            ) + script_editor_pass_count + dialogue_pair_repair_count,
+            "script_editor_enabled": self._script_editor_enabled,
+            "script_editor_policy": "quality_gated_v1",
+            "script_editor_required": (
+                not script_editor_gate_passed
+                if script_editor_gate_passed is not None
+                else None
+            ),
+            "script_editor_gate_passed": script_editor_gate_passed,
+            "script_editor_gate_issues": script_editor_gate_issues,
+            "script_editor_skipped": script_editor_skipped,
+            "script_editor_pass_count": script_editor_pass_count,
+            "overseas_dialogue_pair_repair_count": dialogue_pair_repair_count,
+            "script_editor_deferred": script_editor_deferred,
+            "first_model_pass_accepted": bool(
+                source_metadata.get("first_model_pass_accepted", True)
+            ),
+            "first_pass_accepted": bool(
+                source_metadata.get("first_model_pass_accepted", True)
+            )
+            and script_editor_pass_count == 0
+            and dialogue_pair_repair_count == 0
+            and not script_editor_deferred,
+            "generation_soft_target_ms": SCRIPT_GENERATION_SOFT_TARGET_MS,
+        }
+        runtime_metadata["generation_soft_target_met"] = (
+            runtime_metadata["generation_elapsed_ms"]
+            <= SCRIPT_GENERATION_SOFT_TARGET_MS
+        )
+        draft_master_script = draft_master_script.model_copy(
+            update={
+                "llm_metadata": {
+                    **draft_master_script.llm_metadata,
+                    **runtime_metadata,
+                }
+            }
+        )
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRequestCancelledError()
+        staged_run = source_run.model_copy(
+            update={"draft_master_script": draft_master_script}
+        )
+        self._emit_progress(progress_callback, "stage", stage="quality_checking")
+        finalized = self.review_draft(
+            ScriptDraftReviewRequest(
+                source_generation_run=staged_run,
+                draft_master_script=draft_master_script,
+            )
+        )
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRequestCancelledError()
+        if (
+            self._creative_deepening_enabled
+            and generation_strategy.deepening_mode == CreativeDeepeningMode.shadow
+        ):
+            creative_deepening_run = self.deepen_draft(
+                ScriptCreativeDeepeningRequest(
+                    source_generation_run=finalized,
+                    source_draft_master_script=draft_master_script,
+                )
+            )
+            finalized = finalized.model_copy(
+                update={"creative_deepening_run": creative_deepening_run}
+            )
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
+
+        raw_output = dict(finalized.llm_raw_output)
+        raw_metadata = raw_output.setdefault("_meta", {})
+        if isinstance(raw_metadata, dict):
+            raw_metadata.update(runtime_metadata)
+        finalized = finalized.model_copy(
+            update={
+                "llm_raw_output": raw_output,
+                "generated_at": datetime.now(timezone.utc),
+            }
+        )
         self._emit_progress(
             progress_callback,
             "stage",
             stage="completed",
-            generation_elapsed_ms=generation_elapsed_ms,
-            model_pass_count=model_pass_count,
+            generation_elapsed_ms=runtime_metadata["generation_elapsed_ms"],
+            model_pass_count=runtime_metadata["model_pass_count"],
         )
-        return result
+        return finalized
 
     def review_draft(self, payload: ScriptDraftReviewRequest) -> ScriptGenerationDraftRun:
         """Re-run deterministic QC/planning after a creator edits an episode draft."""
@@ -893,6 +1554,21 @@ class ScriptGenerationService:
                 f"PlatformProfile '{content_spec.platform_goal.platform_profile_id}' was not found."
             )
 
+        if payload.selection_context is not None:
+            targeted_candidate_run = self._try_targeted_draft_modification(
+                payload=payload,
+                source_run=source_run,
+                source_draft=source_draft,
+                generation_strategy=generation_strategy,
+                content_spec=content_spec,
+            )
+            if targeted_candidate_run is not None:
+                return ScriptDraftModificationResult(
+                    source_draft_master_script_id=source_draft.id,
+                    instruction=payload.instruction,
+                    candidate_generation_run=targeted_candidate_run,
+                )
+
         knowledge_bundle = None
         knowledge_items: list[StaticKnowledgeItem] = []
         knowledge_selection_trace = None
@@ -926,14 +1602,22 @@ class ScriptGenerationService:
                 episode_context=source_run.episode_context,
                 source_draft_master_script=source_draft,
                 modification_instruction=payload.instruction,
+                selection_context=payload.selection_context,
             ),
             strategy=generation_strategy,
         )
-        raw_output = self._llm_adapter.generate_structured_output(
-            prompt_build_result.prompt_text,
-            strategy=generation_strategy,
-            output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
+        # A creator modification still returns a complete DraftMasterScript;
+        # do not let the persisted strategy's small legacy budget truncate the
+        # replacement episode before downstream validation can run.
+        modification_strategy = self._with_full_draft_repair_output_budget(
+            generation_strategy
         )
+        with bind_llm_log_context(stage="script_modification.full_episode"):
+            raw_output = self._llm_adapter.generate_structured_output(
+                prompt_build_result.prompt_text,
+                strategy=modification_strategy,
+                output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
+            )
         candidate = self._build_draft_master_script(
             content_spec=content_spec,
             generation_strategy=generation_strategy,
@@ -946,12 +1630,44 @@ class ScriptGenerationService:
             ],
         )
         if self._script_editor_enabled and not self._is_mock_output(raw_output):
-            editor_result = self._script_post_editor.edit(
+            editor_kwargs = {}
+            canonical_names: dict[str, str] = {}
+            if source_run.episode_context and source_run.episode_context.canonical_character_names:
+                canonical_names = dict(
+                    source_run.episode_context.canonical_character_names
+                )
+                editor_kwargs["canonical_character_names"] = canonical_names
+            editor_assessment = self._script_post_editor.assess_source(
                 candidate,
-                strategy=generation_strategy,
-                target_duration_seconds=candidate.target_duration_seconds,
+                overseas_release=(
+                    source_run.release_region == ScriptReleaseRegion.overseas
+                ),
+                canonical_character_names=canonical_names,
+                require_overseas_narrative_language=(
+                    source_run.release_region == ScriptReleaseRegion.overseas
+                ),
             )
-            candidate = editor_result.draft
+            if editor_assessment.requires_edit:
+                editor_result = self._script_post_editor.edit(
+                    candidate,
+                    strategy=self._with_full_draft_repair_output_budget(
+                        generation_strategy
+                    ),
+                    target_duration_seconds=candidate.target_duration_seconds,
+                    overseas_release=(
+                        source_run.release_region == ScriptReleaseRegion.overseas
+                    ),
+                    **editor_kwargs,
+                    require_overseas_narrative_language=(
+                        source_run.release_region == ScriptReleaseRegion.overseas
+                    ),
+                )
+                candidate = editor_result.draft
+            else:
+                candidate = self._script_post_editor.accept_without_edit(
+                    candidate,
+                    assessment=editor_assessment,
+                )
         candidate_run = source_run.model_copy(
             update={
                 "prompt_build_result": prompt_build_result,
@@ -973,6 +1689,512 @@ class ScriptGenerationService:
             instruction=payload.instruction,
             candidate_generation_run=candidate_run,
         )
+
+    def _try_targeted_draft_modification(
+        self,
+        *,
+        payload: ScriptDraftModificationRequest,
+        source_run: ScriptGenerationDraftRun,
+        source_draft: DraftMasterScript,
+        generation_strategy: GenerationStrategy,
+        content_spec,
+    ) -> ScriptGenerationDraftRun | None:
+        """Replace one selected scalar field while keeping the episode immutable elsewhere."""
+
+        selection = payload.selection_context
+        if selection is None:
+            return None
+        target_path = self._targeted_modification_path(selection.source_field)
+        if target_path is None:
+            return None
+        source_value = self._targeted_text_value(source_draft, target_path)
+        if source_value is None or selection.selected_text not in source_value:
+            return None
+
+        knowledge_items: list[StaticKnowledgeItem] = []
+        if generation_strategy.draft_knowledge_bundle_id is not None:
+            _, knowledge_items, _ = self._knowledge_bundle_catalog.select_for_draft(
+                requested_bundle_id=generation_strategy.draft_knowledge_bundle_id,
+                content_spec=content_spec,
+                target_platform=generation_strategy.target_platform,
+                excluded_knowledge_ids=(
+                    EPISODE_PLANNING_ONLY_KNOWLEDGE_IDS
+                    if source_run.episode_context is not None
+                    else None
+                ),
+            )
+
+        requires_translation = (
+            source_run.release_region == ScriptReleaseRegion.overseas
+            and re.fullmatch(r"scenes\.\d+\.dialogues\.\d+\.text", target_path)
+            is not None
+        )
+        prompt_text = self._build_targeted_modification_prompt(
+            payload=payload,
+            source_run=source_run,
+            source_draft=source_draft,
+            content_spec=content_spec,
+            target_path=target_path,
+            source_value=source_value,
+            requires_translation=requires_translation,
+            knowledge_items=knowledge_items,
+        )
+        targeted_strategy = generation_strategy.model_copy(
+            update={"max_tokens": TARGETED_MODIFICATION_OUTPUT_TOKENS}
+        )
+        with bind_llm_log_context(stage="script_modification.targeted_patch"):
+            raw_patch = self._llm_adapter.generate_structured_output(
+                prompt_text,
+                strategy=targeted_strategy,
+                output_schema=LLMTargetedScriptTextPatch.model_json_schema(),
+            )
+        raw_patch = self._unwrap_targeted_patch_response(raw_patch)
+        try:
+            patch = LLMTargetedScriptTextPatch.model_validate(
+                {key: value for key, value in raw_patch.items() if key != "_meta"}
+            )
+        except ValidationError:
+            logger.info(
+                "Targeted modification returned an incompatible payload; using full episode fallback."
+            )
+            return None
+        if patch.requires_full_episode_rewrite:
+            logger.info(
+                "Targeted modification requested full episode fallback: %s",
+                patch.reason,
+            )
+            return None
+        if patch.replacement_text is None:
+            return None
+        if requires_translation and patch.updated_chinese_translation is None:
+            logger.info(
+                "Targeted overseas dialogue patch omitted its Chinese counterpart; using full episode fallback."
+            )
+            return None
+
+        replacement_text = patch.replacement_text.strip()
+        if not replacement_text:
+            return None
+        updated_value = self._replace_selected_text(
+            source_value,
+            selected_text=selection.selected_text,
+            before_text=selection.before_text,
+            after_text=selection.after_text,
+            replacement_text=replacement_text,
+        )
+        if updated_value is None or updated_value == source_value:
+            return None
+
+        candidate_payload = source_draft.model_dump(mode="python")
+        for identity_field in ("id", "created_at", "updated_at"):
+            candidate_payload.pop(identity_field, None)
+        if not self._set_targeted_text_value(
+            candidate_payload,
+            target_path,
+            updated_value,
+        ):
+            return None
+        if requires_translation and patch.updated_chinese_translation is not None:
+            translation_path = target_path.rsplit(".", 1)[0] + ".chinese_translation"
+            if not self._set_targeted_text_value(
+                candidate_payload,
+                translation_path,
+                patch.updated_chinese_translation.strip(),
+            ):
+                return None
+
+        raw_metadata = raw_patch.get("_meta")
+        candidate_payload["llm_metadata"] = {
+            **source_draft.llm_metadata,
+            "targeted_modification": True,
+            "targeted_modification_path": target_path,
+            "targeted_modification_source_draft_id": source_draft.id,
+            "targeted_modification_model": (
+                dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+            ),
+        }
+        try:
+            candidate = DraftMasterScript.model_validate(candidate_payload)
+        except ValidationError:
+            logger.info(
+                "Targeted modification did not satisfy the exact field contract; using full episode fallback."
+            )
+            return None
+
+        canonical_names = (
+            dict(source_run.episode_context.canonical_character_names)
+            if source_run.episode_context is not None
+            else {}
+        )
+        assessment_kwargs = {
+            "overseas_release": (
+                source_run.release_region == ScriptReleaseRegion.overseas
+            ),
+            "canonical_character_names": canonical_names,
+            "require_overseas_narrative_language": (
+                source_run.release_region == ScriptReleaseRegion.overseas
+            ),
+        }
+        source_assessment = self._script_post_editor.assess_source(
+            source_draft,
+            **assessment_kwargs,
+        )
+        candidate_assessment = self._script_post_editor.assess_source(
+            candidate,
+            **assessment_kwargs,
+        )
+        source_issue_categories = {
+            self._script_editor_issue_category(issue)
+            for issue in source_assessment.issues
+        }
+        new_editor_issues = {
+            issue
+            for issue in candidate_assessment.issues
+            if self._script_editor_issue_category(issue)
+            not in source_issue_categories
+        }
+        if new_editor_issues:
+            logger.info(
+                "Targeted modification introduced screenplay gate issues %s; using full episode fallback.",
+                sorted(new_editor_issues),
+            )
+            return None
+        if not candidate_assessment.requires_edit:
+            candidate = self._script_post_editor.accept_without_edit(
+                candidate,
+                assessment=candidate_assessment,
+            )
+
+        prompt_build_result = PromptBuildResult(
+            prompt_text=prompt_text,
+            rendered_variables={
+                "target_path": target_path,
+                "document_selection_context_json": json.dumps(
+                    selection.model_dump(mode="json"),
+                    ensure_ascii=False,
+                ),
+            },
+            trace=source_run.prompt_build_result.trace,
+        )
+        candidate_raw_output: dict[str, object] = {
+            "targeted_patch": patch.model_dump(mode="json"),
+            "_meta": {
+                **(dict(raw_metadata) if isinstance(raw_metadata, dict) else {}),
+                "targeted_modification": True,
+                "target_path": target_path,
+            },
+        }
+        candidate_run = source_run.model_copy(
+            update={
+                "prompt_build_result": prompt_build_result,
+                "llm_raw_output": candidate_raw_output,
+                "draft_master_script": candidate,
+                "creative_deepening_run": None,
+            }
+        )
+        try:
+            return self.review_draft(
+                ScriptDraftReviewRequest(
+                    source_generation_run=candidate_run,
+                    draft_master_script=candidate,
+                )
+            )
+        except BlockingContinuityConflictError:
+            logger.info(
+                "Targeted modification failed continuity QC; using full episode fallback."
+            )
+            return None
+
+    def _build_targeted_modification_prompt(
+        self,
+        *,
+        payload: ScriptDraftModificationRequest,
+        source_run: ScriptGenerationDraftRun,
+        source_draft: DraftMasterScript,
+        content_spec,
+        target_path: str,
+        source_value: str,
+        requires_translation: bool,
+        knowledge_items: list[StaticKnowledgeItem],
+    ) -> str:
+        episode_context: dict[str, object] = {}
+        if source_run.episode_context is not None:
+            episode_context = self._episode_execution_context_payload(
+                source_run.episode_context,
+                model_context_tokens=self._llm_adapter.get_model_info().max_context_tokens,
+            )
+        creative_contract = {
+            "title": content_spec.title,
+            "audience_goal": content_spec.audience_goal.model_dump(mode="json"),
+            "commercial_goal": content_spec.commercial_goal.model_dump(mode="json"),
+            "platform_goal": content_spec.platform_goal.model_dump(mode="json"),
+            "creative_brief": content_spec.creative_brief.model_dump(mode="json"),
+            "resolved_creative_context": (
+                source_run.resolved_creative_context.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+                if source_run.resolved_creative_context is not None
+                else None
+            ),
+        }
+        selection = payload.selection_context
+        assert selection is not None
+        translation_rule = (
+            "The target is an overseas English dialogue line. Return "
+            "updated_chinese_translation as the complete Chinese translation of the "
+            "updated full dialogue line, generated in this same response."
+            if requires_translation
+            else "Set updated_chinese_translation to null."
+        )
+        return (
+            "TARGETED SCREENPLAY TEXT REVISION\n"
+            "Revise exactly one selected text fragment without regenerating the episode. "
+            "The server deterministically inserts replacement_text at target_path and "
+            "rejects every other mutation.\n\n"
+            "Decision rule:\n"
+            "- Use requires_full_episode_rewrite=false only when the instruction can be "
+            "satisfied by replacing the selected fragment alone.\n"
+            "- Set requires_full_episode_rewrite=true with a concise reason if satisfying "
+            "the request requires another field, another scene, a character/state update, "
+            "a new story fact, or a changed causal/continuity contract.\n"
+            "- replacement_text is only the replacement for selected_text, not the full "
+            "field and not an explanation. Preserve language, names, established facts, "
+            "tone, causality, and handoff obligations. Do not weaken production clarity.\n"
+            "- The user instruction is subordinate to story_bible_context, approved_story_node, "
+            "approved_episode_plan, and confirmed continuity. Never change their required outcome, "
+            "route obligations, or locked facts.\n"
+            f"- {translation_rule}\n\n"
+            f"Release region: {source_run.release_region.value}\n"
+            f"Target path: {target_path}\n"
+            "UserDirectedModificationContract:\n"
+            f"User instruction: {payload.instruction}\n"
+            "DocumentSelectionContext:\n"
+            + json.dumps(selection.model_dump(mode="json"), ensure_ascii=False)
+            + "\nCurrent complete target field:\n"
+            + source_value
+            + "\n\nCreative contract:\n"
+            + json.dumps(creative_contract, ensure_ascii=False)
+            + "\n\nGoverned generation guidance:\n"
+            + json.dumps(
+                [item.model_dump(mode="json") for item in knowledge_items],
+                ensure_ascii=False,
+            )
+            + "\n\nCanonical episode and continuity packet:\n"
+            + json.dumps(episode_context, ensure_ascii=False)
+            + "\n\nImmutable episode context and relevant scene evidence:\n"
+            + json.dumps(
+                self._targeted_modification_context(source_draft, target_path),
+                ensure_ascii=False,
+            )
+        )
+
+    @staticmethod
+    def _targeted_modification_path(source_field: str) -> str | None:
+        match = re.search(r"[（(]([^()（）]+)[）)]\s*$", source_field.strip())
+        if match is None:
+            return None
+        path = match.group(1).strip()
+        parts = path.split(".")
+        if len(parts) == 1:
+            return path if path in TARGETED_MODIFICATION_ROOT_FIELDS else None
+        if len(parts) < 3 or parts[0] != "scenes" or not parts[1].isdigit():
+            return None
+        if len(parts) == 3 and parts[2] in TARGETED_MODIFICATION_SCENE_FIELDS:
+            return path
+        if (
+            len(parts) == 4
+            and parts[2] == "scene_causality"
+            and parts[3] in TARGETED_MODIFICATION_CAUSALITY_FIELDS
+        ):
+            return path
+        if (
+            len(parts) == 4
+            and parts[2] == "character_actions"
+            and parts[3].isdigit()
+        ):
+            return path
+        if (
+            len(parts) == 5
+            and parts[2] == "dialogues"
+            and parts[3].isdigit()
+            and parts[4] in {"intent", "text"}
+        ):
+            return path
+        return None
+
+    @staticmethod
+    def _unwrap_targeted_patch_response(
+        output: dict[str, object],
+    ) -> dict[str, object]:
+        """Accept a shallow provider envelope without accepting arbitrary nested mutations."""
+
+        patch_fields = set(LLMTargetedScriptTextPatch.model_fields)
+        inherited_metadata = output.get("_meta")
+        current = output
+        for _ in range(3):
+            if set(current).intersection(patch_fields):
+                break
+            nested = next(
+                (
+                    current[key]
+                    for key in ("data", "result", "output", "patch")
+                    if isinstance(current.get(key), dict)
+                ),
+                None,
+            )
+            if not isinstance(nested, dict):
+                break
+            current = nested
+        if current is output:
+            return output
+        unwrapped = dict(current)
+        if isinstance(inherited_metadata, dict):
+            metadata = unwrapped.setdefault("_meta", {})
+            if isinstance(metadata, dict):
+                for key, value in inherited_metadata.items():
+                    metadata.setdefault(key, value)
+        return unwrapped
+
+    @staticmethod
+    def _targeted_text_value(
+        draft: DraftMasterScript,
+        target_path: str,
+    ) -> str | None:
+        current: object = draft.model_dump(mode="python")
+        for part in target_path.split("."):
+            if isinstance(current, dict):
+                if part not in current:
+                    return None
+                current = current[part]
+            elif isinstance(current, list) and part.isdigit():
+                index = int(part)
+                if index >= len(current):
+                    return None
+                current = current[index]
+            else:
+                return None
+        return current if isinstance(current, str) else None
+
+    @staticmethod
+    def _set_targeted_text_value(
+        payload: dict[str, object],
+        target_path: str,
+        value: str,
+    ) -> bool:
+        parts = target_path.split(".")
+        current: object = payload
+        for part in parts[:-1]:
+            if isinstance(current, dict):
+                if part not in current:
+                    return False
+                current = current[part]
+            elif isinstance(current, list) and part.isdigit():
+                index = int(part)
+                if index >= len(current):
+                    return False
+                current = current[index]
+            else:
+                return False
+        final_part = parts[-1]
+        if isinstance(current, dict) and final_part in current:
+            current[final_part] = value
+            return True
+        return False
+
+    @staticmethod
+    def _replace_selected_text(
+        source_value: str,
+        *,
+        selected_text: str,
+        before_text: str,
+        after_text: str,
+        replacement_text: str,
+    ) -> str | None:
+        positions: list[int] = []
+        cursor = 0
+        while True:
+            position = source_value.find(selected_text, cursor)
+            if position < 0:
+                break
+            positions.append(position)
+            cursor = position + max(1, len(selected_text))
+        if not positions:
+            return None
+        if len(positions) == 1:
+            selected_position = positions[0]
+        else:
+            ranked: list[tuple[int, int]] = []
+            for position in positions:
+                prefix = source_value[:position]
+                suffix = source_value[position + len(selected_text) :]
+                score = 0
+                if before_text and prefix.endswith(before_text):
+                    score += len(before_text)
+                if after_text and suffix.startswith(after_text):
+                    score += len(after_text)
+                ranked.append((score, position))
+            ranked.sort(reverse=True)
+            if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+                return None
+            selected_position = ranked[0][1]
+        return (
+            source_value[:selected_position]
+            + replacement_text
+            + source_value[selected_position + len(selected_text) :]
+        )
+
+    @staticmethod
+    def _targeted_modification_context(
+        draft: DraftMasterScript,
+        target_path: str,
+    ) -> dict[str, object]:
+        payload = draft.model_dump(
+            mode="json",
+            exclude={"id", "created_at", "updated_at", "llm_metadata"},
+        )
+        scenes = payload.pop("scenes", [])
+        scene_outline: list[dict[str, object]] = []
+        if isinstance(scenes, list):
+            for scene in scenes:
+                if not isinstance(scene, dict):
+                    continue
+                scene_outline.append(
+                    {
+                        key: scene.get(key)
+                        for key in (
+                            "scene_number",
+                            "slug",
+                            "purpose",
+                            "setting_hint",
+                            "beat_summary",
+                            "emotional_shift",
+                            "emotional_objective",
+                            "turning_point",
+                            "scene_causality",
+                            "cliffhanger",
+                        )
+                    }
+                )
+        context: dict[str, object] = {
+            "episode_invariants": payload,
+            "scene_outline": scene_outline,
+        }
+        parts = target_path.split(".")
+        if (
+            len(parts) > 2
+            and parts[0] == "scenes"
+            and parts[1].isdigit()
+            and isinstance(scenes, list)
+            and int(parts[1]) < len(scenes)
+        ):
+            context["target_scene"] = scenes[int(parts[1])]
+        return context
+
+    @staticmethod
+    def _script_editor_issue_category(issue: str) -> str:
+        prefix = issue.split("：", 1)[0]
+        return re.sub(r"\d+(?:\.\d+)?", "#", prefix)
 
     def deepen_draft(
         self,
@@ -1100,6 +2322,7 @@ class ScriptGenerationService:
         episode_context: EpisodeGenerationContext | None = None,
         source_draft_master_script: DraftMasterScript | None = None,
         modification_instruction: str | None = None,
+        selection_context: StoryBibleSelectionContext | None = None,
     ) -> PromptBuildContext:
         retrieved_assets = [
             {
@@ -1197,6 +2420,7 @@ class ScriptGenerationService:
                 platform_profile_payload,
                 ensure_ascii=True,
             ),
+            "market_profile_contract": content_spec_market_contract(content_spec).prompt_contract,
             "retrieved_assets_json": json.dumps(
                 retrieved_assets,
                 ensure_ascii=True,
@@ -1288,6 +2512,11 @@ class ScriptGenerationService:
             )
         if modification_instruction is not None:
             extra_variables["user_modification_instruction"] = modification_instruction
+        if selection_context is not None:
+            extra_variables["document_selection_context_json"] = json.dumps(
+                selection_context.model_dump(mode="json"),
+                ensure_ascii=True,
+            )
         return PromptBuildContext(
             content_spec_id=content_spec.id,
             content_spec_title=content_spec.title,
@@ -1336,6 +2565,7 @@ class ScriptGenerationService:
         if payload.get("approved_story_node") is not None:
             payload.pop("module_handoff", None)
 
+        memory_recall = payload.pop("memory_recall", None)
         continuity_checkpoint = (
             payload.pop("provisional_continuity_checkpoint", None)
             or payload.pop("confirmed_continuity_checkpoint", None)
@@ -1343,7 +2573,14 @@ class ScriptGenerationService:
         )
         payload.pop("confirmed_continuity_checkpoint", None)
         payload.pop("project_continuity_summary", None)
-        if continuity_checkpoint:
+        if memory_recall is not None:
+            # A task-scoped recall packet supersedes the legacy fixed checkpoint
+            # in the model prompt, while the original checkpoint remains on the
+            # request for backward-compatible continuity QC and recovery.
+            payload["memory_recall"] = cls._compact_memory_recall_for_prompt(
+                memory_recall
+            )
+        elif continuity_checkpoint:
             payload["continuity_checkpoint"] = cls._decode_json_context(
                 continuity_checkpoint
             )
@@ -1409,6 +2646,87 @@ class ScriptGenerationService:
         cls._drop_empty_context_values(payload)
         return payload
 
+    def _build_compact_episode_recovery_prompt(
+        self,
+        *,
+        content_spec,
+        payload: ScriptGenerationDraftRequest,
+        target_duration_seconds: int,
+    ) -> str:
+        """Build a bounded screenplay packet after reasoning-only exhaustion.
+
+        The normal prompt remains authoritative for the first attempt. This
+        packet removes duplicated platform and knowledge prose while retaining
+        the approved episode plan, scene blueprint, continuity checkpoint,
+        character identities, hook duty, and three-layer contract.
+        """
+
+        assert payload.episode_context is not None
+        execution_context = self._episode_execution_context_payload(
+            payload.episode_context,
+            model_context_tokens=self._llm_adapter.get_model_info().max_context_tokens,
+        )
+        character_contexts: list[dict[str, object]] = []
+        if payload.resolved_creative_context is not None:
+            character_contexts = [
+                character.model_dump(mode="json", exclude_none=True)
+                for character in payload.resolved_creative_context.characters
+            ]
+        language_contract = (
+            OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT
+            if payload.release_region == ScriptReleaseRegion.overseas
+            else (
+                "动作、人物名、表演意图和对白全部使用简体中文，不生成英文对白或中英对照；"
+                "dialogue.chinese_character_name和dialogue.chinese_translation填写null。"
+            )
+        )
+        recovery_packet = {
+            "project": {
+                "title": content_spec.title,
+                "story_goal": content_spec.story_goal,
+                "hook": content_spec.creative_brief.hook,
+                "tone": content_spec.creative_brief.tone,
+                "pacing": content_spec.creative_brief.pacing,
+                "target_emotion": content_spec.creative_brief.target_emotion,
+            },
+            "episode_execution": execution_context,
+            "characters": character_contexts,
+            "delivery": {
+                "language_contract": language_contract,
+                "target_duration_seconds": target_duration_seconds,
+                "scene_count": payload.desired_scene_count,
+                "dialogue_line_range": [
+                    EPISODE_DIALOGUE_LINE_MIN,
+                    EPISODE_DIALOGUE_LINE_MAX,
+                ],
+                "shot_unit_range": [
+                    EPISODE_SHOT_UNIT_MIN,
+                    EPISODE_SHOT_UNIT_MAX,
+                ],
+                "body_character_reference": payload.target_script_body_characters,
+                "screenplay_format": PARTNER_SCREENPLAY_FORMAT_VERSION,
+            },
+        }
+        return f"""你是序幕TV剧本大师的单集正文 Agent。上一轮 DeepSeek high 推理已耗尽输出预算，
+但批准路线图和连续性检查点都没有变化。不要重新规划故事，只执行下面这一份紧凑写作包。
+
+先在内部核对场景职责和因果顺序，然后立即输出最终 JSON。必须为最终 JSON 预留至少
+8000 tokens，不得把输出预算全部用于推理。按供应方提供的 JSON schema 返回一个完整根对象，
+必须闭合全部数组和对象；不要输出推理、Markdown、解释或包装字段。
+
+执行要求：
+1. approved_episode_plan、scene_execution_plan、layer_contracts和continuity_checkpoint是硬合同。
+2. 严格执行冲突-决定-局部回报-压力升级-退出状态因果链，并完成结尾钩子与下一集义务。
+3. 每场按body_order自然交错可拍动作与对白；不得写镜头语言、心理活动或小说叙述。
+4. 全集场景1–5个、对白25–35条、镜头执行单元15–20个、成片75–115秒。
+5. characters和所有状态更新必须来自写作包中的人物与已确认事实；状态更新保持简短并标注场次证据。
+6. {language_contract}
+7. 先保证完整、可解析、可拍，再在既定场景内提高语言和动作质量，不得增加支线。
+
+紧凑写作包：
+{json.dumps(recovery_packet, ensure_ascii=False, separators=(',', ':'))}
+"""
+
     @staticmethod
     def _decode_json_context(value: object) -> object:
         if not isinstance(value, str):
@@ -1418,6 +2736,58 @@ class ScriptGenerationService:
         except (TypeError, ValueError):
             return value
         return decoded if isinstance(decoded, (dict, list)) else value
+
+    @staticmethod
+    def _compact_memory_recall_for_prompt(value: object) -> object:
+        """Remove recall audit duplication from the model packet only.
+
+        Full capsules remain on the request and persisted checkpoint. The model
+        keeps every selected fact, authority, entity reference, and source
+        episode, but does not need ranking scores or duplicated evidence strings
+        after deterministic retrieval has already selected the capsules.
+        """
+
+        if not isinstance(value, dict):
+            return value
+        compact = {
+            key: value[key]
+            for key in (
+                "schema_version",
+                "memory_layer",
+                "through_episode_number",
+                "status",
+                "required_refs",
+                "missing_requirements",
+            )
+            if key in value and value[key] not in (None, "", [], {})
+        }
+        raw_capsules = value.get("capsules")
+        capsules: list[dict[str, object]] = []
+        if isinstance(raw_capsules, list):
+            for raw_capsule in raw_capsules:
+                if not isinstance(raw_capsule, dict):
+                    continue
+                capsule = {
+                    key: raw_capsule[key]
+                    for key in (
+                        "capsule_id",
+                        "memory_type",
+                        "summary",
+                        "source_episode",
+                        "source_scene_numbers",
+                        "entity_refs",
+                        "authority",
+                        "mandatory",
+                        "conflict_note",
+                    )
+                    if key in raw_capsule
+                    and raw_capsule[key] not in (None, "", [], {})
+                }
+                if capsule:
+                    capsules.append(capsule)
+        if capsules:
+            compact["capsules"] = capsules
+        return compact
 
     @staticmethod
     def _drop_empty_context_values(payload: dict[str, object]) -> None:
@@ -1603,7 +2973,10 @@ class ScriptGenerationService:
             generation_strategy_id=generation_strategy.id,
             title=llm_script.title,
             logline=llm_script.logline,
-            language=llm_script.language or output_language,
+            # The request/release contract is authoritative. Model-generated
+            # language metadata is untrusted and must never switch a saved
+            # checkpoint between mainland and overseas behavior.
+            language=output_language,
             target_audience=llm_script.target_audience,
             target_platform=llm_script.target_platform,
             tone=llm_script.tone,
@@ -1630,11 +3003,17 @@ class ScriptGenerationService:
                     beat_summary=scene.beat_summary,
                     emotional_shift=scene.emotional_shift,
                     emotional_objective=scene.emotional_objective,
-                    character_actions=scene.character_actions,
+                    character_actions=self._deduplicate_draft_strings(
+                        scene.character_actions
+                    ),
+                    body_order=scene.body_order,
                     turning_point=scene.turning_point,
                     scene_causality=scene.scene_causality,
                     cliffhanger=scene.cliffhanger,
-                    dialogue_prompts=[line.text for line in scene.dialogues[:6]],
+                    dialogue_prompts=self._deduplicate_draft_strings(
+                        (line.text for line in scene.dialogues),
+                        limit=6,
+                    ),
                     dialogues=scene.dialogues,
                     supporting_asset_ids=[],
                 )
@@ -1645,17 +3024,44 @@ class ScriptGenerationService:
                 "Draft generated by RealLLMAdapter structured output.",
                 "Story QC and revision loop must still review platform fit and consistency.",
             ],
-            llm_metadata=llm_metadata,
+            llm_metadata={
+                **llm_metadata,
+                "model_reported_language": llm_script.language,
+                "contract_output_language": output_language,
+                "partner_screenplay_format_version": PARTNER_SCREENPLAY_FORMAT_VERSION,
+            },
         )
+
+    @staticmethod
+    def _deduplicate_draft_strings(
+        values: Iterable[str],
+        *,
+        limit: int | None = None,
+    ) -> list[str]:
+        """Match DraftSceneCard's uniqueness rule while preserving order."""
+
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            marker = value.strip().casefold()
+            if marker in seen:
+                continue
+            seen.add(marker)
+            result.append(value)
+            if limit is not None and len(result) >= limit:
+                break
+        return result
 
     def _ensure_episode_production_counts(
         self,
         *,
         output: dict[str, object],
         strategy: GenerationStrategy,
+        release_region: ScriptReleaseRegion = ScriptReleaseRegion.cn_mainland,
+        target_duration_seconds: int | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
-        """Enforce one countable dialogue/shot contract on every real episode."""
+        """Enforce counts without regressing the already checked runtime."""
 
         validated = LLMGeneratedDraftMasterScript.model_validate(
             {key: value for key, value in output.items() if key != "_meta"}
@@ -1663,6 +3069,7 @@ class ScriptGenerationService:
         scene_count, dialogue_count, shot_count = self._episode_production_counts(
             validated
         )
+        duration_estimate = estimate_screenplay_duration(validated)
         self._emit_progress(
             progress_callback,
             "stage",
@@ -1670,6 +3077,8 @@ class ScriptGenerationService:
             scene_count=scene_count,
             dialogue_count=dialogue_count,
             shot_count=shot_count,
+            estimated_duration_seconds=duration_estimate.total_seconds,
+            target_duration_seconds=target_duration_seconds,
         )
         if not EPISODE_SCENE_MIN <= scene_count <= EPISODE_SCENE_MAX:
             raise InvalidDraftMasterScriptOutputError(
@@ -1693,6 +3102,20 @@ class ScriptGenerationService:
             EPISODE_SHOT_UNIT_MAX,
             max(EPISODE_SHOT_UNIT_MIN, shot_count),
         )
+        requested_duration_target = min(
+            EPISODE_RUNTIME_MAX_SECONDS,
+            max(
+                EPISODE_RUNTIME_MIN_SECONDS,
+                target_duration_seconds or validated.target_duration_seconds,
+            ),
+        )
+        duration_target = min(
+            EPISODE_RUNTIME_PREFERRED_MAX_SECONDS,
+            max(
+                EPISODE_RUNTIME_PREFERRED_MIN_SECONDS,
+                requested_duration_target,
+            ),
+        )
         self._emit_progress(
             progress_callback,
             "stage",
@@ -1700,51 +3123,247 @@ class ScriptGenerationService:
             dialogue_count=dialogue_count,
             shot_count=shot_count,
         )
-        raw_patch = self._generate_postprocess_output(
-            adapter=self._repair_llm_adapter,
-            prompt=self._build_episode_production_count_repair_prompt(
-                output=validated,
-                dialogue_count=dialogue_count,
-                shot_count=shot_count,
+        repair_adapter = (
+            self._production_count_llm_adapter or self._repair_llm_adapter
+        )
+        repair_strategy = self._with_episode_production_count_repair_output_budget(
+            strategy
+        )
+        # Most count misses are caused by one long, independently performable
+        # action or line. Split/merge only at punctuation or whitespace first;
+        # this preserves wording and avoids an otherwise unnecessary model call.
+        locally_rebalanced = (
+            self._rebalance_episode_production_counts_locally(
+                output,
                 target_dialogue_count=target_dialogue_count,
                 target_shot_count=target_shot_count,
-            ),
-            strategy=self._with_repair_output_budget(strategy),
-            output_schema=LLMMainlandBodyRepairPatch.model_json_schema(),
-            phase="episode_production_count_repair",
-            progress_callback=progress_callback,
+                safe_only=True,
+            )
+            if (
+                dialogue_count <= target_dialogue_count
+                and shot_count <= target_shot_count
+            )
+            else output
         )
         try:
-            normalized_patch = self._normalize_draft_fragment_contract(raw_patch)
-            repair_patch = LLMMainlandBodyRepairPatch.model_validate(
+            local_candidate = LLMGeneratedDraftMasterScript.model_validate(
                 {
                     key: value
-                    for key, value in normalized_patch.items()
+                    for key, value in locally_rebalanced.items()
                     if key != "_meta"
                 }
             )
-            expected_scene_numbers = {
-                scene.scene_number for scene in validated.scenes
-            }
-            actual_scene_numbers = {
-                scene.scene_number for scene in repair_patch.scenes
-            }
-            if actual_scene_numbers != expected_scene_numbers:
-                raise ValueError(
-                    "台词与镜头数量修订必须完整返回全部原场景。"
-                )
-            repaired = self._apply_mainland_body_repair_patch(output, repair_patch)
-            repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                {key: value for key, value in repaired.items() if key != "_meta"}
+        except ValidationError:
+            local_candidate = None
+        if local_candidate is not None:
+            local_scene_count, local_dialogue_count, local_shot_count = (
+                self._episode_production_counts(local_candidate)
             )
-        except (ValidationError, ValueError) as error:
-            raise InvalidDraftMasterScriptOutputError(
-                "正文台词与镜头数量修订未返回完整可用的场景正文。"
-            ) from error
+            local_duration = estimate_screenplay_duration(local_candidate)
+            if (
+                local_scene_count == scene_count
+                and self._episode_production_counts_are_valid(
+                    local_dialogue_count,
+                    local_shot_count,
+                )
+                and EPISODE_RUNTIME_MIN_SECONDS
+                <= local_duration.total_seconds
+                <= EPISODE_RUNTIME_MAX_SECONDS
+            ):
+                metadata = locally_rebalanced.setdefault("_meta", {})
+                if isinstance(metadata, dict):
+                    metadata["episode_production_count_model_pass_count"] = 0
+                self._record_episode_production_counts(
+                    locally_rebalanced,
+                    scene_count=local_scene_count,
+                    dialogue_count=local_dialogue_count,
+                    shot_count=local_shot_count,
+                    repaired=True,
+                )
+                return locally_rebalanced
+        repair_prompt = self._build_episode_production_count_repair_prompt(
+            output=validated,
+            dialogue_count=dialogue_count,
+            shot_count=shot_count,
+            target_dialogue_count=target_dialogue_count,
+            target_shot_count=target_shot_count,
+            current_duration_seconds=duration_estimate.total_seconds,
+            target_duration_seconds=target_duration_seconds,
+            market_path=(
+                "overseas_tiktok"
+                if release_region == ScriptReleaseRegion.overseas
+                else "cn_mainland"
+            ),
+        )
+        repair_outputs: list[dict[str, object]] = []
+        repaired: dict[str, object] | None = None
+        repaired_output: LLMGeneratedDraftMasterScript | None = None
+        best_repaired: dict[str, object] | None = None
+        best_repaired_distance: int | None = None
+        last_repair_error: ValidationError | ValueError | None = None
+        for repair_attempt in range(2):
+            attempt_prompt = repair_prompt
+            if repair_attempt and repair_outputs and last_repair_error is not None:
+                attempt_prompt = self._build_episode_production_count_repair_retry_prompt(
+                    original_prompt=repair_prompt,
+                    invalid_patch=repair_outputs[-1],
+                    validation_error=last_repair_error,
+                )
+            try:
+                raw_patch = self._generate_postprocess_output(
+                    adapter=repair_adapter,
+                    prompt=attempt_prompt,
+                    strategy=repair_strategy,
+                    output_schema=LLMMainlandBodyRepairPatch.model_json_schema(),
+                    phase="episode_production_count_repair",
+                    progress_callback=progress_callback,
+                )
+            except LLMRequestError as error:
+                if not is_recoverable_llm_request_error(error):
+                    raise
+                last_repair_error = ValueError(
+                    "数量修复服务暂时未返回可用补丁，将使用已生成正文进行本地收敛。"
+                )
+                # A transient response can clear on the next bounded attempt.
+                # Do not spend a duplicate request after the adapter has
+                # already exhausted every configured route/transport.
+                route_failure_categories = tuple(
+                    str(value)
+                    for value in getattr(error, "route_failure_categories", ())
+                    if value
+                )
+                route_exhausted = (
+                    error.category
+                    in {"failover_exhausted", "script_generation_routes_exhausted"}
+                    or getattr(error, "stream_fallback_attempted", False)
+                    or (
+                        route_failure_categories
+                        and all(
+                            category
+                            in {
+                                "empty_response",
+                                "provider_gateway",
+                                "timeout",
+                                "transport",
+                            }
+                            for category in route_failure_categories
+                        )
+                    )
+                )
+                if repair_attempt == 0 and not route_exhausted:
+                    logger.warning(
+                        "Episode production-count repair transport failed; retrying "
+                        "bounded attempt category=%s status=%s",
+                        error.category,
+                        error.status_code,
+                    )
+                    continue
+                break
+            except LLMStructuredOutputError as error:
+                last_repair_error = ValueError(
+                    "数量修复补丁结构无效，将使用已生成正文进行本地收敛。"
+                )
+                logger.warning(
+                    "Episode production-count repair returned invalid structured output "
+                    "attempt=%d raw_chars=%d",
+                    repair_attempt + 1,
+                    len(error.raw_content or ""),
+                )
+                if repair_attempt == 0:
+                    # Retry with the evidence-preserving correction prompt
+                    # below, whether the provider returned malformed JSON or
+                    # an empty/truncated patch.
+                    continue
+                break
+            repair_outputs.append(raw_patch)
+            try:
+                normalized_patch = self._normalize_draft_fragment_contract(raw_patch)
+                repair_patch = LLMMainlandBodyRepairPatch.model_validate(
+                    {
+                        key: value
+                        for key, value in normalized_patch.items()
+                        if key != "_meta"
+                    }
+                )
+                expected_scene_numbers = {
+                    scene.scene_number for scene in validated.scenes
+                }
+                actual_scene_numbers = {
+                    scene.scene_number for scene in repair_patch.scenes
+                }
+                if actual_scene_numbers != expected_scene_numbers:
+                    raise ValueError(
+                        "台词与镜头数量修订必须完整返回全部原场景。"
+                    )
+                repaired = self._apply_mainland_body_repair_patch(
+                    output,
+                    repair_patch,
+                )
+                repaired_output = LLMGeneratedDraftMasterScript.model_validate(
+                    {key: value for key, value in repaired.items() if key != "_meta"}
+                )
+                (
+                    candidate_scene_count,
+                    candidate_dialogue_count,
+                    candidate_shot_count,
+                ) = self._episode_production_counts(repaired_output)
+                candidate_duration = estimate_screenplay_duration(repaired_output)
+                if candidate_scene_count != scene_count:
+                    raise ValueError(
+                        "台词与镜头数量修订不得改变场景数量。"
+                    )
+                candidate_distance = (
+                    20 * abs(candidate_dialogue_count - target_dialogue_count)
+                    + 20 * abs(candidate_shot_count - target_shot_count)
+                    + abs(candidate_duration.total_seconds - duration_target)
+                )
+                if (
+                    best_repaired_distance is None
+                    or candidate_distance < best_repaired_distance
+                ):
+                    best_repaired = repaired
+                    best_repaired_distance = candidate_distance
+                if self._episode_production_counts_are_valid(
+                    candidate_dialogue_count,
+                    candidate_shot_count,
+                ) and (
+                    EPISODE_RUNTIME_MIN_SECONDS
+                    <= candidate_duration.total_seconds
+                    <= EPISODE_RUNTIME_MAX_SECONDS
+                ):
+                    break
+                raise ValueError(
+                    "数量修复补丁仍未达到目标："
+                    f"实际台词{candidate_dialogue_count}条、镜头"
+                    f"{candidate_shot_count}个、预计时长"
+                    f"{candidate_duration.total_seconds}秒；必须精确收敛到台词"
+                    f"{target_dialogue_count}条、镜头{target_shot_count}个，且时长保持在"
+                    f"{EPISODE_RUNTIME_MIN_SECONDS}至{EPISODE_RUNTIME_MAX_SECONDS}秒。"
+                )
+            except (ValidationError, ValueError) as error:
+                last_repair_error = error
+                repaired = None
+                repaired_output = None
+        if repaired is None or repaired_output is None:
+            local_source = best_repaired or output
+            repaired = self._rebalance_episode_production_counts_locally(
+                local_source,
+                target_dialogue_count=target_dialogue_count,
+                target_shot_count=target_shot_count,
+            )
+            try:
+                repaired_output = LLMGeneratedDraftMasterScript.model_validate(
+                    {key: value for key, value in repaired.items() if key != "_meta"}
+                )
+            except ValidationError as error:
+                raise InvalidDraftMasterScriptOutputError(
+                    "正文数量修复未能保留完整可用的场景正文。"
+                ) from error
 
         repaired_scene_count, repaired_dialogue_count, repaired_shot_count = (
             self._episode_production_counts(repaired_output)
         )
+        repaired_duration = estimate_screenplay_duration(repaired_output)
         if repaired_scene_count != scene_count:
             raise InvalidDraftMasterScriptOutputError(
                 "正文台词与镜头数量修订不得改变场景数量。"
@@ -1754,15 +3373,16 @@ class ScriptGenerationService:
             repaired_shot_count,
         ):
             raise InvalidDraftMasterScriptOutputError(
-                "本集正文未满足台词20至30条、镜头15至20个的交付规则。"
-            )
+                "本集正文缺少足够的可拆分动作或台词，无法在不新增剧情的前提下满足生产数量。"
+            ) from last_repair_error
         self._merge_output_metadata(source=output, target=repaired)
-        self._merge_output_metadata(source=raw_patch, target=repaired)
+        for repair_output in repair_outputs:
+            self._merge_output_metadata(source=repair_output, target=repaired)
         metadata = repaired.setdefault("_meta", {})
         if isinstance(metadata, dict):
             metadata["episode_production_count_model_pass_count"] = (
                 int(metadata.get("episode_production_count_model_pass_count", 0))
-                + 1
+                + len(repair_outputs)
             )
         self._record_episode_production_counts(
             repaired,
@@ -1771,7 +3391,300 @@ class ScriptGenerationService:
             shot_count=repaired_shot_count,
             repaired=True,
         )
+        metadata = repaired.setdefault("_meta", {})
+        if isinstance(metadata, dict):
+            metadata.update({
+                "episode_production_count_source_duration_seconds": (
+                    duration_estimate.total_seconds
+                ),
+                "episode_production_count_result_duration_seconds": (
+                    repaired_duration.total_seconds
+                ),
+                "episode_production_count_duration_preserved": (
+                    target_duration_seconds is None
+                    or EPISODE_RUNTIME_MIN_SECONDS
+                    <= repaired_duration.total_seconds
+                    <= EPISODE_RUNTIME_MAX_SECONDS
+                ),
+            })
         return repaired
+
+    @classmethod
+    def _rebalance_episode_production_counts_locally(
+        cls,
+        output: dict[str, object],
+        *,
+        target_dialogue_count: int,
+        target_shot_count: int,
+        safe_only: bool = False,
+    ) -> dict[str, object]:
+        """Converge a valid body patch without inventing another episode draft."""
+
+        repaired = deepcopy(output)
+        raw_scenes = repaired.get("scenes")
+        if not isinstance(raw_scenes, list) or not raw_scenes:
+            return repaired
+        scenes = [scene for scene in raw_scenes if isinstance(scene, dict)]
+        if len(scenes) != len(raw_scenes):
+            return repaired
+
+        cls._rebalance_action_items(
+            scenes,
+            target=target_shot_count,
+            safe_only=safe_only,
+        )
+        cls._rebalance_dialogue_items(
+            scenes,
+            target=target_dialogue_count,
+            safe_only=safe_only,
+        )
+        metadata = repaired.setdefault("_meta", {})
+        if isinstance(metadata, dict):
+            metadata["episode_production_counts_local_rebalanced"] = True
+        return repaired
+
+    @classmethod
+    def _rebalance_action_items(
+        cls,
+        scenes: list[dict[str, object]],
+        *,
+        target: int,
+        safe_only: bool = False,
+    ) -> None:
+        def action_count() -> int:
+            return sum(
+                len(items)
+                for scene in scenes
+                for items in [scene.get("character_actions")]
+                if isinstance(items, list)
+            )
+
+        while action_count() < target:
+            candidates: list[tuple[int, int, int, str, str]] = []
+            for scene_index, scene in enumerate(scenes):
+                items = scene.get("character_actions")
+                if not isinstance(items, list) or len(items) >= 24:
+                    continue
+                for item_index, value in enumerate(items):
+                    if not isinstance(value, str):
+                        continue
+                    split = cls._split_performable_text(
+                        value,
+                        require_boundary=safe_only,
+                    )
+                    if split is not None:
+                        candidates.append(
+                            (len(value), scene_index, item_index, split[0], split[1])
+                        )
+            if not candidates:
+                break
+            _, scene_index, item_index, left, right = max(candidates)
+            items = scenes[scene_index].get("character_actions")
+            if not isinstance(items, list):
+                break
+            items[item_index:item_index + 1] = [left, right]
+
+        while action_count() > target:
+            candidates: list[tuple[int, int, int]] = []
+            for scene_index, scene in enumerate(scenes):
+                items = scene.get("character_actions")
+                if not isinstance(items, list) or len(items) <= 1:
+                    continue
+                for item_index in range(len(items) - 1):
+                    left = items[item_index]
+                    right = items[item_index + 1]
+                    if isinstance(left, str) and isinstance(right, str):
+                        candidates.append(
+                            (len(left) + len(right), scene_index, item_index)
+                        )
+            if not candidates:
+                break
+            _, scene_index, item_index = min(candidates)
+            items = scenes[scene_index].get("character_actions")
+            if not isinstance(items, list):
+                break
+            left = str(items[item_index]).rstrip("，,；;。 ")
+            right = str(items[item_index + 1]).lstrip()
+            items[item_index:item_index + 2] = [f"{left}；{right}"]
+
+    @classmethod
+    def _rebalance_dialogue_items(
+        cls,
+        scenes: list[dict[str, object]],
+        *,
+        target: int,
+        safe_only: bool = False,
+    ) -> None:
+        def dialogue_count() -> int:
+            return sum(
+                len(items)
+                for scene in scenes
+                for items in [scene.get("dialogues")]
+                if isinstance(items, list)
+            )
+
+        while dialogue_count() < target:
+            candidates: list[tuple[int, int, int, str, str]] = []
+            for scene_index, scene in enumerate(scenes):
+                items = scene.get("dialogues")
+                if not isinstance(items, list) or len(items) >= 20:
+                    continue
+                for item_index, item in enumerate(items):
+                    if not isinstance(item, dict):
+                        continue
+                    text = item.get("text")
+                    if not isinstance(text, str):
+                        continue
+                    split = cls._split_performable_text(
+                        text,
+                        require_boundary=safe_only,
+                    )
+                    if split is not None:
+                        candidates.append(
+                            (len(text), scene_index, item_index, split[0], split[1])
+                        )
+            if not candidates:
+                break
+            _, scene_index, item_index, left, right = max(candidates)
+            items = scenes[scene_index].get("dialogues")
+            if not isinstance(items, list) or not isinstance(items[item_index], dict):
+                break
+            source = items[item_index]
+            items[item_index:item_index + 1] = [
+                {**source, "text": left},
+                {**source, "text": right},
+            ]
+
+        while dialogue_count() > target:
+            merge_candidates: list[tuple[int, int, int]] = []
+            for scene_index, scene in enumerate(scenes):
+                items = scene.get("dialogues")
+                if not isinstance(items, list) or len(items) <= 1:
+                    continue
+                for item_index in range(len(items) - 1):
+                    left = items[item_index]
+                    right = items[item_index + 1]
+                    if not isinstance(left, dict) or not isinstance(right, dict):
+                        continue
+                    left_name = str(left.get("character_name") or "").strip().casefold()
+                    right_name = str(right.get("character_name") or "").strip().casefold()
+                    combined_length = len(str(left.get("text") or "")) + len(
+                        str(right.get("text") or "")
+                    )
+                    if left_name and left_name == right_name and combined_length <= 278:
+                        merge_candidates.append(
+                            (combined_length, scene_index, item_index)
+                        )
+            if merge_candidates:
+                _, scene_index, item_index = min(merge_candidates)
+                items = scenes[scene_index].get("dialogues")
+                if not isinstance(items, list):
+                    break
+                left = items[item_index]
+                right = items[item_index + 1]
+                if not isinstance(left, dict) or not isinstance(right, dict):
+                    break
+                left_text = str(left.get("text") or "").rstrip()
+                right_text = str(right.get("text") or "").lstrip()
+                separator = (
+                    ""
+                    if re.search(r"[\u3400-\u9fff]", left_text + right_text)
+                    else " "
+                )
+                left_intent = str(left.get("intent") or "").strip()
+                right_intent = str(right.get("intent") or "").strip()
+                intent = (
+                    left_intent
+                    if left_intent == right_intent or not right_intent
+                    else f"{left_intent}；{right_intent}"[:120]
+                )
+                items[item_index:item_index + 2] = [{
+                    **left,
+                    "intent": intent,
+                    "text": f"{left_text}{separator}{right_text}"[:280],
+                }]
+                continue
+
+            removable = cls._least_valuable_removable_dialogue(scenes)
+            if removable is None:
+                break
+            scene_index, item_index = removable
+            items = scenes[scene_index].get("dialogues")
+            if not isinstance(items, list):
+                break
+            items.pop(item_index)
+
+    @staticmethod
+    def _least_valuable_removable_dialogue(
+        scenes: list[dict[str, object]],
+    ) -> tuple[int, int] | None:
+        candidates: list[tuple[int, int, int]] = []
+        for scene_index, scene in enumerate(scenes):
+            items = scene.get("dialogues")
+            if not isinstance(items, list) or len(items) <= 1:
+                continue
+            action_text = " ".join(
+                str(value)
+                for value in (scene.get("character_actions") or [])
+                if isinstance(value, str)
+            ).casefold()
+            speaker_counts: dict[str, int] = {}
+            for item in items:
+                if isinstance(item, dict):
+                    speaker = str(item.get("character_name") or "").strip().casefold()
+                    speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
+            for item_index, item in enumerate(items):
+                if not isinstance(item, dict):
+                    continue
+                if scene_index == len(scenes) - 1 and item_index == len(items) - 1:
+                    continue
+                speaker = str(item.get("character_name") or "").strip().casefold()
+                if speaker_counts.get(speaker, 0) <= 1 and speaker not in action_text:
+                    continue
+                text = str(item.get("text") or "").strip()
+                effective_length = sum(character.isalnum() for character in text)
+                candidates.append((effective_length, scene_index, item_index))
+        if not candidates:
+            return None
+        _, scene_index, item_index = min(candidates)
+        return scene_index, item_index
+
+    @staticmethod
+    def _split_performable_text(
+        value: str,
+        *,
+        require_boundary: bool = False,
+    ) -> tuple[str, str] | None:
+        text = value.strip()
+        if len(text) < 6:
+            return None
+        midpoint = len(text) / 2
+        boundaries = [
+            index + 1
+            for index, character in enumerate(text[:-1])
+            if character in "。！？!?；;，,：:"
+            and len(text[:index + 1].strip()) >= 3
+            and len(text[index + 1:].strip()) >= 3
+        ]
+        whitespace_boundaries = [
+            index
+            for index, character in enumerate(text)
+            if character.isspace()
+            and len(text[:index].strip()) >= 3
+            and len(text[index + 1:].strip()) >= 3
+        ]
+        boundaries.extend(whitespace_boundaries)
+        if boundaries:
+            boundary = min(boundaries, key=lambda index: abs(index - midpoint))
+        elif len(text) >= 8 and not require_boundary:
+            boundary = round(midpoint)
+        else:
+            return None
+        left = text[:boundary].strip()
+        right = text[boundary:].strip()
+        if len(left) < 3 or len(right) < 3:
+            return None
+        return left, right
 
     @staticmethod
     def _episode_production_counts(
@@ -1810,7 +3723,7 @@ class ScriptGenerationService:
             "episode_dialogue_line_count": dialogue_count,
             "episode_shot_unit_count": shot_count,
             "episode_production_count_policy": (
-                "scenes_1_5_dialogues_20_30_shots_15_20_v1"
+                "scenes_1_5_dialogues_25_35_shots_15_20_v2"
             ),
             "episode_production_counts_repaired": repaired,
         })
@@ -1850,6 +3763,17 @@ class ScriptGenerationService:
         actual_characters = self._script_body_character_count(validated)
         scene_characters = self._script_body_scene_character_counts(validated)
         duration_estimate = estimate_screenplay_duration(validated)
+        scene_count, dialogue_count, shot_count = self._episode_production_counts(
+            validated
+        )
+        production_count_issue = not self._episode_production_counts_are_valid(
+            dialogue_count,
+            shot_count,
+        )
+        if not EPISODE_SCENE_MIN <= scene_count <= EPISODE_SCENE_MAX:
+            raise InvalidDraftMasterScriptOutputError(
+                f"本集正文场景数必须为{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个。"
+            )
         duration_issue = bool(
             target_duration_seconds is not None
             and not MAINLAND_DURATION_TARGET_MIN_SECONDS
@@ -1875,6 +3799,10 @@ class ScriptGenerationService:
             target_characters=guidance.reference_characters if guidance else None,
             estimated_duration_seconds=duration_estimate.total_seconds,
             duration_issue=duration_issue,
+            scene_count=scene_count,
+            dialogue_count=dialogue_count,
+            shot_count=shot_count,
+            production_count_issue=production_count_issue,
         )
         if (
             not language_issues
@@ -1915,6 +3843,9 @@ class ScriptGenerationService:
             screenplay_issue_count=len(screenplay_issues),
             appears_truncated=appears_truncated,
             duration_issue=duration_issue,
+            dialogue_count=dialogue_count,
+            shot_count=shot_count,
+            production_count_issue=production_count_issue,
         )
         acceptance_model_passes = 1
         body_only_repair = not language_issues
@@ -1930,6 +3861,9 @@ class ScriptGenerationService:
                         scene_characters=scene_characters,
                         duration_estimate=duration_estimate,
                         duration_issue=duration_issue,
+                        scene_count=scene_count,
+                        dialogue_count=dialogue_count,
+                        shot_count=shot_count,
                     ),
                     strategy=self._with_repair_output_budget(strategy),
                     output_schema=LLMMainlandBodyRepairPatch.model_json_schema(),
@@ -1985,8 +3919,11 @@ class ScriptGenerationService:
                         scene_characters=scene_characters,
                         duration_estimate=duration_estimate,
                         duration_issue=duration_issue,
+                        scene_count=scene_count,
+                        dialogue_count=dialogue_count,
+                        shot_count=shot_count,
                     ),
-                    strategy=strategy,
+                    strategy=self._with_full_draft_repair_output_budget(strategy),
                     output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
                     phase="acceptance_repair",
                     progress_callback=progress_callback,
@@ -2023,11 +3960,14 @@ class ScriptGenerationService:
                         validation_error=error,
                         task=(
                             "Return the complete episode while applying the mainland "
-                            "language, screenplay-style, body-completeness, and duration "
+                            "language, screenplay-style, body-completeness, duration, "
+                            f"dialogue-count ({EPISODE_DIALOGUE_LINE_MIN}-"
+                            f"{EPISODE_DIALOGUE_LINE_MAX}), and shot-count "
+                            f"({EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}) "
                             "corrections described by the original prompt."
                         ),
                     ),
-                    strategy=strategy,
+                    strategy=self._with_full_draft_repair_output_budget(strategy),
                     output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
                     phase="acceptance_contract_fallback",
                     progress_callback=progress_callback,
@@ -2076,6 +4016,11 @@ class ScriptGenerationService:
         repaired_characters = self._script_body_character_count(repaired_output)
         repaired_scene_characters = self._script_body_scene_character_counts(repaired_output)
         repaired_duration = estimate_screenplay_duration(repaired_output)
+        (
+            repaired_scene_count,
+            repaired_dialogue_count,
+            repaired_shot_count,
+        ) = self._episode_production_counts(repaired_output)
         duration_hard_drift = bool(
             target_duration_seconds is not None
             and not MAINLAND_DURATION_TARGET_MIN_SECONDS
@@ -2086,14 +4031,23 @@ class ScriptGenerationService:
                 or repaired_duration.total_seconds > MAINLAND_DURATION_HARD_MAX_SECONDS
             )
         )
-        if screenplay_issues and not language_issues and not appears_truncated and not duration_issue:
+        if (
+            screenplay_issues
+            and not language_issues
+            and not appears_truncated
+            and not duration_issue
+        ):
             if self._screenplay_style_lock_signature(
                 repaired_output
             ) != self._screenplay_style_lock_signature(validated):
                 raise InvalidDraftMasterScriptOutputError(
                     "The combined screenplay repair changed protected story or dialogue fields."
                 )
-        if (appears_truncated or duration_issue) and not language_issues and not screenplay_issues:
+        if (
+            (appears_truncated or duration_issue or production_count_issue)
+            and not language_issues
+            and not screenplay_issues
+        ):
             if self._script_body_lock_signature(
                 repaired_output
             ) != self._script_body_lock_signature(validated):
@@ -2110,6 +4064,7 @@ class ScriptGenerationService:
                 *( ["screenplay_style"] if screenplay_issues else [] ),
                 *( ["truncation"] if appears_truncated else [] ),
                 *( ["duration"] if duration_issue else [] ),
+                *( ["production_counts"] if production_count_issue else [] ),
             ]
             warnings = [
                 *(
@@ -2145,6 +4100,19 @@ class ScriptGenerationService:
                     if duration_hard_drift
                     else []
                 ),
+                *(
+                    [
+                        "production_counts:"
+                        f"scenes={repaired_scene_count},"
+                        f"dialogues={repaired_dialogue_count},"
+                        f"shots={repaired_shot_count}"
+                    ]
+                    if not self._episode_production_counts_are_valid(
+                        repaired_dialogue_count,
+                        repaired_shot_count,
+                    )
+                    else []
+                ),
             ]
             metadata["mainland_acceptance_warnings"] = warnings
             metadata["mainland_acceptance_warning_count"] = len(warnings)
@@ -2152,7 +4120,9 @@ class ScriptGenerationService:
                 int(metadata.get("mainland_acceptance_model_pass_count", 0))
                 + acceptance_model_passes
             )
-            metadata["mainland_acceptance_policy"] = "tiered_draft_v2"
+            metadata["mainland_acceptance_policy"] = (
+                "tiered_draft_with_production_counts_v3"
+            )
         self._record_screenplay_style_metrics(
             repaired,
             repaired=bool(screenplay_issues),
@@ -2192,7 +4162,9 @@ class ScriptGenerationService:
         )
         metadata["mainland_acceptance_warnings"] = warnings
         metadata["mainland_acceptance_warning_count"] = len(warnings)
-        metadata["mainland_acceptance_policy"] = "tiered_draft_v2"
+        metadata["mainland_acceptance_policy"] = (
+            "tiered_draft_with_production_counts_v3"
+        )
         metadata.setdefault("mainland_acceptance_model_pass_count", 0)
 
     @staticmethod
@@ -2352,6 +4324,7 @@ class ScriptGenerationService:
         for patch_scene in repair_patch.scenes:
             target = scenes_by_number[patch_scene.scene_number]
             target["character_actions"] = list(patch_scene.character_actions)
+            target["body_order"] = list(patch_scene.body_order)
             target["dialogues"] = [
                 dialogue.model_dump(mode="json")
                 for dialogue in patch_scene.dialogues
@@ -2365,12 +4338,14 @@ class ScriptGenerationService:
         output: dict[str, object],
         report: ContinuityQCReport,
         strategy: GenerationStrategy,
+        repair_attempt: int = 1,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
         self._emit_progress(
             progress_callback,
             "stage",
             stage="repairing_continuity",
+            repair_attempt=repair_attempt,
             blocking_issue_count=report.blocking_issue_count,
         )
         try:
@@ -2380,6 +4355,7 @@ class ScriptGenerationService:
                     original_prompt=original_prompt,
                     output=output,
                     report=report,
+                    repair_attempt=repair_attempt,
                 ),
                 strategy=self._with_repair_output_budget(strategy),
                 output_schema=LLMContinuityRepairPatch.model_json_schema(),
@@ -2413,6 +4389,12 @@ class ScriptGenerationService:
         if isinstance(metadata, dict):
             metadata["continuity_auto_repaired"] = True
             metadata["continuity_auto_repair_issue_count"] = report.blocking_issue_count
+            metadata["continuity_auto_repair_attempt"] = repair_attempt
+            recorded_attempts = metadata.get("continuity_auto_repair_attempts")
+            metadata["continuity_auto_repair_attempts"] = max(
+                recorded_attempts if isinstance(recorded_attempts, int) else 0,
+                repair_attempt,
+            )
         return repaired
 
     @staticmethod
@@ -2502,8 +4484,8 @@ class ScriptGenerationService:
                     output=validated,
                     non_chinese_fields=issues,
                 ),
-                strategy=strategy,
-                output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
+                strategy=self._with_repair_output_budget(strategy),
+                output_schema=LLMMainlandBodyRepairPatch.model_json_schema(),
                 phase="language_repair",
                 progress_callback=progress_callback,
             )
@@ -2617,6 +4599,12 @@ class ScriptGenerationService:
                         ),
                     )
                 except LLMStructuredOutputError as error:
+                    if self._structured_output_error_is_transient(error):
+                        raise LLMRequestError(
+                            "正文结构修复响应为空或被截断；可从当前集重新尝试。",
+                            category="empty_response",
+                            recoverable=True,
+                        ) from error
                     logger.warning(
                         "Draft contract patch returned invalid JSON; using full-root "
                         "fallback error=%s raw_chars=%d",
@@ -2681,10 +4669,16 @@ class ScriptGenerationService:
                                 "causal chain, or ending purpose."
                             ),
                         ),
-                        strategy=strategy,
+                        strategy=self._with_full_draft_repair_output_budget(strategy),
                         output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
                     )
                 except LLMStructuredOutputError as fallback_json_error:
+                    if self._structured_output_error_is_transient(fallback_json_error):
+                        raise LLMRequestError(
+                            "正文合同兜底响应为空或被截断；可从当前集重新尝试。",
+                            category="empty_response",
+                            recoverable=True,
+                        ) from fallback_json_error
                     fallback_raw_content = (fallback_json_error.raw_content or "").strip()
                     if not fallback_raw_content:
                         raise
@@ -2698,7 +4692,7 @@ class ScriptGenerationService:
                     )
                     model_pass_count += 1
                     try:
-                        raw_fallback = self._repair_llm_adapter.generate_structured_output(
+                        raw_fallback = self._json_repair_llm_adapter.generate_structured_output(
                             self._build_malformed_json_repair_prompt(
                                 raw_content=fallback_raw_content
                             ),
@@ -2708,6 +4702,12 @@ class ScriptGenerationService:
                     except (LLMStructuredOutputError, LLMRequestError) as repair_error:
                         if isinstance(repair_error, LLMRequestError):
                             raise
+                        if self._structured_output_error_is_transient(repair_error):
+                            raise LLMRequestError(
+                                "正文格式修复响应为空或被截断；可从当前集重新尝试。",
+                                category="empty_response",
+                                recoverable=True,
+                            ) from repair_error
                         raise InvalidDraftMasterScriptOutputError(
                             "合同兜底输出不是有效 JSON，且有界格式修复仍未返回完整剧本。"
                         ) from repair_error
@@ -3552,6 +5552,44 @@ class ScriptGenerationService:
                 if compact or target.get("entity_key"):
                     target[field_name] = "condition"
                     return
+            if field_name == "life_status" and any(
+                marker in compact
+                for marker in ("健康", "安全", "存活", "活着", "正常", "行动")
+            ):
+                target[field_name] = "alive"
+                return
+            if field_name == "transition":
+                transition_aliases = (
+                    (("establish", "established", "create", "created", "confirm", "confirmed", "建立", "确立", "确认"), "established"),
+                    (("resolve", "resolved", "settle", "settled", "close", "closed", "解决", "完成", "收束"), "resolved"),
+                    (("acquire", "acquired", "discover", "discovered", "reveal", "revealed", "learned", "unlocked", "获得", "发现", "揭示", "查明", "解锁"), "acquired"),
+                    (("lose", "lost", "missing", "disconnected", "失去", "丢失", "失联", "断联"), "lost"),
+                    (("move", "moved", "relocate", "relocated", "leave", "left", "离开", "移动", "转移"), "moved"),
+                    (("transfer", "transferred", "交换", "转交"), "transferred"),
+                    (("destroy", "destroyed", "break", "broken", "销毁", "摧毁", "损毁", "破坏"), "destroyed"),
+                    (("die", "died", "death", "dead", "死亡", "身亡"), "died"),
+                    (("recover", "recovered", "repair", "repaired", "restore", "restored", "恢复", "修复", "重建"), "recovered"),
+                )
+                for markers, canonical in transition_aliases:
+                    if any(marker in compact for marker in markers):
+                        target[field_name] = canonical
+                        return
+                # Unknown short labels still describe a state change; this is
+                # the least lossy canonical transition and avoids a whole
+                # episode regeneration for provider-specific wording.
+                if compact:
+                    target[field_name] = "changed"
+                    return
+            if field_name == "persistence":
+                if any(marker in compact for marker in ("temporary", "singleuse", "shortterm", "临时", "短暂", "一次性")):
+                    target[field_name] = "temporary"
+                    return
+                if any(marker in compact for marker in ("permanent", "lasting", "enduring", "longterm", "永久", "长期", "持久")):
+                    target[field_name] = "permanent"
+                    return
+                if compact:
+                    target[field_name] = "ongoing"
+                    return
 
         tone_aliases = {
             "intense": "intense",
@@ -3951,6 +5989,10 @@ class ScriptGenerationService:
                         "updated": "changed", "激活": "changed", "待定": "changed",
                         "injured": "changed", "escaped": "moved",
                         "observed": "established", "impending": "established",
+                        "acquired_information": "acquired",
+                        "disabled": "changed", "restricted": "changed",
+                        "preserved": "established", "maintained": "established",
+                        "discovered": "acquired", "heard": "acquired",
                     },
                 ),
                 (
@@ -3971,9 +6013,9 @@ class ScriptGenerationService:
                     {
                         "setup": "setup", "铺垫": "setup",
                         "active": "active", "进行中": "active",
-                        "progressing": "active",
+                        "progressing": "active", "advanced": "active",
                         "resolved": "resolved", "已解决": "resolved", "收束": "resolved",
-                        "seeded": "setup",
+                        "seeded": "setup", "introduced": "setup",
                     },
                 ),
                 (
@@ -4039,10 +6081,23 @@ class ScriptGenerationService:
                     "active_constraints",
                 ):
                     wrap_single_value(item, field_name)
+                    values = item.get(field_name)
+                    if isinstance(values, list):
+                        item[field_name] = [
+                            value
+                            for value in values
+                            if value is not None
+                            and not (isinstance(value, str) and not value.strip())
+                        ]
                 for field_name, aliases in field_specs:
                     normalize_enum(item, field_name, aliases)
                 if collection_name == "story_line_updates":
                     raw_status = str(item.get("status") or "").strip().casefold()
+                    raw_status_compact = re.sub(
+                        r"[\s_、，,。:：()（）/\\-]+",
+                        "",
+                        raw_status,
+                    )
                     contribution_values = {
                         "progress": "progress",
                         "推进": "progress",
@@ -4053,16 +6108,80 @@ class ScriptGenerationService:
                         "resolution": "resolution",
                         "收束": "resolution",
                     }
+                    if raw_status not in {"setup", "铺垫", "active", "进行中", "resolved", "已解决", "收束"}:
+                        if any(marker in raw_status_compact for marker in ("resolution", "resolved", "closed", "complete", "收束", "解决", "完成")):
+                            item["status"] = "resolved"
+                        elif any(marker in raw_status_compact for marker in ("setup", "seed", "seeded", "introduce", "introduced", "foundation", "铺垫", "埋设")):
+                            item["status"] = "setup"
+                        elif raw_status_compact:
+                            item["status"] = "active"
+                        raw_status = raw_status_compact
                     if raw_status in contribution_values:
-                        item.setdefault(
-                            "contribution_type",
-                            contribution_values[raw_status],
-                        )
+                        contribution_type = str(item.get("contribution_type") or "").strip().casefold()
+                        if contribution_type not in {
+                            "setup", "progress", "turning_point", "payoff", "resolution"
+                        }:
+                            item["contribution_type"] = contribution_values[raw_status]
                         item["status"] = (
                             "resolved"
                             if raw_status in {"resolution", "收束"}
                             else "active"
                         )
+                    contribution_type = str(
+                        item.get("contribution_type") or ""
+                    ).strip().casefold()
+                    if contribution_type not in {
+                        "setup",
+                        "progress",
+                        "turning_point",
+                        "payoff",
+                        "resolution",
+                    }:
+                        normalized_status = str(
+                            item.get("status") or "active"
+                        ).strip().casefold()
+                        item["contribution_type"] = {
+                            "setup": "setup",
+                            "resolved": "resolution",
+                        }.get(normalized_status, "progress")
+                elif collection_name == "setup_payoff_updates":
+                    raw_action = str(item.get("action") or "").strip().casefold()
+                    action_compact = re.sub(
+                        r"[\s_、，,。:：()（）/\\-]+",
+                        "",
+                        raw_action,
+                    )
+                    if raw_action not in {
+                        "setup", "埋设", "铺垫", "reinforce", "加强",
+                        "partial_payoff", "部分回收", "payoff", "回收", "完全回收",
+                        "defer", "延后",
+                    }:
+                        if any(marker in action_compact for marker in ("payoff", "paid", "resolve", "回收", "兑现", "完成")):
+                            item["action"] = "payoff"
+                        elif any(marker in action_compact for marker in ("defer", "delay", "postpone", "延后", "推迟")):
+                            item["action"] = "defer"
+                        elif any(marker in action_compact for marker in ("partial", "half", "部分")):
+                            item["action"] = "partial_payoff"
+                        elif action_compact:
+                            item["action"] = "reinforce"
+                    raw_setup_status = str(item.get("status") or "").strip().casefold()
+                    setup_status_compact = re.sub(
+                        r"[\s_、，,。:：()（）/\\-]+",
+                        "",
+                        raw_setup_status,
+                    )
+                    if raw_setup_status not in {
+                        "setup", "铺垫", "active", "进行中", "partial_payoff",
+                        "部分回收", "reinforced", "加强", "deferred", "延后",
+                        "established", "paid_off", "已回收",
+                    } and setup_status_compact:
+                        if any(marker in setup_status_compact for marker in ("paid", "payoff", "resolved", "complete", "回收", "兑现", "完成")):
+                            item["status"] = "paid_off"
+                            item["action"] = "payoff"
+                        elif any(marker in setup_status_compact for marker in ("setup", "seed", "introduced", "铺垫", "埋设")):
+                            item["status"] = "setup"
+                        else:
+                            item["status"] = "active"
                 normalize_scene_number_list(item, "evidence_scene_numbers")
                 knowledge_states = item.get("knowledge_states")
                 if isinstance(knowledge_states, (dict, str)):
@@ -4071,6 +6190,56 @@ class ScriptGenerationService:
                 if isinstance(knowledge_states, list):
                     normalized_knowledge_states: list[object] = []
                     for knowledge_index, knowledge_state in enumerate(knowledge_states):
+                        if (
+                            isinstance(knowledge_state, dict)
+                            and not set(knowledge_state).intersection(
+                                {"knowledge_key", "statement", "status"}
+                            )
+                        ):
+                            for label, raw_state in knowledge_state.items():
+                                label_text = str(label).strip()
+                                state_text = str(raw_state).strip()
+                                if not label_text or not state_text:
+                                    continue
+                                statement = f"{label_text}：{state_text}"[:300]
+                                compact_state = re.sub(
+                                    r"[\s_、，,。:：()（）/\\-]+",
+                                    "",
+                                    state_text.casefold(),
+                                )
+                                if any(
+                                    marker in compact_state
+                                    for marker in ("证伪", "错误", "不成立")
+                                ):
+                                    status = "disproved"
+                                elif any(
+                                    marker in compact_state
+                                    for marker in ("遗忘", "忘记")
+                                ):
+                                    status = "forgotten"
+                                elif any(
+                                    marker in compact_state
+                                    for marker in (
+                                        "怀疑", "未知", "未查明", "未确认", "无实据"
+                                    )
+                                ):
+                                    status = "suspected"
+                                elif any(
+                                    marker in compact_state
+                                    for marker in ("相信", "认为", "推测")
+                                ):
+                                    status = "believed"
+                                else:
+                                    status = "known"
+                                digest = hashlib.sha256(
+                                    f"{label_text}|{statement}".encode("utf-8")
+                                ).hexdigest()[:12]
+                                normalized_knowledge_states.append({
+                                    "knowledge_key": f"generated.knowledge.{digest}",
+                                    "statement": statement,
+                                    "status": status,
+                                })
+                            continue
                         if isinstance(knowledge_state, str):
                             statement = knowledge_state.strip()
                             if statement:
@@ -4103,6 +6272,20 @@ class ScriptGenerationService:
                             if not str(knowledge_state.get("status") or "").strip():
                                 knowledge_state["status"] = "known"
                     item["knowledge_states"] = normalized_knowledge_states
+                if collection_name == "continuity_state_updates":
+                    entity_key = str(item.get("entity_key") or "").strip()
+                    if entity_key and not re.fullmatch(
+                        r"[a-z0-9_.:-]+",
+                        entity_key,
+                    ):
+                        entity_type = str(item.get("entity_type") or "item").strip()
+                        entity_name = str(item.get("entity_name") or entity_key).strip()
+                        digest = hashlib.sha256(
+                            f"{entity_type}|{entity_name}".encode("utf-8")
+                        ).hexdigest()[:12]
+                        item["entity_key"] = (
+                            f"generated.{entity_type or 'item'}.{digest}"
+                        )
                 if collection_name == "setup_payoff_updates":
                     setup_payoff_ref = str(
                         item.get("setup_payoff_ref") or ""
@@ -4131,6 +6314,19 @@ class ScriptGenerationService:
                         item["target_payoff_episode"] = target_episode
 
         hook = output.get("continuation_hook")
+        if isinstance(hook, str) and hook.strip():
+            summary = hook.strip()[:300]
+            next_question = str(output.get("next_episode_question") or "").strip()
+            hook = {
+                "ending_hook_type": "信息悬念",
+                "ending_hook_summary": summary,
+                "next_episode_obligation": (
+                    next_question[:300]
+                    if next_question
+                    else "下一集必须回应本集结尾提出的未解问题。"
+                ),
+            }
+            output["continuation_hook"] = hook
         if isinstance(hook, dict):
             def pop_first_hook_alias(*field_names: str) -> object | None:
                 selected: object | None = None
@@ -4213,12 +6409,16 @@ class ScriptGenerationService:
             result: list[object] = []
             seen: set[str] = set()
             for value in values:
-                marker = json.dumps(
-                    value,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).strip().casefold()
+                marker = (
+                    value.strip().casefold()
+                    if isinstance(value, str)
+                    else json.dumps(
+                        value,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).strip().casefold()
+                )
                 if marker in seen:
                     continue
                 seen.add(marker)
@@ -4284,7 +6484,7 @@ class ScriptGenerationService:
                     output=validated,
                     issues=issues,
                 ),
-                strategy=strategy,
+                strategy=self._with_full_draft_repair_output_budget(strategy),
                 output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
                 phase="screenplay_style_repair",
                 progress_callback=progress_callback,
@@ -4357,7 +6557,6 @@ class ScriptGenerationService:
     def _ensure_script_body_length(
         self,
         *,
-        original_prompt: str,
         output: dict[str, object],
         strategy: GenerationStrategy,
         target_characters: int,
@@ -4399,18 +6598,21 @@ class ScriptGenerationService:
         )
         try:
             repaired = self._generate_postprocess_output(
-                adapter=self._repair_llm_adapter,
+                # Body completion is a constrained editorial pass, not story
+                # generation. Keep the high-reasoning DeepSeek draft intact and
+                # use the GPT editor route for one bounded scene-body patch.
+                adapter=self._script_editor_llm_adapter,
                 prompt=self._build_script_body_expansion_prompt(
-                    original_prompt=original_prompt,
                     output=validated,
                     actual_characters=actual_characters,
                     guidance=guidance,
                     scene_characters=scene_characters,
                 ),
-                strategy=strategy,
-                output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
+                strategy=self._with_repair_output_budget(strategy),
+                output_schema=LLMMainlandBodyRepairPatch.model_json_schema(),
                 phase="body_expansion",
                 progress_callback=progress_callback,
+                single_non_stream_attempt=True,
             )
         except (LLMStructuredOutputError, LLMRequestError) as error:
             if isinstance(error, LLMRequestError) and not is_recoverable_llm_request_error(error):
@@ -4432,13 +6634,55 @@ class ScriptGenerationService:
             self._unwrap_draft_response_envelope(repaired)
         )
         try:
-            expanded = LLMGeneratedDraftMasterScript.model_validate(
+            root_candidate = LLMGeneratedDraftMasterScript.model_validate(
                 {key: value for key, value in repaired.items() if key != "_meta"}
             )
+        except ValidationError:
+            root_candidate = None
+
+        try:
+            if root_candidate is not None:
+                # Keep compatibility with older adapters/checkpoints that return
+                # a complete episode despite the focused patch schema.
+                expanded_payload = repaired
+                self._merge_output_metadata(source=output, target=expanded_payload)
+                expanded = root_candidate
+            else:
+                repair_patch = LLMMainlandBodyRepairPatch.model_validate(
+                    {
+                        key: value
+                        for key, value in repaired.items()
+                        if key == "scenes"
+                    }
+                )
+                expected_scene_numbers = {
+                    scene.scene_number for scene in validated.scenes
+                }
+                actual_scene_numbers = {
+                    scene.scene_number for scene in repair_patch.scenes
+                }
+                if actual_scene_numbers != expected_scene_numbers:
+                    raise ValueError(
+                        "正文补量必须完整返回全部原场景，且不得改变场景编号。"
+                    )
+                expanded_payload = self._apply_mainland_body_repair_patch(
+                    output,
+                    repair_patch,
+                )
+                self._merge_output_metadata(source=output, target=expanded_payload)
+                expanded = LLMGeneratedDraftMasterScript.model_validate(
+                    {
+                        key: value
+                        for key, value in expanded_payload.items()
+                        if key != "_meta"
+                    }
+                )
         except ValidationError as error:
             raise InvalidDraftMasterScriptOutputError(
-                "Script-body expansion broke the DraftMasterScript contract."
+                "Script-body expansion returned an invalid scene body patch."
             ) from error
+        except ValueError as error:
+            raise InvalidDraftMasterScriptOutputError(str(error)) from error
         if self._script_body_lock_signature(expanded) != self._script_body_lock_signature(
             validated
         ):
@@ -4461,13 +6705,13 @@ class ScriptGenerationService:
                 f"({expanded_characters}/{guidance.truncation_floor_characters} hard floor)."
             )
         self._record_script_body_metrics(
-            repaired,
+            expanded_payload,
             actual_characters=expanded_characters,
             guidance=guidance,
             scene_characters=expanded_scene_characters,
             expanded=True,
         )
-        return repaired
+        return expanded_payload
 
     @staticmethod
     def _script_body_character_count(script: LLMGeneratedDraftMasterScript) -> int:
@@ -4507,6 +6751,7 @@ class ScriptGenerationService:
             for scene in scenes:
                 if isinstance(scene, dict):
                     scene.pop("character_actions", None)
+                    scene.pop("body_order", None)
                     scene.pop("dialogues", None)
         return payload
 
@@ -4520,6 +6765,7 @@ class ScriptGenerationService:
             for scene in scenes:
                 if isinstance(scene, dict):
                     scene.pop("character_actions", None)
+                    scene.pop("body_order", None)
         return payload
 
     @staticmethod
@@ -4622,6 +6868,34 @@ class ScriptGenerationService:
         )
 
     @staticmethod
+    def _defer_script_editor_candidate(
+        *,
+        source: DraftMasterScript,
+        reason: str,
+    ) -> DraftMasterScript:
+        """Keep a validated source when the optional GPT edit regresses it."""
+
+        scene_count = len(source.scenes)
+        dialogue_count = sum(len(scene.dialogues) for scene in source.scenes)
+        shot_count = sum(len(scene.character_actions) for scene in source.scenes)
+        duration = estimate_screenplay_duration(source)
+        metadata = {
+            **source.llm_metadata,
+            "script_editor_applied": False,
+            "script_editor_deferred": True,
+            "script_editor_deferred_reason": reason,
+            "script_editor_source_duration_seconds": duration.total_seconds,
+            "estimated_duration_seconds": duration.total_seconds,
+            "episode_scene_count": scene_count,
+            "episode_dialogue_line_count": dialogue_count,
+            "episode_shot_unit_count": shot_count,
+            "episode_production_count_policy": (
+                "scenes_1_5_dialogues_25_35_shots_15_20_v2"
+            ),
+        }
+        return source.model_copy(update={"llm_metadata": metadata})
+
+    @staticmethod
     def _emit_progress(
         callback: Callable[[str, dict[str, object]], None] | None,
         event_type: str,
@@ -4639,22 +6913,32 @@ class ScriptGenerationService:
         output_schema: dict[str, object] | None,
         phase: str,
         progress_callback: Callable[[str, dict[str, object]], None] | None,
+        single_non_stream_attempt: bool = False,
     ) -> dict[str, object]:
         """Recover one malformed post-process response without discarding the draft."""
 
+        if single_non_stream_attempt:
+            with bind_llm_log_context(stage=f"episode_script.{phase}"):
+                return adapter.generate_structured_output(
+                    prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                )
+
         try:
-            return adapter.generate_structured_output_stream(
-                prompt,
-                strategy=strategy,
-                output_schema=output_schema,
-                on_delta=lambda delta, reset: self._emit_progress(
-                    progress_callback,
-                    "draft_delta",
-                    delta=delta,
-                    reset=reset,
-                    phase=phase,
-                ),
-            )
+            with bind_llm_log_context(stage=f"episode_script.{phase}"):
+                return adapter.generate_structured_output_stream(
+                    prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                    on_delta=lambda delta, reset: self._emit_progress(
+                        progress_callback,
+                        "draft_delta",
+                        delta=delta,
+                        reset=reset,
+                        phase=phase,
+                    ),
+                )
         except LLMStructuredOutputError as first_error:
             logger.warning(
                 "Post-process structured stream failed; retrying non-streaming "
@@ -4664,6 +6948,38 @@ class ScriptGenerationService:
             )
         except LLMRequestError as first_error:
             if not is_recoverable_llm_request_error(first_error):
+                raise
+            route_failure_categories = tuple(
+                str(value)
+                for value in getattr(first_error, "route_failure_categories", ())
+                if value
+            )
+            stream_termination = str(
+                getattr(first_error, "stream_termination", "") or ""
+            ).casefold()
+            # Once the adapter has exhausted both gateways, repeating the same
+            # repair over non-streaming transport only adds another 2-3 minutes
+            # and cannot recover a response-budget exhaustion. Let the outer
+            # current-episode retry rotate the whole request instead.
+            if (
+                first_error.category
+                in {"failover_exhausted", "script_generation_routes_exhausted"}
+                or getattr(first_error, "stream_fallback_attempted", False)
+                or (
+                    first_error.category == "empty_response"
+                    and any(
+                        marker in stream_termination
+                        for marker in ("length", "max_output", "max_tokens", "incomplete")
+                    )
+                )
+                or (
+                    route_failure_categories
+                    and all(
+                    category in {"empty_response", "provider_gateway", "timeout", "transport"}
+                    for category in route_failure_categories
+                    )
+                )
+            ):
                 raise
             logger.warning(
                 "Post-process stream transport failed; retrying non-streaming "
@@ -4677,11 +6993,21 @@ class ScriptGenerationService:
 The previous post-processing transport returned empty, short, truncated, or non-JSON
 content. Return only the complete JSON object required by the supplied schema. Do not
 include analysis, Markdown fences, status text, or an explanation."""
-        return adapter.generate_structured_output(
-            recovery_prompt,
-            strategy=strategy,
-            output_schema=output_schema,
-        )
+        try:
+            with bind_llm_log_context(stage=f"episode_script.{phase}.recovery"):
+                return adapter.generate_structured_output(
+                    recovery_prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                )
+        except LLMStructuredOutputError as final_error:
+            if self._structured_output_error_is_transient(final_error):
+                raise LLMRequestError(
+                    "正文后处理响应为空或被截断；可从当前集重新尝试。",
+                    category="empty_response",
+                    recoverable=True,
+                ) from final_error
+            raise
 
     def _run_valid_draft_postprocess_stage(
         self,
@@ -4689,8 +7015,12 @@ include analysis, Markdown fences, status text, or an explanation."""
         output: dict[str, object],
         phase: str,
         operation: Callable[[dict[str, object]], dict[str, object]],
+        cancel_event: threading.Event | None = None,
     ) -> dict[str, object]:
         """Run an enhancement without allowing it to invalidate a complete draft."""
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRequestCancelledError()
 
         checkpoint = self._normalize_mechanical_draft_contract(deepcopy(output))
         LLMGeneratedDraftMasterScript.model_validate(
@@ -4699,6 +7029,8 @@ include analysis, Markdown fences, status text, or an explanation."""
         try:
             operation_input = deepcopy(checkpoint)
             candidate = operation(operation_input)
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
             candidate = self._normalize_mechanical_draft_contract(
                 self._unwrap_draft_response_envelope(candidate)
             )
@@ -4775,14 +7107,17 @@ include analysis, Markdown fences, status text, or an explanation."""
         self,
         *,
         prompt: str,
+        compact_recovery_prompt: str | None = None,
         strategy: GenerationStrategy,
         progress_callback: Callable[[str, dict[str, object]], None] | None,
+        cancel_event: threading.Event | None = None,
     ) -> dict[str, object]:
         schema = self._initial_draft_output_schema()
         model_pass_count = 0
         last_error: LLMStructuredOutputError | None = None
         last_request_error: LLMRequestError | None = None
         primary_attempt_count = 0
+        reasoning_length_exhausted = False
         failure_diagnostics: list[str] = []
         for attempt in range(1, INITIAL_DRAFT_GENERATION_MAX_ATTEMPTS + 1):
             primary_attempt_count = attempt
@@ -4802,18 +7137,44 @@ include analysis, Markdown fences, status text, or an explanation."""
             )
             model_pass_count += 1
             try:
-                generated = self._llm_adapter.generate_structured_output_stream(
-                    attempt_prompt,
-                    strategy=strategy,
-                    output_schema=schema,
-                    on_delta=lambda delta, reset: self._emit_progress(
+                if cancel_event is not None and cancel_event.is_set():
+                    raise LLMRequestCancelledError()
+                stream_kwargs = {
+                    "strategy": strategy,
+                    "output_schema": schema,
+                    "on_delta": lambda delta, reset: self._emit_progress(
                         progress_callback,
                         "draft_delta",
                         delta=delta,
                         reset=reset,
                         phase="draft",
                     ),
-                )
+                }
+                if cancel_event is not None:
+                    cancellable = getattr(
+                        self._llm_adapter,
+                        "generate_structured_output_stream_cancellable",
+                        None,
+                    )
+                    generated = (
+                        cancellable(
+                            attempt_prompt,
+                            **stream_kwargs,
+                            cancel_event=cancel_event,
+                        )
+                        if callable(cancellable)
+                        else self._llm_adapter.generate_structured_output_stream(
+                            attempt_prompt,
+                            **stream_kwargs,
+                        )
+                    )
+                else:
+                    generated = self._llm_adapter.generate_structured_output_stream(
+                        attempt_prompt,
+                        **stream_kwargs,
+                    )
+                if cancel_event is not None and cancel_event.is_set():
+                    raise LLMRequestCancelledError()
                 metadata = generated.setdefault("_meta", {})
                 if isinstance(metadata, dict):
                     metadata["initial_generation_model_pass_count"] = model_pass_count
@@ -4830,6 +7191,9 @@ include analysis, Markdown fences, status text, or an explanation."""
                 if not is_recoverable_llm_request_error(error):
                     raise
                 last_request_error = error
+                reasoning_length_exhausted = (
+                    self._is_reasoning_length_exhaustion(error)
+                )
                 failure_diagnostics.append(
                     self._request_failure_diagnostic(
                         phase=f"primary_attempt_{attempt}",
@@ -4882,6 +7246,13 @@ include analysis, Markdown fences, status text, or an explanation."""
                     error.status_code,
                     round((time.perf_counter() - attempt_started_at) * 1000),
                 )
+                if reasoning_length_exhausted and compact_recovery_prompt:
+                    logger.warning(
+                        "Initial draft exhausted its reasoning budget; switching to "
+                        "compact approved-context recovery elapsed_ms=%d",
+                        round((time.perf_counter() - attempt_started_at) * 1000),
+                    )
+                    break
                 if getattr(error, "stream_fallback_attempted", False):
                     raise LLMRequestError(
                         "正文模型的流式与非流式传输均未能完成本集请求；"
@@ -4895,13 +7266,10 @@ include analysis, Markdown fences, status text, or an explanation."""
                 # bounded script repair profile instead.
                 break
             except LLMStructuredOutputError as error:
-                if getattr(error, "empty_response_retry_attempted", False):
-                    raise LLMRequestError(
-                        "正文模型返回空的结构化响应；已完成一次有界重试，仍未返回可读取内容。",
-                        category="empty_response",
-                        recoverable=True,
-                    ) from error
                 last_error = error
+                reasoning_length_exhausted = (
+                    self._is_reasoning_length_exhaustion(error)
+                )
                 raw_content = error.raw_content
                 failure_diagnostics.append(
                     self._structured_failure_diagnostic(
@@ -4913,6 +7281,8 @@ include analysis, Markdown fences, status text, or an explanation."""
                 # second truncated draft only burns another call; the bounded
                 # model regeneration below receives a shorter recovery prompt.
                 if attempt == 1 and raw_content and raw_content.strip():
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise LLMRequestCancelledError()
                     self._emit_progress(
                         progress_callback,
                         "stage",
@@ -4920,14 +7290,20 @@ include analysis, Markdown fences, status text, or an explanation."""
                     )
                     model_pass_count += 1
                     try:
-                        repaired = self._repair_llm_adapter.generate_structured_output(
+                        repaired = self._json_repair_llm_adapter.generate_structured_output(
                             self._build_malformed_json_repair_prompt(
                                 raw_content=raw_content
                             ),
-                            strategy=strategy,
+                            strategy=self._with_full_draft_repair_output_budget(strategy),
                             output_schema=schema,
                         )
                     except LLMStructuredOutputError as repair_error:
+                        if self._structured_output_error_is_transient(repair_error):
+                            raise LLMRequestError(
+                                "正文 JSON 修复响应为空或被截断；可从当前集重新尝试。",
+                                category="empty_response",
+                                recoverable=True,
+                            ) from repair_error
                         last_error = repair_error
                         failure_diagnostics.append(
                             self._structured_failure_diagnostic(
@@ -4988,6 +7364,19 @@ include analysis, Markdown fences, status text, or an explanation."""
                             phase="json_repair",
                         )
                         return repaired
+                if reasoning_length_exhausted and compact_recovery_prompt:
+                    logger.warning(
+                        "Initial draft returned reasoning-only output; switching to "
+                        "compact approved-context recovery elapsed_ms=%d",
+                        round((time.perf_counter() - attempt_started_at) * 1000),
+                    )
+                    break
+                if self._structured_output_error_is_transient(error):
+                    raise LLMRequestError(
+                        "正文模型返回空的结构化响应；已完成一次有界重试，仍未返回可读取内容。",
+                        category="empty_response",
+                        recoverable=True,
+                    ) from error
                 else:
                     logger.warning(
                         "Initial draft structured response was empty attempt=%d/%d "
@@ -5004,16 +7393,24 @@ include analysis, Markdown fences, status text, or an explanation."""
         )
         model_pass_count += 1
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
             # The primary route already exercised the SSE transport. Use the
             # same configured model through a bounded non-streaming request so a
             # gateway-specific streaming failure is not repeated verbatim.
             fallback = self._initial_fallback_llm_adapter.generate_structured_output(
-                self._build_initial_draft_regeneration_fallback_prompt(prompt=prompt),
-                strategy=strategy,
+                (
+                    compact_recovery_prompt
+                    if reasoning_length_exhausted and compact_recovery_prompt
+                    else self._build_initial_draft_regeneration_fallback_prompt(
+                        prompt=prompt
+                    )
+                ),
+                strategy=self._with_full_draft_repair_output_budget(strategy),
                 output_schema=schema,
             )
         except LLMStructuredOutputError as fallback_error:
-            if getattr(fallback_error, "empty_response_retry_attempted", False):
+            if self._structured_output_error_is_transient(fallback_error):
                 raise LLMRequestError(
                     "正文模型返回空的结构化响应；已完成一次有界重试，仍未返回可读取内容。",
                     category="empty_response",
@@ -5027,6 +7424,8 @@ include analysis, Markdown fences, status text, or an explanation."""
             )
             fallback_raw_content = (fallback_error.raw_content or "").strip()
             if fallback_raw_content:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise LLMRequestCancelledError()
                 self._emit_progress(
                     progress_callback,
                     "stage",
@@ -5039,11 +7438,17 @@ include analysis, Markdown fences, status text, or an explanation."""
                             self._build_malformed_json_repair_prompt(
                                 raw_content=fallback_raw_content
                             ),
-                            strategy=strategy,
+                            strategy=self._with_full_draft_repair_output_budget(strategy),
                             output_schema=schema,
                         )
                     )
                 except LLMStructuredOutputError as repair_error:
+                    if self._structured_output_error_is_transient(repair_error):
+                        raise LLMRequestError(
+                            "正文 JSON 格式修复响应为空或被截断；可从当前集重新尝试。",
+                            category="empty_response",
+                            recoverable=True,
+                        ) from repair_error
                     failure_diagnostics.append(
                         self._structured_failure_diagnostic(
                             phase="model_regeneration_json_repair",
@@ -5074,6 +7479,8 @@ include analysis, Markdown fences, status text, or an explanation."""
                         metadata["initial_generation_failure_diagnostics"] = (
                             failure_diagnostics
                         )
+                        if reasoning_length_exhausted and compact_recovery_prompt:
+                            metadata["initial_generation_compact_recovery_used"] = True
                     return repaired_fallback
             raise InvalidDraftMasterScriptOutputError(
                 "正文模型在有界的主生成、JSON 修复和重新生成后仍未返回完整的"
@@ -5108,6 +7515,8 @@ include analysis, Markdown fences, status text, or an explanation."""
             metadata["initial_generation_retried"] = primary_attempt_count > 1
             metadata["initial_generation_fallback_used"] = True
             metadata["initial_generation_failure_diagnostics"] = failure_diagnostics
+            if reasoning_length_exhausted and compact_recovery_prompt:
+                metadata["initial_generation_compact_recovery_used"] = True
         preview = {key: value for key, value in fallback.items() if key != "_meta"}
         self._emit_progress(
             progress_callback,
@@ -5143,10 +7552,10 @@ include analysis, Markdown fences, status text, or an explanation."""
             else EPISODE_DRAFT_MIN_OUTPUT_TOKENS
         )
         output_tokens = min(
-            EPISODE_DRAFT_MAX_OUTPUT_TOKENS,
+            INITIAL_EPISODE_DRAFT_MAX_OUTPUT_TOKENS,
             max(
                 strategy.max_tokens,
-                EPISODE_DRAFT_MIN_OUTPUT_TOKENS,
+                INITIAL_EPISODE_DRAFT_MIN_OUTPUT_TOKENS,
                 target_based_tokens,
             ),
         )
@@ -5213,8 +7622,27 @@ include analysis, Markdown fences, status text, or an explanation."""
     def _with_repair_output_budget(
         strategy: GenerationStrategy,
     ) -> GenerationStrategy:
-        """Bound patch-only repairs without changing the main draft budget."""
-        output_tokens = min(strategy.max_tokens, REPAIR_PATCH_MAX_OUTPUT_TOKENS)
+        """Give screenplay patches enough room to finish, including hidden reasoning."""
+        output_tokens = min(
+            REPAIR_PATCH_MAX_OUTPUT_TOKENS,
+            max(strategy.max_tokens, REPAIR_PATCH_MIN_OUTPUT_TOKENS),
+        )
+        if output_tokens == strategy.max_tokens:
+            return strategy
+        return strategy.model_copy(update={"max_tokens": output_tokens})
+
+    @staticmethod
+    def _with_episode_production_count_repair_output_budget(
+        strategy: GenerationStrategy,
+    ) -> GenerationStrategy:
+        """Give the mechanical count patch room for reasoning and complete JSON."""
+        output_tokens = min(
+            EPISODE_PRODUCTION_COUNT_REPAIR_MAX_OUTPUT_TOKENS,
+            max(
+                strategy.max_tokens,
+                EPISODE_PRODUCTION_COUNT_REPAIR_MIN_OUTPUT_TOKENS,
+            ),
+        )
         if output_tokens == strategy.max_tokens:
             return strategy
         return strategy.model_copy(update={"max_tokens": output_tokens})
@@ -5225,7 +7653,7 @@ include analysis, Markdown fences, status text, or an explanation."""
     ) -> GenerationStrategy:
         """Give format-only full-draft recovery enough room to close the root."""
         output_tokens = min(
-            EPISODE_DRAFT_MAX_OUTPUT_TOKENS,
+            FULL_DRAFT_REPAIR_MAX_OUTPUT_TOKENS,
             max(strategy.max_tokens, FULL_DRAFT_REPAIR_MIN_OUTPUT_TOKENS),
         )
         if output_tokens == strategy.max_tokens:
@@ -5258,6 +7686,81 @@ include analysis, Markdown fences, status text, or an explanation."""
             value for value in (json_position, termination) if value
         )
         return f"{diagnostics[:-1]}; {details})" if details else diagnostics
+
+    @staticmethod
+    def _structured_output_error_is_transient(
+        error: LLMStructuredOutputError,
+    ) -> bool:
+        """Distinguish provider transport exhaustion from semantic bad JSON."""
+
+        if error.empty_response or error.empty_response_retry_attempted:
+            return True
+        raw_content = (error.raw_content or "").strip()
+        termination = str(error.stream_termination or "").casefold()
+        if raw_content:
+            # A non-empty malformed body still has useful material for the
+            # bounded JSON repair path. Only an actual broken stream marker,
+            # rather than a normal token-limit diagnostic, should bypass it.
+            return any(
+                marker in termination
+                for marker in ("ended_without_terminal_event", "unexpected_eof")
+            )
+        return any(
+            marker in termination
+            for marker in (
+                "length",
+                "max_output",
+                "max_tokens",
+                "token_limit",
+                "incomplete",
+                "truncated",
+                "ended_without_terminal_event",
+                "unexpected_eof",
+            )
+        )
+
+    @staticmethod
+    def _is_reasoning_length_exhaustion(error: Exception) -> bool:
+        if bool(getattr(error, "reasoning_length_exhausted", False)):
+            return True
+        termination = str(
+            getattr(error, "stream_termination", "") or ""
+        ).casefold()
+        reasoning_characters = getattr(error, "reasoning_characters", 0)
+        empty_response = (
+            isinstance(error, LLMRequestError)
+            and error.category in {"empty_response", "failover_exhausted"}
+        ) or (
+            isinstance(error, LLMStructuredOutputError)
+            and error.empty_response
+        )
+        return (
+            empty_response
+            and isinstance(reasoning_characters, int)
+            and reasoning_characters > 0
+            and any(
+                marker in termination
+                for marker in ("length", "max_output", "max_tokens", "token")
+            )
+        )
+
+    @classmethod
+    def _exception_chain_has_transient_llm_failure(
+        cls,
+        error: Exception,
+    ) -> bool:
+        current: BaseException | None = error
+        visited: set[int] = set()
+        for _ in range(8):
+            if current is None or id(current) in visited:
+                break
+            visited.add(id(current))
+            if isinstance(current, LLMRequestError):
+                return is_recoverable_llm_request_error(current)
+            if isinstance(current, LLMStructuredOutputError):
+                return cls._structured_output_error_is_transient(current)
+            current = current.__cause__ or current.__context__
+        return False
 
     @staticmethod
     def _build_initial_draft_regeneration_prompt(*, prompt: str) -> str:
@@ -5305,8 +7808,81 @@ Return one complete JSON object only."""
         shot_count: int,
         target_dialogue_count: int,
         target_shot_count: int,
+        current_duration_seconds: int,
+        target_duration_seconds: int | None,
+        market_path: str = "cn_mainland",
     ) -> str:
-        return f"""本集正文已经通过剧情结构和连续性校验，但台词或镜头执行单元数量不符合交付规则。
+        # The count repair only edits two per-scene arrays. Sending the full
+        # episode ledgers and continuity graph here needlessly increases both
+        # context pressure and hidden-reasoning time, while providing no
+        # information needed to choose a playable line or action. Keep the
+        # scene beat and current body as the authoritative compact context.
+        required_visible_characters: dict[int, set[str]] = {}
+        for update in output.character_state_updates:
+            for scene_number in update.evidence_scene_numbers:
+                required_visible_characters.setdefault(scene_number, set()).add(
+                    update.character_name
+                )
+        for update in output.relationship_state_updates:
+            for scene_number in update.evidence_scene_numbers:
+                required_visible_characters.setdefault(scene_number, set()).update(
+                    (update.source_character_name, update.target_character_name)
+                )
+        scene_context = [
+            {
+                "scene_number": scene.scene_number,
+                "purpose": scene.purpose,
+                "beat_summary": scene.beat_summary,
+                "turning_point": scene.turning_point,
+                "required_visible_characters": sorted(
+                    required_visible_characters.get(scene.scene_number, set())
+                ),
+                "character_actions": scene.character_actions,
+                "body_order": scene.body_order,
+                "dialogues": [
+                    dialogue.model_dump(mode="json") for dialogue in scene.dialogues
+                ],
+            }
+            for scene in output.scenes
+        ]
+        requested_duration_target = min(
+            EPISODE_RUNTIME_MAX_SECONDS,
+            max(
+                EPISODE_RUNTIME_MIN_SECONDS,
+                target_duration_seconds or output.target_duration_seconds,
+            ),
+        )
+        duration_target = min(
+            EPISODE_RUNTIME_PREFERRED_MAX_SECONDS,
+            max(
+                EPISODE_RUNTIME_PREFERRED_MIN_SECONDS,
+                requested_duration_target,
+            ),
+        )
+        language_is_chinese = ScriptGenerationService._is_chinese_language(
+            output.language
+        )
+        pacing_rule = (
+            "中文对白不要全部压成2至5字口号；在25至35句台词内，整体通常需要约"
+            "300至450个可说中文字符，并配合每个镜头内可见的动作、反应、停顿和后果。"
+            if language_is_chinese
+            else (
+                "英文对白不要全部压成单词式短句；在25至35句台词内，整体通常需要约"
+                "210至300个自然口语词，并配合每个镜头内可见的动作、反应、停顿和后果。"
+            )
+        )
+        market_contract_marker = (
+            "Market path: overseas (current profile: overseas_tiktok)."
+            if market_path == "overseas_tiktok"
+            else "Market path: cn_mainland."
+        )
+        return f"""{market_contract_marker}
+本集正文已经通过剧情结构和连续性校验，但台词或镜头执行单元数量不符合交付规则。
+本次响应的max_tokens是模型token预算，不是本集或全剧正文总字数配额；优先返回完整可用的JSON补丁，最终正文总字数由程序统计。
+
+当前程序估算成片约{current_duration_seconds}秒。数量修订后必须仍处于
+{EPISODE_RUNTIME_MIN_SECONDS}至{EPISODE_RUNTIME_MAX_SECONDS}秒，并尽量接近{duration_target}秒。
+不得为了减少条目而删除有效冲突、反应、动作过程或潜台词。{pacing_rule}
 
 当前全集台词共{dialogue_count}条，修订后必须恰好为{target_dialogue_count}条，并始终位于
 {EPISODE_DIALOGUE_LINE_MIN}至{EPISODE_DIALOGUE_LINE_MAX}条范围内。所有场景的dialogues数组
@@ -5318,48 +7894,89 @@ Return one complete JSON object only."""
 运镜等镜头语言凑数。
 
 本集场景总数必须保持在{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个。必须完整返回全部原场景，
-每场只返回scene_number、character_actions、dialogues。保持原场景数量、
+每场只返回scene_number、character_actions、body_order、dialogues。保持原场景数量、
 编号、顺序、人物身份、剧情事实、冲突、信息揭示、因果、状态变化、伏笔、结尾悬念和语言路径不变。
+每场required_visible_characters中的每个人物必须继续在该场的character_actions或dialogues中
+被明确点名并可见参与，不得因合并条目而删除其证据；补丁中不要返回required_visible_characters字段。
 只通过合并无效重复、补足必要反应、强化原有交锋或压缩解释性内容来达到数量。不得新增场景、人物、
 剧情事件、支线或设定。不要返回其他顶层字段、分析、Markdown或说明。
 
-已校验正文：
-{output.model_dump_json()}
+body_order必须用action:0、dialogue:0这类零基引用保存动作与对白的真实交错顺序；
+每个character_actions和dialogues条目各引用且只引用一次，不得先列完动作再集中列对白。
+
+已校验场景正文（只包含本次需要修改的局部）：
+{json.dumps(scene_context, ensure_ascii=False, separators=(',', ':'))}
 
 只返回包含全部原场景的局部补丁JSON。"""
 
     @staticmethod
-    def _build_script_body_expansion_prompt(
+    def _build_episode_production_count_repair_retry_prompt(
         *,
         original_prompt: str,
+        invalid_patch: dict[str, object],
+        validation_error: ValidationError | ValueError,
+    ) -> str:
+        return f"""{original_prompt}
+
+上一份局部补丁虽然完成了数量调整，但破坏了正文与人物状态证据之间的交叉合同。
+请重新返回一份完整替代补丁，继续满足同样的台词、镜头、场景和时长要求，并确保每场
+required_visible_characters中的人物在对应场景正文里被明确点名、可见参与。不要修改或返回
+任何人物状态、关系、剧情线、伏笔或连续性账本字段。
+
+上一份补丁的校验结果：
+{str(validation_error)[:1200]}
+
+上一份无效补丁：
+{json.dumps(invalid_patch, ensure_ascii=False, separators=(',', ':'))}
+
+只返回修正后的完整场景局部补丁JSON。"""
+
+    @staticmethod
+    def _build_script_body_expansion_prompt(
+        *,
         output: LLMGeneratedDraftMasterScript,
         actual_characters: int,
         guidance: ScriptBodyLengthGuidance,
         scene_characters: list[int],
     ) -> str:
-        return f"""{original_prompt}
+        scene_context = [
+            {
+                "scene_number": scene.scene_number,
+                "purpose": scene.purpose,
+                "beat_summary": scene.beat_summary,
+                "emotional_shift": scene.emotional_shift,
+                "turning_point": scene.turning_point,
+                "cliffhanger": scene.cliffhanger,
+                "character_actions": scene.character_actions,
+                "body_order": scene.body_order,
+                "dialogues": [
+                    dialogue.model_dump(mode="json")
+                    for dialogue in scene.dialogues
+                ],
+            }
+            for scene in output.scenes
+        ]
+        return f"""BODY-ONLY COMPLETION CONTRACT
+The previous episode script appears truncated; its truncation floor is
+{guidance.truncation_floor_characters} effective characters.
+正文结构和连续性已经通过校验，但当前正文过短：动作与台词合计只有{actual_characters}
+个有效字母或数字，低于保守下限{guidance.truncation_floor_characters}。请只补足已经存在的
+场景正文，不得改写剧情。当前各场景正文计数为{scene_characters}；没有单场字数配额。
+There is no per-scene character quota; there is no per-scene character quota.
+偏好范围为{guidance.preferred_min_characters}-{guidance.preferred_max_characters}，以剧情完成
+和可拍摄性为准，不要为了凑字数灌水。
 
-The previous structurally valid episode script appears truncated. Its character_actions plus
-dialogues.text contain only {actual_characters} effective letters or numbers, below the conservative
-truncation floor of {guidance.truncation_floor_characters}. Complete the missing enacted dramatic
-work. The broad preferred range is {guidance.preferred_min_characters}-
-{guidance.preferred_max_characters} effective characters, but plot completion controls where it ends.
-Current per-scene body counts are {scene_characters}; there is no per-scene character quota.
+只返回一个场景正文补丁JSON，顶层只能有scenes。必须完整返回全部原场景，保持场景编号、数量、
+顺序、人物身份、剧情事实、冲突、信息揭示、因果、状态变化、伏笔、结尾悬念和语言路径不变。
+每场只返回scene_number、character_actions、body_order、dialogues。通过可拍摄的阻挡、反应、
+环境互动、升级交锋、潜台词、打断和已有后果补足正文；不得新增场景、人物、事件、支线、设定、
+解释、回顾或旁白。每个动作必须是一个简洁独立的可拍摄单元，不写镜头语言、文学描写或不可见心理。
+body_order必须用action:0、dialogue:0这类零基引用保存真实交错顺序，每个动作和对白各引用一次。
 
-        Rewrite only each existing scene's character_actions and dialogues arrays. Copy every other JSON
-field exactly, including title, premise, characters, scene count, scene numbers, purpose, setting,
-beat summary, emotional movement, turning point, causality, and cliffhanger. Do not add a scene,
-character, plot event, explanation, recap, or planning commentary. Expand through playable
-        blocking, reactions, environmental interaction, escalating exchanges, subtext, interrupted
-        speech, and consequences already implied by that scene. Keep each character_actions item as one
-        concise, independently shootable action unit. Do not use omniscient explanation, inaccessible
-        thought, literary atmosphere, simile, or narrative paragraphs. Avoid repetition and padded exposition.
-        Keep the requested language. Return one complete JSON object only.
+已校验的场景正文局部：
+{json.dumps(scene_context, ensure_ascii=False, separators=(',', ':'))}
 
-Previous JSON:
-{output.model_dump_json()}
-
-Return one corrected JSON object only. Do not use Markdown fences or explanatory text."""
+只返回完整场景正文补丁JSON，不要Markdown、分析或说明。"""
 
     @staticmethod
     def _build_draft_contract_repair_prompt(
@@ -5431,6 +8048,9 @@ Return exactly one complete JSON object matching the authoritative response sche
         scene_characters: list[int],
         duration_estimate: ScreenplayDurationEstimate,
         duration_issue: bool,
+        scene_count: int,
+        dialogue_count: int,
+        shot_count: int,
     ) -> str:
         tasks: list[str] = []
         target_duration = min(
@@ -5470,6 +8090,13 @@ Return exactly one complete JSON object matching the authoritative response sche
                 f"预计成片约 {duration_estimate.total_seconds} 秒，超过115秒；保留全部剧情节点和"
                 f"尾钩，压缩重复动作、解释性台词和无推进停顿，使成片接近{target_duration}秒。"
             )
+        tasks.append(
+            ScriptGenerationService._build_mainland_production_count_task(
+                scene_count=scene_count,
+                dialogue_count=dialogue_count,
+                shot_count=shot_count,
+            )
+        )
         task_text = "\n".join(f"{index}. {task}" for index, task in enumerate(tasks, 1))
         range_text = (
             f"宽松参考范围为 {guidance.preferred_min_characters}-"
@@ -5502,6 +8129,9 @@ Return exactly one complete JSON object matching the authoritative response sche
         scene_characters: list[int],
         duration_estimate: ScreenplayDurationEstimate,
         duration_issue: bool,
+        scene_count: int,
+        dialogue_count: int,
+        shot_count: int,
     ) -> str:
         tasks: list[str] = []
         target_duration = min(
@@ -5536,6 +8166,13 @@ Return exactly one complete JSON object matching the authoritative response sche
                 f"当前预计成片约 {duration_estimate.total_seconds} 秒，超过115秒。保持全部剧情"
                 f"节点和结尾钩子，删除重复动作、解释性台词和无推进停顿，使预计时长接近{target_duration}秒。"
             )
+        tasks.append(
+            ScriptGenerationService._build_mainland_production_count_task(
+                scene_count=scene_count,
+                dialogue_count=dialogue_count,
+                shot_count=shot_count,
+            )
+        )
         task_text = "\n".join(
             f"{index}. {task}" for index, task in enumerate(tasks, 1)
         )
@@ -5547,6 +8184,7 @@ Return exactly one complete JSON object matching the authoritative response sche
                 "beat_summary": scene.beat_summary,
                 "turning_point": scene.turning_point,
                 "character_actions": scene.character_actions,
+                "body_order": scene.body_order,
                 "dialogues": [
                     dialogue.model_dump(mode="json") for dialogue in scene.dialogues
                 ],
@@ -5574,8 +8212,48 @@ Return exactly one complete JSON object matching the authoritative response sche
 需要修正的场景正文：
 {json.dumps(scene_context, ensure_ascii=False, separators=(',', ':'))}
 
-只返回局部补丁 JSON。scenes 中每项只包含 scene_number、character_actions、dialogues；
+只返回局部补丁 JSON。scenes 中每项只包含 scene_number、character_actions、body_order、dialogues；
+body_order使用action:0、dialogue:0这类零基引用，必须按真实表演顺序把本场每个动作和对白
+各引用且只引用一次，让动作与对白自然交错；
 不要返回标题、人物、状态账本、梗概或其他顶层字段。"""
+
+    @staticmethod
+    def _build_mainland_production_count_task(
+        *,
+        scene_count: int,
+        dialogue_count: int,
+        shot_count: int,
+    ) -> str:
+        target_dialogue_count = min(
+            EPISODE_DIALOGUE_LINE_MAX,
+            max(EPISODE_DIALOGUE_LINE_MIN, dialogue_count),
+        )
+        target_shot_count = min(
+            EPISODE_SHOT_UNIT_MAX,
+            max(EPISODE_SHOT_UNIT_MIN, shot_count),
+        )
+        dialogue_target = (
+            f"优先收敛到{target_dialogue_count}条"
+            if not EPISODE_DIALOGUE_LINE_MIN
+            <= dialogue_count
+            <= EPISODE_DIALOGUE_LINE_MAX
+            else "保持在该范围内"
+        )
+        shot_target = (
+            f"优先收敛到{target_shot_count}个"
+            if not EPISODE_SHOT_UNIT_MIN <= shot_count <= EPISODE_SHOT_UNIT_MAX
+            else "保持在该范围内"
+        )
+        return (
+            f"同步校准生产数量：当前{scene_count}场、{dialogue_count}条台词、"
+            f"{shot_count}个动作单元；修订后保留全部{scene_count}场且场景总数必须位于"
+            f"{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个，dialogues数组合计必须为"
+            f"{EPISODE_DIALOGUE_LINE_MIN}至{EPISODE_DIALOGUE_LINE_MAX}条（{dialogue_target}），"
+            f"character_actions数组合计必须为{EPISODE_SHOT_UNIT_MIN}至"
+            f"{EPISODE_SHOT_UNIT_MAX}个（{shot_target}）。每个dialogues条目必须是演员实际"
+            "说出的一句台词，每个character_actions条目必须是一个可独立拍摄的动作单元；"
+            "不得靠拆句、拆动作、重复、复述、空镜或解释性内容凑数。"
+        )
 
     @staticmethod
     def _build_continuity_repair_prompt(
@@ -5583,15 +8261,39 @@ Return exactly one complete JSON object matching the authoritative response sche
         original_prompt: str,
         output: dict[str, object],
         report: ContinuityQCReport,
+        repair_attempt: int = 1,
     ) -> str:
         blocking_issues = [
             issue.model_dump(mode="json")
             for issue in report.issues
             if issue.severity.value == "blocking"
         ]
+        context = ScriptGenerationService._build_continuity_repair_context(
+            output=output,
+            report=report,
+        )
+        if repair_attempt > 1:
+            return f"""上一版剧本已完成生成，但连续性检查发现硬冲突；你正在执行第{repair_attempt}轮局部连续性修复。
+只处理下面最新 QC 报告中的 blocking
+硬冲突；不要重写整集，不要改动未列出的场景、人物选择、剧情职责或结尾悬念。
+
+这是一个紧凑修复包，只提供受影响场景和状态账本。对于永久毁坏、永久丢失或不可用实体，必须从
+受影响场景的当前时间线动作和对白中删除其实际使用；除非补丁同时写出明确的找回、修复、替换或
+重新取得过程，否则不得保留该实体被操作、启动、读取或再次出现的证据。同步删除/改写对应的
+continuity_state_updates，不能只改摘要。对于人物能力冲突，动作必须符合既有能力；对于计划推进，
+必须在场景动作、对白或状态更新中留下可验证证据。
+
+必须修正的 blocking 冲突：
+{json.dumps(blocking_issues, ensure_ascii=False, separators=(',', ':'))}
+
+受影响上下文：
+{context}
+
+只返回一个符合补丁结构的 JSON 对象，不要使用 Markdown 代码块或解释文字。"""
         return f"""{original_prompt}
 
-上一版剧本已完成生成，但连续性检查发现硬冲突。请只修正列出的硬冲突，不要重写整集。
+上一版剧本已完成生成，但连续性检查发现硬冲突。这是第{repair_attempt}轮局部连续性修复；请只修正
+下面最新报告列出的硬冲突，不要重写整集。
 既有连续性状态优先于本集草稿。删除不可能发生的当前时间线行动，或在既有剧情允许时明确改成
 回忆、录像、录音等非当前行动；不得通过无铺垫复活、痊愈、修复、找回物品或修改历史来绕过冲突。
 保持本集剧情职责、其他人物选择、无关场景、因果链、正文深度和结尾悬念不变。同步修正受影响的
@@ -5609,6 +8311,35 @@ scene_number 合并场景，并保留空数组或 null 所代表的未修改原�
 {json.dumps(output, ensure_ascii=False, separators=(',', ':'))}
 
 只返回一个符合补丁结构的 JSON 对象，不要使用 Markdown 代码块或解释文字。"""
+
+    @staticmethod
+    def _build_continuity_repair_context(
+        *,
+        output: dict[str, object],
+        report: ContinuityQCReport,
+    ) -> str:
+        """Keep follow-up continuity repair focused on the failing evidence."""
+        scene_numbers = {
+            number
+            for issue in report.issues
+            if issue.severity.value == "blocking"
+            for number in issue.scene_numbers
+        }
+        raw_scenes = output.get("scenes")
+        scenes = [
+            scene
+            for scene in raw_scenes
+            if isinstance(scene, dict)
+            and scene.get("scene_number") in scene_numbers
+        ] if isinstance(raw_scenes, list) else []
+        context: dict[str, object] = {
+            "affected_scenes": scenes,
+            "character_state_updates": output.get("character_state_updates", []),
+            "continuity_state_updates": output.get("continuity_state_updates", []),
+            "story_line_updates": output.get("story_line_updates", []),
+            "setup_payoff_updates": output.get("setup_payoff_updates", []),
+        }
+        return json.dumps(context, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
     def _build_draft_language_repair_prompt(

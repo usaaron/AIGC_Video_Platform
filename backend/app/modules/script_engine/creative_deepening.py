@@ -217,6 +217,7 @@ class CreativeDeepeningService:
                     emotional_shift=scene.emotional_shift,
                     emotional_objective=scene.emotional_objective,
                     character_actions=scene.character_actions,
+                    body_order=scene.body_order,
                     turning_point=scene.turning_point,
                     scene_causality=scene.scene_causality,
                     cliffhanger=scene.cliffhanger,

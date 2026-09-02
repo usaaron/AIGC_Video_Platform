@@ -376,6 +376,34 @@ class StoryProjectWorkspaceSnapshotRecord(SQLModel, table=True):
     payload: dict[str, Any] = Field(sa_column=_json_payload_column())
 
 
+class PlanningSessionRecord(SQLModel, table=True):
+    __tablename__ = "planning_sessions"
+    __table_args__ = (
+        Index("ix_planning_sessions_updated", "updated_at"),
+        CheckConstraint("revision >= 1", name="ck_planning_session_revision"),
+        CheckConstraint(
+            "payload_size_bytes BETWEEN 2 AND 2000000",
+            name="ck_planning_session_payload_size",
+        ),
+    )
+
+    project_id: str = Field(
+        primary_key=True,
+        foreign_key="story_projects.project_id",
+        max_length=120,
+    )
+    session_id: str = Field(max_length=160)
+    schema_version: str = Field(max_length=20)
+    revision: int
+    client_instance_id: str = Field(max_length=120)
+    payload_checksum: str = Field(max_length=64)
+    payload_size_bytes: int
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
 class EpisodeArtifactVersionRecord(SQLModel, table=True):
     __tablename__ = "episode_artifact_versions"
     __table_args__ = (
@@ -425,6 +453,95 @@ class EpisodeArtifactVersionRecord(SQLModel, table=True):
     payload_checksum: str = Field(max_length=64)
     payload_size_bytes: int
     created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
+class NarrativeEventSetRecord(SQLModel, table=True):
+    """Immutable source batch extracted from one canonical artifact."""
+
+    __tablename__ = "narrative_event_sets"
+    __table_args__ = (
+        Index(
+            "ix_narrative_event_sets_project_episode",
+            "story_project_id",
+            "episode_number",
+        ),
+        Index(
+            "ix_narrative_event_sets_source_artifact",
+            "source_artifact_id",
+            unique=True,
+        ),
+        CheckConstraint(
+            "episode_number BETWEEN 1 AND 2000",
+            name="ck_narrative_event_set_episode_number",
+        ),
+        CheckConstraint(
+            "source_artifact_version >= 1",
+            name="ck_narrative_event_set_artifact_version",
+        ),
+    )
+
+    event_set_id: str = Field(primary_key=True, max_length=160)
+    story_project_id: str = Field(
+        foreign_key="story_projects.project_id",
+        index=True,
+        max_length=120,
+    )
+    episode_number: int
+    source_artifact_id: str = Field(max_length=120)
+    source_artifact_version: int
+    schema_version: str = Field(max_length=40)
+    extractor_policy_version: str = Field(max_length=80)
+    status: str = Field(index=True, max_length=20)
+    memory_layer: str = Field(max_length=20)
+    content_hash: str = Field(max_length=64)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
+class NarrativeEventRecord(SQLModel, table=True):
+    """Immutable source event with explicit evidence references."""
+
+    __tablename__ = "narrative_events"
+    __table_args__ = (
+        Index(
+            "ix_narrative_events_project_episode",
+            "story_project_id",
+            "episode_number",
+        ),
+        Index("ix_narrative_events_event_set_order", "event_set_id", "sequence_order"),
+        UniqueConstraint(
+            "event_set_id",
+            "sequence_order",
+            name="uq_narrative_event_set_order",
+        ),
+        CheckConstraint(
+            "episode_number BETWEEN 1 AND 2000",
+            name="ck_narrative_event_episode_number",
+        ),
+        CheckConstraint(
+            "sequence_order BETWEEN 1 AND 10000",
+            name="ck_narrative_event_sequence_order",
+        ),
+    )
+
+    event_id: str = Field(primary_key=True, max_length=180)
+    event_set_id: str = Field(max_length=160)
+    story_project_id: str = Field(
+        foreign_key="story_projects.project_id",
+        index=True,
+        max_length=120,
+    )
+    episode_number: int
+    sequence_order: int
+    source_artifact_id: str = Field(max_length=120)
+    event_type: str = Field(index=True, max_length=50)
+    memory_layer: str = Field(max_length=20)
+    recorded_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False)
     )
     payload: dict[str, Any] = Field(sa_column=_json_payload_column())

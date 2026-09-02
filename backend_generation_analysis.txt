@@ -1,0 +1,17 @@
+Backend generation pause analysis (read-only inspection)
+
+Primary likely cause: SSE script stream has no keepalive during model/repair phases. backend/app/api/routes/script_generation.py stream_script_draft (around lines 341-557) starts a daemon worker and blocks on queue events (event_stream lines 539-547). Worker publishes only progress callbacks; no heartbeat. Long LLM/retry/fallback work therefore leaves browser connection silent with no error. Response has no idle timeout/heartbeat headers.
+
+Frontend apiEventStream (frontend/lib/api-client.ts lines 60-119) has no idle watchdog; it waits on reader.read. If stream closes without terminal result, generation-client.ts lines 498-505 creates retryable stream_incomplete. generation-retry.ts lines 48-78/120-177 classifies this and retries; script-workspace.tsx around lines 1228-1251 marks item active and clears error. Thus transient close can look like a silent stop; clicking continue may coincide with automatic retry.
+
+LLM adapter: backend/app/modules/script_engine/llm_adapter.py RealLLMAdapter defaults httpx timeout_seconds=60 (around lines 332-428). _stream_text (2317-2551) yields deltas only when provider emits text. Read timeout handling (2443+) retries only when no content was received; after any content it raises, potentially triggering fallback. _generate_structured_output_stream (613-647) can fall back to a non-stream generation, causing a long silent interval.
+
+Pipeline has sparse stage events: generation_service.py _generate_draft (353-475), _generate_initial_draft_output (6349-6738), and postprocess (6261-6310) run serial model/JSON/contract/quality repairs with markers only at phase boundaries. Hidden reasoning or deterministic checks can look frozen.
+
+Why continue resumes: episode_script.py EpisodeScriptAgent.run (55-205) uses stable agent_request_id; first/second tools have checkpoints (100-151). agent_runtime/runtime.py AgentSession.call_tool (111-122) loads completed checkpoints on retry, so continuation proceeds from last successful step. repository.py start_or_resume (59-185) preserves checkpoints and stale-run recovery; lease defaults 30 min (25-30).
+
+Actual pause path is cooperative, only at episode/window boundaries: script-workspace.tsx pauseAtEpisodeBoundary (1005-1017; duplicate launcher 2269-2281), loop around 1253-1298. background task status running->pausing->paused in script-generation-background.ts (113-153). If user did not request pause, silent gap/retry is more likely. No server cancellation tied to client disconnect; daemon worker may continue.
+
+If screenshot is Story Bible generation: story_projects.py draft/interactive routes (750-878) are synchronous; story_planning_service.py generate_story_bible_draft (4041-4374) performs initial + format/contract/language/quality repairs without progress events. story-planning-client.ts (721-834) auto-retries and recovers saved draft. story-bible-panel.tsx (197-253, 1325-1392) only shows timer; pause aborts browser request, server work may continue. This also explains apparent pause/resume.
+
+Residual risk: AgentSession heartbeat thread every 30s (runtime.py 183-205) uses repository heartbeat; failures only warn (191-197). Lease is long, so unlikely for short pauses but could affect stale-run handling.

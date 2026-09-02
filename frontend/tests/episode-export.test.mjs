@@ -27,8 +27,12 @@ function buildDraft(language = "zh-CN") {
       purpose: "找到证据",
       beat_summary: "林夏潜入仓库。",
       setting_hint: "INT. 旧仓库 夜",
-      character_actions: ["林夏推开铁门。"],
-      dialogues: [{ character_name: "林夏", intent: "试探", text: "谁在那里？" }],
+      character_actions: ["林夏推开铁门。", "门后的影子向前一步。"],
+      dialogues: [
+        { character_name: "林夏", intent: "试探", text: "谁在那里？" },
+        { character_name: "周野", intent: "压低声音", text: "别开灯。" },
+      ],
+      body_order: ["action:0", "dialogue:0", "action:1", "dialogue:1"],
       cliffhanger: true,
     }],
     next_episode_question: "门后的人是谁？",
@@ -43,6 +47,8 @@ test("Markdown episode export keeps screenplay headings and readable scene struc
   assert.match(content, /## INT\. 旧仓库 夜/);
   assert.match(content, /△ 林夏推开铁门。/);
   assert.match(content, /\*\*林夏\*\*[\s\S]*（试探）[\s\S]*谁在那里？/);
+  assert.ok(content.indexOf("谁在那里？") < content.indexOf("门后的影子向前一步。"));
+  assert.ok(content.indexOf("门后的影子向前一步。") < content.indexOf("别开灯。"));
   assert.match(content, /FADE OUT \/ 淡出。/);
 });
 
@@ -71,20 +77,67 @@ test("Chinese export ignores cached English presentation text", () => {
 });
 
 test("overseas export presents English dialogue first with Chinese below", () => {
+  const draft = buildDraft("en");
+  draft.title = "第12集：门后的真相";
+  draft.scenes[0].dialogues[0] = {
+    character_name: "LENA HART",
+    intent: "试探",
+    text: "Who's there?",
+  };
   const view = {
-    view_version: "bilingual_script_view.v2",
-    target_language: "en-US-short-drama",
+    view_version: "bilingual_script_view.v3",
+    target_language: "zh-CN-short-drama",
     items: [
-      { path: "characters.0.name", source_text: "林夏", translated_text: "LENA HART" },
-      { path: "scenes.0.dialogues.0.character_name", source_text: "林夏", translated_text: "LENA HART" },
-      { path: "scenes.0.dialogues.0.text", translated_text: "Who's there?" },
+      { path: "characters.0.name", source_text: "林夏", translated_text: "林夏" },
+      { path: "scenes.0.dialogues.0.character_name", source_text: "LENA HART", translated_text: "林夏" },
+      { path: "scenes.0.dialogues.0.text", source_text: "Who's there?", translated_text: "谁在那里？" },
     ],
   };
-  const content = toEpisodePlainText(buildDraft(), 12, view);
+  const content = toEpisodePlainText(draft, 12, view);
 
-  assert.match(content, /LENA HART[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
+  assert.match(content, /林夏（LENA HART）[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
   assert.doesNotMatch(content, /Truth Behind the Door/);
-  assert.match(content, /△ LENA HART推开铁门。/);
+  assert.match(content, /△ 林夏推开铁门。/);
+});
+
+test("overseas English draft export adds Chinese below without replacing English", () => {
+  const draft = buildDraft("en");
+  draft.title = "第12集：门后的真相";
+  draft.characters[0].name = "LENA HART";
+  draft.scenes[0].character_actions[0] = "LENA HART推开铁门。";
+  draft.scenes[0].dialogues[0] = {
+    character_name: "LENA HART",
+    intent: "试探",
+    text: "Who's there?",
+  };
+  const view = {
+    view_version: "bilingual_script_view.v3",
+    target_language: "zh-CN-short-drama",
+    items: [
+      {
+        path: "characters.0.name",
+        source_text: "LENA HART",
+        translated_text: "林夏",
+      },
+      {
+        path: "scenes.0.dialogues.0.character_name",
+        source_text: "LENA HART",
+        translated_text: "林夏",
+      },
+      {
+        path: "scenes.0.dialogues.0.text",
+        source_text: "Who's there?",
+        translated_text: "谁在那里？",
+      },
+    ],
+  };
+
+  const content = toEpisodePlainText(draft, 12, view);
+
+  assert.match(content, /林夏（LENA HART）[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
+  assert.match(content, /△ 林夏推开铁门。/);
+  assert.doesNotMatch(content, /△ LENA HART推开铁门。/);
+  assert.doesNotMatch(content, /中文：Who's there\?/);
 });
 
 test("episode export filenames include only project and episode number", () => {
@@ -121,29 +174,38 @@ test("Word export preserves the client screenplay order in Chinese only", async 
   assert.match(documentXml, /INT\. 旧仓库 夜/);
   assert.match(documentXml, /林夏/);
   assert.match(documentXml, /谁在那里？/);
+  assert.ok(documentXml.indexOf("谁在那里？") < documentXml.indexOf("门后的影子向前一步。"));
+  assert.ok(documentXml.indexOf("门后的影子向前一步。") < documentXml.indexOf("别开灯。"));
   assert.doesNotMatch(documentXml, /EPISODE 12|TRUTH BEHIND|LIN XIA|Who&apos;s in there|中文：/);
   assert.match(documentXml, /FADE OUT/);
 });
 
 test("overseas Word export keeps Chinese action but uses bilingual dialogue", async () => {
+  const draft = buildDraft("en");
+  draft.title = "第12集：门后的真相";
+  draft.scenes[0].dialogues[0] = {
+    character_name: "LENA HART",
+    intent: "试探",
+    text: "Who's there?",
+  };
   const documentBlob = await createScreenplayDocxBlob("逆光而行", [{
     episodeNumber: 12,
-    draft: buildDraft(),
+    draft,
     bilingualView: {
-      view_version: "bilingual_script_view.v2",
-      target_language: "en-US-short-drama",
+      view_version: "bilingual_script_view.v3",
+      target_language: "zh-CN-short-drama",
       items: [
-        { path: "characters.0.name", source_text: "林夏", translated_text: "LENA HART" },
-        { path: "scenes.0.dialogues.0.character_name", source_text: "林夏", translated_text: "LENA HART" },
-        { path: "scenes.0.dialogues.0.text", translated_text: "Who's there?" },
+        { path: "characters.0.name", source_text: "林夏", translated_text: "林夏" },
+        { path: "scenes.0.dialogues.0.character_name", source_text: "LENA HART", translated_text: "林夏" },
+        { path: "scenes.0.dialogues.0.text", source_text: "Who's there?", translated_text: "谁在那里？" },
       ],
     },
   }]);
   const documentArchive = await JSZip.loadAsync(await documentBlob.arrayBuffer());
   const documentXml = await documentArchive.file("word/document.xml").async("string");
 
-  assert.match(documentXml, /LENA HART推开铁门/);
-  assert.match(documentXml, /LENA HART/);
+  assert.match(documentXml, /林夏推开铁门/);
+  assert.match(documentXml, /林夏（LENA HART）/);
   assert.match(documentXml, /Who&apos;s there\?/);
   assert.match(documentXml, /中文：谁在那里？/);
 });

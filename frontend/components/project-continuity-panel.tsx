@@ -9,11 +9,13 @@ import {
   relationshipNetworkProgress,
   selectCoreRelationshipCharacters,
 } from "@/lib/relationship-network";
+import { deduplicateCharacterCards } from "@/lib/continuity";
 import type { ScriptProject } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 
 export function ProjectContinuityPanel({ project }: { project: ScriptProject }) {
   const { t } = useLocale();
+  const characters = deduplicateCharacterCards(project.characters);
   const activeStoryLineCount = project.storyLines.filter(
     (line) => line.status !== "resolved",
   ).length;
@@ -49,12 +51,12 @@ export function ProjectContinuityPanel({ project }: { project: ScriptProject }) 
             </div>
             <p>{t("continuity.characterLibraryHelp")}</p>
           </div>
-          <span className="story-reference-count">{project.characters.length}</span>
+          <span className="story-reference-count">{characters.length}</span>
         </div>
 
-        {project.characters.length ? (
+        {characters.length ? (
           <div className="story-reference-character-grid">
-            {project.characters.map((character, index) => (
+            {characters.map((character, index) => (
               <CharacterCard character={character} index={index} key={character.id} />
             ))}
           </div>

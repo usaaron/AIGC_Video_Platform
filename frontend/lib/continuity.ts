@@ -30,12 +30,18 @@ const CRITICAL_CONTINUITY_DOMAINS = new Set([
 
 interface ContinuityEpisodeDraft {
   episodeNumber: number;
-  status?: string;
+  status: CharacterStateChange["status"];
   draft: GeneratedDraft;
   plannedStoryLineRefs: string[];
   plannedSetupRefs: string[];
   plannedPayoffRefs: string[];
   plannedStoryBeat?: string;
+  blockedStoryLineIds: string[];
+}
+
+interface CharacterIdentityRegistry {
+  aliasesByKey: Map<string, string[]>;
+  chineseNameByKey: Map<string, string>;
 }
 
 export function synchronizeContinuity(
@@ -57,15 +63,24 @@ export function synchronizeContinuity(
     .slice()
     .sort((left, right) => left.episodeNumber - right.episodeNumber)
     .map((episode): ContinuityEpisodeDraft => {
-      const run = episode.modificationCandidate?.candidate_generation_run
-        ?? episode.generationRun;
+      const run = episode.generationRun;
       return {
         episodeNumber: episode.episodeNumber,
-        status: episode.status,
+        status: episodeContinuityStatus(episode),
         draft: resolveEpisodeDraft(episode),
         plannedStoryLineRefs: run.episode_context?.planned_story_line_refs ?? [],
         plannedSetupRefs: run.episode_context?.planned_setup_refs ?? [],
         plannedPayoffRefs: run.episode_context?.planned_payoff_refs ?? [],
+        blockedStoryLineIds: run.episode_context?.storyline_duties?.length
+          ? (run.continuity_qc_report?.issues ?? [])
+            .filter((issue) => issue.severity === "blocking")
+            .filter((issue) => (
+              issue.issue_type === "missing_storyline_duty_progress"
+              || issue.issue_type === "storyline_duty_scene_mismatch"
+              || issue.issue_type === "storyline_duty_unsupported_evidence"
+            ))
+            .map((issue) => issue.entity_key)
+          : [],
         ...(run.episode_context?.planned_story_beat
           ? { plannedStoryBeat: run.episode_context.planned_story_beat }
           : {}),
@@ -190,7 +205,9 @@ function synchronizeWorldStates(
       const priorHistory = previous?.history ?? [];
       const signature = worldStateChangeSignature(change);
       const signatures = seenChanges.get(key) ?? new Set<string>();
-      const duplicate = signatures.has(signature);
+      const duplicateIndex = priorHistory.findIndex(
+        (item) => worldStateChangeSignature(item) === signature,
+      );
       signatures.add(signature);
       seenChanges.set(key, signatures);
       records.set(key, {
@@ -202,7 +219,11 @@ function synchronizeWorldStates(
         persistence: update.persistence,
         futureConstraint: change.futureConstraint,
         lastUpdatedEpisode: episodeNumber,
-        history: duplicate ? priorHistory : [...priorHistory, change],
+        history: duplicateIndex >= 0
+          ? priorHistory.map((item, index) => (
+              index === duplicateIndex ? { ...item, status: change.status } : item
+            ))
+          : [...priorHistory, change],
       });
     }
   }
@@ -224,7 +245,7 @@ export function storyBibleProjectStoryLines(
   const characterIdsByRef = new Map<string, string>();
   for (const registry of storyBible.character_registry) {
     const character = characters.find((item) => (
-      normalizeName(item.name) === normalizeName(registry.name)
+      characterNameKey(item.name) === characterNameKey(registry.name)
       || `character.${item.id.replace(/[^a-zA-Z0-9_.:-]/g, "-")}` === registry.character_ref
     ));
     if (character) characterIdsByRef.set(registry.character_ref, character.id);
@@ -261,9 +282,9 @@ export function storyBibleProjectCharacters(
   storyBible: StoryBible,
   existingCharacters: CharacterDraft[],
 ): CharacterDraft[] {
-  const characters = [...existingCharacters];
+  const characters = deduplicateCharacterCards(existingCharacters);
   for (const registry of storyBible.character_registry) {
-    if (characters.some((item) => normalizeName(item.name) === normalizeName(registry.name))) {
+    if (characters.some((item) => characterNameKey(item.name) === characterNameKey(registry.name))) {
       continue;
     }
     const arc = storyBible.character_arc_targets.find(
@@ -294,7 +315,7 @@ export function storyBibleProjectRelationships(
   const characterIdsByRef = new Map<string, string>();
   for (const registry of storyBible.character_registry) {
     const character = characters.find((item) => (
-      normalizeName(item.name) === normalizeName(registry.name)
+      characterNameKey(item.name) === characterNameKey(registry.name)
       || `character.${item.id.replace(/[^a-zA-Z0-9_.:-]/g, "-")}` === registry.character_ref
     ));
     if (character) characterIdsByRef.set(registry.character_ref, character.id);
@@ -361,6 +382,7 @@ function synchronizeCanonicalStoryLines(
     draft,
     plannedStoryLineRefs,
     plannedStoryBeat,
+    blockedStoryLineIds,
   } of drafts) {
     const updatesById = new Map(
       (draft.story_line_updates ?? []).map((update) => [update.story_line_id, update]),
@@ -380,6 +402,16 @@ function synchronizeCanonicalStoryLines(
     for (const update of draft.story_line_updates ?? []) {
       const line = byId.get(update.story_line_id);
       if (!line) continue;
+      if (blockedStoryLineIds.includes(update.story_line_id)) {
+        const warning = `第${episodeNumber}集故事线证据未通过检查，暂不写入连续性投影。`;
+        line.warnings.push(warning);
+        line.episodeBeats.push({
+          episodeNumber,
+          summary: warning,
+          alignment: "missing",
+        });
+        continue;
+      }
       line.status = update.status;
       line.currentState = update.progress_summary.trim();
       line.lastProgressedEpisode = episodeNumber;
@@ -575,19 +607,25 @@ function synchronizeCharacterCards(
   existingCharacters: CharacterDraft[],
   drafts: Array<{ episodeNumber: number; status?: string; draft: GeneratedDraft }>,
 ): CharacterDraft[] {
-  const characters: CharacterDraft[] = existingCharacters.map((character) => ({
+  const identityRegistry = buildCharacterIdentityRegistry(drafts, existingCharacters);
+  const characters: CharacterDraft[] = deduplicateCharacterCards(
+    existingCharacters,
+    identityRegistry,
+  ).map((character) => ({
     ...character,
+    name: chineseCharacterCardName(character.name, identityRegistry),
     dynamicState: drafts.length ? undefined : character.dynamicState,
     stateHistory: drafts.length ? [] : character.stateHistory,
   }));
   const charactersByName = new Map(
-    characters.map((character) => [normalizeName(character.name), character]),
+    characters.flatMap((character) => characterIdentityKeys(character.name, identityRegistry)
+      .map((key) => [key, character] as const)),
   );
   for (const { episodeNumber, status, draft } of drafts) {
     for (const generated of draft.characters ?? []) {
-      const normalizedName = normalizeName(generated.name);
-      if (!normalizedName) continue;
-      const existing = charactersByName.get(normalizedName);
+      const identityKeys = characterIdentityKeys(generated.name, identityRegistry);
+      if (!identityKeys.length) continue;
+      const existing = identityKeys.map((key) => charactersByName.get(key)).find(Boolean);
       if (existing) {
         // Generated episode profiles may fill an empty baseline but never rewrite it.
         existing.role ||= generated.role;
@@ -595,9 +633,10 @@ function synchronizeCharacterCards(
         existing.motivation ||= generated.motivation;
         continue;
       }
+      const cardName = chineseCharacterCardName(generated.name, identityRegistry);
       const created: CharacterDraft = {
-        id: generatedCharacterId(generated.name),
-        name: generated.name.trim(),
+        id: generatedCharacterId(cardName),
+        name: cardName,
         age: "",
         gender: "",
         role: generated.role,
@@ -611,12 +650,16 @@ function synchronizeCharacterCards(
         stateHistory: [],
       };
       characters.push(created);
-      charactersByName.set(normalizedName, created);
+      identityKeys.forEach((key) => charactersByName.set(key, created));
+      characterIdentityKeys(created.name, identityRegistry)
+        .forEach((key) => charactersByName.set(key, created));
     }
     const explicitUpdates = draft.character_state_updates ?? [];
     if (explicitUpdates.length) {
       for (const update of explicitUpdates) {
-        const character = charactersByName.get(normalizeName(update.character_name));
+        const character = characterIdentityKeys(update.character_name, identityRegistry)
+          .map((key) => charactersByName.get(key))
+          .find(Boolean);
         if (!character) continue;
         applyCharacterStateUpdate(
           character,
@@ -627,7 +670,9 @@ function synchronizeCharacterCards(
       }
     } else {
       for (const generated of draft.characters ?? []) {
-        const character = charactersByName.get(normalizeName(generated.name));
+        const character = characterIdentityKeys(generated.name, identityRegistry)
+          .map((key) => charactersByName.get(key))
+          .find(Boolean);
         const fallback = deriveFallbackCharacterState(draft, generated.name, generated.motivation);
         if (!character || !fallback) continue;
         applyCharacterStateUpdate(
@@ -639,7 +684,182 @@ function synchronizeCharacterCards(
       }
     }
   }
-  return characters;
+  return deduplicateCharacterCards(characters, identityRegistry);
+}
+
+/**
+ * Keep one stable card per story identity. Model responses often vary only in
+ * case, spacing, punctuation, or an added bilingual name in parentheses.
+ */
+export function deduplicateCharacterCards(
+  characters: CharacterDraft[],
+  identityRegistry: CharacterIdentityRegistry = {
+    aliasesByKey: new Map(),
+    chineseNameByKey: new Map(),
+  },
+): CharacterDraft[] {
+  const byKey = new Map<string, CharacterDraft>();
+  for (const candidate of characters) {
+    const name = chineseCharacterCardName(candidate.name, identityRegistry);
+    const keys = characterIdentityKeys(candidate.name, identityRegistry);
+    const key = keys[0];
+    if (!key) continue;
+    const existing = keys.map((candidateKey) => byKey.get(candidateKey)).find(Boolean);
+    if (!existing) {
+      const card = { ...candidate, name: name || candidate.name };
+      keys.forEach((candidateKey) => byKey.set(candidateKey, card));
+      continue;
+    }
+    const preferred = characterCardPriority(candidate) > characterCardPriority(existing)
+      ? candidate
+      : existing;
+    const secondary = preferred === candidate ? existing : candidate;
+    const merged = {
+      ...mergeCharacterCards(preferred, secondary),
+      name: chineseCharacterCardName(preferred.name || secondary.name, identityRegistry),
+    };
+    [...new Set([...keys, ...characterIdentityKeys(existing.name, identityRegistry)])]
+      .forEach((candidateKey) => byKey.set(candidateKey, merged));
+  }
+  return [...new Set(byKey.values())];
+}
+
+function buildCharacterIdentityRegistry(
+  drafts: Array<{ draft: GeneratedDraft }>,
+  existingCharacters: CharacterDraft[],
+): CharacterIdentityRegistry {
+  const groups: Array<{ keys: Set<string>; chineseName: string }> = [];
+  const registerAliases = (keys: Set<string>, chineseName: string) => {
+    if (!keys.size) return;
+    const overlapping = groups.filter((group) => (
+      [...keys].some((key) => group.keys.has(key))
+    ));
+    const mergedKeys = new Set([
+      ...keys,
+      ...overlapping.flatMap((group) => [...group.keys]),
+    ]);
+    for (const group of overlapping) groups.splice(groups.indexOf(group), 1);
+    groups.push({ keys: mergedKeys, chineseName });
+  };
+  for (const character of existingCharacters) {
+    const match = character.name.trim().match(/^(.+?)\s*[（(](.+?)[）)]$/);
+    if (!match) continue;
+    const primary = match[1].trim();
+    const alias = match[2].trim();
+    const primaryChinese = /[\u3400-\u9fff]/.test(primary);
+    const aliasChinese = /[\u3400-\u9fff]/.test(alias);
+    const primaryLatin = /[A-Za-z]/.test(primary);
+    const aliasLatin = /[A-Za-z]/.test(alias);
+    const chineseName = primaryChinese && aliasLatin && !aliasChinese
+      ? primary
+      : aliasChinese && primaryLatin && !primaryChinese
+        ? alias
+        : null;
+    if (!chineseName) continue;
+    registerAliases(new Set(characterNameKeys(character.name)), chineseName);
+  }
+  for (const { draft } of drafts) {
+    for (const scene of draft.scenes ?? []) {
+      for (const dialogue of scene.dialogues ?? []) {
+        const chineseName = dialogue.chinese_character_name?.trim();
+        if (!chineseName || !/[\u3400-\u9fff]/.test(chineseName)) continue;
+        const keys = new Set([
+          ...characterNameKeys(dialogue.character_name),
+          ...characterNameKeys(chineseName),
+        ]);
+        if (!keys.size) continue;
+        registerAliases(keys, chineseName);
+      }
+    }
+  }
+  const aliasesByKey = new Map<string, string[]>();
+  const chineseNameByKey = new Map<string, string>();
+  for (const group of groups) {
+    const aliases = [...group.keys];
+    for (const key of aliases) {
+      aliasesByKey.set(key, aliases);
+      chineseNameByKey.set(key, group.chineseName);
+    }
+  }
+  return { aliasesByKey, chineseNameByKey };
+}
+
+function characterIdentityKeys(
+  value: string,
+  registry: CharacterIdentityRegistry,
+): string[] {
+  const direct = characterNameKeys(value);
+  return [...new Set([
+    ...direct,
+    ...direct.flatMap((key) => registry.aliasesByKey.get(key) ?? []),
+  ])];
+}
+
+function chineseCharacterCardName(
+  value: string,
+  registry: CharacterIdentityRegistry,
+): string {
+  const directKeys = characterNameKeys(value);
+  const registered = directKeys
+    .map((key) => registry.chineseNameByKey.get(key))
+    .find(Boolean);
+  if (registered) return registered;
+  const match = value.trim().match(/^(.+?)\s*[（(](.+?)[）)]$/);
+  if (!match) return value.trim();
+  const primary = match[1].trim();
+  const alias = match[2].trim();
+  const primaryChinese = /[\u3400-\u9fff]/.test(primary);
+  const aliasChinese = /[\u3400-\u9fff]/.test(alias);
+  const primaryLatin = /[A-Za-z]/.test(primary);
+  const aliasLatin = /[A-Za-z]/.test(alias);
+  if (primaryChinese && aliasLatin && !aliasChinese) return primary;
+  if (aliasChinese && primaryLatin && !primaryChinese) return alias;
+  return value.trim();
+}
+
+function characterCardPriority(character: CharacterDraft): number {
+  return Number(character.source === "user") * 100
+    + Number(Boolean(character.dynamicState)) * 20
+    + Number(Boolean(character.description)) * 4
+    + Number(Boolean(character.background)) * 2
+    + Number(Boolean(character.role));
+}
+
+function mergeCharacterCards(primary: CharacterDraft, secondary: CharacterDraft): CharacterDraft {
+  const primaryHistory = primary.stateHistory ?? [];
+  const secondaryHistory = secondary.stateHistory ?? [];
+  const stateHistory = [...primaryHistory, ...secondaryHistory]
+    .filter((item, index, all) => all.findIndex((candidate) => (
+      candidate.episodeNumber === item.episodeNumber
+      && candidate.summary === item.summary
+      && candidate.cause === item.cause
+    )) === index)
+    .sort((left, right) => left.episodeNumber - right.episodeNumber);
+  const primaryState = primary.dynamicState;
+  const secondaryState = secondary.dynamicState;
+  const dynamicState = (primaryState && secondaryState
+    && secondaryState.lastUpdatedEpisode > primaryState.lastUpdatedEpisode)
+    ? secondaryState
+    : primaryState ?? secondaryState;
+  return {
+    ...secondary,
+    ...primary,
+    name: primary.name.trim() || secondary.name.trim(),
+    age: primary.age || secondary.age,
+    gender: primary.gender || secondary.gender,
+    role: primary.role || secondary.role,
+    background: primary.background || secondary.background,
+    appearance: primary.appearance || secondary.appearance,
+    description: primary.description || secondary.description,
+    motivation: primary.motivation || secondary.motivation,
+    source: primary.source ?? secondary.source,
+    lastUpdatedEpisode: Math.max(
+      primary.lastUpdatedEpisode ?? 0,
+      secondary.lastUpdatedEpisode ?? 0,
+    ) || undefined,
+    dynamicState,
+    stateHistory,
+  };
 }
 
 function applyCharacterStateUpdate(
@@ -756,7 +976,13 @@ function deriveFallbackCharacterState(
 }
 
 function episodeCommitStatus(status?: string): CharacterStateChange["status"] {
-  return ["confirmed", "deepened", "final"].includes(status ?? "")
+  return status === "confirmed" ? "confirmed" : "provisional";
+}
+
+function episodeContinuityStatus(
+  episode: Pick<EpisodeWorkspace, "artifactRefs" | "lockedAt" | "status">,
+): CharacterStateChange["status"] {
+  return episode.lockedAt || episode.artifactRefs?.final || episode.status === "final"
     ? "confirmed"
     : "provisional";
 }
@@ -969,7 +1195,7 @@ function buildContinuityEvidenceIndex(
   const indexedCharacters = characters
     .map((character) => ({
       character,
-      normalizedName: normalizeName(character.name),
+      normalizedName: characterNameKey(character.name),
     }))
     .filter((item) => item.normalizedName);
 
@@ -980,9 +1206,9 @@ function buildContinuityEvidenceIndex(
         || scene.turning_point
         || scene.beat_summary;
       const dialogueSpeakers = new Set(
-        scene.dialogues.map((dialogue) => normalizeName(dialogue.character_name)),
+        scene.dialogues.map((dialogue) => characterNameKey(dialogue.character_name)),
       );
-      const normalizedActions = scene.character_actions.map((action) => action.toLocaleLowerCase());
+      const normalizedActions = scene.character_actions.map((action) => characterNameKey(action));
       for (const { character, normalizedName } of indexedCharacters) {
         if (
           dialogueSpeakers.has(normalizedName)
@@ -995,10 +1221,10 @@ function buildContinuityEvidenceIndex(
     }
     for (const update of draft.relationship_state_updates ?? []) {
       const source = indexedCharacters.find(
-        (item) => item.normalizedName === normalizeName(update.source_character_name),
+        (item) => item.normalizedName === characterNameKey(update.source_character_name),
       );
       const target = indexedCharacters.find(
-        (item) => item.normalizedName === normalizeName(update.target_character_name),
+        (item) => item.normalizedName === characterNameKey(update.target_character_name),
       );
       if (!source || !target || source.character.id === target.character.id) continue;
       const id = relationshipId(source.character.id, target.character.id);
@@ -1092,14 +1318,13 @@ function findLastCharacterScene(
   draft: GeneratedDraft,
   characterName: string,
 ): GeneratedDraft["scenes"][number] | null {
-  const normalizedName = characterName.trim().toLocaleLowerCase();
+  const normalizedName = characterNameKey(characterName);
   const matchingScene = draft.scenes.slice().reverse().find((scene) => {
     const dialogueMatch = scene.dialogues.some(
-      (dialogue) => dialogue.character_name.trim().toLocaleLowerCase()
-        === normalizedName,
+      (dialogue) => characterNameKey(dialogue.character_name) === normalizedName,
     );
     const actionMatch = scene.character_actions.some(
-      (action) => action.toLocaleLowerCase().includes(normalizedName),
+      (action) => characterNameKey(action).includes(normalizedName),
     );
     return dialogueMatch || actionMatch;
   });
@@ -1118,7 +1343,7 @@ function isVagueRelationshipType(value: string): boolean {
 }
 
 function generatedCharacterId(name: string): string {
-  const normalized = normalizeName(name);
+  const normalized = characterNameKey(name);
   const slug = normalized
     .replace(/[^a-z0-9\u3400-\u9fff]+/g, ".")
     .replace(/^\.+|\.+$/g, "")
@@ -1135,10 +1360,48 @@ function normalizeName(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
+function characterNameKey(value: string): string {
+  const normalized = normalizeName(value);
+  const match = normalized.match(/^(.+?)\s*[（(](.+?)[）)]$/);
+  let identity = normalized;
+  if (match) {
+    const primary = match[1].trim();
+    const alias = match[2].trim();
+    const isSpeakerMarker = /^(?:o\.s\.|v\.o\.|continued|pre[\s-]?lap)$/i.test(alias);
+    const isBilingualAlias = (
+      /[\u3400-\u9fff]/.test(primary) !== /[\u3400-\u9fff]/.test(alias)
+      && /[A-Za-z]/.test(`${primary}${alias}`)
+    );
+    if (isSpeakerMarker || isBilingualAlias) identity = primary;
+  }
+  return identity
+    .replace(/[（()）]/g, "")
+    .replace(/[“”‘’'"`·•,，。:：;；!?！？、_—–-]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function characterNameKeys(value: string): string[] {
+  const normalized = normalizeName(value);
+  const match = normalized.match(/^(.+?)\s*[（(](.+?)[）)]$/);
+  const primary = match?.[1]?.trim();
+  const alias = match?.[2]?.trim();
+  const isBilingualAlias = Boolean(primary && alias && (
+    /[\u3400-\u9fff]/.test(primary) !== /[\u3400-\u9fff]/.test(alias)
+    && /[A-Za-z]/.test(`${primary}${alias}`)
+  ));
+  return [...new Set([
+    characterNameKey(value),
+    ...(isBilingualAlias && primary && alias
+      ? [characterNameKey(primary), characterNameKey(alias)]
+      : []),
+  ].filter(Boolean))];
+}
+
 function resolveEpisodeDraft(episode: EpisodeWorkspace): GeneratedDraft {
   return episode.finalizationResult?.master_script
-    ?? parseDraft(episode.confirmedDraftJson)
     ?? parseDraft(episode.workingDraftJson)
+    ?? parseDraft(episode.confirmedDraftJson)
     ?? episode.generationRun.draft_master_script;
 }
 

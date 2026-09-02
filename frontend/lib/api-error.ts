@@ -9,13 +9,13 @@ export function visibleApiError(
   if (failureClass?.trim().toLocaleLowerCase() === "configuration") {
     return marketProfile === "cn_mainland"
       ? "生成服务配置当前不可用，请联系管理员检查模型设置。已保存的内容不会丢失。"
-      : "The generation service configuration is unavailable. Please ask an administrator to check the model settings. Saved work is safe.";
+      : "生成服务配置当前不可用，请联系管理员检查模型设置。已保存的内容不会丢失。";
   }
   if (marketProfile !== "cn_mainland") {
-    if (status === 422) return "The generated content was incomplete. Previously saved work is safe; please try again.";
-    if (status === 429) return "The generation service is busy. Previously saved work is safe; please try again shortly.";
-    if (status === 503) return "The generation service is temporarily unavailable. Previously saved work is safe; please try again later.";
-    return "The request could not be completed. Previously saved work is safe; please try again.";
+    if (status === 422) return "本次生成的内容不完整，系统已保留此前成功保存的内容，请重新尝试。";
+    if (status === 429) return "生成服务当前较忙，已保存的内容不会丢失，请稍后重试。";
+    if (status === 503) return "生成服务暂时不可用，已保存的内容不会丢失，请稍后重试。";
+    return "请求暂未完成，已保存的内容不会丢失，请稍后重试。";
   }
   if (status === 422) {
     return "本次生成的内容不完整，系统已保留此前成功保存的内容，请重新尝试。";
@@ -60,4 +60,14 @@ export function userFacingError(error: unknown, fallback: string): string {
     return candidate.message;
   }
   return fallback;
+}
+
+export function isRequestAborted(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "name" in error
+    && (error as { name?: unknown }).name === "AbortError"
+  );
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,7 +15,13 @@ from app.modules.script_engine.long_story_models import (
     ContinuityTimelineEvent,
     ContinuityWorldState,
     EpisodeArtifact,
+    EpisodeArtifactKind,
     EpisodeContinuitySummary,
+    MemoryLayer,
+    NarrativeEvent,
+    NarrativeEventSet,
+    NarrativeEventSetStatus,
+    NarrativeEventType,
     SetupPayoffRecord,
     SetupPayoffStatus,
     StoryBible,
@@ -293,6 +300,94 @@ def project_episode_artifact_to_ledger(
         warnings=list(previous.warnings if previous else []),
         source_artifact_id=artifact.artifact_id,
         updated_at=datetime.now(timezone.utc),
+    )
+
+
+def project_narrative_event_set_to_ledger(
+    *,
+    event_set: NarrativeEventSet,
+    events: list[NarrativeEvent],
+    story_bible: StoryBible,
+    previous: ContinuityLedger | None,
+) -> ContinuityLedger:
+    """Replay a canonical event set through the existing ledger projector."""
+
+    if event_set.memory_layer != MemoryLayer.canonical:
+        raise ValueError("Only canonical event sets can update the continuity ledger.")
+    if event_set.status != NarrativeEventSetStatus.validated:
+        raise ValueError("Only validated event sets can update the continuity ledger.")
+    if {event.event_id for event in events} != set(event_set.event_ids):
+        raise ValueError("Narrative Event Set events do not match event_ids.")
+    if any(
+        event.event_set_id != event_set.event_set_id
+        or event.source_artifact_id != event_set.source_artifact_id
+        or event.story_project_id != event_set.story_project_id
+        or event.episode_number != event_set.episode_number
+        for event in events
+    ):
+        raise ValueError("Narrative events must share their event set source identity.")
+    event_hash = hashlib.sha256(
+        json.dumps(
+            [
+                event.model_dump(mode="json")
+                for event in sorted(events, key=lambda item: item.sequence_order)
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if event_hash != event_set.content_hash:
+        raise ValueError("Narrative Event Set content hash does not match its events.")
+
+    payload: dict[str, Any] = {
+        "character_state_updates": [],
+        "relationship_state_updates": [],
+        "continuity_state_updates": [],
+        "story_line_updates": [],
+        "setup_payoff_updates": [],
+    }
+    for event in sorted(events, key=lambda item: item.sequence_order):
+        mutation = dict(event.state_mutation or {})
+        if event.event_type == NarrativeEventType.episode_summary:
+            payload["synopsis"] = event.summary
+        elif event.event_type == NarrativeEventType.character_state_changed:
+            payload["character_state_updates"].append(mutation)
+        elif event.event_type == NarrativeEventType.relationship_state_changed:
+            payload["relationship_state_updates"].append(mutation)
+        elif event.event_type == NarrativeEventType.world_state_changed:
+            payload["continuity_state_updates"].append(mutation)
+        elif event.event_type == NarrativeEventType.story_line_progressed:
+            payload["story_line_updates"].append(mutation)
+        elif event.event_type == NarrativeEventType.setup_payoff_updated:
+            payload["setup_payoff_updates"].append(mutation)
+        elif event.event_type == NarrativeEventType.hook_emitted:
+            payload["continuation_hook"] = mutation
+
+    payload.setdefault(
+        "synopsis",
+        f"Canonical event set accepted for episode {event_set.episode_number}.",
+    )
+    payload_size = len(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    )
+    bridge_artifact = EpisodeArtifact(
+        artifact_id=event_set.source_artifact_id,
+        story_project_id=event_set.story_project_id,
+        episode_number=event_set.episode_number,
+        artifact_kind=EpisodeArtifactKind.final,
+        memory_layer=MemoryLayer.canonical,
+        content_schema_version="narrative_event_projection.v1",
+        content_payload=payload,
+        artifact_version=event_set.source_artifact_version,
+        payload_checksum=event_set.content_hash,
+        payload_size_bytes=max(2, min(payload_size, 5_000_000)),
+        created_at=event_set.created_at,
+    )
+    return project_episode_artifact_to_ledger(
+        artifact=bridge_artifact,
+        story_bible=story_bible,
+        previous=previous,
     )
 
 

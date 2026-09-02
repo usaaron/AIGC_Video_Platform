@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -9,21 +10,37 @@ from app.modules.master_script.models import (
     DialogueLine,
     DraftMasterScript,
     DraftSceneCard,
+    LLMScriptEditorialPatch,
     ScriptTone,
 )
-from app.modules.script_engine.llm_adapter import LLMAdapter
+from app.modules.script_engine.llm_adapter import (
+    LLMAdapter,
+    LLMRequestError,
+    LLMStructuredOutputError,
+)
 from app.modules.script_engine.models import GenerationStrategy, LLMModelInfo
 from app.modules.script_engine.script_post_editor import (
-    InvalidScriptPostEditError,
+    ScriptPostEditCheckpoint,
     ScriptPostEditor,
 )
 
 
 class EditorialPatchAdapter(LLMAdapter):
-    def __init__(self, *, short: bool = False, marked_speaker: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        short: bool = False,
+        overlong: bool = False,
+        marked_speaker: bool = False,
+        unknown_speaker: bool = False,
+    ) -> None:
         self.short = short
+        self.overlong = overlong
         self.marked_speaker = marked_speaker
+        self.unknown_speaker = unknown_speaker
         self.call_count = 0
+        self.prompts: list[str] = []
+        self.max_tokens_seen: list[int] = []
 
     def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
         return prompt
@@ -36,35 +53,53 @@ class EditorialPatchAdapter(LLMAdapter):
         output_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.call_count += 1
+        self.prompts.append(prompt)
+        self.max_tokens_seen.append(strategy.max_tokens)
         assert "DeepSeek已经完成一集完整初稿" in prompt
         assert "总数只能为1–5个" in prompt
-        assert "dialogues合计必须为20–30条" in prompt
+        assert "dialogues合计必须为25–35条" in prompt
         assert "character_actions合计必须为15–20项" in prompt
+        assert "字体与版式由系统按照partner_screenplay.v1统一处理" in prompt
         assert output_schema is not None
-        line = (
-            "Stop."
-            if self.short
-            else "You know exactly what this contract costs us tonight, Damian."
-        )
+        if self.short:
+            line = "Stop."
+        elif self.overlong:
+            line = (
+                "You know exactly what this contract costs every person in this room, "
+                "and you will explain every hidden payment before anyone leaves tonight."
+            )
+        else:
+            line = "You know exactly what this contract costs us tonight, Damian."
+        speaker_cycle = ("Elena", "Damian") * 7
         return {
             "scenes": [
                 {
                     "scene_number": scene_number,
                     "character_actions": [
-                        f"Action {index} changes the physical balance around the signed contract."
+                        f"桌边的契约与人物站位发生第{index}次可见变化。"
                         for index in range(1, 9 if scene_number == 1 else 8)
                     ],
                     "dialogues": [
                         {
                             "character_name": (
-                                f"{speaker} (V.O.)"
-                                if self.marked_speaker and speaker == "Elena"
-                                else speaker
+                                "孩童"
+                                if self.unknown_speaker and index == 0
+                                else (
+                                    f"{speaker} (V.O.)"
+                                    if self.marked_speaker and speaker == "Elena"
+                                    else speaker
+                                )
                             ),
-                            "intent": "force the other person to reveal the hidden price",
+                            "chinese_character_name": (
+                                "埃琳娜" if speaker == "Elena" else "达米安"
+                            ),
+                            "intent": "逼对方说出隐藏的代价",
                             "text": line,
+                            "chinese_translation": "你很清楚这份契约今晚让我们付出了什么，达米安。",
                         }
-                        for speaker in ("Elena", "Damian") * 5
+                        for index, speaker in enumerate(
+                            speaker_cycle[:13 if scene_number == 1 else 12]
+                        )
                     ],
                 }
                 for scene_number in (1, 2)
@@ -88,6 +123,243 @@ class EditorialPatchAdapter(LLMAdapter):
         )
 
 
+class ProgressiveCompressionAdapter(EditorialPatchAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lines = (
+            "You know exactly what this contract costs every person in this room, and you will explain every hidden payment before anyone leaves tonight.",
+            "You know who paid for this contract, so tell me before anyone leaves.",
+            "You know who paid for this contract, Damian.",
+        )
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        line = self.lines[min(self.call_count - 1, len(self.lines) - 1)]
+        for scene in result["scenes"]:
+            for dialogue in scene["dialogues"]:
+                dialogue["text"] = line
+        return result
+
+
+class FarOverDurationCompressionAdapter(ProgressiveCompressionAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lines = (
+            "You know who paid for this contract and why everyone here is afraid to say it aloud tonight.",
+            "You know who paid for this contract and why everyone here is afraid to say it aloud tonight.",
+            "You know who paid for this contract, Damian.",
+        )
+
+
+class UnavailableEditorialAdapter(EditorialPatchAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.call_count += 1
+        raise LLMRequestError(
+            "temporary gateway failure",
+            status_code=502,
+            category="provider_gateway",
+            recoverable=True,
+        )
+
+
+class UnavailableAfterShortPassAdapter(EditorialPatchAdapter):
+    def __init__(self) -> None:
+        super().__init__(short=True)
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.call_count:
+            self.call_count += 1
+            raise LLMRequestError(
+                "temporary gateway failure",
+                status_code=502,
+                category="provider_gateway",
+                recoverable=True,
+            )
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+
+
+class OverseasFieldRepairAdapter(EditorialPatchAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if "只修复下列海外短剧正文中的语言字段" in prompt:
+            self.call_count += 1
+            self.prompts.append(prompt)
+            self.max_tokens_seen.append(strategy.max_tokens)
+            assert strategy.max_tokens == 32_000
+            assert output_schema is not None
+            return {
+                "patches": [
+                    {
+                        "path": "scenes.0.character_actions.0",
+                        "value": "埃琳娜把契约按在桌上。",
+                    },
+                    {
+                        "path": "scenes.0.dialogues.0.text",
+                        "value": "You knew all along. Why did you hide it from me?",
+                    },
+                ]
+            }
+        result = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        result["scenes"][0]["character_actions"][0] = (
+            "Elena presses the contract against the table."
+        )
+        result["scenes"][0]["dialogues"][0]["text"] = "你早就知道。为什么瞒着我？"
+        return result
+
+
+class DialoguePairRepairAdapter(EditorialPatchAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        assert "只修复下列海外短剧正文中的语言字段" in prompt
+        self.call_count += 1
+        self.prompts.append(prompt)
+        self.max_tokens_seen.append(strategy.max_tokens)
+        repair_items = json.loads(prompt.split("待修字段：\n", 1)[1])
+        return {
+            "patches": [
+                {
+                    "path": item["path"],
+                    "value": (
+                        "埃琳娜"
+                        if item["path"].endswith(".chinese_character_name")
+                        else "告诉我今晚是谁为这份签署的契约付了钱。"
+                    ),
+                }
+                for item in repair_items
+            ]
+        }
+
+
+class StickyOverseasFieldRepairAdapter(EditorialPatchAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if "只修复下列海外短剧正文中的语言字段" in prompt:
+            self.call_count += 1
+            self.prompts.append(prompt)
+            return {
+                "patches": [{
+                    "path": "scenes.0.dialogues.0.text",
+                    "value": (
+                        "Wait. I need a second."
+                        if "最后一次窄修复" in prompt
+                        else "..."
+                    ),
+                }],
+            }
+        result = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        result["scenes"][0]["dialogues"][0]["text"] = "..."
+        return result
+
+
+class MalformedOverseasFieldRepairAdapter(StickyOverseasFieldRepairAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if (
+            "只修复下列海外短剧正文中的语言字段" in prompt
+            and "最后一次窄修复" not in prompt
+        ):
+            self.call_count += 1
+            self.prompts.append(prompt)
+            raise LLMStructuredOutputError("language patch was not valid JSON")
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+
+
+class CanonicalRenameAdapter(EditorialPatchAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        result["scenes"][0]["dialogues"][0]["character_name"] = "Damian"
+        return result
+
+
+class CanonicalPreservingAdapter(EditorialPatchAdapter):
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        global_index = 0
+        for scene in result["scenes"]:
+            for dialogue in scene["dialogues"]:
+                dialogue["character_name"] = ("Elena", "Damian")[global_index % 2]
+                global_index += 1
+        return result
+
+
 def _draft() -> DraftMasterScript:
     characters = [
         CharacterProfile(
@@ -108,11 +380,11 @@ def _draft() -> DraftMasterScript:
             scene_number=1,
             slug="INT. BALLROOM - NIGHT",
             purpose="Force Elena to confront the contract in public.",
-            setting_hint="A crowded hotel ballroom at night.",
+            setting_hint="夜晚，拥挤的酒店宴会厅。",
             beat_summary="Damian places the contract between Elena and the exit.",
             emotional_shift="control to suspicion",
             emotional_objective="Keep control without revealing fear.",
-            character_actions=["Damian places the contract on the table."],
+            character_actions=["达米安把契约放在桌上。"],
             turning_point="Elena recognizes her mother's signature.",
             cliffhanger=False,
             dialogue_prompts=["You already signed."],
@@ -128,11 +400,11 @@ def _draft() -> DraftMasterScript:
             scene_number=2,
             slug="INT. BALLROOM CORRIDOR - CONTINUOUS",
             purpose="Reveal that the contract came from Elena's family.",
-            setting_hint="The corridor outside the ballroom.",
+            setting_hint="宴会厅外的走廊。",
             beat_summary="Elena opens the final page and sees the signature.",
             emotional_shift="suspicion to shock",
             emotional_objective="Learn who placed her in Damian's control.",
-            character_actions=["Elena opens the contract to the final page."],
+            character_actions=["埃琳娜把契约翻到最后一页。"],
             turning_point="Her mother's signature appears beneath Damian's name.",
             cliffhanger=True,
             dialogue_prompts=["Ask your mother."],
@@ -168,6 +440,107 @@ def _strategy() -> GenerationStrategy:
     return GenerationStrategy.model_construct(max_tokens=3_000)
 
 
+def _contract_ready_draft() -> DraftMasterScript:
+    payload = _draft().model_dump(mode="json")
+    actions = [
+        f"埃琳娜穿过宴会厅，在达米安碰到契约前检查第{index}处封印。"
+        for index in range(1, 16)
+    ]
+    dialogues = [
+        DialogueLine(
+            character_name=("Elena", "Damian")[index % 2],
+            chinese_character_name=("埃琳娜", "达米安")[index % 2],
+            intent="逼对方说出隐藏的代价",
+            text="Tell me who paid for this signed contract tonight.",
+            chinese_translation="告诉我今晚是谁为这份签署的契约付了钱。",
+        ).model_dump(mode="json")
+        for index in range(25)
+    ]
+    payload["scenes"][0]["character_actions"] = actions[:8]
+    payload["scenes"][1]["character_actions"] = actions[8:]
+    payload["scenes"][0]["dialogues"] = dialogues[:13]
+    payload["scenes"][1]["dialogues"] = dialogues[13:]
+    payload["scenes"][0]["dialogue_prompts"] = [dialogues[0]["text"]]
+    payload["scenes"][1]["dialogue_prompts"] = [dialogues[13]["text"]]
+    return DraftMasterScript.model_validate(payload)
+
+
+def test_editorial_quality_gate_accepts_a_contract_ready_source_without_model_work() -> None:
+    source = _contract_ready_draft()
+
+    assessment = ScriptPostEditor.assess_source(
+        source,
+        overseas_release=True,
+    )
+    accepted = ScriptPostEditor.accept_without_edit(
+        source,
+        assessment=assessment,
+    )
+
+    assert assessment.requires_edit is False
+    assert assessment.issues == ()
+    assert accepted.scenes == source.scenes
+    assert accepted.llm_metadata["script_editor_policy"] == "quality_gated_v1"
+    assert accepted.llm_metadata["script_editor_gate_passed"] is True
+    assert accepted.llm_metadata["script_editor_skipped"] is True
+    assert accepted.llm_metadata["script_editor_deferred"] is False
+    assert accepted.llm_metadata["script_editor_attempt_count"] == 0
+
+
+def test_editorial_quality_gate_requires_repairs_for_an_invalid_source() -> None:
+    assessment = ScriptPostEditor.assess_source(
+        _draft(),
+        overseas_release=True,
+    )
+
+    assert assessment.requires_edit is True
+    assert any("预计时长仅" in issue for issue in assessment.issues)
+    assert any("台词共" in issue for issue in assessment.issues)
+    assert any("镜头执行单元共" in issue for issue in assessment.issues)
+
+
+def test_overseas_generation_gate_rejects_english_narrative_fields() -> None:
+    assessment = ScriptPostEditor.assess_source(
+        _contract_ready_draft(),
+        overseas_release=True,
+        require_overseas_narrative_language=True,
+    )
+
+    assert assessment.requires_edit is True
+    assert any("title" in issue for issue in assessment.issues)
+    language_issues = ScriptPostEditor._overseas_body_language_issues(  # noqa: SLF001
+        _contract_ready_draft(),
+        include_narrative=True,
+    )
+    assert "characters.0.name" in language_issues
+
+
+def test_overseas_dialogue_pairs_are_repaired_without_rewriting_the_episode() -> None:
+    payload = _contract_ready_draft().model_dump(mode="json")
+    payload["scenes"][0]["dialogues"][0]["chinese_character_name"] = None
+    payload["scenes"][0]["dialogues"][0]["chinese_translation"] = None
+    source = DraftMasterScript.model_validate(payload)
+    adapter = DialoguePairRepairAdapter()
+
+    repaired, attempt_count = ScriptPostEditor(
+        llm_adapter=adapter
+    ).ensure_overseas_dialogue_pairs(
+        source,
+        strategy=_strategy(),
+    )
+
+    assert attempt_count == 1
+    assert adapter.call_count == 1
+    assert repaired.scenes[0].dialogues[0].character_name == "Elena"
+    assert repaired.scenes[0].dialogues[0].text == source.scenes[0].dialogues[0].text
+    assert repaired.scenes[0].dialogues[0].chinese_character_name == "埃琳娜"
+    assert repaired.scenes[0].dialogues[0].chinese_translation == (
+        "告诉我今晚是谁为这份签署的契约付了钱。"
+    )
+    assert repaired.scenes[0].character_actions == source.scenes[0].character_actions
+    assert ScriptPostEditor.overseas_dialogue_pair_issues(repaired) == []
+
+
 def test_gpt_editor_changes_only_scene_bodies_and_records_model_metadata() -> None:
     source = _draft()
     adapter = EditorialPatchAdapter()
@@ -176,6 +549,7 @@ def test_gpt_editor_changes_only_scene_bodies_and_records_model_metadata() -> No
         source,
         strategy=_strategy(),
         target_duration_seconds=90,
+        overseas_release=True,
     )
 
     assert 75 <= result.duration.total_seconds <= 115
@@ -186,21 +560,441 @@ def test_gpt_editor_changes_only_scene_bodies_and_records_model_metadata() -> No
     assert result.draft.llm_metadata["script_editor_applied"] is True
     assert result.draft.llm_metadata["script_editor_model"] == "gpt-screenplay-editor"
     assert result.draft.llm_metadata["episode_scene_count"] == 2
-    assert result.draft.llm_metadata["episode_dialogue_line_count"] == 20
+    assert result.draft.llm_metadata["episode_dialogue_line_count"] == 25
+    assert result.draft.llm_metadata["episode_shot_unit_count"] == 15
+    assert result.draft.language == "en"
+    assert adapter.call_count == 1
+    assert adapter.max_tokens_seen == [32_000]
+
+
+def test_gpt_editor_keeps_full_budget_on_focused_retry_passes() -> None:
+    adapter = ProgressiveCompressionAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert result.draft.llm_metadata["script_editor_attempt_count"] == 3
+    # The first pass edits the complete episode; subsequent duration-only
+    # passes may focus on the largest scenes but still need hidden-reasoning
+    # headroom to return a valid patch.
+    assert adapter.max_tokens_seen == [32_000, 32_000, 32_000]
+
+
+def test_overseas_editor_receives_the_american_dialogue_language_contract() -> None:
+    adapter = EditorialPatchAdapter()
+
+    ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    prompt = adapter.prompts[0]
+    assert "你现在同时是剧本大师和语言大师" in prompt
+    assert "只使用对应中文名" in prompt
+    assert "中文名（ENGLISH NAME）" in prompt
+    assert "逐句检查并润色英文对白" in prompt
+    assert "每条dialogue.chinese_translation同时写" in prompt
+    assert "dialogue.chinese_character_name同时写" in prompt
+    assert "英文一旦修改，中文对照必须同步更新" in prompt
+    assert "不得改变剧情内容、人物意图、事实、关系、信息量" in prompt
+    assert "采用自然、可表演的短剧口语" in prompt
+    assert "25–35句台词必须共同支撑75–115秒真实表演时长" in prompt
+
+
+def test_overseas_editor_receives_and_enforces_canonical_character_name_contract() -> None:
+    adapter = CanonicalPreservingAdapter()
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _contract_ready_draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+        canonical_character_names={"埃琳娜": "Elena", "达米安": "Damian"},
+    )
+
+    assert "资料中的明确人物名合同" in adapter.prompts[0]
+    assert '"埃琳娜":"Elena"' in adapter.prompts[0]
+    assert result.draft.llm_metadata["script_editor_applied"] is True
+
+
+def test_overseas_editor_checks_canonical_names_when_scene_line_counts_change() -> None:
+    result = ScriptPostEditor(llm_adapter=EditorialPatchAdapter()).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+        canonical_character_names={"埃琳娜": "Elena", "达米安": "Damian"},
+    )
+
+    assert result.draft.llm_metadata["script_editor_applied"] is True
+    assert [len(scene.dialogues) for scene in result.draft.scenes] == [13, 12]
+    assert {
+        dialogue.character_name
+        for scene in result.draft.scenes
+        for dialogue in scene.dialogues
+    } == {"Elena", "Damian"}
+
+
+def test_overseas_editor_still_rejects_alias_changes_when_line_counts_change() -> None:
+    candidate_payload = _contract_ready_draft().model_dump(mode="json")
+    candidate_payload["scenes"][0]["dialogues"][0]["character_name"] = "elena"
+    candidate = DraftMasterScript.model_validate(candidate_payload)
+
+    issues = ScriptPostEditor._canonical_character_name_issues(  # noqa: SLF001
+        _draft(),
+        candidate,
+        {"埃琳娜": "Elena", "达米安": "Damian"},
+        overseas_release=True,
+    )
+
+    assert issues == ["scenes.0.dialogues.0.character_name"]
+
+
+def test_overseas_editor_defers_candidate_that_renames_canonical_character() -> None:
+    source = _contract_ready_draft()
+    result = ScriptPostEditor(llm_adapter=CanonicalRenameAdapter()).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+        canonical_character_names={"埃琳娜": "Elena", "达米安": "Damian"},
+    )
+
+    assert result.draft.scenes == source.scenes
+    assert result.draft.llm_metadata["script_editor_deferred"] is True
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "contract_regression"
+    )
+
+
+def test_overseas_editor_restores_valid_source_language_fields_before_model_repair() -> None:
+    source = _draft()
+    adapter = OverseasFieldRepairAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 1
+    assert result.draft.scenes[0].character_actions[0] == source.scenes[0].character_actions[0]
+    assert result.draft.scenes[0].dialogues[0].text == source.scenes[0].dialogues[0].text
+    assert result.draft.scenes[0].dialogue_prompts[0] == (
+        source.scenes[0].dialogues[0].text
+    )
+    assert result.draft.scenes[0].purpose == source.scenes[0].purpose
+    assert len(result.draft.scenes[0].dialogues) == 13
+    assert len(result.draft.scenes[0].character_actions) == 8
+    assert result.draft.llm_metadata["script_editor_full_episode_pass_count"] == 1
+    assert result.draft.llm_metadata["script_editor_language_field_repair_count"] == 0
+    assert result.draft.llm_metadata["script_editor_attempt_count"] == 1
+    assert result.attempt_count == 1
+    assert adapter.max_tokens_seen == [32_000]
+
+
+def test_overseas_editor_retries_only_a_remaining_nonverbal_dialogue_field() -> None:
+    source_payload = _draft().model_dump(mode="json")
+    source_payload["scenes"][0]["dialogues"][0]["text"] = "..."
+    source_payload["scenes"][0]["dialogue_prompts"] = ["..."]
+    source = DraftMasterScript.model_validate(source_payload)
+    adapter = StickyOverseasFieldRepairAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 3
+    assert "最后一次窄修复" not in adapter.prompts[1]
+    assert "最后一次窄修复" in adapter.prompts[2]
+    assert '"speaker":"Elena"' in adapter.prompts[2]
+    assert '"performance_intent":"逼对方说出隐藏的代价"' in adapter.prompts[2]
+    assert result.draft.scenes[0].dialogues[0].text == "Wait. I need a second."
+    assert result.draft.scenes[0].dialogue_prompts[0] == "Wait. I need a second."
+    assert result.draft.llm_metadata["script_editor_language_field_repair_count"] == 2
+    assert result.draft.llm_metadata["script_editor_attempt_count"] == 3
+
+
+def test_overseas_editor_keeps_malformed_field_json_inside_narrow_repair() -> None:
+    source_payload = _draft().model_dump(mode="json")
+    source_payload["scenes"][0]["dialogues"][0]["text"] = "..."
+    source_payload["scenes"][0]["dialogue_prompts"] = ["..."]
+    source = DraftMasterScript.model_validate(source_payload)
+    adapter = MalformedOverseasFieldRepairAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 3
+    assert adapter.prompts[0].count("DeepSeek已经完成一集完整初稿") == 1
+    assert "最后一次窄修复" not in adapter.prompts[1]
+    assert "最后一次窄修复" in adapter.prompts[2]
+    assert result.draft.scenes[0].dialogues[0].text == "Wait. I need a second."
+    assert result.draft.llm_metadata["script_editor_full_episode_pass_count"] == 1
+    assert result.draft.llm_metadata["script_editor_language_field_repair_count"] == 2
+
+
+def test_editor_prompt_only_contains_editable_scene_context() -> None:
+    adapter = EditorialPatchAdapter()
+
+    ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    prompt = adapter.prompts[0]
+    assert '"approved_speakers"' in prompt
+    assert '"body_order"' in prompt
+    assert '"continuity_state_updates"' not in prompt
+    assert '"relationship_state_updates"' not in prompt
+    assert '"story_line_state_updates"' not in prompt
+    assert "内部安全目标为90–105秒" in prompt
+
+
+def test_overseas_editor_uses_release_region_when_model_mislabels_source_language() -> None:
+    source = _draft().model_copy(update={"language": "zh-CN"})
+
+    result = ScriptPostEditor(llm_adapter=EditorialPatchAdapter()).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert result.draft.language == "en"
+    assert result.draft.scenes[0].dialogues[0].text.startswith("You know exactly")
+
+
+def test_non_overseas_editor_defers_language_mismatch_without_stopping_generation() -> None:
+    adapter = EditorialPatchAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=False,
+    )
+
+    prompt = adapter.prompts[0]
+    assert "你现在同时是剧本大师和语言大师" not in prompt
+    assert "逐句检查并润色英文对白" not in prompt
+    assert "人物名和人物对白直接使用简体中文" in prompt
+    assert "采用自然、可表演的短剧口语" in prompt
+    assert "25–35句台词必须共同支撑75–115秒真实表演时长" in prompt
+    assert result.draft.llm_metadata["script_editor_deferred"] is True
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "quality_target_not_reached"
+    )
+
+
+def test_gpt_editor_retries_once_then_preserves_an_undersized_episode() -> None:
+    adapter = EditorialPatchAdapter(short=True)
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 2
+    assert "本轮是定量补足" in adapter.prompts[0]
+    assert "上次结果估算为" in adapter.prompts[0]
+    assert result.draft.llm_metadata["script_editor_deferred"] is True
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "quality_target_not_reached"
+    )
+
+
+def test_gpt_editor_preserves_last_valid_intermediate_pass_during_outage() -> None:
+    checkpoints = []
+    failing_adapter = UnavailableAfterShortPassAdapter()
+    source = _draft()
+
+    result = ScriptPostEditor(llm_adapter=failing_adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+        checkpoint_callback=checkpoints.append,
+    )
+
+    assert failing_adapter.call_count == 2
+    assert len(checkpoints) == 1
+    assert checkpoints[0].completed_attempt_count == 1
+    assert result.draft.scenes == checkpoints[0].working_draft.scenes
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "transient_upstream_failure"
+    )
+
+
+def test_exhausted_editor_checkpoint_becomes_deferred_episode_instead_of_failure() -> None:
+    source = _draft()
+    checkpoint = ScriptPostEditCheckpoint(
+        source_draft_id=source.id,
+        working_draft=source,
+        correction_issues=[
+            "预计时长达到129秒，需要压缩重复动作和无推进对白"
+        ],
+        completed_attempt_count=3,
+        max_attempts=3,
+        attempt_elapsed_ms=[45_000, 36_000, 26_000],
+        editable_scene_counts=[2, 1, 1],
+    )
+    adapter = EditorialPatchAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+        resume_checkpoint=checkpoint,
+    )
+
+    assert adapter.call_count == 0
+    assert result.draft.scenes == source.scenes
+    assert result.draft.llm_metadata["script_editor_deferred"] is True
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "quality_target_not_reached"
+    )
+
+
+def test_editor_partial_patch_keeps_unselected_scenes_byte_for_byte() -> None:
+    source = _draft()
+    edited_scene = source.scenes[0].model_dump(mode="json")
+    edited_scene["dialogues"][0]["text"] = "Tell me who paid for it."
+    patch = LLMScriptEditorialPatch.model_validate({
+        "scenes": [{
+            "scene_number": edited_scene["scene_number"],
+            "character_actions": edited_scene["character_actions"],
+            "body_order": edited_scene["body_order"],
+            "dialogues": edited_scene["dialogues"],
+        }],
+    })
+
+    candidate = ScriptPostEditor._apply_patch(  # noqa: SLF001
+        source,
+        patch,
+        expected_scene_numbers=[source.scenes[0].scene_number],
+    )
+
+    assert candidate.scenes[0].dialogues[0].text == "Tell me who paid for it."
+    assert candidate.scenes[1] == source.scenes[1]
+
+
+def test_gpt_editor_preserves_overlong_near_miss_after_quantified_compression() -> None:
+    adapter = EditorialPatchAdapter(overlong=True)
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 2
+    assert "本轮是定量压缩" in adapter.prompts[1]
+    assert "必须落到115秒以内" in adapter.prompts[1]
+    assert '"continuity_state_updates"' not in adapter.prompts[1]
+    assert "You already signed." not in adapter.prompts[1]
+    assert adapter.prompts[1].count(
+        "You know exactly what this contract costs every person"
+    ) == 25
+    assert result.duration.total_seconds > 115
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "quality_target_not_reached"
+    )
+
+
+def test_gpt_editor_carries_forward_a_near_miss_for_one_more_compression_pass() -> None:
+    adapter = ProgressiveCompressionAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 3
+    assert "当前待修正文稿估算约" in adapter.prompts[1]
+    assert "本轮是定量压缩" in adapter.prompts[1]
+    assert "本轮是定量压缩" in adapter.prompts[2]
+    assert result.duration.total_seconds <= 115
+    assert result.draft.scenes[0].dialogues[0].text == (
+        "You know who paid for this contract, Damian."
+    )
+
+
+def test_gpt_editor_hard_compresses_a_far_over_duration_candidate_once() -> None:
+    adapter = FarOverDurationCompressionAdapter()
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        _draft(),
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert adapter.call_count == 3
+    assert "当前稿件明显超时，本轮是硬压缩而不是润色" in adapter.prompts[2]
+    assert result.duration.total_seconds <= 115
+
+
+def test_gpt_editor_preserves_ready_draft_after_contract_regression() -> None:
+    source = _contract_ready_draft()
+    adapter = EditorialPatchAdapter(short=True)
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert result.draft.scenes == source.scenes
+    assert result.draft.llm_metadata["script_editor_applied"] is False
+    assert result.draft.llm_metadata["script_editor_deferred"] is True
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "contract_regression"
+    )
+    assert result.draft.llm_metadata["episode_dialogue_line_count"] == 25
     assert result.draft.llm_metadata["episode_shot_unit_count"] == 15
     assert adapter.call_count == 1
 
 
-def test_gpt_editor_retries_once_then_rejects_an_undersized_episode() -> None:
-    adapter = EditorialPatchAdapter(short=True)
+def test_gpt_editor_preserves_ready_draft_during_transient_outage() -> None:
+    source = _contract_ready_draft()
+    adapter = UnavailableEditorialAdapter()
 
-    with pytest.raises(InvalidScriptPostEditError, match="75–115秒"):
-        ScriptPostEditor(llm_adapter=adapter).edit(
-            _draft(),
-            strategy=_strategy(),
-            target_duration_seconds=90,
-        )
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
 
+    assert result.draft.scenes == source.scenes
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "transient_upstream_failure"
+    )
+    # The editor retries one transient outage before deferring the validated
+    # draft, so a provider hiccup does not fail the episode.
     assert adapter.call_count == 2
 
 
@@ -211,6 +1005,27 @@ def test_gpt_editor_accepts_partner_dialogue_markers_for_existing_speakers() -> 
         _draft(),
         strategy=_strategy(),
         target_duration_seconds=90,
+        overseas_release=True,
     )
 
     assert result.draft.scenes[0].dialogues[0].character_name == "Elena (V.O.)"
+
+
+def test_gpt_editor_preserves_validated_draft_when_it_invents_a_speaker() -> None:
+    source = _draft()
+    adapter = EditorialPatchAdapter(unknown_speaker=True)
+
+    result = ScriptPostEditor(llm_adapter=adapter).edit(
+        source,
+        strategy=_strategy(),
+        target_duration_seconds=90,
+        overseas_release=True,
+    )
+
+    assert result.draft.scenes == source.scenes
+    assert result.draft.llm_metadata["script_editor_applied"] is False
+    assert result.draft.llm_metadata["script_editor_deferred"] is True
+    assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
+        "protected_speaker_boundary"
+    )
+    assert adapter.call_count == 1

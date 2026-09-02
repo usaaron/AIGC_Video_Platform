@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from enum import Enum
+import math
 import re
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -18,6 +19,118 @@ _EPISODE_TITLE_PREFIX = re.compile(
     r"\s*(?:[:：\-—–、.．]\s*)?",
     re.IGNORECASE,
 )
+
+_SCREENPLAY_BODY_REFERENCE = re.compile(r"^(?:action|dialogue):(?:0|[1-9]\d*)$")
+_SCREENPLAY_BODY_ORDER_MAX_ITEMS = 59
+_CHARACTER_PARENTHETICAL_ALIAS = re.compile(r"[（(]([^）)]+)[）)]")
+
+
+def _character_identity_keys(value: str) -> set[str]:
+    normalized = "".join(
+        character.casefold()
+        for character in value.strip()
+        if character.isalnum() or "\u3400" <= character <= "\u9fff"
+    )
+    keys = {normalized} if normalized else set()
+    aliases = _CHARACTER_PARENTHETICAL_ALIAS.findall(value)
+    base = _CHARACTER_PARENTHETICAL_ALIAS.sub("", value)
+    base_has_chinese = bool(re.search(r"[\u3400-\u9fff]", base))
+    base_has_latin = bool(re.search(r"[A-Za-z]", base))
+    for alias in aliases:
+        alias_has_chinese = bool(re.search(r"[\u3400-\u9fff]", alias))
+        alias_has_latin = bool(re.search(r"[A-Za-z]", alias))
+        is_bilingual_alias = (
+            (base_has_chinese and alias_has_latin and not alias_has_chinese)
+            or (base_has_latin and alias_has_chinese and not base_has_chinese)
+        )
+        if not is_bilingual_alias:
+            continue
+        alias_key = "".join(
+            character.casefold()
+            for character in alias.strip()
+            if character.isalnum() or "\u3400" <= character <= "\u9fff"
+        )
+        if alias_key:
+            keys.add(alias_key)
+        base_key = "".join(
+            character.casefold()
+            for character in base.strip()
+            if character.isalnum() or "\u3400" <= character <= "\u9fff"
+        )
+        if base_key:
+            keys.add(base_key)
+    return keys
+
+
+def build_screenplay_body_order(
+    action_count: int,
+    dialogue_count: int,
+) -> list[str]:
+    """Build a stable legacy fallback while keeping both source arrays ordered."""
+
+    if action_count <= 0:
+        return [f"dialogue:{index}" for index in range(max(0, dialogue_count))]
+    if dialogue_count <= 0:
+        return [f"action:{index}" for index in range(max(0, action_count))]
+
+    order: list[str] = []
+    next_action = 0
+    for dialogue_index in range(dialogue_count):
+        target_action_count = max(
+            1,
+            math.ceil((dialogue_index + 1) * action_count / (dialogue_count + 1)),
+        )
+        while next_action < min(action_count, target_action_count):
+            order.append(f"action:{next_action}")
+            next_action += 1
+        order.append(f"dialogue:{dialogue_index}")
+    while next_action < action_count:
+        order.append(f"action:{next_action}")
+        next_action += 1
+    return order
+
+
+def normalize_screenplay_body_order(
+    value: Any,
+    *,
+    action_count: int,
+    dialogue_count: int,
+) -> list[str]:
+    """Accept a complete authored order or recover locally without another LLM call."""
+
+    expected = {
+        *(f"action:{index}" for index in range(max(0, action_count))),
+        *(f"dialogue:{index}" for index in range(max(0, dialogue_count))),
+    }
+    if isinstance(value, list):
+        normalized = [item.strip() for item in value if isinstance(item, str)]
+        kinds = [item.partition(":")[0] for item in normalized]
+        grouped_by_kind = kinds in (
+            ["action"] * action_count + ["dialogue"] * dialogue_count,
+            ["dialogue"] * dialogue_count + ["action"] * action_count,
+        )
+        if (
+            len(normalized) == len(expected)
+            and len(set(normalized)) == len(normalized)
+            and all(_SCREENPLAY_BODY_REFERENCE.fullmatch(item) for item in normalized)
+            and set(normalized) == expected
+            and not (action_count > 1 and dialogue_count > 1 and grouped_by_kind)
+        ):
+            return normalized
+    return build_screenplay_body_order(action_count, dialogue_count)
+
+
+def _supply_missing_screenplay_body_order(value: Any) -> Any:
+    if not isinstance(value, dict) or value.get("body_order"):
+        return value
+    normalized = dict(value)
+    actions = normalized.get("character_actions")
+    dialogues = normalized.get("dialogues")
+    normalized["body_order"] = build_screenplay_body_order(
+        len(actions) if isinstance(actions, list) else 0,
+        len(dialogues) if isinstance(dialogues, list) else 0,
+    )
+    return normalized
 
 
 def normalize_generated_episode_title(value: str) -> str:
@@ -63,8 +176,34 @@ class DialogueLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     character_name: str = Field(min_length=2, max_length=80)
+    chinese_character_name: str | None = Field(min_length=1, max_length=40)
     intent: str = Field(min_length=3, max_length=120)
-    text: str = Field(min_length=3, max_length=280)
+    # Two-character Chinese lines (for example "住手") and the standard
+    # screenplay silence beat "……" are complete performable units. Counting
+    # Unicode code points as if they were English letters previously sent
+    # otherwise valid episodes through a multi-minute model repair.
+    text: str = Field(min_length=2, max_length=280)
+    # Overseas scripts keep the performable English line in ``text`` and its
+    # display-only Chinese counterpart beside it. The field is required by the
+    # LLM JSON schema, while the pre-validator keeps persisted legacy drafts
+    # readable so they can use the bounded dialogue-only fallback.
+    chinese_translation: str | None = Field(min_length=2, max_length=280)
+
+    @model_validator(mode="before")
+    @classmethod
+    def supply_legacy_chinese_translation(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            missing = {
+                field_name: None
+                for field_name in (
+                    "chinese_character_name",
+                    "chinese_translation",
+                )
+                if field_name not in value
+            }
+            if missing:
+                return {**value, **missing}
+        return value
 
 
 class CharacterProfile(BaseModel):
@@ -342,10 +481,20 @@ class SceneCard(BaseModel):
     emotional_shift: str = Field(min_length=3, max_length=120)
     emotional_objective: str | None = Field(default=None, min_length=3, max_length=160)
     character_actions: list[str] = Field(default_factory=list, max_length=24)
+    body_order: list[str] = Field(default_factory=list, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
     scene_causality: SceneCausality | None = None
     cliffhanger: bool = False
-    dialogues: list[DialogueLine] = Field(min_length=1, max_length=20)
+    dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+
+    @model_validator(mode="after")
+    def ensure_complete_body_order(self) -> "SceneCard":
+        self.body_order = normalize_screenplay_body_order(
+            self.body_order,
+            action_count=len(self.character_actions),
+            dialogue_count=len(self.dialogues),
+        )
+        return self
 
 
 class DraftSceneCard(BaseModel):
@@ -359,11 +508,12 @@ class DraftSceneCard(BaseModel):
     emotional_shift: str = Field(min_length=3, max_length=120)
     emotional_objective: str | None = Field(default=None, min_length=3, max_length=160)
     character_actions: list[str] = Field(default_factory=list, max_length=24)
+    body_order: list[str] = Field(default_factory=list, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
     scene_causality: SceneCausality | None = None
     cliffhanger: bool = False
     dialogue_prompts: list[str] = Field(default_factory=list, max_length=10)
-    dialogues: list[DialogueLine] = Field(default_factory=list, max_length=20)
+    dialogues: list[DialogueLine] = Field(default_factory=list, max_length=35)
     supporting_asset_ids: list[str] = Field(default_factory=list, max_length=10)
 
     @field_validator("dialogue_prompts", "supporting_asset_ids", "character_actions")
@@ -373,6 +523,15 @@ class DraftSceneCard(BaseModel):
         if len(set(normalized)) != len(normalized):
             raise ValueError("List values must be unique.")
         return values
+
+    @model_validator(mode="after")
+    def ensure_complete_body_order(self) -> "DraftSceneCard":
+        self.body_order = normalize_screenplay_body_order(
+            self.body_order,
+            action_count=len(self.character_actions),
+            dialogue_count=len(self.dialogues),
+        )
+        return self
 
 
 class MasterScriptBase(BaseModel):
@@ -579,10 +738,25 @@ class LLMGeneratedSceneCard(BaseModel):
     emotional_shift: str = Field(min_length=3, max_length=120)
     emotional_objective: str = Field(min_length=3, max_length=160)
     character_actions: list[str] = Field(min_length=1, max_length=24)
+    body_order: list[str] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str = Field(min_length=3, max_length=240)
     scene_causality: SceneCausality
     cliffhanger: bool = False
-    dialogues: list[DialogueLine] = Field(min_length=1, max_length=20)
+    dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+
+    @model_validator(mode="before")
+    @classmethod
+    def supply_legacy_body_order(cls, value: Any) -> Any:
+        return _supply_missing_screenplay_body_order(value)
+
+    @model_validator(mode="after")
+    def ensure_complete_body_order(self) -> "LLMGeneratedSceneCard":
+        self.body_order = normalize_screenplay_body_order(
+            self.body_order,
+            action_count=len(self.character_actions),
+            dialogue_count=len(self.dialogues),
+        )
+        return self
 
 
 class LLMGeneratedSceneBodyPatch(BaseModel):
@@ -592,7 +766,47 @@ class LLMGeneratedSceneBodyPatch(BaseModel):
 
     scene_number: int = Field(ge=1, le=50)
     character_actions: list[str] = Field(min_length=1, max_length=24)
-    dialogues: list[DialogueLine] = Field(min_length=1, max_length=20)
+    body_order: list[str] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
+    dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+
+    @model_validator(mode="before")
+    @classmethod
+    def supply_legacy_body_order(cls, value: Any) -> Any:
+        return _supply_missing_screenplay_body_order(value)
+
+    @model_validator(mode="after")
+    def ensure_complete_body_order(self) -> "LLMGeneratedSceneBodyPatch":
+        self.body_order = normalize_screenplay_body_order(
+            self.body_order,
+            action_count=len(self.character_actions),
+            dialogue_count=len(self.dialogues),
+        )
+        return self
+
+
+class LLMTargetedScriptTextPatch(BaseModel):
+    """One exact text-selection replacement, or an explicit full-rewrite handoff."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    replacement_text: str | None = Field(default=None, min_length=1, max_length=4_000)
+    updated_chinese_translation: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=280,
+    )
+    requires_full_episode_rewrite: bool = False
+    reason: str | None = Field(default=None, min_length=2, max_length=500)
+
+    @model_validator(mode="after")
+    def ensure_patch_or_handoff(self) -> "LLMTargetedScriptTextPatch":
+        if self.requires_full_episode_rewrite:
+            if self.reason is None:
+                raise ValueError("A full-episode rewrite handoff requires a reason.")
+            return self
+        if self.replacement_text is None:
+            raise ValueError("A targeted text patch requires replacement_text.")
+        return self
 
 
 class LLMMainlandBodyRepairPatch(BaseModel):
@@ -697,6 +911,23 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     @classmethod
     def remove_episode_number_from_title(cls, value: Any) -> Any:
         return normalize_generated_episode_title(value) if isinstance(value, str) else value
+
+    @field_validator("characters")
+    @classmethod
+    def ensure_unique_character_identities(
+        cls,
+        characters: list[CharacterProfile],
+    ) -> list[CharacterProfile]:
+        seen: set[str] = set()
+        for character in characters:
+            keys = _character_identity_keys(character.name)
+            if seen.intersection(keys):
+                raise ValueError(
+                    "Generated characters must contain one record per identity; aliases, "
+                    "titles, and alternate identities cannot create duplicate characters."
+                )
+            seen.update(keys)
+        return characters
 
     @model_validator(mode="after")
     def ensure_scene_causal_chain(self) -> "LLMGeneratedDraftMasterScript":

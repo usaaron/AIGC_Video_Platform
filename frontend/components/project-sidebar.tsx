@@ -8,6 +8,7 @@ import { PlusIcon, ScriptIcon, SearchIcon, TrashIcon } from "@/components/icons"
 import { LanguageToggle } from "@/components/language-toggle";
 import { formatRelativeTime } from "@/lib/format";
 import { getLocalizedTagLabel, getTag } from "@/lib/tag-catalog";
+import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
@@ -69,9 +70,7 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
             visibleProjects.map((project) => {
               const primaryTag = getTag(project.selectedTagIds[0] ?? "");
               const active = pathname.includes(project.id);
-              const projectHref = project.episodes.length
-                ? `/projects/${project.id}/workspace`
-                : `/projects/${project.id}/planning`;
+              const projectHref = currentWorkspaceHref(project);
               return (
                 <div className={`project-history-row ${active ? "is-active" : ""}`} key={project.id}>
                   <Link className="project-history-item" href={projectHref} onClick={onClose}>

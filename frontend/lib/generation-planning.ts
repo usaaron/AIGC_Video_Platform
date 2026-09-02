@@ -10,6 +10,17 @@ export const MIN_TARGET_TOTAL_CHARACTERS = 80_000;
 export const MAX_TARGET_TOTAL_CHARACTERS = 200_000;
 export const MIN_EPISODE_DURATION_SECONDS = 75;
 export const MAX_EPISODE_DURATION_SECONDS = 115;
+export const MIN_EPISODE_DIALOGUE_LINES = 25;
+export const MAX_EPISODE_DIALOGUE_LINES = 35;
+export const DEFAULT_EPISODE_DIALOGUE_LINES = 30;
+
+export function normalizeEpisodeDialogueLines(value: number | null | undefined): number {
+  return clampInteger(
+    value ?? DEFAULT_EPISODE_DIALOGUE_LINES,
+    MIN_EPISODE_DIALOGUE_LINES,
+    MAX_EPISODE_DIALOGUE_LINES,
+  );
+}
 
 export const TARGET_BODY_SCALE_BANDS = [
   { id: "80k-120k", minCharacters: 80_000, maxCharacters: 120_000, referenceCharacters: 100_000 },

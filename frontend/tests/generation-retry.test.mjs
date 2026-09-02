@@ -11,6 +11,11 @@ import {
   roadmapRetryDelayMs,
 } from "../lib/generation-retry.ts";
 import { normalizeGenerationSettings } from "../lib/generation-planning.ts";
+import {
+  DEFAULT_GENERATION_SETTINGS,
+  enforceMarketDeliveryContract,
+  marketProfileForReleaseRegion,
+} from "../lib/types.ts";
 
 test("automatic mode retries only the failed unit within the bounded attempt limit", async () => {
   const attempts = [];
@@ -33,12 +38,12 @@ test("automatic mode retries only the failed unit within the bounded attempt lim
   assert.equal(retryEvents[0].maxAttempts, MAX_AUTOMATIC_GENERATION_ATTEMPTS);
 });
 
-test("automatic transient retry can recover on the third bounded attempt", async () => {
+test("automatic transient retry stops after one browser-level retry", async () => {
   const attempts = [];
   const result = await generateWithAutomaticTransientRetry({
     generate: async (attempt) => {
       attempts.push(attempt);
-      if (attempt < 3) {
+      if (attempt < 2) {
         throw Object.assign(new Error("temporary provider gateway failure"), { status: 502 });
       }
       return "accepted";
@@ -47,7 +52,71 @@ test("automatic transient retry can recover on the third bounded attempt", async
   });
 
   assert.equal(result, "accepted");
-  assert.deepEqual(attempts, [1, 2, 3]);
+  assert.deepEqual(attempts, [1, 2]);
+});
+
+test("an aborted generation request does not enter another automatic retry", async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  await assert.rejects(
+    generateWithAutomaticTransientRetry({
+      signal: controller.signal,
+      generate: async () => {
+        attempts += 1;
+        controller.abort();
+        throw Object.assign(new Error("temporary transport failure"), { status: 502 });
+      },
+      wait: async () => {
+        throw new Error("retry wait should not run after abort");
+      },
+    }),
+    (error) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(attempts, 1);
+});
+
+test("provider deadline resumes after a checkpoint cooldown", async () => {
+  const waits = [];
+  let attempts = 0;
+  const result = await generateWithAutomaticTransientRetry({
+    generate: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw Object.assign(new Error("provider gateway deadline"), {
+          status: 524,
+          retryable: true,
+          failureClass: "checkpoint_recoverable",
+          errorType: "provider_gateway_deadline",
+        });
+      }
+      return "resumed";
+    },
+    wait: async (delayMs) => { waits.push(delayMs); },
+  });
+
+  assert.equal(result, "resumed");
+  assert.equal(attempts, 2);
+  assert.deepEqual(waits, [10_000]);
+});
+
+test("an in-flight screenplay run reconnects three times with long bounded waits", async () => {
+  const waits = [];
+  let attempts = 0;
+  await assert.rejects(generateWithAutomaticTransientRetry({
+    generate: async () => {
+      attempts += 1;
+      throw Object.assign(new Error("当前集仍在处理中"), {
+        status: 503,
+        retryable: true,
+        failureClass: "agent_in_progress",
+        errorType: "agent_run_in_progress",
+      });
+    },
+    wait: async (delayMs) => { waits.push(delayMs); },
+  }), /仍在处理中/);
+
+  assert.equal(attempts, MAX_AUTOMATIC_GENERATION_ATTEMPTS);
+  assert.deepEqual(waits, [30_000, 60_000]);
 });
 
 test("automatic transient retry obeys deterministic server metadata before HTTP status", async () => {
@@ -147,13 +216,17 @@ test("transient classification prefers machine-readable retry metadata", () => {
     { status: 503, retryable: true, failureClass: "transient_upstream" },
   )), true);
   assert.equal(isTransientGenerationFailure(Object.assign(
+    new Error("resume GPT finalization from checkpoint"),
+    { status: 422, retryable: true, failureClass: "checkpoint_recoverable" },
+  )), true);
+  assert.equal(isTransientGenerationFailure(Object.assign(
     new Error("invalid request"),
     { status: 502, retryable: true, failureClass: "input" },
   )), false);
 });
 
 test("only explicit transient HTTP statuses are retried without metadata", () => {
-  for (const status of [408, 429, 502, 503, 504]) {
+  for (const status of [408, 429, 502, 503, 504, 524]) {
     assert.equal(
       isTransientGenerationFailure(Object.assign(new Error(`status ${status}`), { status })),
       true,
@@ -185,8 +258,8 @@ test("browser transport failures retry while explicit cancellation stops", () =>
 
 test("gateway retries cool down before repeating a full episode", () => {
   const error = Object.assign(new Error("provider gateway status 502"), { status: 502 });
-  assert.equal(automaticRetryDelayMs(1, error), 15_000);
-  assert.equal(automaticRetryDelayMs(2, error), 30_000);
+  assert.equal(automaticRetryDelayMs(1, error), 3_000);
+  assert.equal(automaticRetryDelayMs(2, error), 8_000);
 });
 
 test("roadmap rate limits use a longer bounded cooldown and allow a third attempt", async () => {
@@ -209,7 +282,17 @@ test("roadmap rate limits use a longer bounded cooldown and allow a third attemp
   assert.deepEqual(waits, [10_000, 30_000]);
 });
 
-test("episode roadmap API does not repeat its existing two-model failover chain", async () => {
+test("an in-flight roadmap checkpoint is polled slowly without adding attempts", () => {
+  const error = Object.assign(new Error("roadmap is still running"), {
+    status: 503,
+    failureClass: "agent_in_progress",
+  });
+  assert.equal(roadmapRetryDelayMs(1, error), 30_000);
+  assert.equal(roadmapRetryDelayMs(2, error), 60_000);
+  assert.equal(MAX_EPISODE_ROADMAP_API_ATTEMPTS, 3);
+});
+
+test("episode roadmap API reconnects twice and then stops", async () => {
   let attempts = 0;
   await assert.rejects(
     generateWithFailurePolicy({
@@ -224,8 +307,8 @@ test("episode roadmap API does not repeat its existing two-model failover chain"
     }),
     /provider routes unavailable/,
   );
-  assert.equal(MAX_EPISODE_ROADMAP_API_ATTEMPTS, 1);
-  assert.equal(attempts, 1);
+  assert.equal(MAX_EPISODE_ROADMAP_API_ATTEMPTS, 3);
+  assert.equal(attempts, 3);
 });
 
 test("legacy projects always normalize to automatic transient recovery", () => {
@@ -237,4 +320,29 @@ test("the release region defaults safely and survives settings normalization", (
   assert.equal(normalizeGenerationSettings({}).releaseRegion, "cn_mainland");
   assert.equal(normalizeGenerationSettings({ releaseRegion: "overseas" }).releaseRegion, "overseas");
   assert.equal(normalizeGenerationSettings({ releaseRegion: "unsupported" }).releaseRegion, "cn_mainland");
+});
+
+test("market delivery contract keeps release region and language paired", () => {
+  const mainland = enforceMarketDeliveryContract(
+    { ...DEFAULT_GENERATION_SETTINGS, outputLanguage: "en", releaseRegion: "overseas" },
+    "cn_mainland",
+  );
+  const overseas = enforceMarketDeliveryContract(
+    { ...DEFAULT_GENERATION_SETTINGS, outputLanguage: "zh", releaseRegion: "cn_mainland" },
+    "overseas_tiktok",
+  );
+
+  assert.deepEqual(
+    { outputLanguage: mainland.outputLanguage, releaseRegion: mainland.releaseRegion },
+    { outputLanguage: "zh", releaseRegion: "cn_mainland" },
+  );
+  assert.deepEqual(
+    { outputLanguage: overseas.outputLanguage, releaseRegion: overseas.releaseRegion },
+    { outputLanguage: "en", releaseRegion: "overseas" },
+  );
+});
+
+test("creator-selected release region resolves the matching market profile", () => {
+  assert.equal(marketProfileForReleaseRegion("cn_mainland"), "cn_mainland");
+  assert.equal(marketProfileForReleaseRegion("overseas"), "overseas_tiktok");
 });

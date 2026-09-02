@@ -9,6 +9,7 @@ import { SectionHelp } from "@/components/section-help";
 import { userFacingError } from "@/lib/api-error";
 import { TagSelector } from "@/components/tag-selector";
 import { apiRequest } from "@/lib/api-client";
+import { analyzeInputReadiness } from "@/lib/input-readiness-client";
 import {
   createReferenceMaterial,
   hasUsableCreativeSource,
@@ -17,11 +18,11 @@ import {
   REFERENCE_FILE_ACCEPT,
 } from "@/lib/reference-materials";
 import {
-  nextBatchRange,
   normalizeGenerationSettings,
   TARGET_BODY_SCALE_BANDS,
   targetBodyScaleBand,
 } from "@/lib/generation-planning";
+import { currentWorkspaceHref, workspaceSectionAccess } from "@/lib/workspace-stage";
 import {
   CREATOR_TAGS,
   creatorTagFromOntology,
@@ -32,7 +33,10 @@ import {
 import { storyPlanningInputSignature } from "@/lib/story-planning-client";
 import {
   DEFAULT_GENERATION_SETTINGS,
+  enforceMarketDeliveryContract,
+  marketProfileForReleaseRegion,
   type CreatorTag,
+  type InputReadinessAnalysis,
   type ProjectDraft,
   type ProjectReferenceMaterial,
   type ScriptProject,
@@ -68,10 +72,13 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   const [availableTags, setAvailableTags] = useState<CreatorTag[]>(CREATOR_TAGS);
   const [referenceNotice, setReferenceNotice] = useState<string | null>(null);
   const [isReadingReferences, setIsReadingReferences] = useState(false);
+  const [inputReadiness, setInputReadiness] = useState<InputReadinessAnalysis | null>(null);
+  const [isAnalyzingInput, setIsAnalyzingInput] = useState(false);
   const [episodeCountInput, setEpisodeCountInput] = useState(() => (
     project ? String(project.generationSettings.episodeCount) : ""
   ));
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  const inputReadinessRequestRef = useRef(0);
 
   useEffect(() => {
     if (project) {
@@ -146,12 +153,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     && project.storyBibleStatus === "approved"
     && project.storyBibleInputSignature === storyPlanningInputSignature({ ...project, ...draft }),
   );
-  const firstBatchPreview = nextBatchRange(0, draft.generationSettings);
-  const episodePlanningReady = Boolean(
-    firstBatchPreview
-    && project?.episodePlansReadyThrough
-    && project.episodePlansReadyThrough >= firstBatchPreview.endEpisode,
-  );
+  const workspaceAccess = project ? workspaceSectionAccess(project) : null;
   const customTagOptions = draft.customTags.map((tag): CreatorTag => ({
     id: tag.id,
     label: tag.label,
@@ -178,6 +180,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
 
   function updatePrompt(value: string) {
     if (isReadOnly) return;
+    invalidateInputReadiness();
     setDraft((current) => ({
       ...current,
       creativePrompt: value,
@@ -195,6 +198,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
 
   async function addReferenceFiles(files: FileList | null) {
     if (isReadOnly || !files?.length) return;
+    invalidateInputReadiness();
     const remainingSlots = MAX_REFERENCE_FILES - draft.referenceMaterials.length;
     if (remainingSlots <= 0) {
       setReferenceNotice(t("reference.limitFiles"));
@@ -231,6 +235,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
 
   function removeReferenceMaterial(materialId: string) {
     if (isReadOnly) return;
+    invalidateInputReadiness();
     setDraft((current) => ({
       ...current,
       referenceMaterials: current.referenceMaterials.filter((item) => item.id !== materialId),
@@ -238,11 +243,33 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     setReferenceNotice(null);
   }
 
-  async function saveNewProject() {
+  async function beginProjectCreation() {
+    if (
+      !hasRequiredCreativeInput
+      || !episodeCountIsValid
+      || isReadingReferences
+      || isAnalyzingInput
+      || saveState === "saving"
+    ) return;
+    const requestId = inputReadinessRequestRef.current + 1;
+    inputReadinessRequestRef.current = requestId;
+    setIsAnalyzingInput(true);
+    const analysis = await analyzeInputReadiness(draft);
+    if (requestId !== inputReadinessRequestRef.current) return;
+    setIsAnalyzingInput(false);
+    if (!analysis) {
+      await saveNewProject();
+      return;
+    }
+    setInputReadiness(analysis);
+  }
+
+  async function saveNewProject(readiness?: InputReadinessAnalysis) {
     if (!hasRequiredCreativeInput || !episodeCountIsValid) return;
     setSaveState("saving");
     const created = await createProject({
       ...draft,
+      ...(readiness ? { inputReadiness: readiness } : {}),
       title: draft.title.trim() || t("editor.untitled"),
       titleSource: draft.title.trim() ? "user" : "derived",
     });
@@ -255,17 +282,25 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     value: ProjectDraft["generationSettings"][Key],
   ) {
     if (isReadOnly) return;
-    setDraft((current) => ({
-      ...current,
-      generationSettings: normalizeGenerationSettings({
+    invalidateInputReadiness();
+    setDraft((current) => {
+      const nextSettings = normalizeGenerationSettings({
         ...current.generationSettings,
         [key]: value,
-      }),
-    }));
+      });
+      return {
+        ...current,
+        generationSettings: enforceMarketDeliveryContract(
+          nextSettings,
+          marketProfileForReleaseRegion(nextSettings.releaseRegion),
+        ),
+      };
+    });
   }
 
   function updateEpisodeCount(value: string) {
     if (isReadOnly) return;
+    invalidateInputReadiness();
     setEpisodeCountInput(value);
     if (!/^\d+$/.test(value)) return;
     const episodeCount = Number(value);
@@ -294,8 +329,13 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `${draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "script-project"}.json`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => {
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    }, 1000);
   }
 
   async function duplicateAsNewVersion() {
@@ -307,6 +347,21 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     });
     updateProject(created.id, { sourceProjectId: project.id });
     router.push(`/projects/${created.id}`);
+  }
+
+  function invalidateInputReadiness() {
+    inputReadinessRequestRef.current += 1;
+    setInputReadiness(null);
+    setIsAnalyzingInput(false);
+  }
+
+  function createWithReadinessPath(path: "recommended" | "full_workflow") {
+    if (!inputReadiness) return;
+    void saveNewProject({
+      ...inputReadiness,
+      selectedPath: path,
+      selectedAt: new Date().toISOString(),
+    });
   }
 
   return (
@@ -582,15 +637,44 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             </dl>
           )}
           {hasExistingEpisodes ? <div className="inline-notice">{t("generation.existingProtected")}</div> : null}
+          {mode === "create" && inputReadiness ? (
+            <InputReadinessConfirmation analysis={inputReadiness} t={t} />
+          ) : null}
           <div className="inspector-actions">
             {mode === "create" ? (
-              <button className="primary-action full-width" disabled={!hasRequiredCreativeInput || !episodeCountIsValid || saveState === "saving"} onClick={() => void saveNewProject()} type="button">
-                {t("editor.createProjectAndPlan")} <ArrowIcon />
-              </button>
+              inputReadiness ? (
+                <>
+                  <button
+                    className="primary-action full-width"
+                    disabled={saveState === "saving"}
+                    onClick={() => createWithReadinessPath("recommended")}
+                    type="button"
+                  >
+                    {t("inputReadiness.createRecommended")} <ArrowIcon />
+                  </button>
+                  <button
+                    className="outline-action full-width"
+                    disabled={saveState === "saving"}
+                    onClick={() => createWithReadinessPath("full_workflow")}
+                    type="button"
+                  >
+                    {t("inputReadiness.createFull")}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="primary-action full-width"
+                  disabled={!hasRequiredCreativeInput || !episodeCountIsValid || isReadingReferences || isAnalyzingInput || saveState === "saving"}
+                  onClick={() => void beginProjectCreation()}
+                  type="button"
+                >
+                  {isAnalyzingInput ? t("inputReadiness.analyzing") : t("editor.createProjectAndPlan")} <ArrowIcon />
+                </button>
+              )
             ) : (
               hasExistingEpisodes ? (
                 <>
-                <button className="primary-action full-width" onClick={() => project && router.push(`/projects/${project.id}/workspace`)} type="button">
+                <button className="primary-action full-width" onClick={() => project && router.push(currentWorkspaceHref(project))} type="button">
                   {t("generation.openWorkspace")} <ArrowIcon />
                 </button>
                 <button className="outline-action full-width" onClick={() => void duplicateAsNewVersion()} type="button">
@@ -599,18 +683,18 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
                 <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>
                 </>
               ) : <>
-                {episodePlanningReady ? (
+                {workspaceAccess?.script ? (
                   <button
                     className="primary-action full-width"
                     disabled={!episodeCountIsValid || saveState === "saving"}
-                    onClick={() => project && router.push(`/projects/${project.id}/planning`)}
+                    onClick={() => project && router.push(currentWorkspaceHref(project))}
                     type="button"
                   >
-                    {t("planningWorkspace.openPlanning")}
+                    {t("storyPlanNode.nextToScript")}
                     <ArrowIcon />
                   </button>
                 ) : (
-                  <button className="primary-action full-width" disabled={!episodeCountIsValid} onClick={() => project && router.push(`/projects/${project.id}/planning`)} type="button">
+                  <button className="primary-action full-width" disabled={!episodeCountIsValid} onClick={() => project && router.push(currentWorkspaceHref(project))} type="button">
                     {t("planningWorkspace.continuePlanning")}
                     <ArrowIcon />
                   </button>
@@ -628,7 +712,63 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   );
 }
 
+function InputReadinessConfirmation({
+  analysis,
+  t,
+}: {
+  analysis: InputReadinessAnalysis;
+  t: (key: string) => string;
+}) {
+  const coverage = [
+    ["premise", "inputReadiness.coverage.premise"],
+    ["storyBible", "inputReadiness.coverage.storyBible"],
+    ["episodePlan", "inputReadiness.coverage.episodePlan"],
+    ["script", "inputReadiness.coverage.script"],
+  ] as const;
+  return (
+    <section className="input-readiness-panel" aria-live="polite">
+      <span className="section-kicker">{t("inputReadiness.title")}</span>
+      <strong>
+        {t(`inputReadiness.level.${analysis.detectedLevel}`)}
+        <small>{Math.round(analysis.confidence * 100)}%</small>
+      </strong>
+      <p>
+        {t("inputReadiness.recommendation")}
+        <b>{t(`inputReadiness.stage.${analysis.recommendedStage}`)}</b>
+      </p>
+      <div className="input-readiness-coverage">
+        {coverage.map(([key, label]) => {
+          const value = analysis.coverage[key];
+          return (
+            <div key={key}>
+              <span>{t(label)}</span>
+              <i aria-hidden="true"><b style={{ width: `${Math.round(value * 100)}%` }} /></i>
+              <em>{Math.round(value * 100)}%</em>
+            </div>
+          );
+        })}
+      </div>
+      <div className="input-readiness-missing">
+        <span>{t("inputReadiness.missing")}</span>
+        {analysis.missingItems.length ? (
+          <ul>{analysis.missingItems.map((item) => <li key={item}>{item}</li>)}</ul>
+        ) : <p>{t("inputReadiness.missingNone")}</p>}
+      </div>
+      <small>{t("inputReadiness.guardrail")}</small>
+    </section>
+  );
+}
+
 function toDraft(project: ScriptProject): ProjectDraft {
+  const normalizedSettings = normalizeGenerationSettings({
+    ...project.generationSettings,
+    episodeCountMode: "custom",
+  }, {
+    legacy: project.generationSettings?.episodeCountMode === undefined,
+  });
+  const selectedMarketProfile = marketProfileForReleaseRegion(
+    normalizedSettings.releaseRegion,
+  );
   return {
     title: project.title,
     titleSource: project.titleSource,
@@ -637,11 +777,10 @@ function toDraft(project: ScriptProject): ProjectDraft {
     selectedTagIds: project.selectedTagIds,
     customTags: project.customTags ?? [],
     characters: project.characters,
-    generationSettings: normalizeGenerationSettings({
-      ...project.generationSettings,
-      episodeCountMode: "custom",
-    }, {
-      legacy: project.generationSettings?.episodeCountMode === undefined,
-    }),
+    inputReadiness: project.inputReadiness,
+    generationSettings: enforceMarketDeliveryContract(
+      normalizedSettings,
+      selectedMarketProfile,
+    ),
   };
 }

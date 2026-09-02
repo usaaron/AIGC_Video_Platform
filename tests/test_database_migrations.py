@@ -4,6 +4,8 @@ from sqlalchemy import create_engine, inspect
 
 
 EXPECTED_LONG_STORY_TABLES = {
+    "agent_runs",
+    "agent_steps",
     "alembic_version",
     "content_specs",
     "continuity_ledger_versions",
@@ -11,10 +13,13 @@ EXPECTED_LONG_STORY_TABLES = {
     "episode_plan_versions",
     "generation_batches",
     "generation_job_checkpoints",
+    "narrative_event_sets",
+    "narrative_events",
     "story_bible_versions",
     "story_plan_node_versions",
     "story_projects",
     "story_project_workspace_snapshots",
+    "planning_sessions",
     "story_stage_plan_versions",
 }
 
@@ -45,6 +50,10 @@ def test_long_story_migration_upgrades_without_metadata_drift(
         if check["name"] == "ck_story_workspace_payload_size"
     )
     assert "50000000" in payload_check["sqltext"]
+    agent_indexes = {
+        index["name"] for index in inspector.get_indexes("agent_runs")
+    }
+    assert "uq_agent_runs_active_episode" in agent_indexes
     engine.dispose()
 
     command.check(config)

@@ -649,6 +649,8 @@ def test_repository_deletes_generated_descendants_and_resets_workspace(
         )
 
         assert deleted == {
+            "agent_steps": 0,
+            "agent_runs": 0,
             "generation_job_checkpoints": 1,
             "episode_artifact_versions": 1,
             "generation_batches": 1,

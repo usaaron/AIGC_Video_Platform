@@ -26,6 +26,7 @@ export function storyPlanningInputSignature(project: ScriptProject): string {
           content: project.selectedCreativeDirection.content_description.trim(),
         }
       : null,
+    authorInstruction: project.storyBibleAuthorInstruction?.trim() ?? "",
     generation: {
       episodeCountMode: project.generationSettings.episodeCountMode,
       episodeCount: project.generationSettings.episodeCount,

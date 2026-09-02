@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
+from contextvars import ContextVar, copy_context
 import hashlib
 import json
 import logging
@@ -19,6 +21,38 @@ from app.modules.script_engine.models import GenerationStrategy, LLMModelInfo
 
 
 logger = logging.getLogger(__name__)
+
+
+_LLM_LOG_CONTEXT: ContextVar[dict[str, str]] = ContextVar(
+    "llm_log_context",
+    default={},
+)
+
+
+@contextmanager
+def bind_llm_log_context(**fields: object):
+    """Attach safe workflow identifiers to every route log in this context."""
+
+    normalized = {
+        key: str(value).strip()[:160]
+        for key, value in fields.items()
+        if value not in (None, "")
+    }
+    token = _LLM_LOG_CONTEXT.set({**_LLM_LOG_CONTEXT.get(), **normalized})
+    try:
+        yield
+    finally:
+        _LLM_LOG_CONTEXT.reset(token)
+
+
+def _llm_log_context_fields() -> tuple[str, str, str, str]:
+    context = _LLM_LOG_CONTEXT.get()
+    return (
+        context.get("project_id", "-"),
+        context.get("episode", "-"),
+        context.get("stage", "-"),
+        context.get("agent_run_id", "-"),
+    )
 
 
 class MissingLLMConfigurationError(ValueError):
@@ -68,8 +102,17 @@ class LLMRequestError(RuntimeError):
         self.recoverable = recoverable
 
 
-class _HedgedRequestCancelled(Exception):
+class LLMRequestCancelledError(Exception):
+    """Stop a model request when its streaming client disconnects."""
+
+
+class _HedgedRequestCancelled(LLMRequestCancelledError):
     """Stop a losing same-model route after another route has completed."""
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise _HedgedRequestCancelled()
 
 
 def is_recoverable_llm_request_error(
@@ -185,6 +228,156 @@ class LLMAdapter(ABC):
         raise NotImplementedError
 
 
+class MarketRoutedLLMAdapter(LLMAdapter):
+    """Select a role-specific adapter from the market contract in the prompt.
+
+    Market selection belongs to the ContentSpec, while the low-level adapter
+    API intentionally stays prompt-based. Every planning and screenplay prompt
+    already carries the canonical ``Market path: ...`` contract, so routing at
+    this boundary keeps retries, schema repair, and streaming behavior inside
+    the existing adapters.
+    """
+
+    def __init__(
+        self,
+        *,
+        mainland: LLMAdapter,
+        overseas: LLMAdapter,
+    ) -> None:
+        self._mainland = mainland
+        self._overseas = overseas
+
+    @staticmethod
+    def _is_overseas(prompt: str) -> bool:
+        if re.search(
+            r"Market path:\s*(?:overseas|overseas_tiktok)",
+            prompt,
+            re.IGNORECASE,
+        ):
+            return True
+        # Bounded repair prompts may contain only the serialized artifact and
+        # its market field, without the original planning contract.
+        return bool(
+            re.search(
+                r"(?:market_profile|market_path|release_region)\s*[\"']?\s*[:=]\s*[\"']?overseas(?:_tiktok)?",
+                prompt,
+                re.IGNORECASE,
+            )
+            or re.search(r"\boverseas_tiktok\b", prompt, re.IGNORECASE)
+        )
+
+    def _select_with_market(self, prompt: str) -> tuple[str, LLMAdapter]:
+        if self._is_overseas(prompt):
+            return "overseas_tiktok", self._overseas
+        return "cn_mainland", self._mainland
+
+    def _select(self, prompt: str) -> LLMAdapter:
+        return self._select_with_market(prompt)[1]
+
+    @staticmethod
+    def _annotate_market_result(
+        result: dict[str, Any],
+        *,
+        market_path: str,
+        adapter: LLMAdapter,
+    ) -> dict[str, Any]:
+        metadata = result.setdefault("_meta", {})
+        if isinstance(metadata, dict):
+            info = adapter.get_model_info()
+            metadata.update({
+                "market_path": market_path,
+                "market_route_provider": info.provider,
+                "market_route_model": info.model_name,
+            })
+        return result
+
+    def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
+        return self._select(prompt).generate_text(prompt, strategy=strategy)
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        market_path, adapter = self._select_with_market(prompt)
+        result = adapter.generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+        return self._annotate_market_result(
+            result,
+            market_path=market_path,
+            adapter=adapter,
+        )
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+    ) -> dict[str, Any]:
+        market_path, adapter = self._select_with_market(prompt)
+        result = adapter.generate_structured_output_stream(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+        )
+        return self._annotate_market_result(
+            result,
+            market_path=market_path,
+            adapter=adapter,
+        )
+
+    def generate_structured_output_stream_cancellable(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        market_path, adapter = self._select_with_market(prompt)
+        result = adapter.generate_structured_output_stream_cancellable(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+            cancel_event=cancel_event,
+        )
+        return self._annotate_market_result(
+            result,
+            market_path=market_path,
+            adapter=adapter,
+        )
+
+    def validate_output(
+        self,
+        output: dict[str, Any],
+        *,
+        required_keys: Sequence[str] | None = None,
+    ) -> bool:
+        # Validation is schema-independent of market, so either route is valid.
+        return self._mainland.validate_output(output, required_keys=required_keys)
+
+    def get_model_info(self) -> LLMModelInfo:
+        mainland = self._mainland.get_model_info()
+        overseas = self._overseas.get_model_info()
+        return mainland.model_copy(
+            update={
+                "model_name": (
+                    f"market-routed[{mainland.model_name}|{overseas.model_name}]"
+                )[:120],
+            }
+        )
+
+
 class RealLLMAdapter(LLMAdapter):
     """OpenAI-compatible adapter for real structured script generation."""
 
@@ -247,6 +440,7 @@ class RealLLMAdapter(LLMAdapter):
         model_identity = f"{provider} {model_name}".casefold()
         self._is_deepseek = "deepseek" in model_identity
         self._is_glm = bool(re.search(r"(?:^|[^a-z0-9])glm(?:[^a-z0-9]|$)", model_identity))
+        self._is_qwen = "qwen" in model_identity
         if self._is_deepseek:
             # DeepSeek V4 exposes structured generation through the OpenAI
             # Chat Completions interface. Its JSON mode accepts json_object,
@@ -315,6 +509,7 @@ class RealLLMAdapter(LLMAdapter):
             response_is_empty = self._response_content_is_empty(response_payload)
             if response_is_empty:
                 error.empty_response = True
+            self._annotate_empty_response_diagnostics(error, response_payload)
             self._log_route_output_rejected(
                 transport="non_stream",
                 error=error,
@@ -344,12 +539,20 @@ class RealLLMAdapter(LLMAdapter):
                 if self._response_content_is_empty(response_payload):
                     retry_error.empty_response = True
                     retry_error.empty_response_retry_attempted = True
+                self._annotate_empty_response_diagnostics(
+                    retry_error,
+                    response_payload,
+                )
                 self._log_route_output_rejected(
                     transport="non_stream",
                     error=retry_error,
                     response_payload=response_payload,
                 )
                 raise
+        structured_output = self._decode_stringified_dynamic_objects(
+            structured_output,
+            output_schema=output_schema,
+        )
         original_structured_output = structured_output
         structured_output, root_repaired_response = self._repair_schema_root_shape(
             payload,
@@ -396,7 +599,7 @@ class RealLLMAdapter(LLMAdapter):
         if deferred_container_issues:
             structured_output["_meta"]["schema_container_repair_deferred"] = True
             structured_output["_meta"]["schema_container_issues"] = deferred_container_issues[:20]
-        if self._is_deepseek or self._is_glm:
+        if self._is_deepseek or self._is_glm or self._is_qwen:
             structured_output["_meta"]["thinking_mode"] = (
                 self._thinking_mode or "enabled"
             )
@@ -511,6 +714,10 @@ class RealLLMAdapter(LLMAdapter):
             raise
         if cancel_event is not None and cancel_event.is_set():
             raise _HedgedRequestCancelled()
+        structured_output = self._decode_stringified_dynamic_objects(
+            structured_output,
+            output_schema=output_schema,
+        )
         adapter_model_pass_count = 1
         original_structured_output = structured_output
         structured_output, root_repaired_response = self._repair_schema_root_shape(
@@ -568,7 +775,7 @@ class RealLLMAdapter(LLMAdapter):
         if deferred_container_issues:
             structured_output["_meta"]["schema_container_repair_deferred"] = True
             structured_output["_meta"]["schema_container_issues"] = deferred_container_issues[:20]
-        if self._is_deepseek or self._is_glm:
+        if self._is_deepseek or self._is_glm or self._is_qwen:
             structured_output["_meta"]["thinking_mode"] = (
                 self._thinking_mode or "enabled"
             )
@@ -1108,6 +1315,12 @@ class RealLLMAdapter(LLMAdapter):
         # Some compatible gateways fail only on the long-lived SSE path. A
         # bounded non-streaming attempt on the same key changes the transport
         # without changing model, prompt, or screenplay obligations.
+        if error.status_code == 524:
+            # A 524 can be caused by the gateway's SSE worker rather than the
+            # model itself. In the success-first profile, allow the bounded
+            # non-stream fallback; the adapter retry count still limits this
+            # to a finite number of requests.
+            return self._retry_gateway_stream_as_non_stream
         stream_termination = str(
             getattr(error, "stream_termination", "") or ""
         ).casefold()
@@ -1116,7 +1329,12 @@ class RealLLMAdapter(LLMAdapter):
             error.category == "empty_response"
             and isinstance(reasoning_characters, int)
             and reasoning_characters > 0
-            and "length" in stream_termination
+            and any(marker in stream_termination for marker in (
+                "length",
+                "max_output",
+                "token",
+                "incomplete",
+            ))
         ):
             # This route exhausted the answer budget on hidden reasoning. A
             # non-streaming repeat uses the same budget and only doubles the
@@ -1132,6 +1350,11 @@ class RealLLMAdapter(LLMAdapter):
             # A host/upstream outage is not an SSE compatibility problem.
             # Let the outer route failover move to another gateway immediately.
             return False
+        if error.category == "transport" and self._retry_gateway_stream_as_non_stream:
+            # A gateway may close an SSE response after delivering a partial
+            # JSON document. Switch transports once before discarding the
+            # otherwise recoverable request.
+            return True
         message = str(error).casefold()
         return (
             error.category in {"empty_response", "provider_protocol", "provider_gateway"}
@@ -1233,6 +1456,18 @@ class RealLLMAdapter(LLMAdapter):
                 payload["reasoning_effort"] = self._reasoning_effort
             payload["temperature"] = strategy.temperature
             payload["top_p"] = strategy.top_p
+        elif self._is_qwen:
+            # Qwen's OpenAI-compatible endpoint accepts the same thinking
+            # switch used by the model-evaluation lab. Keep sampling controls
+            # present because Qwen accepts them alongside thinking mode.
+            thinking_mode = self._thinking_mode or "enabled"
+            payload["thinking"] = {"type": thinking_mode}
+            if thinking_mode == "disabled":
+                payload["reasoning_effort"] = "none"
+            elif self._reasoning_effort is not None:
+                payload["reasoning_effort"] = self._reasoning_effort
+            payload["temperature"] = strategy.temperature
+            payload["top_p"] = strategy.top_p
         else:
             payload["temperature"] = strategy.temperature
             payload["top_p"] = strategy.top_p
@@ -1263,10 +1498,20 @@ class RealLLMAdapter(LLMAdapter):
     ) -> str:
         if output_schema is None:
             return prompt
-        # Strict JSON-schema transports already receive the complete schema in
-        # the request body. json_object transports guarantee syntax only, so
-        # every model needs the compact native-container shape in its prompt.
-        if not self._is_deepseek and self._use_strict_schema:
+        # Strict JSON-schema transports receive the complete schema in the
+        # request body. Relaxed json_object transports guarantee syntax only,
+        # so every model needs the compact native-container shape in its prompt.
+        normalized_schema = self._normalize_strict_json_schema(output_schema)
+        uses_stringified_dynamic_objects = (
+            self._wire_api == "responses"
+            and self._use_strict_schema
+            and not self._supports_strict_json_schema(normalized_schema)
+        )
+        if (
+            not self._is_deepseek
+            and self._use_strict_schema
+            and self._supports_strict_json_schema(normalized_schema)
+        ):
             return prompt
         shape = self._json_shape_example(output_schema)
         properties = output_schema.get("properties")
@@ -1304,13 +1549,15 @@ The API response format guarantees JSON syntax only. The following compact examp
 defines the complete field shape you must return. Replace placeholder values with the
 requested story data, preserve exact technical enum/ID values, and do not omit required
 nested fields. Objects and arrays must remain native JSON containers: never serialize a
-child object or nested collection into a quoted JSON string. Do not return this example
+child object or nested collection into a quoted JSON string unless the response schema
+explicitly represents an unbounded dictionary as a JSON-encoded string. Do not return this example
 inside another wrapper. The first and only JSON object must be the complete root object,
 never one scene, character, state update, episode, dialogue, child, or array item.
+{("For unbounded dictionary fields represented as strings by the response schema, return a JSON-encoded object string; the runtime will restore it to a native object.\n" if uses_stringified_dynamic_objects else "")}
 {root_identity}<json_shape>
 {json.dumps(shape, ensure_ascii=False, separators=(',', ':'))}
 </json_shape>
-Return exactly one JSON object now."""
+Return exactly one json object now."""
 
     @classmethod
     def _json_shape_example(cls, schema: dict[str, Any]) -> Any:
@@ -1522,35 +1769,58 @@ Return exactly one JSON object now."""
             "input": [
                 {
                     "role": "system",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": (
-                                "You generate structured dramatic scripts. "
-                                "Follow the supplied JSON schema exactly."
-                            ),
-                        }
-                    ],
+                    # A few OpenAI-compatible Responses gateways only inspect
+                    # string-valued message content when validating the
+                    # json_object precondition. Keep this as a plain string;
+                    # the official Responses API accepts both string and
+                    # typed-content forms.
+                    "content": (
+                        "You generate structured dramatic scripts. "
+                        "Follow the supplied JSON schema exactly. "
+                        "When JSON object mode is used, return valid json."
+                    ),
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "input_text", "text": structured_prompt}],
+                    "content": structured_prompt,
                 },
             ],
         }
         if self._reasoning_effort is not None:
             payload["reasoning"] = {"effort": self._reasoning_effort}
         if output_schema and self._send_response_format:
-            if self._use_strict_schema:
+            normalized_schema = self._normalize_strict_json_schema(output_schema)
+            if self._use_strict_schema and self._supports_strict_json_schema(normalized_schema):
                 payload["text"] = {
                     "format": {
                         "type": "json_schema",
                         "name": self._structured_output_name(output_schema),
                         "strict": True,
-                        "schema": self._normalize_strict_json_schema(output_schema),
+                        "schema": normalized_schema,
+                    }
+                }
+            elif self._use_strict_schema:
+                # This gateway rejects Responses ``json_object`` outright and
+                # also rejects unbounded ``additionalProperties`` in strict
+                # schemas. Encode only those dynamic dictionaries as JSON
+                # strings; the response is decoded back to native objects
+                # after extraction and before service validation.
+                payload["text"] = {
+                    "format": {
+                        "type": "json_schema",
+                        "name": self._structured_output_name(output_schema),
+                        "strict": True,
+                        "schema": self._stringify_dynamic_objects_for_strict_schema(
+                            normalized_schema
+                        ),
                     }
                 }
             else:
+                # OpenAI-compatible gateways reject strict schemas that contain
+                # unbounded dictionaries (for example interactive planning's
+                # step-specific ``fields`` object). Keep JSON mode so the
+                # prompt contract and Pydantic validation still enforce the
+                # response shape without sending an impossible schema.
                 payload["text"] = {"format": {"type": "json_object"}}
         return payload
 
@@ -1603,6 +1873,100 @@ Return exactly one JSON object now."""
         return normalized
 
     @staticmethod
+    def _supports_strict_json_schema(schema: dict[str, Any]) -> bool:
+        """Return whether a schema can be submitted to strict JSON Schema APIs.
+
+        Strict providers require every object to have a closed property set.
+        Pydantic represents ``dict[str, Any]`` as ``additionalProperties: true``;
+        that is valid JSON Schema but cannot be accepted by the strict response
+        format, so callers should use the stringified strict schema or JSON object
+        mode, depending on the provider transport.
+        """
+
+        def visit(value: Any) -> bool:
+            if isinstance(value, dict):
+                if value.get("type") == "object":
+                    if value.get("additionalProperties") is not False:
+                        return False
+                    properties = value.get("properties")
+                    if not isinstance(properties, dict):
+                        return False
+                return all(visit(child) for child in value.values())
+            if isinstance(value, list):
+                return all(visit(child) for child in value)
+            return True
+
+        return visit(schema)
+
+    @classmethod
+    def _stringify_dynamic_objects_for_strict_schema(
+        cls,
+        schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Represent unbounded dictionaries as JSON strings for strict gateways."""
+
+        def visit(value: Any) -> Any:
+            if isinstance(value, dict):
+                if value.get("type") == "object" and value.get("additionalProperties") is not False:
+                    return {
+                        "type": "string",
+                        "description": "JSON-encoded object value",
+                    }
+                return {key: visit(child) for key, child in value.items()}
+            if isinstance(value, list):
+                return [visit(child) for child in value]
+            return value
+
+        return visit(deepcopy(schema))
+
+    @classmethod
+    def _decode_stringified_dynamic_objects(
+        cls,
+        value: Any,
+        *,
+        output_schema: dict[str, Any] | None,
+    ) -> Any:
+        """Restore dynamic dictionary fields encoded as strings by strict JSON schema."""
+
+        if output_schema is None:
+            return value
+        definitions = output_schema.get("$defs")
+        definitions = definitions if isinstance(definitions, dict) else {}
+
+        def visit(current: Any, schema: Any, stack: tuple[str, ...] = ()) -> Any:
+            if not isinstance(schema, dict):
+                return current
+            reference = schema.get("$ref")
+            prefix = "#/$defs/"
+            if isinstance(reference, str) and reference.startswith(prefix):
+                name = reference[len(prefix):]
+                if name in stack:
+                    return current
+                target = definitions.get(name)
+                if isinstance(target, dict):
+                    return visit(current, target, (*stack, name))
+                return current
+            if schema.get("type") == "object" and schema.get("additionalProperties") is not False:
+                if isinstance(current, str):
+                    try:
+                        decoded = json.loads(current)
+                    except (TypeError, json.JSONDecodeError):
+                        return current
+                    return decoded if isinstance(decoded, dict) else current
+                return current
+            if schema.get("type") == "array" and isinstance(current, list):
+                return [visit(item, schema.get("items")) for item in current]
+            properties = schema.get("properties")
+            if isinstance(properties, dict) and isinstance(current, dict):
+                return {
+                    key: visit(child, properties.get(key))
+                    for key, child in current.items()
+                }
+            return current
+
+        return visit(value, output_schema)
+
+    @staticmethod
     def _structured_output_name(output_schema: dict[str, Any]) -> str:
         title = output_schema.get("title")
         source = title if isinstance(title, str) and title.strip() else "structured_output"
@@ -1622,6 +1986,7 @@ Return exactly one JSON object now."""
         payload: dict[str, Any] | None = None,
     ) -> None:
         provider, model, gateway, wire_api = self._route_log_context()
+        project_id, episode, stage, agent_run_id = _llm_log_context_fields()
         prompt_chars = 0
         if isinstance(payload, dict):
             messages = payload.get("messages")
@@ -1650,7 +2015,8 @@ Return exactly one JSON object now."""
             output_budget = payload.get("max_output_tokens")
         logger.warning(
             "LLM route request started provider=%s model=%s gateway=%s "
-            "wire_api=%s transport=%s attempt=%d/%d prompt_chars=%d "
+            "wire_api=%s transport=%s attempt=%d/%d project_id=%s episode=%s "
+            "stage=%s agent_run_id=%s prompt_chars=%d "
             "output_budget=%s reasoning=%s thinking=%s",
             provider,
             model,
@@ -1659,6 +2025,10 @@ Return exactly one JSON object now."""
             transport,
             attempt + 1,
             self._max_retries + 1,
+            project_id,
+            episode,
+            stage,
+            agent_run_id,
             prompt_chars,
             output_budget if output_budget is not None else "none",
             self._reasoning_effort or "provider_default",
@@ -1682,6 +2052,7 @@ Return exactly one JSON object now."""
         finish_reason: str | None = None,
     ) -> None:
         provider, model, gateway, wire_api = self._route_log_context()
+        project_id, episode, stage, agent_run_id = _llm_log_context_fields()
         diagnostics = self._response_diagnostics(response_payload)
         if content_chars is None:
             content_chars = diagnostics["content_chars"]
@@ -1693,7 +2064,8 @@ Return exactly one JSON object now."""
         detail = self._safe_route_log_detail(error)
         logger.warning(
             "LLM route request finished provider=%s model=%s gateway=%s "
-            "wire_api=%s transport=%s attempt=%d/%d outcome=%s "
+            "wire_api=%s transport=%s attempt=%d/%d project_id=%s episode=%s "
+            "stage=%s agent_run_id=%s outcome=%s "
             "duration_seconds=%.2f status_code=%s category=%s will_retry=%s "
             "content_chars=%d reasoning_chars=%d finish_reason=%s "
             "error_type=%s detail=%s",
@@ -1704,6 +2076,10 @@ Return exactly one JSON object now."""
             transport,
             attempt + 1,
             self._max_retries + 1,
+            project_id,
+            episode,
+            stage,
+            agent_run_id,
             outcome,
             time.monotonic() - started,
             status_code if status_code is not None else "none",
@@ -1734,10 +2110,12 @@ Return exactly one JSON object now."""
         finish_reason: str | None = None,
     ) -> None:
         provider, model, gateway, wire_api = self._route_log_context()
+        project_id, episode, stage, agent_run_id = _llm_log_context_fields()
         diagnostics = self._response_diagnostics(response_payload)
         logger.warning(
             "LLM route output rejected provider=%s model=%s gateway=%s "
-            "wire_api=%s transport=%s category=%s empty_response=%s "
+            "wire_api=%s transport=%s project_id=%s episode=%s stage=%s "
+            "agent_run_id=%s category=%s empty_response=%s "
             "content_chars=%d reasoning_chars=%d finish_reason=%s "
             "stream_termination=%s error_type=%s detail=%s",
             provider,
@@ -1745,6 +2123,10 @@ Return exactly one JSON object now."""
             gateway,
             wire_api,
             transport,
+            project_id,
+            episode,
+            stage,
+            agent_run_id,
             "empty_response" if error.empty_response else "structured_output",
             str(error.empty_response).lower(),
             diagnostics["content_chars"] if content_chars is None else content_chars,
@@ -1754,6 +2136,27 @@ Return exactly one JSON object now."""
             type(error).__name__,
             self._safe_route_log_detail(error),
         )
+
+    @staticmethod
+    def _annotate_empty_response_diagnostics(
+        error: LLMStructuredOutputError,
+        response_payload: Any,
+    ) -> None:
+        """Carry non-stream reasoning exhaustion into failover decisions."""
+
+        if not error.empty_response:
+            return
+        diagnostics = RealLLMAdapter._response_diagnostics(response_payload)
+        reasoning_characters = diagnostics.get("reasoning_chars")
+        if isinstance(reasoning_characters, int) and reasoning_characters > 0:
+            setattr(error, "reasoning_characters", reasoning_characters)
+        finish_reason = diagnostics.get("finish_reason")
+        if (
+            isinstance(finish_reason, str)
+            and finish_reason.strip()
+            and not error.stream_termination
+        ):
+            error.stream_termination = f"finish_reason:{finish_reason.strip().casefold()}"
 
     @staticmethod
     def _response_diagnostics(response_payload: Any) -> dict[str, Any]:
@@ -1900,7 +2303,15 @@ Return exactly one JSON object now."""
                 status_code = exc.response.status_code
                 response_detail = self._extract_error_detail(exc.response)
                 category = "provider_http" if status_code < 500 else "provider_gateway"
-                will_retry = status_code >= 500 and attempt < self._max_retries
+                # A 524 is the upstream gateway's execution deadline. In the
+                # success-first script profile, spend the configured bounded
+                # retry before giving the route up; a transiently overloaded
+                # gateway can still complete the second request.
+                gateway_deadline = status_code == 524
+                will_retry = (
+                    status_code >= 500
+                    and attempt < self._max_retries
+                )
                 self._log_route_finished(
                     transport="non_stream",
                     attempt=attempt,
@@ -1921,9 +2332,14 @@ Return exactly one JSON object now."""
                     ) from exc
                 last_error = exc
                 if attempt >= self._max_retries:
+                    failure_phrase = (
+                        "at the provider gateway deadline"
+                        if gateway_deadline
+                        else "after retries"
+                    )
                     raise LLMRequestError(
                         "LLM request failed with status "
-                        f"{status_code} after retries: {response_detail}",
+                        f"{status_code} {failure_phrase}: {response_detail}",
                         status_code=status_code,
                         category="provider_gateway",
                         recoverable=True,
@@ -2102,6 +2518,7 @@ Return exactly one JSON object now."""
                 status_code = exc.response.status_code
                 response_detail = self._extract_error_detail(exc.response)
                 category = "provider_http" if status_code < 500 else "provider_gateway"
+                gateway_deadline = status_code == 524
                 will_retry = (
                     not received
                     and status_code >= 500
@@ -2130,9 +2547,14 @@ Return exactly one JSON object now."""
                     ) from exc
                 last_error = exc
                 if attempt >= self._max_retries:
+                    failure_phrase = (
+                        "at the provider gateway deadline"
+                        if gateway_deadline
+                        else "after retries"
+                    )
                     raise LLMRequestError(
                         "LLM streaming request failed with status "
-                        f"{status_code} after retries: {response_detail}",
+                        f"{status_code} {failure_phrase}: {response_detail}",
                         status_code=status_code,
                         category="provider_gateway",
                         recoverable=True,
@@ -2438,6 +2860,15 @@ Return exactly one JSON object now."""
                         parsed = json.loads(locally_repaired)
                     except json.JSONDecodeError:
                         parsed = None
+                if parsed is None:
+                    closed_suffix = self._close_truncated_json_containers(
+                        locally_repaired
+                    )
+                    if closed_suffix != locally_repaired:
+                        try:
+                            parsed = json.loads(closed_suffix)
+                        except json.JSONDecodeError:
+                            parsed = None
                 if parsed is None and self._single_root_collection_field(output_schema):
                     parsed = self._extract_embedded_json_array(locally_repaired)
                 if parsed is None:
@@ -2638,6 +3069,48 @@ Return exactly one JSON object now."""
         return "".join(output)
 
     @staticmethod
+    def _close_truncated_json_containers(content: str) -> str:
+        """Close only an otherwise complete JSON suffix.
+
+        A gateway may end an SSE response after the last value but before the
+        final array/object delimiters. This repair never closes an unfinished
+        string, drops a field, or invents a value, so later schema validation
+        remains authoritative.
+        """
+
+        stack: list[str] = []
+        in_string = False
+        escaped = False
+        for character in content:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    in_string = False
+                continue
+            if character == '"':
+                in_string = True
+            elif character == "{":
+                stack.append("}")
+            elif character == "[":
+                stack.append("]")
+            elif character in "}]":
+                if not stack or stack[-1] != character:
+                    return content
+                stack.pop()
+        stripped = content.rstrip()
+        if (
+            in_string
+            or not stack
+            or not stripped
+            or stripped[-1] in {",", ":"}
+        ):
+            return content
+        return stripped + "".join(reversed(stack))
+
+    @staticmethod
     def _extract_embedded_json_object(
         content: str,
         *,
@@ -2753,6 +3226,299 @@ Return exactly one JSON object now."""
         return max(candidates, key=lambda candidate: candidate[0])[1]
 
 
+class AdaptiveTransportState:
+    """Shared DeepSeek transport health for one model/gateway route."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.consecutive_reasoning_length_failures = 0
+        self.prefer_non_stream_until = 0.0
+
+
+class AdaptiveTransportLLMAdapter(LLMAdapter):
+    """Prefer ordinary JSON transport after repeated reasoning-only SSE exhaustion."""
+
+    def __init__(
+        self,
+        *,
+        adapter: LLMAdapter,
+        failure_threshold: int = 2,
+        cooldown_seconds: float = 900.0,
+        state: AdaptiveTransportState | None = None,
+    ) -> None:
+        self._adapter = adapter
+        self._failure_threshold = max(1, int(failure_threshold))
+        self._cooldown_seconds = max(1.0, float(cooldown_seconds))
+        self._state = state or AdaptiveTransportState()
+        self._base_url = self._nested_route_attribute("_base_url")
+        self._wire_api = self._nested_route_attribute("_wire_api")
+        for name in (
+            "_reasoning_effort",
+            "_thinking_mode",
+            "_use_strict_schema",
+            "_retry_empty_response",
+            "_defer_schema_container_repair",
+            "_retry_gateway_stream_as_non_stream",
+        ):
+            setattr(self, name, self._nested_route_attribute(name, preserve_type=True))
+
+    def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
+        return self._adapter.generate_text(prompt, strategy=strategy)
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._adapter.generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
+
+    def generate_structured_output_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+    ) -> dict[str, Any]:
+        return self._generate_adaptively(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+            cancel_event=None,
+        )
+
+    def generate_structured_output_stream_cancellable(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        return self._generate_adaptively(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            on_delta=on_delta,
+            cancel_event=cancel_event,
+        )
+
+    def _generate_adaptively(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None,
+        on_delta: Callable[[str, bool], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> dict[str, Any]:
+        if cancel_event is not None and cancel_event.is_set():
+            raise _HedgedRequestCancelled()
+        if self._non_stream_preferred():
+            return self._generate_non_stream(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+                on_delta=on_delta,
+                cancel_event=cancel_event,
+                reason="reasoning_length_circuit",
+            )
+        try:
+            if cancel_event is None:
+                result = self._adapter.generate_structured_output_stream(
+                    prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                    on_delta=on_delta,
+                )
+            else:
+                result = self._adapter.generate_structured_output_stream_cancellable(
+                    prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                    on_delta=on_delta,
+                    cancel_event=cancel_event,
+                )
+        except LLMRequestError as error:
+            if cancel_event is not None and cancel_event.is_set():
+                raise _HedgedRequestCancelled() from error
+            if not self._is_reasoning_length_exhaustion(error):
+                self._record_non_matching_stream_outcome()
+                raise
+            should_prefer_non_stream = self._record_reasoning_length_failure()
+            # A hedged route already has an equivalent request running on the
+            # other gateway. Do not let the losing child silently append a
+            # second transport and turn one outer attempt into three long
+            # inferences. The shared state still teaches the next request to
+            # start non-streaming when repeated reasoning exhaustion warrants
+            # it.
+            if cancel_event is not None:
+                setattr(error, "hedged_route_transport_budget_exhausted", True)
+                raise
+            if not should_prefer_non_stream:
+                raise
+            return self._generate_non_stream(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+                on_delta=on_delta,
+                cancel_event=cancel_event,
+                reason="repeated_reasoning_length",
+                stream_error=error,
+            )
+        except LLMStructuredOutputError as error:
+            if cancel_event is not None and cancel_event.is_set():
+                raise _HedgedRequestCancelled() from error
+            self._record_non_matching_stream_outcome()
+            raise
+        self._record_stream_success()
+        return result
+
+    def _generate_non_stream(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None,
+        on_delta: Callable[[str, bool], None] | None,
+        cancel_event: threading.Event | None,
+        reason: str,
+        stream_error: LLMRequestError | None = None,
+    ) -> dict[str, Any]:
+        if cancel_event is not None and cancel_event.is_set():
+            raise _HedgedRequestCancelled()
+        try:
+            result = self._adapter.generate_structured_output(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+            )
+        except (LLMRequestError, LLMStructuredOutputError) as error:
+            setattr(error, "adaptive_transport_attempted", True)
+            if isinstance(error, LLMRequestError):
+                setattr(error, "stream_fallback_attempted", True)
+            if stream_error is not None:
+                setattr(
+                    error,
+                    "adaptive_stream_failure",
+                    str(stream_error)[:500],
+                )
+            raise
+        if cancel_event is not None and cancel_event.is_set():
+            raise _HedgedRequestCancelled()
+        metadata = result.setdefault("_meta", {})
+        if isinstance(metadata, dict):
+            metadata.update({
+                "adaptive_transport": "non_stream",
+                "adaptive_transport_reason": reason,
+                "adaptive_transport_reasoning_profile_preserved": True,
+            })
+        if on_delta is not None:
+            preview = {key: value for key, value in result.items() if key != "_meta"}
+            on_delta(json.dumps(preview, ensure_ascii=False), True)
+        logger.warning(
+            "LLM adaptive transport selected transport=non_stream model=%s reason=%s "
+            "cooldown_seconds=%.0f",
+            self.get_model_info().model_name,
+            reason,
+            self._cooldown_seconds,
+        )
+        return result
+
+    @staticmethod
+    def _is_reasoning_length_exhaustion(error: Exception) -> bool:
+        termination = str(getattr(error, "stream_termination", "") or "").casefold()
+        reasoning_characters = getattr(error, "reasoning_characters", 0)
+        empty_response = (
+            isinstance(error, LLMRequestError)
+            and error.category == "empty_response"
+        ) or (
+            isinstance(error, LLMStructuredOutputError)
+            and error.empty_response
+        )
+        return (
+            empty_response
+            and isinstance(reasoning_characters, int)
+            and reasoning_characters > 0
+            and any(marker in termination for marker in (
+                "length",
+                "max_output",
+                "token",
+                "incomplete",
+            ))
+        )
+
+    def _record_reasoning_length_failure(self) -> bool:
+        with self._state.lock:
+            self._state.consecutive_reasoning_length_failures += 1
+            if (
+                self._state.consecutive_reasoning_length_failures
+                < self._failure_threshold
+            ):
+                return False
+            self._state.prefer_non_stream_until = (
+                time.monotonic() + self._cooldown_seconds
+            )
+            return True
+
+    def _record_stream_success(self) -> None:
+        with self._state.lock:
+            self._state.consecutive_reasoning_length_failures = 0
+
+    def _record_non_matching_stream_outcome(self) -> None:
+        with self._state.lock:
+            if time.monotonic() >= self._state.prefer_non_stream_until:
+                self._state.consecutive_reasoning_length_failures = 0
+
+    def _non_stream_preferred(self) -> bool:
+        with self._state.lock:
+            if time.monotonic() < self._state.prefer_non_stream_until:
+                return True
+            if self._state.prefer_non_stream_until:
+                self._state.prefer_non_stream_until = 0.0
+                self._state.consecutive_reasoning_length_failures = 0
+            return False
+
+    def _nested_route_attribute(self, name: str, *, preserve_type: bool = False) -> Any:
+        direct = getattr(self._adapter, name, "")
+        if direct or isinstance(direct, bool):
+            return direct if preserve_type else str(direct)
+        pooled = getattr(self._adapter, "_adapters", ())
+        if pooled:
+            value = getattr(pooled[0], name, "")
+            return value if preserve_type else str(value)
+        return None if preserve_type else ""
+
+    def validate_output(
+        self,
+        output: dict[str, Any],
+        *,
+        required_keys: Sequence[str] | None = None,
+    ) -> bool:
+        return self._adapter.validate_output(output, required_keys=required_keys)
+
+    def get_model_info(self) -> LLMModelInfo:
+        return self._adapter.get_model_info()
+
+
+class ModelFailoverCircuitState:
+    """Shared primary-route circuit state across role-specific adapters."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.primary_failure_count = 0
+        self.primary_circuit_open_until = 0.0
+        self.primary_hedge_win_streak = 0
+
+
 class ModelFailoverLLMAdapter(LLMAdapter):
     """Use a secondary model only when the preferred model cannot complete.
 
@@ -2769,6 +3535,7 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         circuit_failure_threshold: int = 2,
         circuit_cooldown_seconds: float = 60.0,
         hedge_delay_seconds: float | None = None,
+        circuit_state: ModelFailoverCircuitState | None = None,
     ) -> None:
         self._primary = primary
         self._fallback = fallback
@@ -2779,9 +3546,7 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             if hedge_delay_seconds is not None
             else None
         )
-        self._circuit_lock = threading.Lock()
-        self._primary_failure_count = 0
-        self._primary_circuit_open_until = 0.0
+        self._circuit_state = circuit_state or ModelFailoverCircuitState()
 
     def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
         primary_error: Exception
@@ -2859,6 +3624,47 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             ),
         )
 
+    def generate_structured_output_stream_cancellable(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema: dict[str, Any] | None = None,
+        on_delta: Callable[[str, bool], None] | None = None,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        """Propagate client cancellation through failover and hedge routes."""
+
+        _raise_if_cancelled(cancel_event)
+
+        def call_child(adapter: LLMAdapter) -> dict[str, Any]:
+            _raise_if_cancelled(cancel_event)
+            result = adapter.generate_structured_output_stream_cancellable(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+                on_delta=on_delta,
+                cancel_event=cancel_event,
+            )
+            _raise_if_cancelled(cancel_event)
+            return result
+
+        if (
+            self._hedge_delay_seconds is not None
+            and not self._primary_circuit_is_open()
+        ):
+            return self._generate_structured_output_stream_hedged(
+                prompt,
+                strategy=strategy,
+                output_schema=output_schema,
+                on_delta=on_delta,
+                cancel_event=cancel_event,
+            )
+        return self._generate_structured(
+            primary_call=lambda: call_child(self._primary),
+            fallback_call=lambda: call_child(self._fallback),
+        )
+
     def _generate_structured_output_stream_hedged(
         self,
         prompt: str,
@@ -2866,9 +3672,11 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         strategy: GenerationStrategy,
         output_schema: dict[str, Any] | None,
         on_delta: Callable[[str, bool], None] | None,
+        cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
         """Race an equivalent route only while the primary has no visible output."""
 
+        hedge_delay_seconds = self._effective_hedge_delay_seconds()
         completion_queue: Queue[
             tuple[str, dict[str, Any] | None, Exception | None]
         ] = Queue()
@@ -2919,9 +3727,15 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             cancel_event: threading.Event,
             delta_callback: Callable[[str, bool], None],
         ) -> None:
+            route_context = copy_context()
             threading.Thread(
-                target=run_route,
-                args=(route_name, adapter, cancel_event, delta_callback),
+                target=lambda: route_context.run(
+                    run_route,
+                    route_name,
+                    adapter,
+                    cancel_event,
+                    delta_callback,
+                ),
                 name=f"llm-{route_name}-route",
                 daemon=True,
             ).start()
@@ -2946,22 +3760,24 @@ class ModelFailoverLLMAdapter(LLMAdapter):
                 metadata.update({
                     "model_hedge_started": True,
                     "model_hedge_winner": route_name,
-                    "model_hedge_delay_seconds": self._hedge_delay_seconds,
+                    "model_hedge_delay_seconds": hedge_delay_seconds,
                 })
                 if route_name == "fallback":
                     metadata["model_hedge_used"] = True
             if route_name == "primary":
                 self._record_primary_success()
             if hedge_started:
+                self._record_hedge_outcome(route_name)
                 logger.warning(
                     "LLM route hedge winner selected winner=%s delay_seconds=%.2f",
                     route_name,
-                    self._hedge_delay_seconds or 0.0,
+                    hedge_delay_seconds,
                 )
             return result
 
         def start_fallback(*, as_hedge: bool, primary_error: Exception | None) -> None:
             nonlocal fallback_started, hedge_started
+            _raise_if_cancelled(cancel_event)
             if fallback_started:
                 return
             fallback_started = True
@@ -2983,7 +3799,7 @@ class ModelFailoverLLMAdapter(LLMAdapter):
                     to_provider,
                     to_model,
                     to_gateway,
-                    self._hedge_delay_seconds or 0.0,
+                    hedge_delay_seconds,
                 )
             elif primary_error is not None:
                 self._log_failover(primary_error)
@@ -2994,60 +3810,84 @@ class ModelFailoverLLMAdapter(LLMAdapter):
                 fallback_delta,
             )
 
-        start_route("primary", self._primary, primary_cancel, primary_delta)
-        try:
-            first_completion = completion_queue.get(
-                timeout=self._hedge_delay_seconds
-            )
-        except Empty:
-            if not primary_output_seen.is_set():
-                start_fallback(as_hedge=True, primary_error=None)
-            first_completion = completion_queue.get()
+        def next_completion(timeout: float | None = None) -> tuple[
+            str,
+            dict[str, Any] | None,
+            Exception | None,
+        ]:
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while True:
+                _raise_if_cancelled(cancel_event)
+                wait_seconds = 0.1
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise Empty
+                    wait_seconds = min(wait_seconds, remaining)
+                try:
+                    return completion_queue.get(timeout=wait_seconds)
+                except Empty:
+                    continue
 
-        pending_completion = first_completion
-        while True:
-            route_name, result, error = pending_completion
-            if result is not None:
-                if route_name == "fallback" and not hedge_started:
-                    primary_error = errors.get("primary")
-                    if primary_error is not None:
-                        result = self._annotate_fallback_result(
-                            result,
-                            primary_error=primary_error,
-                            circuit_open=False,
-                        )
-                return select_result(route_name, result)
-            if error is not None and not isinstance(error, _HedgedRequestCancelled):
-                errors[route_name] = error
-            if route_name == "primary" and error is not None:
-                if isinstance(error, LLMRequestError) and not self._should_fail_over(error):
-                    fallback_cancel.set()
-                    raise error
-                if not isinstance(
-                    error,
-                    (LLMRequestError, LLMStructuredOutputError, MissingLLMConfigurationError),
-                ):
-                    fallback_cancel.set()
-                    raise error
-                self._record_primary_failure(error)
-                start_fallback(as_hedge=False, primary_error=error)
-            if len(errors) >= 2:
-                primary_error = errors["primary"]
-                fallback_error = errors["fallback"]
-                if isinstance(fallback_error, LLMRequestError):
-                    if isinstance(primary_error, LLMStructuredOutputError):
-                        setattr(
+        try:
+            _raise_if_cancelled(cancel_event)
+            start_route("primary", self._primary, primary_cancel, primary_delta)
+            try:
+                first_completion = next_completion(hedge_delay_seconds)
+            except Empty:
+                if not primary_output_seen.is_set():
+                    start_fallback(as_hedge=True, primary_error=None)
+                first_completion = next_completion()
+
+            pending_completion = first_completion
+            while True:
+                _raise_if_cancelled(cancel_event)
+                route_name, result, error = pending_completion
+                if result is not None:
+                    if route_name == "fallback" and not hedge_started:
+                        primary_error = errors.get("primary")
+                        if primary_error is not None:
+                            result = self._annotate_fallback_result(
+                                result,
+                                primary_error=primary_error,
+                                circuit_open=False,
+                            )
+                    return select_result(route_name, result)
+                if error is not None and not isinstance(error, _HedgedRequestCancelled):
+                    errors[route_name] = error
+                if route_name == "primary" and error is not None:
+                    if isinstance(error, LLMRequestError) and not self._should_fail_over(error):
+                        fallback_cancel.set()
+                        raise error
+                    if not isinstance(
+                        error,
+                        (LLMRequestError, LLMStructuredOutputError, MissingLLMConfigurationError),
+                    ):
+                        fallback_cancel.set()
+                        raise error
+                    self._record_primary_failure(error)
+                    start_fallback(as_hedge=False, primary_error=error)
+                if len(errors) >= 2:
+                    primary_error = errors["primary"]
+                    fallback_error = errors["fallback"]
+                    if isinstance(fallback_error, LLMRequestError):
+                        if isinstance(primary_error, LLMStructuredOutputError):
+                            setattr(
+                                primary_error,
+                                "fallback_request_failure",
+                                self._bounded_reason(fallback_error),
+                            )
+                            raise primary_error from fallback_error
+                        raise self._combined_failure(
                             primary_error,
-                            "fallback_request_failure",
-                            self._bounded_reason(fallback_error),
-                        )
-                        raise primary_error from fallback_error
-                    raise self._combined_failure(
-                        primary_error,
-                        fallback_error,
-                    ) from fallback_error
-                raise fallback_error
-            pending_completion = completion_queue.get()
+                            fallback_error,
+                        ) from fallback_error
+                    raise fallback_error
+                pending_completion = next_completion()
+        except LLMRequestCancelledError:
+            primary_cancel.set()
+            fallback_cancel.set()
+            raise
 
     def _generate_structured(
         self,
@@ -3169,6 +4009,7 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         return info.provider, info.model_name, gateway, wire_api or "unknown"
 
     def _log_failover(self, error: Exception) -> None:
+        project_id, episode, stage, agent_run_id = _llm_log_context_fields()
         from_provider, from_model, from_gateway, from_wire_api = (
             self._route_log_identity(self._primary)
         )
@@ -3179,7 +4020,8 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             "LLM route failover selected from_provider=%s from_model=%s "
             "from_gateway=%s from_wire_api=%s to_provider=%s to_model=%s "
             "to_gateway=%s to_wire_api=%s reason_type=%s category=%s "
-            "status_code=%s detail=%s",
+            "status_code=%s project_id=%s episode=%s stage=%s agent_run_id=%s "
+            "detail=%s",
             from_provider,
             from_model,
             from_gateway,
@@ -3191,6 +4033,10 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             type(error).__name__,
             getattr(error, "category", "structured_output"),
             getattr(error, "status_code", None) or "none",
+            project_id,
+            episode,
+            stage,
+            agent_run_id,
             RealLLMAdapter._safe_route_log_detail(error),
         )
 
@@ -3199,23 +4045,50 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         return is_recoverable_llm_request_error(error)
 
     def _primary_circuit_is_open(self) -> bool:
-        with self._circuit_lock:
-            return time.monotonic() < self._primary_circuit_open_until
+        with self._circuit_state.lock:
+            return time.monotonic() < self._circuit_state.primary_circuit_open_until
 
     def _record_primary_success(self) -> None:
-        with self._circuit_lock:
-            self._primary_failure_count = 0
-            self._primary_circuit_open_until = 0.0
+        with self._circuit_state.lock:
+            self._circuit_state.primary_failure_count = 0
+            self._circuit_state.primary_circuit_open_until = 0.0
 
     def _record_primary_failure(self, error: Exception) -> None:
         if not self._counts_for_circuit(error):
             return
-        with self._circuit_lock:
-            self._primary_failure_count += 1
-            if self._primary_failure_count >= self._circuit_failure_threshold:
-                self._primary_circuit_open_until = (
+        with self._circuit_state.lock:
+            self._circuit_state.primary_hedge_win_streak = 0
+            self._circuit_state.primary_failure_count += 1
+            if (
+                self._circuit_state.primary_failure_count
+                >= self._circuit_failure_threshold
+            ):
+                self._circuit_state.primary_circuit_open_until = (
                     time.monotonic() + self._circuit_cooldown_seconds
                 )
+
+    def _effective_hedge_delay_seconds(self) -> float:
+        configured = self._hedge_delay_seconds or 0.01
+        with self._circuit_state.lock:
+            # High-reasoning DeepSeek frequently produces no visible content
+            # before completing. When the primary repeatedly wins the race,
+            # widen the next hedge window instead of duplicating every healthy
+            # request. Two consecutive primary wins add one base interval.
+            multiplier = min(
+                3,
+                1 + self._circuit_state.primary_hedge_win_streak // 2,
+            )
+        return configured * multiplier
+
+    def _record_hedge_outcome(self, route_name: str) -> None:
+        with self._circuit_state.lock:
+            if route_name == "primary":
+                self._circuit_state.primary_hedge_win_streak = min(
+                    6,
+                    self._circuit_state.primary_hedge_win_streak + 1,
+                )
+            else:
+                self._circuit_state.primary_hedge_win_streak = 0
 
     @staticmethod
     def _counts_for_circuit(error: Exception) -> bool:
@@ -3232,11 +4105,11 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         return False
 
     def _circuit_open_error(self) -> LLMRequestError:
-        with self._circuit_lock:
-            failures = self._primary_failure_count
+        with self._circuit_state.lock:
+            failures = self._circuit_state.primary_failure_count
             remaining = max(
                 0.0,
-                self._primary_circuit_open_until - time.monotonic(),
+                self._circuit_state.primary_circuit_open_until - time.monotonic(),
             )
         return LLMRequestError(
             "Primary model route is temporarily bypassed after "
@@ -3263,6 +4136,15 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             category="failover_exhausted",
             recoverable=True,
         )
+        if any(
+            getattr(error, "gateway_deadline", False)
+            or getattr(error, "status_code", None) == 524
+            for error in (primary_error, fallback_error)
+        ):
+            # Preserve the hard-deadline signal even when a later fallback
+            # has a different status code. The browser must not resubmit the
+            # whole long request after any route already reached 524.
+            setattr(combined, "gateway_deadline", True)
         setattr(
             combined,
             "route_failure_categories",
@@ -3271,6 +4153,12 @@ class ModelFailoverLLMAdapter(LLMAdapter):
                 getattr(fallback_error, "category", "unknown"),
             ),
         )
+        if any(
+            AdaptiveTransportLLMAdapter._is_reasoning_length_exhaustion(error)
+            or bool(getattr(error, "reasoning_length_exhausted", False))
+            for error in (primary_error, fallback_error)
+        ):
+            setattr(combined, "reasoning_length_exhausted", True)
         return combined
 
 
@@ -3380,15 +4268,18 @@ class PooledLLMAdapter(LLMAdapter):
         on_delta: Callable[[str, bool], None] | None = None,
         cancel_event: threading.Event,
     ) -> dict[str, Any]:
-        return self._invoke(
-            lambda adapter: adapter.generate_structured_output_stream_cancellable(
+        def operation(adapter: LLMAdapter) -> dict[str, Any]:
+            if cancel_event.is_set():
+                raise _HedgedRequestCancelled()
+            return adapter.generate_structured_output_stream_cancellable(
                 prompt,
                 strategy=strategy,
                 output_schema=output_schema,
                 on_delta=on_delta,
                 cancel_event=cancel_event,
             )
-        )
+
+        return self._invoke(operation)
 
     def validate_output(
         self,
@@ -3460,6 +4351,11 @@ class PooledLLMAdapter(LLMAdapter):
         shared provider host, so one backup key is enough to test that route.
         """
 
+        if AdaptiveTransportLLMAdapter._is_reasoning_length_exhaustion(error):
+            # Output-budget exhaustion is a model/transport behavior, not an
+            # API-key health signal. Rotating keys would repeat the same long
+            # failed inference before the adaptive transport can react.
+            return 1
         if (
             error.category in {
                 "provider_gateway",

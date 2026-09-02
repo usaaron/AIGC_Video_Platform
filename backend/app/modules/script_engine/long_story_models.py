@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+import re
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,7 +16,10 @@ from app.script_delivery_contract import (
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    normalize_episode_dialogue_plan_payload,
 )
+from app.modules.script_engine.episode_layer_contracts import EpisodeThreeLayerContract
+from app.modules.content_spec.market_profile import canonical_market_profile
 
 
 IDENTIFIER_PATTERN = r"^[a-zA-Z0-9_.:-]+$"
@@ -49,6 +53,11 @@ class StoryPlanExpansionStatus(str, Enum):
     unexpanded = "unexpanded"
     expanded = "expanded"
     episode_ready = "episode_ready"
+
+
+class StoryPlanQualityStatus(str, Enum):
+    pass_ = "pass"
+    needs_revision = "needs_revision"
 
 
 class StoryLineType(str, Enum):
@@ -99,6 +108,80 @@ class EpisodeArtifactKind(str, Enum):
     draft = "draft"
     revised = "revised"
     final = "final"
+
+
+class MemoryLayer(str, Enum):
+    """Authority boundary for narrative data flowing through the system."""
+
+    canonical = "canonical"
+    derived = "derived"
+    provisional = "provisional"
+
+
+class StorylineDutyRole(str, Enum):
+    """Narrative role used when allocating limited episode scene time."""
+
+    main = "main"
+    subplot = "subplot"
+    character_arc = "character_arc"
+
+
+class StorylineDuty(BaseModel):
+    """A bounded, evidence-backed resource contract for one story line."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_line_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    role: StorylineDutyRole
+    must_progress: bool = False
+    objective: str = Field(min_length=3, max_length=800)
+    required_progress: str = Field(min_length=3, max_length=800)
+    assigned_scene_numbers: list[int] = Field(default_factory=list, max_length=20)
+    can_defer: bool = True
+    defer_until_episode: int | None = Field(default=None, ge=1, le=2_000)
+    defer_reason: str | None = Field(default=None, min_length=3, max_length=500)
+    last_progressed_episode: int = Field(default=0, ge=0, le=2_000)
+    silence_episodes: int = Field(default=0, ge=0, le=2_000)
+    next_required_step: str | None = Field(default=None, min_length=3, max_length=500)
+
+    @field_validator("assigned_scene_numbers")
+    @classmethod
+    def ensure_unique_duty_scenes(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("Storyline duty scene numbers must be unique.")
+        if any(value < 1 or value > 50 for value in values):
+            raise ValueError("Storyline duty scene numbers must be within the episode.")
+        return values
+
+    @model_validator(mode="after")
+    def validate_duty_deferral(self) -> "StorylineDuty":
+        if self.must_progress and not self.assigned_scene_numbers:
+            raise ValueError("A mandatory storyline duty requires assigned scenes.")
+        if not self.must_progress:
+            if not self.can_defer:
+                raise ValueError("A deferred storyline duty must allow deferral.")
+            if self.defer_until_episode is None or self.defer_reason is None:
+                raise ValueError(
+                    "A deferred storyline duty requires a target episode and reason."
+                )
+        if self.defer_until_episode is not None and self.defer_reason is None:
+            raise ValueError("A deferral target requires a deferral reason.")
+        return self
+
+
+class NarrativeEventSetStatus(str, Enum):
+    validated = "validated"
+    rejected = "rejected"
+
+
+class NarrativeEventType(str, Enum):
+    episode_summary = "episode_summary"
+    character_state_changed = "character_state_changed"
+    relationship_state_changed = "relationship_state_changed"
+    world_state_changed = "world_state_changed"
+    story_line_progressed = "story_line_progressed"
+    setup_payoff_updated = "setup_payoff_updated"
+    hook_emitted = "hook_emitted"
 
 
 class StoryProject(BaseModel):
@@ -246,6 +329,12 @@ class StoryBible(BaseModel):
     story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     content_spec_id: str = Field(min_length=3, max_length=120)
+    market_profile: str = Field(
+        default="cn_mainland",
+        min_length=3,
+        max_length=40,
+        exclude=True,
+    )
     version: int = Field(default=1, ge=1)
     status: PlanningApprovalStatus = PlanningApprovalStatus.draft
     project_title: str | None = Field(default=None, min_length=2, max_length=40)
@@ -289,6 +378,7 @@ class StoryBible(BaseModel):
 
     @model_validator(mode="after")
     def validate_story_bible_references(self) -> "StoryBible":
+        self.market_profile = canonical_market_profile(self.market_profile)
         character_refs = {value.casefold() for value in self.character_refs}
         if self.character_registry:
             registry_refs = {
@@ -357,6 +447,12 @@ class CreativeDirectionCandidate(BaseModel):
     title: str = Field(min_length=2, max_length=40)
     style_description: str = Field(min_length=4, max_length=120)
     content_description: str = Field(min_length=4, max_length=180)
+    dramatic_goal: str = Field(default="", max_length=180)
+    character_changes: list[str] = Field(default_factory=list, max_length=8)
+    reveals_or_withholds: list[str] = Field(default_factory=list, max_length=8)
+    story_line_effects: list[str] = Field(default_factory=list, max_length=8)
+    tradeoffs: list[str] = Field(default_factory=list, max_length=8)
+    next_pressure: str = Field(default="", max_length=180)
 
 
 class ReferenceMaterialPurpose(str, Enum):
@@ -444,6 +540,14 @@ class StoryBibleDraftRequest(BaseModel):
     )
     selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
     selected_creative_direction: CreativeDirectionCandidate | None = None
+    author_instruction: str = Field(
+        default="",
+        max_length=7_500,
+        description=(
+            "Optional human control for this planning turn. It may select, combine, "
+            "or override generated directions without replacing hard project constraints."
+        ),
+    )
     characters: list[StoryBibleCharacterInput] = Field(default_factory=list, max_length=20)
     target_episode_count: int = Field(default=300, ge=1, le=2_000)
 
@@ -461,6 +565,17 @@ class StoryBibleDraftRequest(BaseModel):
         return self
 
 
+class StoryBibleSelectionContext(BaseModel):
+    """The document selection that anchors a targeted planning revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_field: str = Field(min_length=1, max_length=160)
+    selected_text: str = Field(min_length=1, max_length=4_000)
+    before_text: str = Field(default="", max_length=1_000)
+    after_text: str = Field(default="", max_length=1_000)
+
+
 class StoryBibleModificationRequest(BaseModel):
     """Generate a reviewable AI revision candidate without persisting it."""
 
@@ -472,6 +587,7 @@ class StoryBibleModificationRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     revision_mode: PlanningRevisionMode = PlanningRevisionMode.targeted
     instruction: str = Field(default="", max_length=1_000)
+    selection_context: StoryBibleSelectionContext | None = None
 
     @model_validator(mode="after")
     def require_targeted_revision_instruction(self) -> "StoryBibleModificationRequest":
@@ -545,6 +661,199 @@ class StoryBibleGenerationOutput(BaseModel):
         return self
 
 
+class StoryBibleInteractiveStep(str, Enum):
+    premise = "premise"
+    goal = "goal"
+    conflict = "conflict"
+    ending = "ending"
+    world = "world"
+    characters = "characters"
+    arcs = "arcs"
+    story_lines = "story_lines"
+    escalation = "escalation"
+    safeguards = "safeguards"
+
+
+class StoryBibleInteractiveCandidate(BaseModel):
+    """One small, reviewable proposal inside the Story Bible conversation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=2, max_length=80, pattern=IDENTIFIER_PATTERN)
+    title: str = Field(min_length=2, max_length=100)
+    summary: str = Field(min_length=5, max_length=800)
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class StoryBibleInteractiveStepRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    content_spec_id: str | None = Field(default=None, min_length=3, max_length=120)
+    generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    creative_prompt: str = Field(default="", max_length=2_000)
+    reference_materials: list[CreativeReferenceMaterial] = Field(default_factory=list, max_length=8)
+    selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
+    selected_creative_direction: CreativeDirectionCandidate | None = None
+    step: StoryBibleInteractiveStep
+    previous_sections: dict[str, Any] = Field(default_factory=dict)
+    author_instruction: str = Field(default="", max_length=2_000)
+    target_episode_count: int = Field(default=300, ge=1, le=2_000)
+
+
+class StoryBibleInteractiveStepOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: StoryBibleInteractiveStep
+    question: str = Field(min_length=5, max_length=300)
+    candidates: list[StoryBibleInteractiveCandidate] = Field(min_length=4, max_length=4)
+
+
+class StoryBibleInteractiveStepResponse(BaseModel):
+    data: StoryBibleInteractiveStepOutput
+
+
+class StoryInspirationBrief(BaseModel):
+    """Compact author intent accumulated by the optional inspiration chat."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    story_promise: str = Field(default="", max_length=500)
+    protagonist_and_goal: str = Field(default="", max_length=500)
+    core_obstacle: str = Field(default="", max_length=500)
+    stakes: str = Field(default="", max_length=500)
+    relationship_direction: str = Field(default="", max_length=500)
+    reveal_or_twist: str = Field(default="", max_length=500)
+    ending_direction: str = Field(default="", max_length=500)
+    tone_and_pacing: str = Field(default="", max_length=500)
+    must_keep: list[str] = Field(default_factory=list, max_length=12)
+    must_avoid: list[str] = Field(default_factory=list, max_length=12)
+    unresolved: list[str] = Field(default_factory=list, max_length=12)
+    additional_notes: list[str] = Field(default_factory=list, max_length=20)
+
+
+class StoryInspirationBriefPatch(BaseModel):
+    """Only the intent fields changed by one inspiration-chat turn."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    story_promise: str | None = Field(default=None, max_length=500)
+    protagonist_and_goal: str | None = Field(default=None, max_length=500)
+    core_obstacle: str | None = Field(default=None, max_length=500)
+    stakes: str | None = Field(default=None, max_length=500)
+    relationship_direction: str | None = Field(default=None, max_length=500)
+    reveal_or_twist: str | None = Field(default=None, max_length=500)
+    ending_direction: str | None = Field(default=None, max_length=500)
+    tone_and_pacing: str | None = Field(default=None, max_length=500)
+    must_keep: list[str] | None = Field(default=None, max_length=12)
+    must_avoid: list[str] | None = Field(default=None, max_length=12)
+    unresolved: list[str] | None = Field(default=None, max_length=12)
+    additional_notes: list[str] | None = Field(default=None, max_length=20)
+
+
+class StoryInspirationFrontierQuestion(BaseModel):
+    """One decision on the currently answerable frontier of the story tree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str = Field(min_length=2, max_length=12, pattern=r"^Q[1-9][0-9]?$")
+    decision_key: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    title: str = Field(min_length=2, max_length=80)
+    question: str = Field(min_length=12, max_length=1_200)
+    choices: list[Annotated[str, Field(min_length=2, max_length=300)]] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    recommended_choice: str | None = Field(default=None, min_length=2, max_length=300)
+    recommended_answer: str = Field(min_length=8, max_length=400)
+
+    @model_validator(mode="after")
+    def ensure_actionable_question(self) -> "StoryInspirationFrontierQuestion":
+        if not self.question.rstrip().endswith(("？", "?")):
+            raise ValueError("frontier question must end with a question mark")
+        normalized_choices = [choice.casefold().strip() for choice in self.choices]
+        if len(normalized_choices) != len(set(normalized_choices)):
+            raise ValueError("frontier choices must be distinct")
+        if self.recommended_choice is not None and self.recommended_choice not in self.choices:
+            raise ValueError("frontier recommended_choice must exactly match one choice")
+        recommendation = re.sub(r"[\s，。,.；;：:]", "", self.recommended_answer.casefold())
+        if recommendation in {"由你决定", "都可以", "任选", "看你", "没有建议"}:
+            raise ValueError("frontier recommendation must make a defensible choice")
+        return self
+
+
+class StoryInspirationTurnModelOutput(BaseModel):
+    """Compact provider contract; the service expands it for the public API."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assistant_message: str = Field(min_length=2, max_length=1_600)
+    questions: list[StoryInspirationFrontierQuestion] = Field(default_factory=list, max_length=4)
+    brief_patch: StoryInspirationBriefPatch = Field(default_factory=StoryInspirationBriefPatch)
+    ready_to_generate: bool = False
+
+
+class StoryInspirationMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["assistant", "user"]
+    content: str = Field(min_length=1, max_length=4_000)
+    questions: list[StoryInspirationFrontierQuestion] = Field(default_factory=list, max_length=4)
+
+
+class StoryInspirationChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    content_spec_id: str | None = Field(default=None, min_length=3, max_length=120)
+    generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    creative_prompt: str = Field(default="", max_length=2_000)
+    reference_materials: list[CreativeReferenceMaterial] = Field(default_factory=list, max_length=8)
+    selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
+    messages: list[StoryInspirationMessage] = Field(default_factory=list, max_length=30)
+    current_brief: StoryInspirationBrief = Field(default_factory=StoryInspirationBrief)
+    user_message: str = Field(default="", max_length=2_000)
+    target_episode_count: int = Field(default=300, ge=1, le=2_000)
+
+    @model_validator(mode="after")
+    def ensure_inspiration_reference_budget(self) -> "StoryInspirationChatRequest":
+        _ensure_reference_material_budget(self.reference_materials)
+        return self
+
+
+class StoryInspirationChatOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assistant_message: str = Field(min_length=2, max_length=1_600)
+    questions: list[StoryInspirationFrontierQuestion] = Field(default_factory=list, max_length=4)
+    brief: StoryInspirationBrief
+    ready_to_generate: bool = False
+
+    @model_validator(mode="after")
+    def ensure_actionable_next_step(self) -> "StoryInspirationChatOutput":
+        if not self.ready_to_generate and not self.questions:
+            raise ValueError(
+                "an unfinished inspiration turn must include at least one question"
+            )
+        return self
+
+
+class StoryInspirationChatResponse(BaseModel):
+    data: StoryInspirationChatOutput
+
+
+class StoryBibleInteractiveCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    content_spec_id: str = Field(min_length=3, max_length=120)
+    generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    creative_prompt: str = Field(default="", max_length=2_000)
+    reference_materials: list[CreativeReferenceMaterial] = Field(default_factory=list, max_length=8)
+    selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
+    sections: dict[str, Any] = Field(min_length=1, max_length=20)
+
+
 class StoryPlanNodeDraftRequest(BaseModel):
     """Input for generating one recursively expandable planning node."""
 
@@ -560,6 +869,11 @@ class StoryPlanNodeDraftRequest(BaseModel):
     predecessor_node_version: int | None = Field(default=None, ge=1)
     sequence_order: int = Field(default=1, ge=1, le=10_000)
     target_episode_count: int = Field(default=300, ge=1, le=2_000)
+    author_instruction: str = Field(
+        default="",
+        max_length=2_000,
+        description="Optional human control for this story-tree generation turn.",
+    )
 
     @model_validator(mode="after")
     def validate_node_context(self) -> "StoryPlanNodeDraftRequest":
@@ -637,7 +951,7 @@ class StoryPlanNodeDecompositionRequest(BaseModel):
         ge=2,
         le=12,
         description=(
-            "Optional legacy override. When omitted, the model chooses 2-12 "
+            "Optional creator override. When omitted, the model chooses 2-12 "
             "narratively distinct children according to the parent content."
         ),
     )
@@ -649,6 +963,11 @@ class StoryPlanNodeDecompositionRequest(BaseModel):
             "Backward-compatible caller field. The planning service enforces the "
             "system episode-ready ceiling of 12 regardless of this value."
         ),
+    )
+    author_instruction: str = Field(
+        default="",
+        max_length=2_000,
+        description="Optional human control for this branch decomposition turn.",
     )
 
 
@@ -823,6 +1142,7 @@ class StoryPlanNodeModificationRequest(BaseModel):
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     revision_mode: PlanningRevisionMode = PlanningRevisionMode.targeted
     instruction: str = Field(default="", max_length=1_000)
+    selection_context: StoryBibleSelectionContext | None = None
 
     @model_validator(mode="after")
     def require_targeted_revision_instruction(self) -> "StoryPlanNodeModificationRequest":
@@ -832,6 +1152,96 @@ class StoryPlanNodeModificationRequest(BaseModel):
         ):
             raise ValueError("A targeted Story Plan Node revision requires an instruction.")
         return self
+
+
+class StoryPlanQualityNodeRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    node_version: int = Field(ge=1)
+
+
+class StoryPlanQualityAuditRequest(BaseModel):
+    """Audit the active episode-ready leaf lineage without mutating the tree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_version: int = Field(ge=1)
+    generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    node_refs: list[StoryPlanQualityNodeRef] = Field(min_length=1, max_length=300)
+    agent_request_id: str = Field(min_length=3, max_length=240, pattern=IDENTIFIER_PATTERN)
+
+    @field_validator("node_refs")
+    @classmethod
+    def ensure_unique_quality_node_refs(
+        cls,
+        values: list[StoryPlanQualityNodeRef],
+    ) -> list[StoryPlanQualityNodeRef]:
+        identities = {(item.node_id, item.node_version) for item in values}
+        if len(identities) != len(values):
+            raise ValueError("Story Plan quality node refs must be unique.")
+        return values
+
+
+class StoryPlanQualityEvaluation(BaseModel):
+    """Compact model verdict for one representative leaf."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    node_version: int = Field(ge=1)
+    status: StoryPlanQualityStatus
+    summary: str = Field(min_length=2, max_length=500)
+    issue_codes: list[str] = Field(default_factory=list, max_length=12)
+    repair_instruction: str | None = Field(default=None, min_length=2, max_length=1_000)
+
+    @model_validator(mode="after")
+    def require_repair_for_revision(self) -> "StoryPlanQualityEvaluation":
+        if self.status == StoryPlanQualityStatus.needs_revision:
+            if not self.issue_codes or not self.repair_instruction:
+                raise ValueError(
+                    "A Story Plan quality revision requires issue codes and a repair instruction."
+                )
+        return self
+
+
+class StoryPlanQualityModelOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overall_summary: str = Field(min_length=2, max_length=800)
+    evaluations: list[StoryPlanQualityEvaluation] = Field(min_length=1, max_length=12)
+
+
+class StoryPlanQualityFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    node_version: int = Field(ge=1)
+    title: str = Field(min_length=2, max_length=160)
+    start_episode: int = Field(ge=1, le=2_000)
+    end_episode: int = Field(ge=1, le=2_000)
+    summary: str = Field(min_length=2, max_length=500)
+    issue_codes: list[str] = Field(min_length=1, max_length=12)
+    repair_instruction: str = Field(min_length=2, max_length=1_000)
+
+
+class StoryPlanQualityAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = Field(default="v1", pattern=r"^v\d+$")
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_version: int = Field(ge=1)
+    node_refs: list[StoryPlanQualityNodeRef] = Field(min_length=1, max_length=300)
+    node_signature: str = Field(pattern=r"^[a-f0-9]{64}$")
+    status: StoryPlanQualityStatus
+    summary: str = Field(min_length=2, max_length=800)
+    audited_node_count: int = Field(ge=1, le=300)
+    semantic_sample_count: int = Field(ge=1, le=12)
+    findings: list[StoryPlanQualityFinding] = Field(default_factory=list, max_length=24)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class StoryStagePlan(BaseModel):
@@ -877,6 +1287,45 @@ class StoryStagePlan(BaseModel):
         return self
 
 
+class EpisodePlanningOpenHook(BaseModel):
+    """One unresolved roadmap obligation carried across planning leaves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_episode: int = Field(ge=1, le=2_000)
+    hook_type: str = Field(min_length=2, max_length=80)
+    obligation: str = Field(min_length=3, max_length=500)
+    target_episode: int | None = Field(default=None, ge=1, le=2_000)
+
+
+class EpisodePlanningStateHandoff(BaseModel):
+    """Compact observable state passed forward by an accepted roadmap item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episode_number: int = Field(ge=1, le=2_000)
+    exit_state: str = Field(min_length=3, max_length=500)
+    pressure_escalation: str = Field(min_length=3, max_length=500)
+    next_episode_obligation: str = Field(min_length=3, max_length=500)
+
+
+class EpisodePlanningContinuityMemory(BaseModel):
+    """Bounded roadmap memory compiled from all previously accepted leaves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    last_confirmed_episode: int | None = Field(default=None, ge=1, le=2_000)
+    active_continuity_requirements: list[str] = Field(default_factory=list, max_length=50)
+    unresolved_setup_refs: list[str] = Field(default_factory=list, max_length=100)
+    recorded_payoff_refs: list[str] = Field(default_factory=list, max_length=100)
+    active_story_line_refs: list[str] = Field(default_factory=list, max_length=50)
+    open_hooks: list[EpisodePlanningOpenHook] = Field(default_factory=list, max_length=20)
+    recent_state_handoffs: list[EpisodePlanningStateHandoff] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+
+
 class EpisodePlanBatchDraftRequest(BaseModel):
     """Generate a bounded EpisodePlan batch from one approved episode-ready leaf."""
 
@@ -886,6 +1335,7 @@ class EpisodePlanBatchDraftRequest(BaseModel):
     source_node_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     source_node_version: int = Field(ge=1)
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    planning_memory: EpisodePlanningContinuityMemory | None = None
 
 
 class EpisodeSceneExecutionBeat(BaseModel):
@@ -924,7 +1374,13 @@ class EpisodeSceneExecutionBeat(BaseModel):
 class EpisodePlanGenerationItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_dialogue_plan(cls, value: Any) -> Any:
+        return normalize_episode_dialogue_plan_payload(value)
+
     episode_number: int = Field(ge=1, le=2_000)
+    episode_title: str | None = Field(default=None, min_length=2, max_length=18)
     target_duration_seconds: int = Field(
         default=90,
         ge=EPISODE_RUNTIME_MIN_SECONDS,
@@ -941,7 +1397,7 @@ class EpisodePlanGenerationItem(BaseModel):
         le=EPISODE_SHOT_UNIT_MAX,
     )
     planned_dialogue_line_count: int = Field(
-        default=24,
+        default=30,
         ge=EPISODE_DIALOGUE_LINE_MIN,
         le=EPISODE_DIALOGUE_LINE_MAX,
     )
@@ -986,6 +1442,7 @@ class EpisodePlanGenerationItem(BaseModel):
         default_factory=list,
         max_length=EPISODE_SCENE_MAX,
     )
+    layer_contracts: EpisodeThreeLayerContract | None = None
 
     @field_validator("target_duration_seconds", mode="before")
     @classmethod
@@ -1059,6 +1516,7 @@ class EpisodePlanItemDraftRequest(EpisodePlanBatchDraftRequest):
     """Generate one resumable roadmap item after a contiguous accepted prefix."""
 
     episode_number: int = Field(ge=1, le=2_000)
+    agent_request_id: str | None = Field(default=None, min_length=3, max_length=240)
     predecessor_plan: EpisodePlanGenerationItem | None = None
     accepted_plans: list[EpisodePlanGenerationItem] = Field(
         default_factory=list,
@@ -1080,6 +1538,7 @@ class EpisodePlanItemModificationRequest(EpisodePlanItemDraftRequest):
 
     revision_mode: PlanningRevisionMode = PlanningRevisionMode.targeted
     instruction: str = Field(default="", max_length=1_000)
+    selection_context: StoryBibleSelectionContext | None = None
     current_plan: EpisodePlanGenerationItem
 
     @model_validator(mode="after")
@@ -1116,6 +1575,7 @@ class EpisodePlan(BaseModel):
     stage_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     stage_version: int = Field(default=1, ge=1)
     episode_number: int = Field(ge=1, le=2_000)
+    episode_title: str | None = Field(default=None, min_length=2, max_length=18)
     episode_goal: str = Field(min_length=5, max_length=800)
     entry_state: str = Field(min_length=5, max_length=1_000)
     central_conflict: str = Field(min_length=5, max_length=800)
@@ -1385,6 +1845,7 @@ class ContinuityLedger(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     story_bible_version: int = Field(ge=1)
+    memory_layer: MemoryLayer = MemoryLayer.derived
     version: int = Field(default=1, ge=1)
     through_episode_number: int = Field(default=0, ge=0, le=2_000)
     character_states: list[ContinuityCharacterState] = Field(default_factory=list, max_length=50)
@@ -1406,6 +1867,7 @@ class ContinuityLedger(BaseModel):
         max_length=120,
         pattern=IDENTIFIER_PATTERN,
     )
+    restored_from_version: int | None = Field(default=None, ge=1)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("warnings")
@@ -1418,6 +1880,8 @@ class ContinuityLedger(BaseModel):
 
     @model_validator(mode="after")
     def validate_ledger_state(self) -> "ContinuityLedger":
+        if self.memory_layer != MemoryLayer.derived:
+            raise ValueError("Continuity Ledger is a derived projection, not canon.")
         identity_groups = {
             "character": [item.character_ref.casefold() for item in self.character_states],
             "relationship": [item.relationship_id.casefold() for item in self.relationship_states],
@@ -1461,6 +1925,52 @@ class ContinuityLedger(BaseModel):
         if len(set(alias_keys)) != len(alias_keys):
             raise ValueError("Continuity aliases must be unique within an entity type.")
         return self
+
+
+class ContinuityLedgerRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_version: int = Field(ge=1)
+    expected_current_version: int | None = Field(default=None, ge=1)
+
+
+class ContinuityLedgerAuditStatus(str, Enum):
+    consistent = "consistent"
+    drifted = "drifted"
+    incomplete = "incomplete"
+
+
+class ContinuityLedgerAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(
+        default="continuity_ledger_audit.v1",
+        pattern=r"^continuity_ledger_audit\.v\d+$",
+    )
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    ledger_version: int | None = Field(default=None, ge=1)
+    checked_through_episode_number: int | None = Field(default=None, ge=1, le=2_000)
+    event_set_count: int = Field(default=0, ge=0)
+    event_count: int = Field(default=0, ge=0)
+    status: ContinuityLedgerAuditStatus
+    conflicts: list[str] = Field(default_factory=list, max_length=30)
+    expected_source_artifact_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    actual_source_artifact_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    audited_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ContinuityLedgerAuditResponse(BaseModel):
+    data: ContinuityLedgerAudit
 
 
 class GenerationBatchPlan(BaseModel):
@@ -1600,6 +2110,10 @@ class StoryPlanNodeListResponse(BaseModel):
     data: list[StoryPlanNode]
 
 
+class StoryPlanQualityAuditResponse(BaseModel):
+    data: StoryPlanQualityAudit
+
+
 class StoryStagePlanResponse(BaseModel):
     data: StoryStagePlan
 
@@ -1636,11 +2150,14 @@ class StoryProjectWorkspaceSave(BaseModel):
         max_length=120,
         pattern=IDENTIFIER_PATTERN,
     )
+    memory_layer: MemoryLayer = MemoryLayer.provisional
     workspace_payload: dict[str, Any]
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @model_validator(mode="after")
     def validate_workspace_identity(self) -> "StoryProjectWorkspaceSave":
+        if self.memory_layer != MemoryLayer.provisional:
+            raise ValueError("Workspace snapshots must remain provisional memory.")
         payload_project_id = self.workspace_payload.get("id")
         if payload_project_id != self.project_id:
             raise ValueError("workspace_payload.id must match project_id.")
@@ -1654,6 +2171,86 @@ class StoryProjectWorkspaceSnapshot(StoryProjectWorkspaceSave):
 
 class StoryProjectWorkspaceResponse(BaseModel):
     data: StoryProjectWorkspaceSnapshot
+
+
+class PlanningSessionPhase(str, Enum):
+    creative_intent = "creative_intent"
+    story_bible = "story_bible"
+    story_tree = "story_tree"
+    episode_roadmap = "episode_roadmap"
+    script = "script"
+
+
+class PlanningSessionStatus(str, Enum):
+    idle = "idle"
+    active = "active"
+    awaiting_review = "awaiting_review"
+    approved = "approved"
+    paused = "paused"
+
+
+class PlanningTurnScope(str, Enum):
+    creative_intent = "creative_intent"
+    story_bible = "story_bible"
+    story_tree = "story_tree"
+    story_node = "story_node"
+
+
+class PlanningTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    turn_id: str = Field(min_length=3, max_length=160, pattern=IDENTIFIER_PATTERN)
+    scope: PlanningTurnScope
+    node_id: str | None = Field(default=None, min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    instruction: str = Field(default="", max_length=2_000)
+    selected_candidate_titles: list[str] = Field(default_factory=list, max_length=20)
+    outcome: Literal["proposed", "accepted", "rejected"]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PlanningSession(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default="v1", pattern=r"^v\d+$")
+    session_id: str = Field(min_length=3, max_length=160, pattern=IDENTIFIER_PATTERN)
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    revision: int = Field(default=1, ge=1)
+    phase: PlanningSessionPhase
+    status: PlanningSessionStatus
+    story_bible_author_instruction: str = Field(default="", max_length=2_000)
+    tree_author_instruction: str = Field(default="", max_length=2_000)
+    story_bible_step: str = Field(default="premise", max_length=40)
+    story_bible_sections: dict[str, Any] = Field(default_factory=dict)
+    active_node_id: str | None = Field(default=None, min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    reviewed_node_ids: list[str] = Field(default_factory=list, max_length=500)
+    turns: list[PlanningTurn] = Field(default_factory=list, max_length=500)
+    started_at: datetime | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PlanningSessionSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default="v1", pattern=r"^v\d+$")
+    project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    client_instance_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    session: PlanningSession
+
+    @model_validator(mode="after")
+    def validate_session_identity(self) -> "PlanningSessionSave":
+        if self.session.story_project_id != self.project_id:
+            raise ValueError("session.story_project_id must match project_id.")
+        return self
+
+
+class PlanningSessionSnapshot(PlanningSession):
+    client_instance_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    payload_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    payload_size_bytes: int = Field(ge=2, le=2_000_000)
+
+
+class PlanningSessionResponse(BaseModel):
+    data: PlanningSessionSnapshot
 
 
 class ContinuityLedgerResponse(BaseModel):
@@ -1674,6 +2271,9 @@ class EpisodeArtifactCreate(BaseModel):
     )
     episode_number: int = Field(ge=1, le=2_000)
     artifact_kind: EpisodeArtifactKind
+    # Older artifacts have no explicit layer. Their effective layer is inferred
+    # from kind so existing projects remain readable during migration.
+    memory_layer: MemoryLayer | None = None
     content_schema_version: str = Field(min_length=2, max_length=80)
     content_payload: dict[str, Any]
     source_artifact_id: str | None = Field(
@@ -1700,11 +2300,106 @@ class EpisodeArtifactCreate(BaseModel):
             raise ValueError("Episode Artifact lineage_refs cannot contain blank values.")
         return value
 
+    @model_validator(mode="after")
+    def validate_artifact_memory_layer(self) -> "EpisodeArtifactCreate":
+        if (
+            self.memory_layer == MemoryLayer.canonical
+            and self.artifact_kind == EpisodeArtifactKind.revised
+        ):
+            raise ValueError("A revised artifact cannot be canonical memory.")
+        if (
+            self.memory_layer == MemoryLayer.provisional
+            and self.artifact_kind == EpisodeArtifactKind.final
+        ):
+            raise ValueError("A final artifact cannot remain provisional memory.")
+        return self
+
+    @property
+    def effective_memory_layer(self) -> MemoryLayer:
+        if self.memory_layer is not None:
+            return self.memory_layer
+        return (
+            MemoryLayer.derived
+            if self.artifact_kind == EpisodeArtifactKind.revised
+            else MemoryLayer.canonical
+        )
+
 
 class EpisodeArtifact(EpisodeArtifactCreate):
     artifact_version: int = Field(ge=1)
     payload_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
     payload_size_bytes: int = Field(ge=2, le=5_000_000)
+
+
+class NarrativeEvent(BaseModel):
+    """Immutable, source-linked fact extracted from one canonical artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = Field(default="narrative_event.v1", pattern=r"^narrative_event\.v\d+$")
+    event_id: str = Field(min_length=3, max_length=180, pattern=IDENTIFIER_PATTERN)
+    event_set_id: str = Field(min_length=3, max_length=160, pattern=IDENTIFIER_PATTERN)
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    episode_number: int = Field(ge=1, le=2_000)
+    sequence_order: int = Field(ge=1, le=10_000)
+    source_artifact_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    event_type: NarrativeEventType
+    summary: str = Field(min_length=3, max_length=800)
+    entity_refs: list[str] = Field(default_factory=list, max_length=30)
+    evidence_refs: list[str] = Field(min_length=1, max_length=30)
+    state_mutation: dict[str, Any] | None = None
+    memory_layer: MemoryLayer = MemoryLayer.canonical
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("entity_refs", "evidence_refs")
+    @classmethod
+    def ensure_unique_event_refs(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Narrative event references must be unique.")
+        return values
+
+    @model_validator(mode="after")
+    def validate_event_memory_layer(self) -> "NarrativeEvent":
+        if self.memory_layer != MemoryLayer.canonical:
+            raise ValueError("Narrative events must be canonical source records.")
+        return self
+
+
+class NarrativeEventSet(BaseModel):
+    """Immutable event batch produced from one canonical episode artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = Field(
+        default="narrative_event_set.v1",
+        pattern=r"^narrative_event_set\.v\d+$",
+    )
+    event_set_id: str = Field(min_length=3, max_length=160, pattern=IDENTIFIER_PATTERN)
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    episode_number: int = Field(ge=1, le=2_000)
+    source_artifact_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    source_artifact_version: int = Field(ge=1)
+    extractor_policy_version: str = Field(default="structured_continuity.v1", min_length=3, max_length=80)
+    status: NarrativeEventSetStatus = NarrativeEventSetStatus.validated
+    event_ids: list[str] = Field(min_length=1, max_length=500)
+    content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    memory_layer: MemoryLayer = MemoryLayer.canonical
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("event_ids")
+    @classmethod
+    def ensure_unique_event_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Narrative Event Set event IDs must be unique.")
+        return values
+
+    @model_validator(mode="after")
+    def validate_event_set_memory_layer(self) -> "NarrativeEventSet":
+        if self.memory_layer != MemoryLayer.canonical:
+            raise ValueError("Narrative Event Sets must remain canonical source records.")
+        return self
 
 
 class EpisodeArtifactResponse(BaseModel):
@@ -1713,3 +2408,11 @@ class EpisodeArtifactResponse(BaseModel):
 
 class EpisodeArtifactListResponse(BaseModel):
     data: list[EpisodeArtifact]
+
+
+class NarrativeEventSetResponse(BaseModel):
+    data: NarrativeEventSet | None
+
+
+class NarrativeEventListResponse(BaseModel):
+    data: list[NarrativeEvent]

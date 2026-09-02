@@ -37,6 +37,10 @@ export function storyBibleRewriteVersionSeed(
       selectedCreativeDirection: project.selectedCreativeDirection
         ? { ...project.selectedCreativeDirection }
         : undefined,
+      planningSession: project.planningSession
+        ? { ...project.planningSession, turns: project.planningSession.turns.map((turn) => ({ ...turn })) }
+        : undefined,
+      storyTreeQualityAudit: undefined,
     },
   };
 }
@@ -63,6 +67,7 @@ export function storyBibleRegenerationPatch(
     storyBibleVersion: generated.version,
     episodePlansReadyThrough: undefined,
     episodeRoadmaps: [],
+    storyTreeQualityAudit: undefined,
     continuationHooks: [],
     setupPayoffs: [],
     continuityStates: [],

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from threading import Event, Thread
 
 import pytest
 
@@ -99,6 +100,7 @@ def build_draft() -> DraftMasterScript:
 class TranslationAdapter(LLMAdapter):
     def __init__(self, *, omit_last: bool = False) -> None:
         self.omit_last = omit_last
+        self.prompts: list[str] = []
 
     def generate_text(self, prompt: str, *, strategy: GenerationStrategy) -> str:
         return prompt
@@ -110,11 +112,14 @@ class TranslationAdapter(LLMAdapter):
         strategy: GenerationStrategy,
         output_schema=None,
     ) -> dict:
+        self.prompts.append(prompt)
         source_payload = prompt.split("SOURCE ITEMS:\n", 1)[1]
         import json
 
         source_items = json.loads(source_payload)
         american_dialogue = "STABLE CHARACTER NAMES:" in prompt
+        chinese_dialogue = "STABLE CHINESE CHARACTER NAMES:" in prompt
+        overseas_chinese_presentation = "海外竖屏短剧的中文工作稿编辑" in prompt
         items = [
             {
                 "path": item["path"],
@@ -128,7 +133,22 @@ class TranslationAdapter(LLMAdapter):
                             and item["path"].endswith(".name")
                         )
                     )
-                    else f"中文：{item['source_text']}"
+                    else (
+                        "莉娜"
+                        if chinese_dialogue
+                        and (
+                            item["path"].endswith(".character_name")
+                            or (
+                                item["path"].startswith("characters.")
+                                and item["path"].endswith(".name")
+                            )
+                        )
+                        else (
+                            "中文：译文内容"
+                            if overseas_chinese_presentation
+                            else f"中文：{item['source_text']}"
+                        )
+                    )
                 ),
             }
             for item in source_items
@@ -148,6 +168,28 @@ class TranslationAdapter(LLMAdapter):
             max_context_tokens=32_000,
         )
 
+
+class BlockingTranslationAdapter(TranslationAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = Event()
+        self.release = Event()
+
+    def generate_structured_output(
+        self,
+        prompt: str,
+        *,
+        strategy: GenerationStrategy,
+        output_schema=None,
+    ) -> dict:
+        self.started.set()
+        if not self.release.wait(timeout=2):
+            raise RuntimeError("test translation gate was not released")
+        return super().generate_structured_output(
+            prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+        )
 
 def build_service(adapter: LLMAdapter) -> BilingualScriptViewService:
     repository = GenerationStrategyRepository()
@@ -188,6 +230,68 @@ def test_bilingual_view_rejects_missing_translation_path() -> None:
                 draft_master_script=source,
             )
         )
+
+
+def test_bilingual_view_chunks_long_presentations_before_calling_gateway() -> None:
+    source = build_draft()
+    source.scenes[0].character_actions = [
+        f"Lena crosses the laboratory and checks the sealed console {index}. "
+        + ("The warning remains visible on the backup screen. " * 5)
+        for index in range(24)
+    ]
+    adapter = TranslationAdapter()
+    result = build_service(adapter).build(
+        BilingualScriptViewRequest(
+            generation_strategy_id=source.generation_strategy_id,
+            draft_master_script=source,
+        )
+    )
+
+    assert len(adapter.prompts) > 1
+    assert len(result.items) >= 24
+    assert len({item.path for item in result.items}) == len(result.items)
+    assert all(len(prompt) < 16_000 for prompt in adapter.prompts)
+
+
+def test_concurrent_bilingual_view_builds_share_one_gateway_request() -> None:
+    source = build_draft()
+    request = BilingualScriptViewRequest(
+        generation_strategy_id=source.generation_strategy_id,
+        draft_master_script=source,
+    )
+    adapter = BlockingTranslationAdapter()
+    service = build_service(adapter)
+    results: list[object] = []
+    errors: list[BaseException] = []
+    second_finished = Event()
+
+    def run_first() -> None:
+        try:
+            results.append(service.build(request))
+        except BaseException as error:  # pragma: no cover - test failure relay
+            errors.append(error)
+
+    def run_second() -> None:
+        try:
+            results.append(service.build(request))
+        except BaseException as error:  # pragma: no cover - test failure relay
+            errors.append(error)
+        finally:
+            second_finished.set()
+
+    first = Thread(target=run_first)
+    second = Thread(target=run_second)
+    first.start()
+    assert adapter.started.wait(timeout=1)
+    second.start()
+    assert not second_finished.wait(timeout=0.05)
+    adapter.release.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    assert not errors
+    assert len(results) == 2
+    assert len(adapter.prompts) == 1
 
 
 def test_american_dialogue_view_only_polishes_speaker_names_and_spoken_lines() -> None:
@@ -234,6 +338,88 @@ def test_american_dialogue_view_reuses_the_project_character_name_map() -> None:
         if item.path.endswith(".character_name")
     )
     assert speaker == "LENA HART"
+
+
+def test_english_dialogue_view_translates_speaker_names_and_spoken_lines_into_chinese() -> None:
+    source = build_draft()
+    adapter = TranslationAdapter()
+    result = build_service(adapter).build(
+        BilingualScriptViewRequest(
+            generation_strategy_id=source.generation_strategy_id,
+            draft_master_script=source,
+            target_language="zh-CN-short-drama",
+        )
+    )
+
+    assert {item.path for item in result.items} == {
+        "characters.0.name",
+        "scenes.0.dialogues.0.character_name",
+        "scenes.0.dialogues.0.text",
+    }
+    assert result.view_version == "bilingual_script_view.v3"
+    dialogue = next(
+        item for item in result.items
+        if item.path == "scenes.0.dialogues.0.text"
+    )
+    speaker = next(
+        item for item in result.items
+        if item.path == "scenes.0.dialogues.0.character_name"
+    )
+    assert dialogue.source_text == "Show me what you erased."
+    assert speaker.translated_text == "莉娜"
+    assert "你现在是剧本大师和语言大师" in adapter.prompts[0]
+    assert "不得改变剧情内容、人物意图、事实、关系、信息量" in adapter.prompts[0]
+    assert "partner_screenplay.v1" in adapter.prompts[0]
+
+
+def test_overseas_english_presentation_translates_narrative_and_dialogue_paths() -> None:
+    source = build_draft()
+    result = build_service(TranslationAdapter()).build(
+        BilingualScriptViewRequest(
+            generation_strategy_id=source.generation_strategy_id,
+            draft_master_script=source,
+            target_language="zh-CN-overseas",
+        )
+    )
+
+    paths = {item.path for item in result.items}
+    assert result.view_version == "bilingual_script_view.v4"
+    assert "hook" in paths
+    assert "scenes.0.purpose" in paths
+    assert "scenes.0.character_actions.0" in paths
+    assert "scenes.0.dialogues.0.character_name" in paths
+    assert "scenes.0.dialogues.0.text" in paths
+    assert next(
+        item.translated_text
+        for item in result.items
+        if item.path == "scenes.0.purpose"
+    ).startswith("中文：")
+
+
+def test_chinese_dialogue_view_merges_legacy_mixed_bilingual_identity_names() -> None:
+    source = build_draft()
+    source.characters[0].name = "总巡官 CHIEF INSPECTOR"
+    source.scenes[0].dialogues[0].character_name = "总巡官"
+
+    result = build_service(TranslationAdapter()).build(
+        BilingualScriptViewRequest(
+            generation_strategy_id=source.generation_strategy_id,
+            draft_master_script=source,
+            target_language="zh-CN-short-drama",
+        )
+    )
+
+    character = next(
+        item for item in result.items if item.path == "characters.0.name"
+    )
+    speaker = next(
+        item
+        for item in result.items
+        if item.path == "scenes.0.dialogues.0.character_name"
+    )
+    assert character.source_text == "总巡官 CHIEF INSPECTOR"
+    assert character.translated_text == "总巡官"
+    assert speaker.translated_text == "总巡官"
 
 
 def test_bilingual_view_supports_mock_functional_placeholder() -> None:
