@@ -1,4 +1,4 @@
-import type { Asset, CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
+import type { CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
@@ -10,6 +10,35 @@ import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import { traceMetadata } from '../../core/observability/trace.js'
+import { RuntimeCacheCoordinator } from '../../runtime/runtimeCacheCoordinator.js'
+import {
+  assetFromRow,
+  generationTaskColumns,
+  projectFromRow,
+  type GenerationAssetRow,
+  type GenerationProjectRow,
+  type GenerationShotRow,
+  type GenerationTaskRow,
+  shotFromRow,
+  taskFromRow,
+  upsertTaskInState,
+} from './repositoryData.js'
+import {
+  listPollingTasks,
+  listPollingTasksFromStore,
+  readPollingVersion,
+  readPollingVersionFromStore,
+} from './taskPolling.js'
+import { recoverExpiredFilmPreviewTasks } from './taskRecovery.js'
+import {
+  activeGenerationTaskPredicate,
+  generationTaskRuntimeClosureKeys,
+  latestTasksByRuntimeKey,
+  taskDependencyKey,
+  taskDependencyReferences,
+  taskRuntimeKey,
+} from './taskRuntimeCache.js'
+import { findControlledTask, metadataString } from './taskStateHelpers.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -24,144 +53,68 @@ type TaskBillingTarget = {
   billingScope: 'membership' | 'organization'
 }
 
-type GenerationTaskRow = QueryResultRow & {
-  id: string
-  client_request_id: string
-  project_id: string
-  tenant_id: string
-  user_id: string
-  kind: GenerationTask['kind']
-  label: string
-  prompt: string
-  negative_prompt: string
-  provider: string
-  model: string | null
-  tier: GenerationTask['tier'] | null
-  metadata: unknown
-  status: GenerationTask['status']
-  progress: number | string
-  estimated_credits: number | string
-  attempts: number | string
-  max_attempts: number | string | null
-  lease_owner_id: string | null
-  lease_token: string | null
-  lease_acquired_at: Date | string | null
-  lease_heartbeat_at: Date | string | null
-  lease_expires_at: Date | string | null
-  result_url: string | null
-  outputs: unknown
-  error: string | null
-  created_at: Date | string
-  updated_at: Date | string
-}
-
 type GenerationTaskImportResult = {
   tasks: { inserted: number; skipped: number }
-}
-
-type GenerationProjectRow = QueryResultRow & {
-  id: string
-  tenant_id: string
-  owner_user_id: string
-  name: string
-  content_type: Project['contentType']
-  visual_style: NonNullable<Project['visualStyle']>
-  episode_duration_seconds: number | string
-  aspect_ratio: Project['aspectRatio']
-  status: Project['status']
-  synopsis: string
-  script: string
-  version: number | string
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-type GenerationShotRow = QueryResultRow & {
-  id: string
-  project_id: string
-  tenant_id: string
-  shot_order: number | string
-  title: string
-  framing: string
-  duration_seconds: number | string
-  prompt: string
-  negative_prompt: string
-  image_url: string | null
-  selected_image_task_id: string | null
-  selected_video_task_id: string | null
-  continuity_mode: Shot['continuityMode']
-  continuity_note: string
-  episode_break_before: boolean
-  episode_number: number | string
-  episode_title: string
-  episode_kind: Shot['episodeKind']
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-type GenerationAssetRow = QueryResultRow & {
-  id: string
-  project_id: string
-  tenant_id: string
-  kind: Asset['kind']
-  source_mode: Asset['sourceMode']
-  name: string
-  description: string
-  prompt: string
-  prompt_mode: Asset['promptMode']
-  custom_prompt_mode: Asset['customPromptMode']
-  custom_prompt: string
-  negative_prompt: string
-  reference_items: unknown
-  attributes: unknown
-  image_url: string | null
-  status: Asset['status']
-  created_at: Date | string
-  updated_at: Date | string
 }
 
 type AssetNameRow = QueryResultRow & {
   name: string
 }
 
-const generationTaskColumns = `
-  id,
-  client_request_id,
-  project_id,
-  tenant_id,
-  user_id,
-  kind,
-  label,
-  prompt,
-  negative_prompt,
-  provider,
-  model,
-  tier,
-  metadata,
-  status,
-  progress,
-  estimated_credits,
-  attempts,
-  max_attempts,
-  lease_owner_id,
-  lease_token,
-  lease_acquired_at,
-  lease_heartbeat_at,
-  lease_expires_at,
-  result_url,
-  outputs,
-  error,
-  created_at,
-  updated_at
-`
+type RuntimeTaskCacheOptions = {
+  activeOnly?: boolean
+}
+
+const TASK_DEPENDENCY_BATCH_SIZE = 1_000
 
 export class GenerationTaskRepository {
+  private readonly pollingRecoveryAt = new Map<string, number>()
+  private readonly pollingVersionInFlight = new Map<string, Promise<string>>()
+  private readonly runtimeCache: RuntimeCacheCoordinator<GenerationTask, GenerationTaskRow>
+
   constructor(
     private readonly store: AppStore | null,
     private readonly creditLedger: CreditLedger | null = null,
     private readonly database: AccountDatabase | null = null,
     private readonly outbox: OutboxRepository | null = null,
-  ) {}
+  ) {
+    this.runtimeCache = new RuntimeCacheCoordinator(database, {
+      allQuery: `
+        SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at
+        FROM generation_tasks
+        ORDER BY created_at DESC, id DESC
+      `,
+      activeLoader: () => this.loadActiveTasksFromDatabase(),
+      cursorQuery: `
+        SELECT id, updated_at::text AS runtime_sync_updated_at
+        FROM generation_tasks
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+      `,
+      deltaQuery: `
+        SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at
+        FROM generation_tasks
+        WHERE updated_at > $1::timestamptz
+           OR (updated_at = $1::timestamptz AND id > $2)
+        ORDER BY updated_at ASC, id ASC
+        LIMIT $3
+      `,
+      sameTimestampQuery: `
+        SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at
+        FROM generation_tasks
+        WHERE updated_at = $1::timestamptz
+        ORDER BY id ASC
+        LIMIT $2
+      `,
+      rowToItem: taskFromRow,
+      itemKey: (task) => task.id,
+      replace: async (tasks) => {
+        if (this.store) await this.store.replaceGenerationTaskRuntimeCacheAsync(tasks)
+      },
+      merge: (tasks) => this.mirrorTasks(tasks),
+      reconcileActive: (tasks) => this.reconcileActiveTasks(tasks),
+    })
+  }
 
   async importFromStore(): Promise<GenerationTaskImportResult> {
     const result: GenerationTaskImportResult = { tasks: { inserted: 0, skipped: 0 } }
@@ -183,16 +136,22 @@ export class GenerationTaskRepository {
     return result
   }
 
-  async refreshRuntimeCacheFromDatabase(): Promise<void> {
-    if (!this.database || !this.store) return
-    const result = await this.database.query<GenerationTaskRow>(
-      `
-      SELECT ${generationTaskColumns}
-      FROM generation_tasks
-      ORDER BY created_at DESC, id DESC
-      `,
-    )
-    this.store.replaceGenerationTaskRuntimeCache(result.rows.map(taskFromRow))
+  async refreshRuntimeCacheFromDatabase(options: RuntimeTaskCacheOptions = {}): Promise<GenerationTask[]> {
+    if (!this.database || !this.store) {
+      return this.store?.read((state) => state.tasks) ?? []
+    }
+    return this.runtimeCache.refresh(options.activeOnly === true)
+  }
+
+  async refreshRuntimeCacheDeltaFromDatabase(): Promise<void> {
+    await this.runtimeCache.refreshDelta()
+  }
+
+  runtimeProjectIds(): string[] {
+    if (!this.store) return []
+    return this.store.readGenerationTaskRuntimeCache((state) => [
+      ...new Set(state.tasks.map((task) => task.projectId)),
+    ])
   }
 
   async refreshRuntimeTaskFromDatabase(taskId: string): Promise<boolean> {
@@ -208,7 +167,7 @@ export class GenerationTaskRepository {
     )
     const task = result.rows[0] ? taskFromRow(result.rows[0]) : null
     if (!task) return false
-    this.mirrorTasks([task])
+    await this.mirrorTasks([task])
     return true
   }
 
@@ -224,18 +183,29 @@ export class GenerationTaskRepository {
 
     const ids = new Set(taskIds)
     if (!ids.size) return 0
-    const snapshot = this.store.read((state) => ({
-      tasks: state.tasks.filter((task) => ids.has(task.id)).map(normalizeGenerationTaskLifecycle),
-      shotSelections: new Map(
-        state.shots.map((shot) => [
-          shot.id,
-          {
-            imageTaskId: shot.selectedImageTaskId ?? null,
-            videoTaskId: shot.selectedVideoTaskId ?? null,
-          },
-        ]),
-      ),
-    }))
+    const snapshot = this.store.read((state) => {
+      const tasks = state.tasks.filter((task) => ids.has(task.id)).map(normalizeGenerationTaskLifecycle)
+      const taskShotKeys = new Set(
+        tasks.flatMap((task) => {
+          const shotId = metadataString(task.metadata, 'shotId')
+          return shotId ? [`${task.tenantId}:${task.projectId}:${shotId}`] : []
+        }),
+      )
+      return {
+        tasks,
+        shotSelections: new Map(
+          state.shots
+            .filter((shot) => taskShotKeys.has(`${shot.tenantId}:${shot.projectId}:${shot.id}`))
+            .map((shot) => [
+              shot.id,
+              {
+                imageTaskId: shot.selectedImageTaskId ?? null,
+                videoTaskId: shot.selectedVideoTaskId ?? null,
+              },
+            ]),
+        ),
+      }
+    })
     if (!snapshot.tasks.length) return 0
 
     return this.database.transaction(async (client) => {
@@ -566,8 +536,29 @@ export class GenerationTaskRepository {
       [projectId, principal.tenantId, canReadAll, principal.userId],
     )
     const tasks = result.rows.map(taskFromRow)
-    this.mirrorTasks(tasks)
+    await this.mirrorTasks(tasks)
     return tasks
+  }
+
+  async listPollingByProject(projectId: string, principal: Principal) {
+    await this.recoverPollingTasksIfDue(projectId, principal)
+    return this.database
+      ? listPollingTasks(this.database, projectId, principal)
+      : listPollingTasksFromStore(this.requireStore(), projectId, principal)
+  }
+
+  async pollingVersion(projectId: string, principal: Principal): Promise<string> {
+    await this.recoverPollingTasksIfDue(projectId, principal)
+    const key = `${principal.tenantId}:${canReadAllTenantContent(principal) ? 'all' : principal.userId}:${projectId}`
+    const inFlight = this.pollingVersionInFlight.get(key)
+    if (inFlight) return inFlight
+    const versionPromise = Promise.resolve(
+      this.database
+        ? readPollingVersion(this.database, projectId, principal)
+        : readPollingVersionFromStore(this.requireStore(), projectId, principal),
+    ).finally(() => this.pollingVersionInFlight.delete(key))
+    this.pollingVersionInFlight.set(key, versionPromise)
+    return versionPromise
   }
 
   async listRecent(principal: Principal, limit = 100): Promise<GenerationTask[]> {
@@ -587,7 +578,7 @@ export class GenerationTaskRepository {
         [principal.tenantId, canReadAll, principal.userId, Math.max(1, Math.min(500, limit))],
       )
       const tasks = result.rows.map(taskFromRow)
-      this.mirrorTasks(tasks)
+      await this.mirrorTasks(tasks)
       return tasks
     }
     const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
@@ -1367,71 +1358,21 @@ export class GenerationTaskRepository {
     principal: Principal,
     projectId: string | null = null,
   ): Promise<void> {
-    const recoveredAt = new Date().toISOString()
-    const recoveryCutoff = new Date(Date.parse(recoveredAt) - 5 * 60_000).toISOString()
-    const error = '成片预览合成进程已中断，请重新合成'
-    const canReadAll = canReadAllTenantContent(principal)
+    await recoverExpiredFilmPreviewTasks(this.database, this.store, principal, projectId, (tasks) =>
+      this.mirrorTasks(tasks),
+    )
+  }
 
-    if (this.database) {
-      const result = await this.database.query<GenerationTaskRow>(
-        `
-        UPDATE generation_tasks
-        SET status = 'failed',
-            progress = 100,
-            error = $5,
-            metadata = metadata || jsonb_build_object(
-              'providerState', 'failed',
-              'compositionStage', 'failed',
-              'compositionRecoveredAt', $6::text
-            ),
-            lease_owner_id = NULL,
-            lease_token = NULL,
-            lease_acquired_at = NULL,
-            lease_heartbeat_at = NULL,
-            lease_expires_at = NULL,
-            updated_at = $6::timestamptz
-        WHERE provider = 'local-compose'
-          AND status = 'running'
-          AND tenant_id = $1
-          AND ($2::boolean OR user_id = $3)
-          AND ($4::text IS NULL OR project_id = $4)
-          AND (lease_expires_at IS NULL OR lease_expires_at <= $6::timestamptz)
-          AND updated_at <= $7::timestamptz
-        RETURNING ${generationTaskColumns}
-        `,
-        [principal.tenantId, canReadAll, principal.userId, projectId, error, recoveredAt, recoveryCutoff],
-      )
-      this.mirrorTasks(result.rows.map(taskFromRow))
-      return
+  private async recoverPollingTasksIfDue(projectId: string, principal: Principal): Promise<void> {
+    const key = `${principal.tenantId}:${principal.userId}:${projectId}`
+    const now = Date.now()
+    if (now - (this.pollingRecoveryAt.get(key) || 0) < 30_000) return
+    if (this.pollingRecoveryAt.size >= 1_000 && !this.pollingRecoveryAt.has(key)) {
+      const oldestKey = this.pollingRecoveryAt.keys().next().value
+      if (oldestKey) this.pollingRecoveryAt.delete(oldestKey)
     }
-
-    await this.requireStore().mutate((state) => {
-      for (const task of state.tasks) {
-        if (
-          task.provider !== 'local-compose' ||
-          task.status !== 'running' ||
-          task.tenantId !== principal.tenantId ||
-          (!canReadAll && task.userId !== principal.userId) ||
-          (projectId !== null && task.projectId !== projectId)
-        ) {
-          continue
-        }
-        const expiresAt = task.leaseExpiresAt ? Date.parse(task.leaseExpiresAt) : Number.NaN
-        if (Number.isFinite(expiresAt) && expiresAt > Date.parse(recoveredAt)) continue
-        if (Date.parse(task.updatedAt) > Date.parse(recoveryCutoff)) continue
-        task.status = 'failed'
-        task.progress = 100
-        task.error = error
-        task.metadata = {
-          ...task.metadata,
-          providerState: 'failed',
-          compositionStage: 'failed',
-          compositionRecoveredAt: recoveredAt,
-        }
-        releaseGenerationTaskLease(task)
-        task.updatedAt = recoveredAt
-      }
-    })
+    this.pollingRecoveryAt.set(key, now)
+    await this.recoverExpiredFilmPreviewTasks(principal, projectId)
   }
 
   private findByIdFromStore(taskId: string, principal: Principal): GenerationTask | null {
@@ -1449,32 +1390,102 @@ export class GenerationTaskRepository {
 
   private async mirrorTask(task: GenerationTask, credits: number | null): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
-      upsertTaskInState(state, task)
-      if (credits === null) return
-      const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
-      if (user) user.credits = credits
-    })
+    await this.store.mutateRuntimeCachesAsync(
+      (state) => {
+        upsertTaskInState(state, task)
+        if (credits === null) return
+        const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
+        if (user) user.credits = credits
+      },
+      credits === null ? ['generationTasks'] : ['generationTasks', 'account'],
+    )
   }
 
-  private mirrorTasks(tasks: GenerationTask[]): void {
+  private async mirrorTasks(tasks: GenerationTask[]): Promise<void> {
     if (!tasks.length) return
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       for (const task of tasks) upsertTaskInState(state, task)
     })
   }
 
   private async mirrorTaskBatch(tasks: GenerationTask[], credits: number | null): Promise<void> {
     if (!this.store) return
-    await this.store.mutateProjectWorkspaceRuntimeCache((state) => {
-      for (const task of tasks) upsertTaskInState(state, task)
-      if (credits === null || !tasks[0]) return
-      const user = state.users.find(
-        (item) => item.id === tasks[0]!.userId && item.tenantId === tasks[0]!.tenantId,
+    await this.store.mutateRuntimeCachesAsync(
+      (state) => {
+        for (const task of tasks) upsertTaskInState(state, task)
+        if (credits === null || !tasks[0]) return
+        const user = state.users.find(
+          (item) => item.id === tasks[0]!.userId && item.tenantId === tasks[0]!.tenantId,
+        )
+        if (user) user.credits = credits
+      },
+      credits === null ? ['generationTasks'] : ['generationTasks', 'account'],
+    )
+  }
+
+  private async loadActiveTasksFromDatabase(): Promise<GenerationTask[]> {
+    const result = await this.database!.query<GenerationTaskRow>(
+      `
+      SELECT ${generationTaskColumns}
+      FROM generation_tasks
+      WHERE ${activeGenerationTaskPredicate}
+      ORDER BY created_at ASC, id ASC
+      `,
+    )
+    return this.loadTaskDependencyClosure(result.rows.map(taskFromRow))
+  }
+
+  private async reconcileActiveTasks(changedTasks: GenerationTask[]): Promise<void> {
+    if (!this.store) return
+    const cachedTasks = this.store.readGenerationTaskRuntimeCache((state) => state.tasks)
+    const candidates = latestTasksByRuntimeKey([...cachedTasks, ...changedTasks])
+    const tasksWithDependencies = await this.loadTaskDependencyClosure(candidates)
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
+      for (const task of tasksWithDependencies) upsertTaskInState(state, task)
+      const retained = generationTaskRuntimeClosureKeys(state.tasks)
+      state.tasks = state.tasks.filter((task) =>
+        retained.has(taskRuntimeKey(task.id, task.projectId, task.tenantId)),
       )
-      if (user) user.credits = credits
     })
+  }
+
+  private async loadTaskDependencyClosure(seedTasks: GenerationTask[]): Promise<GenerationTask[]> {
+    const tasksByKey = new Map(
+      seedTasks.map((task) => [taskRuntimeKey(task.id, task.projectId, task.tenantId), task]),
+    )
+    const pending = seedTasks
+      .flatMap(taskDependencyReferences)
+      .filter((reference) => !tasksByKey.has(taskDependencyKey(reference)))
+    const queuedReferences = new Set(pending.map((reference) => taskDependencyKey(reference)))
+
+    while (pending.length) {
+      const batch = pending.splice(0, TASK_DEPENDENCY_BATCH_SIZE)
+      const rows = await this.database!.query<GenerationTaskRow>(
+        `
+        SELECT ${generationTaskColumns}
+        FROM generation_tasks
+        WHERE id = ANY($1::text[])
+        `,
+        [[...new Set(batch.map((reference) => reference.id))]],
+      )
+      const tasksById = new Map(rows.rows.map((row) => [row.id, taskFromRow(row)]))
+      for (const reference of batch) {
+        const task = tasksById.get(reference.id)
+        if (!task || task.projectId !== reference.projectId || task.tenantId !== reference.tenantId) continue
+        const key = taskRuntimeKey(task.id, task.projectId, task.tenantId)
+        if (tasksByKey.has(key)) continue
+        tasksByKey.set(key, task)
+        for (const dependency of taskDependencyReferences(task)) {
+          const dependencyKey = taskDependencyKey(dependency)
+          if (queuedReferences.has(dependencyKey) || tasksByKey.has(dependencyKey)) continue
+          queuedReferences.add(dependencyKey)
+          pending.push(dependency)
+        }
+      }
+    }
+
+    return [...tasksByKey.values()]
   }
 
   private requireStore(): AppStore {
@@ -2192,154 +2203,4 @@ function buildQueuedGenerationTask(
     outputs: [],
     error: null,
   })
-}
-
-function taskFromRow(row: GenerationTaskRow): GenerationTask {
-  return normalizeGenerationTaskLifecycle({
-    id: row.id,
-    clientRequestId: row.client_request_id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    userId: row.user_id,
-    kind: row.kind,
-    label: row.label,
-    prompt: row.prompt,
-    negativePrompt: row.negative_prompt,
-    provider: row.provider,
-    model: row.model,
-    tier: row.tier ?? null,
-    metadata: jsonValue(row.metadata, {}),
-    status: row.status,
-    progress: Number(row.progress),
-    estimatedCredits: Number(row.estimated_credits),
-    attempts: Number(row.attempts),
-    maxAttempts: row.max_attempts === null ? undefined : Number(row.max_attempts),
-    leaseOwnerId: row.lease_owner_id,
-    leaseToken: row.lease_token,
-    leaseAcquiredAt: nullableIsoString(row.lease_acquired_at),
-    leaseHeartbeatAt: nullableIsoString(row.lease_heartbeat_at),
-    leaseExpiresAt: nullableIsoString(row.lease_expires_at),
-    resultUrl: row.result_url,
-    outputs: jsonValue(row.outputs, []),
-    error: row.error,
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  })
-}
-
-function upsertTaskInState(state: AppState, task: GenerationTask): void {
-  const index = state.tasks.findIndex((item) => item.id === task.id)
-  if (index >= 0) {
-    if (Date.parse(state.tasks[index]!.updatedAt) > Date.parse(task.updatedAt)) return
-    state.tasks[index] = task
-  } else {
-    state.tasks.unshift(task)
-  }
-}
-
-function projectFromRow(row: GenerationProjectRow): Project {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    ownerId: row.owner_user_id,
-    name: row.name,
-    contentType: row.content_type,
-    visualStyle: row.visual_style,
-    episodeDurationSeconds: Number(row.episode_duration_seconds),
-    aspectRatio: row.aspect_ratio,
-    status: row.status,
-    synopsis: row.synopsis,
-    script: row.script,
-    version: Number(row.version),
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function shotFromRow(row: GenerationShotRow): Shot {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    scriptEpisodeId: null,
-    order: Number(row.shot_order),
-    title: row.title,
-    framing: row.framing,
-    duration: Number(row.duration_seconds),
-    prompt: row.prompt,
-    negativePrompt: row.negative_prompt,
-    imageUrl: row.image_url,
-    selectedImageTaskId: row.selected_image_task_id,
-    continuityMode: row.continuity_mode,
-    continuityNote: row.continuity_note,
-    episodeBreakBefore: row.episode_break_before,
-    episodeNumber: Number(row.episode_number),
-    episodeTitle: row.episode_title,
-    episodeKind: row.episode_kind,
-    selectedVideoTaskId: row.selected_video_task_id,
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function assetFromRow(row: GenerationAssetRow): Asset {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    kind: row.kind,
-    sourceMode: row.source_mode,
-    name: row.name,
-    description: row.description,
-    prompt: row.prompt,
-    promptMode: row.prompt_mode,
-    customPromptMode: row.custom_prompt_mode,
-    customPrompt: row.custom_prompt,
-    negativePrompt: row.negative_prompt,
-    references: jsonValue(row.reference_items, []),
-    attributes: jsonValue(row.attributes, { type: row.kind }) as Asset['attributes'],
-    imageUrl: row.image_url,
-    status: row.status,
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function findControlledTask(
-  tasks: GenerationTask[],
-  taskId: string,
-  principal: Principal,
-): GenerationTask | undefined {
-  const canControlAll = canReadAllTenantContent(principal)
-  return tasks.find(
-    (task) =>
-      task.id === taskId &&
-      task.tenantId === principal.tenantId &&
-      (canControlAll || task.userId === principal.userId),
-  )
-}
-
-function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
-  const value = metadata?.[key]
-  return typeof value === 'string' && value.length > 0 ? value : null
-}
-
-function jsonValue<T>(value: unknown, fallback: T): T {
-  if (value === null || value === undefined) return fallback
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value) as T
-    } catch {
-      return fallback
-    }
-  }
-  return structuredClone(value) as T
-}
-
-function isoString(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
-}
-
-function nullableIsoString(value: Date | string | null): string | null {
-  return value === null ? null : isoString(value)
 }

@@ -1,17 +1,35 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 export const AUTH_EXPIRED_EVENT = 'seqora:auth-expired'
 
-async function request(path, options = {}) {
-  const hasJsonBody = options.body && !(options.body instanceof FormData)
-  const response = await fetch(`${API_BASE}${path}`, {
+function buildRequestOptions(options = {}) {
+  const { timeoutMs: _timeoutMs, ...fetchOptions } = options
+  const hasJsonBody = fetchOptions.body && !(fetchOptions.body instanceof FormData)
+  return {
     credentials: 'include',
-    ...options,
+    ...fetchOptions,
     headers: {
       ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
+      ...fetchOptions.headers,
     },
-  })
+  }
+}
 
+async function fetchApi(path, options = {}) {
+  const timeoutMs = Number(options.timeoutMs)
+  const controller =
+    !options.signal && Number.isFinite(timeoutMs) && timeoutMs > 0 ? new AbortController() : null
+  const timer = controller ? globalThis.setTimeout(() => controller.abort(), timeoutMs) : null
+  try {
+    return await fetch(
+      `${API_BASE}${path}`,
+      buildRequestOptions(controller ? { ...options, signal: controller.signal } : options),
+    )
+  } finally {
+    if (timer) globalThis.clearTimeout(timer)
+  }
+}
+
+async function parseResponse(response) {
   if (response.status === 204) return null
   const data = await response.json().catch(() => null)
   if (!response.ok) {
@@ -25,6 +43,40 @@ async function request(path, options = {}) {
     throw error
   }
   return data
+}
+
+async function request(path, options = {}) {
+  return parseResponse(await fetchApi(path, options))
+}
+
+async function conditionalRequest(path, etag) {
+  const response = await fetchApi(path, {
+    timeoutMs: 10_000,
+    ...(etag ? { headers: { 'If-None-Match': etag } } : {}),
+  })
+  if (response.status === 304) {
+    return { notModified: true, etag: response.headers.get('ETag') || etag || null, tasks: null }
+  }
+  return {
+    notModified: false,
+    etag: response.headers.get('ETag'),
+    tasks: await parseResponse(response),
+  }
+}
+
+async function conditionalValueRequest(path, etag) {
+  const response = await fetchApi(path, {
+    timeoutMs: 10_000,
+    ...(etag ? { headers: { 'If-None-Match': etag } } : {}),
+  })
+  if (response.status === 304) {
+    return { notModified: true, etag: response.headers.get('ETag') || etag || null, value: null }
+  }
+  return {
+    notModified: false,
+    etag: response.headers.get('ETag'),
+    value: await parseResponse(response),
+  }
 }
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
@@ -240,6 +292,10 @@ export const api = {
   autoSplitShotEpisodes: (projectId, input) =>
     request(`/projects/${projectId}/shots/auto-episodes`, json('POST', input)),
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
+  pollTasks: (projectId, etag = null) =>
+    conditionalRequest(`/projects/${projectId}/generation/tasks/poll`, etag),
+  pollWorkspaceVersion: (projectId, etag = null) =>
+    conditionalValueRequest(`/projects/${projectId}/workspace/version`, etag),
   recentTasks: () => request('/generation/tasks/recent'),
   createTask: (input) => request('/generation/tasks', json('POST', input)),
   createImage2Batch: (input) => request('/image2/batches', json('POST', input)),

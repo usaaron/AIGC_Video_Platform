@@ -8,7 +8,11 @@ import { compileCharacterStagePrompt } from '../assets/promptCompiler'
 import { readProjectTaskCache } from '../generation/projectTaskCache'
 import { hasLastFrame, latestVideoTaskFor } from '../generation/taskMedia'
 import { retryTaskInput } from '../notifications/taskNotifications'
-import { selectShotAssetReferences, selectVideoReferenceImages } from '../storyboard/referenceSelector'
+import {
+  createShotAssetReferenceIndex,
+  selectShotAssetReferencesFromIndex,
+  selectVideoReferenceImages,
+} from '../storyboard/referenceSelector'
 import { api } from '../../services/apiClient'
 
 const TASK_KIND_BY_LABEL = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
@@ -21,7 +25,6 @@ export function createWorkspaceCommands({
   tasks,
   workspaceCacheRef,
   activeProjectIdRef,
-  hydrateProject,
   replaceTasks,
   refreshSession,
   markNotificationRead,
@@ -33,7 +36,10 @@ export function createWorkspaceCommands({
   setProjects,
   setNewProjectOpen,
   setToast,
+  assetReferenceIndex,
 }) {
+  const resolvedAssetReferenceIndex = assetReferenceIndex || createShotAssetReferenceIndex(workspace?.assets)
+
   const refreshWorkspace = async (projectId = project?.id) => {
     if (!projectId) return
     const next = await api.project(projectId)
@@ -216,7 +222,6 @@ export function createWorkspaceCommands({
     )
     replaceTasks(projectId, readProjectTaskCache(projectId))
     navigateTo('overview')
-    void hydrateProject(projectId).catch(() => {})
   }
 
   const openNotification = async (notification) => {
@@ -262,7 +267,12 @@ export function createWorkspaceCommands({
       batchMode = null,
     } = {},
   ) => {
-    const references = selectShotAssetReferences(workspace.assets, shot)
+    const references = selectShotAssetReferencesFromIndex(
+      resolvedAssetReferenceIndex,
+      shot,
+      6,
+      workspace.assets,
+    )
     const orderedShots = [...workspace.shots].sort((left, right) => left.order - right.order)
     const shotIndex = orderedShots.findIndex((item) => item.id === shot.id)
     const adjacentPreviousShot = shotIndex > 0 ? orderedShots[shotIndex - 1] : null

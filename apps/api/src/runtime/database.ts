@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import type { AppConfig } from '../config.js'
-import { AccountDatabase } from '../infra/postgres.js'
+import { AccountDatabase, type AccountDatabaseOptions } from '../infra/postgres.js'
 import { AppStore } from '../infra/store.js'
 
 export type RuntimeDatabase = {
@@ -12,7 +12,9 @@ export async function createRuntimeDatabase(
   config: AppConfig,
   storeOverride?: AppStore,
 ): Promise<RuntimeDatabase> {
-  const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
+  const database = config.DATABASE_URL
+    ? new AccountDatabase(config.DATABASE_URL, undefined, databaseOptions(config))
+    : null
   if (database) {
     if (config.NODE_ENV === 'production') {
       await database.ensureLatestMigrations()
@@ -21,15 +23,39 @@ export async function createRuntimeDatabase(
     }
   }
 
-  const store = storeOverride ?? createRuntimeStore(config)
+  // With Postgres configured, JSON is only a compatibility source. Keeping a
+  // file-backed store in the API and worker makes every runtime task mutation
+  // contend on a disk lock and serialize a full snapshot.
+  const store = storeOverride ?? createRuntimeStore(config, Boolean(database))
   await store.initialize()
 
   return { store, database }
 }
 
-export function createRuntimeStore(config: AppConfig): AppStore {
+export function databaseOptions(
+  config: Pick<
+    AppConfig,
+    | 'DATABASE_POOL_MAX'
+    | 'DATABASE_POOL_MIN'
+    | 'DATABASE_POOL_IDLE_TIMEOUT_MS'
+    | 'DATABASE_POOL_CONNECTION_TIMEOUT_MS'
+  >,
+): AccountDatabaseOptions {
+  return {
+    max: config.DATABASE_POOL_MAX,
+    min: config.DATABASE_POOL_MIN,
+    idleTimeoutMillis: config.DATABASE_POOL_IDLE_TIMEOUT_MS,
+    connectionTimeoutMillis: config.DATABASE_POOL_CONNECTION_TIMEOUT_MS,
+  }
+}
+
+export function createRuntimeStore(config: AppConfig, databaseConfigured = false): AppStore {
   return new AppStore(
-    config.DATA_FILE === ':memory:' ? null : resolve(config.DATA_FILE),
+    databaseConfigured && config.NODE_ENV === 'production'
+      ? null
+      : config.DATA_FILE === ':memory:'
+        ? null
+        : resolve(config.DATA_FILE),
     {
       memberName: config.BOOTSTRAP_MEMBER_NAME,
       memberEmail: config.BOOTSTRAP_MEMBER_EMAIL,
@@ -47,5 +73,6 @@ export function createRuntimeStore(config: AppConfig): AppStore {
     config.BOOTSTRAP_DEMO_WORKSPACE,
     config.NODE_ENV !== 'production',
     config.NODE_ENV !== 'production',
+    databaseConfigured && config.NODE_ENV === 'production',
   )
 }

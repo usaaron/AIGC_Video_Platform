@@ -64,6 +64,27 @@ export const generationTaskSchema = z.object({
   error: z.string().max(1_000).nullable(),
 })
 
+// Polling only needs the fields that can change the queue UI. Prompts, lease
+// internals and generated outputs stay on the full task contract.
+export const generationTaskPollingSchema = z.object({
+  id: z.string().min(1),
+  clientRequestId: z.string().min(1),
+  projectId: z.string().min(1),
+  kind: generationKindSchema,
+  label: z.string().min(1),
+  provider: z.string().min(1).max(64),
+  model: z.string().max(128).nullable(),
+  status: generationTaskStatusSchema,
+  progress: z.number().int().min(0).max(100),
+  estimatedCredits: z.number().nonnegative(),
+  metadata: z.record(z.string(), z.unknown()),
+  resultUrl: z.string().max(2_000).nullable(),
+  error: z.string().max(1_000).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
 export type CreateGenerationTask = z.infer<typeof createGenerationTaskSchema>
 export type GenerationTask = z.infer<typeof generationTaskSchema>
+export type GenerationTaskPolling = z.infer<typeof generationTaskPollingSchema>
 export type SeedanceTier = z.infer<typeof seedanceTierSchema>

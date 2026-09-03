@@ -157,7 +157,7 @@ export class UserRepository implements AuthAccounts {
       `,
     )
     const ledger = this.store.read((state) => state.ledger)
-    this.store.replaceAccountRuntimeCache({ users: result.rows.map(toStoredUser), ledger })
+    await this.store.replaceAccountRuntimeCacheAsync({ users: result.rows.map(toStoredUser), ledger })
   }
 
   async findByEmail(email: string): Promise<StoredUser | null> {

@@ -1,4 +1,9 @@
-import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
+import type {
+  CreateGenerationTask,
+  GenerationTask,
+  GenerationTaskPolling,
+  Principal,
+} from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { compileStoryboardVideoPrompt, VIDEO_PROMPT_VERSION } from '@seqora/prompting'
@@ -174,6 +179,14 @@ export class GenerationService {
 
   listProjectTasks(projectId: string, principal: Principal): Promise<GenerationTask[]> {
     return this.repository.listByProject(projectId, principal)
+  }
+
+  listProjectTaskPolling(projectId: string, principal: Principal): Promise<GenerationTaskPolling[]> {
+    return this.repository.listPollingByProject(projectId, principal)
+  }
+
+  pollingVersion(projectId: string, principal: Principal): Promise<string> {
+    return this.repository.pollingVersion(projectId, principal)
   }
 
   listRecentTasks(principal: Principal): Promise<GenerationTask[]> {

@@ -279,6 +279,127 @@ describe('GenerationTaskRepository charged creation', () => {
     expect(context?.project.episodeDurationSeconds).toBe(60)
   })
 
+  it('keeps active task dependencies while excluding unrelated historical tasks', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const dependency = generationTask({
+      id: 'continuity-source-task',
+      status: 'completed',
+      updatedAt: '2026-08-08T00:00:01.000Z',
+    })
+    const active = generationTask({
+      id: 'active-dependent-task',
+      status: 'running',
+      updatedAt: '2026-08-08T00:00:02.000Z',
+      metadata: { continuitySourceTaskId: dependency.id },
+    })
+    const historical = generationTask({
+      id: 'unrelated-completed-task',
+      status: 'completed',
+      updatedAt: '2026-08-08T00:00:03.000Z',
+    })
+    const rowsById = new Map(
+      [dependency, active, historical].map((task) => [task.id, generationTaskRow(task)]),
+    )
+    const database = {
+      query: async (sql: string, params: readonly unknown[] = []) => {
+        if (sql.includes('WHERE id = ANY')) {
+          const ids = (params[0] as string[]).map((id) => rowsById.get(id)).filter(Boolean)
+          return { rows: ids }
+        }
+        if (sql.includes('status IN')) return { rows: [rowsById.get(active.id)] }
+        if (sql.includes('ORDER BY updated_at DESC')) {
+          return { rows: [{ id: historical.id, updated_at: historical.updatedAt }] }
+        }
+        throw new Error(`Unexpected query: ${sql}`)
+      },
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(store, null, database)
+
+    await repository.refreshRuntimeCacheFromDatabase({ activeOnly: true })
+
+    expect(store.readGenerationTaskRuntimeCache((state) => state.tasks.map((task) => task.id))).toEqual([
+      active.id,
+      dependency.id,
+    ])
+    expect(
+      store.readGenerationTaskRuntimeCache((state) => state.tasks.some((task) => task.id === historical.id)),
+    ).toBe(false)
+  })
+
+  it('loads the first task through the active query when the worker starts with an empty cache', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const firstTask = generationTask({
+      id: 'first-task-after-empty-start',
+      status: 'queued',
+      updatedAt: '2026-08-08T00:00:05.000Z',
+    })
+    let taskAvailable = false
+    let fullRefreshQueries = 0
+    const database = {
+      query: async (sql: string) => {
+        if (sql.includes('ORDER BY created_at DESC, id DESC')) {
+          fullRefreshQueries += 1
+          return { rows: taskAvailable ? [generationTaskRow(firstTask)] : [] }
+        }
+        if (sql.includes('status IN')) {
+          return { rows: taskAvailable ? [generationTaskRow(firstTask)] : [] }
+        }
+        if (sql.includes('ORDER BY updated_at DESC')) {
+          taskAvailable = true
+          return { rows: [{ id: firstTask.id, updated_at: firstTask.updatedAt }] }
+        }
+        throw new Error(`Unexpected query: ${sql}`)
+      },
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(store, null, database)
+
+    await repository.refreshRuntimeCacheFromDatabase({ activeOnly: true })
+
+    expect(fullRefreshQueries).toBe(0)
+    expect(store.readGenerationTaskRuntimeCache((state) => state.tasks.map((task) => task.id))).toEqual([
+      firstTask.id,
+    ])
+  })
+
+  it('applies active task deltas without rescanning all active tasks', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const queued = generationTask({
+      id: 'incremental-active-task',
+      status: 'queued',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    })
+    const completed = generationTask({
+      ...queued,
+      status: 'completed',
+      progress: 100,
+      updatedAt: '2020-01-01T00:00:01.000Z',
+    })
+    let activeQueries = 0
+    const database = {
+      query: async (sql: string) => {
+        if (sql.includes('WHERE updated_at >')) return { rows: [generationTaskRow(completed)] }
+        if (sql.includes('status IN')) {
+          activeQueries += 1
+          return { rows: [generationTaskRow(queued)] }
+        }
+        if (sql.includes('ORDER BY updated_at DESC')) {
+          return { rows: [{ id: queued.id, updated_at: queued.updatedAt }] }
+        }
+        throw new Error(`Unexpected query: ${sql}`)
+      },
+    } as unknown as AccountDatabase
+    const repository = new GenerationTaskRepository(store, null, database)
+
+    await repository.refreshRuntimeCacheFromDatabase({ activeOnly: true })
+    await repository.refreshRuntimeCacheDeltaFromDatabase()
+
+    expect(activeQueries).toBe(1)
+    expect(store.readGenerationTaskRuntimeCache((state) => state.tasks)).toEqual([])
+  })
+
   it('keeps a selected completed video after the shot has been regenerated', async () => {
     const store = new AppStore(null)
     await store.initialize()

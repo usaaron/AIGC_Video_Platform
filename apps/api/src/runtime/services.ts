@@ -51,7 +51,7 @@ export type RuntimeRepositories = {
   outboxRepository: OutboxRepository | null
   agentRunRepository: AgentRunRepository
   creditLedger: StoreCreditLedger
-  refreshProjectDomainRuntimeCache: (() => Promise<void>) | null
+  refreshQueueRuntimeCache: (() => Promise<void>) | null
 }
 
 export type RuntimeServices = {
@@ -88,13 +88,11 @@ export async function createRuntimeRepositories(input: {
   await users.refreshRuntimeCacheFromDatabase()
 
   const projectRepository = new ProjectRepository(store, database)
-  await projectRepository.refreshRuntimeCacheFromDatabase()
 
   const assetLibraryRepository = new AssetLibraryRepository(store, database)
   if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
     await assetLibraryRepository.bootstrapFromStore()
   }
-  await assetLibraryRepository.refreshRuntimeCacheFromDatabase()
 
   const creditLedger = new StoreCreditLedger(store, users, false, database)
   if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
@@ -109,11 +107,17 @@ export async function createRuntimeRepositories(input: {
     database,
     outboxRepository,
   )
-  await generationTaskRepository.refreshRuntimeCacheFromDatabase()
   const agentRunRepository = new AgentRunRepository(database, store)
 
   const aiJobRepository = new AiJobRepository(store, creditLedger, database, outboxRepository)
-  await aiJobRepository.refreshRuntimeCacheFromDatabase()
+  // These caches are independent after account bootstrap. Run their database
+  // reads concurrently so API/worker startup is bounded by the slowest query.
+  await Promise.all([
+    projectRepository.refreshRuntimeCacheFromDatabase(),
+    assetLibraryRepository.refreshRuntimeCacheFromDatabase(),
+    generationTaskRepository.refreshRuntimeCacheFromDatabase(),
+    aiJobRepository.refreshRuntimeCacheFromDatabase(),
+  ])
   const mediaRepository = new MediaRepository(
     store,
     database,
@@ -121,12 +125,19 @@ export async function createRuntimeRepositories(input: {
     config.STORAGE_DRIVER === 'gcs' ? config.GCS_BUCKET : null,
   )
 
-  const refreshProjectDomainRuntimeCache = database
+  let queueRuntimeSyncPromise: Promise<void> | null = null
+  const refreshQueueRuntimeCache = database
     ? async () => {
-        await users.refreshRuntimeCacheFromDatabase()
-        await projectRepository.refreshRuntimeCacheFromDatabase()
-        await generationTaskRepository.refreshRuntimeCacheFromDatabase()
-        await aiJobRepository.refreshRuntimeCacheFromDatabase()
+        if (queueRuntimeSyncPromise) return queueRuntimeSyncPromise
+        queueRuntimeSyncPromise = Promise.all([
+          generationTaskRepository.refreshRuntimeCacheDeltaFromDatabase(),
+          aiJobRepository.refreshRuntimeCacheDeltaFromDatabase(),
+        ])
+          .then(() => undefined)
+          .finally(() => {
+            queueRuntimeSyncPromise = null
+          })
+        return queueRuntimeSyncPromise
       }
     : null
 
@@ -142,7 +153,7 @@ export async function createRuntimeRepositories(input: {
     outboxRepository,
     agentRunRepository,
     creditLedger,
-    refreshProjectDomainRuntimeCache,
+    refreshQueueRuntimeCache,
   }
 }
 

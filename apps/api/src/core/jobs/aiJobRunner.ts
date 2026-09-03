@@ -20,6 +20,7 @@ type AiJobRunnerOptions = {
   handler?: AiJobHandler | null
   leaseTtlMs?: number
   concurrency?: number
+  beforeLockTick?: () => Promise<void>
   beforeTick?: () => Promise<void>
   taskRunnerLock?: TaskRunnerLock | null
 }
@@ -32,8 +33,11 @@ export class AiJobRunner implements TaskDispatcher {
   private readonly leaseTtlMs: number
   private readonly concurrency: number
   private readonly beforeTick: (() => Promise<void>) | null
+  private readonly beforeLockTick: (() => Promise<void>) | null
   private readonly taskRunnerLock: TaskRunnerLock
   private readonly activeExecutions = new Set<string>()
+  private readonly periodicRefundIntervalMs = 10_000
+  private lastPeriodicRefundAt = 0
 
   constructor(
     private readonly repository: AiJobRepository,
@@ -44,6 +48,7 @@ export class AiJobRunner implements TaskDispatcher {
     this.leaseTtlMs = options.leaseTtlMs ?? 120_000
     this.concurrency = options.concurrency ?? 3
     this.beforeTick = options.beforeTick ?? null
+    this.beforeLockTick = options.beforeLockTick ?? null
     this.taskRunnerLock = options.taskRunnerLock ?? noopTaskRunnerLock
   }
 
@@ -65,7 +70,10 @@ export class AiJobRunner implements TaskDispatcher {
   async tick(context?: TaskDispatchContext): Promise<void> {
     if (this.tickPromise) return this.tickPromise
 
-    const tickPromise = this.taskRunnerLock.runExclusive(() => this.runTick(context)).then(() => undefined)
+    const tickPromise = (async () => {
+      await this.beforeLockTick?.()
+      await this.taskRunnerLock.runExclusive(() => this.runTick(context))
+    })().then(() => undefined)
     this.tickPromise = tickPromise
 
     try {
@@ -81,7 +89,7 @@ export class AiJobRunner implements TaskDispatcher {
 
   private async runTick(_context?: TaskDispatchContext): Promise<void> {
     await this.beforeTick?.()
-    await this.repository.refundTerminalJobs()
+    await this.refundTerminalJobsIfDue()
     const available = Math.max(0, this.concurrency - this.activeExecutions.size)
     if (available <= 0) return
     const jobs = await this.repository.claimReadyJobs({
@@ -112,6 +120,13 @@ export class AiJobRunner implements TaskDispatcher {
         this.activeExecutions.delete(job.id)
       })
     }
+  }
+
+  private async refundTerminalJobsIfDue(): Promise<void> {
+    const now = Date.now()
+    if (now - this.lastPeriodicRefundAt < this.periodicRefundIntervalMs) return
+    this.lastPeriodicRefundAt = now
+    await this.repository.refundTerminalJobs()
   }
 
   private async runExecution(job: AiJob): Promise<void> {

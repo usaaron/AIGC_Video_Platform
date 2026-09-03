@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { createGenerationTaskSchema, PERMISSIONS } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -49,6 +50,23 @@ export async function registerGenerationRoutes(
       const parsed = projectParamsSchema.safeParse(request.params)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       return service.listProjectTasks(parsed.data.projectId, request.principal!)
+    },
+  )
+
+  app.get(
+    '/projects/:projectId/generation/tasks/poll',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    async (request, reply) => {
+      const parsed = projectParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const version = await service.pollingVersion(parsed.data.projectId, request.principal!)
+      const etag = taskPollingEtag(version)
+      reply.header('Cache-Control', 'private, no-cache').header('ETag', etag)
+      const ifNoneMatch = request.headers['if-none-match']
+      if (typeof ifNoneMatch === 'string' && ifNoneMatch.split(',').some((value) => value.trim() === etag)) {
+        return reply.code(304).send()
+      }
+      return service.listProjectTaskPolling(parsed.data.projectId, request.principal!)
     },
   )
 
@@ -167,6 +185,10 @@ export async function registerGenerationRoutes(
       return { cleared: await service.clearCompleted(parsed.data.projectId, request.principal!) }
     },
   )
+}
+
+function taskPollingEtag(version: string): string {
+  return `"${createHash('sha256').update(version).digest('base64url')}"`
 }
 
 function safeDownloadFileName(value?: string): string {

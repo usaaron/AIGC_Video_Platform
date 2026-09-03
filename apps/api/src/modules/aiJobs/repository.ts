@@ -17,7 +17,15 @@ import {
 } from '../../core/jobs/aiJobLease.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
+import { RuntimeCacheCoordinator } from '../../runtime/runtimeCacheCoordinator.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
+import {
+  aiJobColumns,
+  type AiJobRow,
+  jobFromRow,
+  reconcileActiveAiJobs,
+  upsertAiJobInState,
+} from './repositoryData.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -32,76 +40,62 @@ type AiJobBillingTarget = {
   billingScope: 'membership' | 'organization'
 }
 
-type AiJobRow = QueryResultRow & {
-  id: string
-  client_request_id: string
-  project_id: string
-  tenant_id: string
-  user_id: string
-  kind: string
-  label: string
-  provider: string
-  input: unknown
-  output: unknown | null
-  status: AiJob['status']
-  cost_credits: number | string
-  attempts: number | string
-  max_attempts: number | string | null
-  lease_owner_id: string | null
-  lease_token: string | null
-  lease_acquired_at: Date | string | null
-  lease_heartbeat_at: Date | string | null
-  lease_expires_at: Date | string | null
-  error: string | null
-  refunded_at: Date | string | null
-  created_at: Date | string
-  updated_at: Date | string
+type AiJobRuntimeCacheOptions = {
+  activeOnly?: boolean
 }
 
-const aiJobColumns = `
-  id,
-  client_request_id,
-  project_id,
-  tenant_id,
-  user_id,
-  kind,
-  label,
-  provider,
-  input,
-  output,
-  status,
-  cost_credits,
-  attempts,
-  max_attempts,
-  lease_owner_id,
-  lease_token,
-  lease_acquired_at,
-  lease_heartbeat_at,
-  lease_expires_at,
-  error,
-  refunded_at,
-  created_at,
-  updated_at
-`
-
 export class AiJobRepository {
+  private readonly runtimeCache: RuntimeCacheCoordinator<AiJob, AiJobRow>
+
   constructor(
     private readonly store: AppStore,
     private readonly creditLedger: CreditLedger | null = null,
     private readonly database: AccountDatabase | null = null,
     private readonly outbox: OutboxRepository | null = null,
-  ) {}
-
-  async refreshRuntimeCacheFromDatabase(): Promise<void> {
-    if (!this.database) return
-    const result = await this.database.query<AiJobRow>(
-      `
-      SELECT ${aiJobColumns}
-      FROM ai_jobs
-      ORDER BY created_at DESC, id DESC
+  ) {
+    this.runtimeCache = new RuntimeCacheCoordinator(database, {
+      allQuery: `
+        SELECT ${aiJobColumns}, updated_at::text AS runtime_sync_updated_at
+        FROM ai_jobs
+        ORDER BY created_at DESC, id DESC
       `,
-    )
-    this.store.replaceAiJobRuntimeCache(result.rows.map(jobFromRow))
+      activeLoader: () => this.loadActiveJobsFromDatabase(),
+      cursorQuery: `
+        SELECT id, updated_at::text AS runtime_sync_updated_at
+        FROM ai_jobs
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+      `,
+      deltaQuery: `
+        SELECT ${aiJobColumns}, updated_at::text AS runtime_sync_updated_at
+        FROM ai_jobs
+        WHERE updated_at > $1::timestamptz
+           OR (updated_at = $1::timestamptz AND id > $2)
+        ORDER BY updated_at ASC, id ASC
+        LIMIT $3
+      `,
+      sameTimestampQuery: `
+        SELECT ${aiJobColumns}, updated_at::text AS runtime_sync_updated_at
+        FROM ai_jobs
+        WHERE updated_at = $1::timestamptz
+        ORDER BY id ASC
+        LIMIT $2
+      `,
+      rowToItem: jobFromRow,
+      itemKey: (job) => job.id,
+      replace: (jobs) => this.store.replaceAiJobRuntimeCacheAsync(jobs),
+      merge: (jobs) => this.mirrorJobs(jobs),
+      reconcileActive: (jobs) => reconcileActiveAiJobs(this.store, jobs),
+    })
+  }
+
+  async refreshRuntimeCacheFromDatabase(options: AiJobRuntimeCacheOptions = {}): Promise<AiJob[]> {
+    if (!this.database) return this.store.read((state) => state.aiJobs)
+    return this.runtimeCache.refresh(options.activeOnly === true)
+  }
+
+  async refreshRuntimeCacheDeltaFromDatabase(): Promise<void> {
+    await this.runtimeCache.refreshDelta()
   }
 
   async createWithCharge(
@@ -649,12 +643,34 @@ export class AiJobRepository {
   }
 
   private async mirrorJob(job: AiJob, credits: number | null): Promise<void> {
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
-      upsertAiJobInState(state, job)
-      if (credits === null) return
-      const user = state.users.find((item) => item.id === job.userId && item.tenantId === job.tenantId)
-      if (user) user.credits = credits
+    await this.store.mutateRuntimeCachesAsync(
+      (state) => {
+        upsertAiJobInState(state, job)
+        if (credits === null) return
+        const user = state.users.find((item) => item.id === job.userId && item.tenantId === job.tenantId)
+        if (user) user.credits = credits
+      },
+      credits === null ? ['aiJobs'] : ['aiJobs', 'account'],
+    )
+  }
+
+  private async mirrorJobs(jobs: AiJob[]): Promise<void> {
+    if (!jobs.length) return
+    await this.store.mutateAiJobRuntimeCacheAsync((state) => {
+      for (const job of jobs) upsertAiJobInState(state, job)
     })
+  }
+
+  private async loadActiveJobsFromDatabase(): Promise<AiJob[]> {
+    const result = await this.database!.query<AiJobRow>(
+      `
+      SELECT ${aiJobColumns}
+      FROM ai_jobs
+      WHERE status IN ('queued', 'paused', 'running')
+      ORDER BY created_at ASC, id ASC
+      `,
+    )
+    return result.rows.map(jobFromRow)
   }
 }
 
@@ -1081,43 +1097,6 @@ function buildQueuedAiJob(
   })
 }
 
-function jobFromRow(row: AiJobRow): AiJob {
-  return normalizeAiJobLifecycle({
-    id: row.id,
-    clientRequestId: row.client_request_id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    userId: row.user_id,
-    kind: row.kind,
-    label: row.label,
-    provider: row.provider,
-    input: jsonValue(row.input, {}),
-    output: row.output === null ? null : jsonValue(row.output, {}),
-    status: row.status,
-    costCredits: Number(row.cost_credits),
-    attempts: Number(row.attempts),
-    maxAttempts: row.max_attempts === null ? undefined : Number(row.max_attempts),
-    leaseOwnerId: row.lease_owner_id,
-    leaseToken: row.lease_token,
-    leaseAcquiredAt: nullableIsoString(row.lease_acquired_at),
-    leaseHeartbeatAt: nullableIsoString(row.lease_heartbeat_at),
-    leaseExpiresAt: nullableIsoString(row.lease_expires_at),
-    error: row.error,
-    refundedAt: nullableIsoString(row.refunded_at),
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  })
-}
-
-function upsertAiJobInState(state: AppState, job: AiJob): void {
-  const index = state.aiJobs.findIndex((item) => item.id === job.id)
-  if (index >= 0) {
-    state.aiJobs[index] = job
-  } else {
-    state.aiJobs.unshift(job)
-  }
-}
-
 function canRefundJob(job: AiJob): boolean {
   return job.costCredits > 0 && job.status === 'failed' && !job.refundedAt
 }
@@ -1149,24 +1128,4 @@ function refundJobInState(state: AppState, job: AiJob, description: string): num
 
 function refundDescription(job: AiJob): string {
   return `${job.label} · 失败退款`
-}
-
-function jsonValue<T>(value: unknown, fallback: T): T {
-  if (value === null || value === undefined) return fallback
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value) as T
-    } catch {
-      return fallback
-    }
-  }
-  return structuredClone(value) as T
-}
-
-function isoString(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
-}
-
-function nullableIsoString(value: Date | string | null): string | null {
-  return value === null ? null : isoString(value)
 }

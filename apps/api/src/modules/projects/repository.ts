@@ -3,11 +3,9 @@ import type {
   CreateAsset,
   CreateProject,
   CreateShot,
-  GenerationTask,
   Principal,
   Plan,
   Project,
-  ProjectGenerationSummary,
   ProjectWorkspace,
   ScriptEpisode,
   Shot,
@@ -20,217 +18,48 @@ import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { insertAuditLog, type AuditLogInput } from '../../core/audit/auditLog.js'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
-import type { AppState, AppStore } from '../../infra/store.js'
+import type { AppStore } from '../../infra/store.js'
+import { projectGenerationSummary, projectPreviewUrl, type ProjectPreviewState } from './projectPreview.js'
+import {
+  assetColumns,
+  assetFromRow,
+  type AssetRow,
+  isoString,
+  jsonValue,
+  projectColumns,
+  projectFromRow,
+  projectListColumns,
+  projectPreviewTaskFromRow,
+  type ProjectListAssetRow,
+  type ProjectListShotRow,
+  type ProjectRow,
+  type ProjectTaskPreviewRow,
+  scriptEpisodeColumns,
+  scriptEpisodeFromRow,
+  type ScriptEpisodeRow,
+  shotColumns,
+  shotFromRow,
+  type ShotRow,
+  upsertAsset,
+  upsertProject,
+  upsertShot,
+} from './repositoryData.js'
+import { readWorkspaceVersion, readWorkspaceVersionFromStore } from './workspaceVersion.js'
+
+export { projectGenerationSummary, projectPreviewUrl } from './projectPreview.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>
 }
 
-type ProjectRow = QueryResultRow & {
-  id: string
-  tenant_id: string
-  owner_user_id: string
-  name: string
-  content_type: Project['contentType']
-  visual_style: NonNullable<Project['visualStyle']>
-  episode_duration_seconds: number | string
-  aspect_ratio: Project['aspectRatio']
-  status: Project['status']
-  synopsis: string
-  script: string
-  version: number | string
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-type AssetRow = QueryResultRow & {
-  id: string
-  project_id: string
-  tenant_id: string
-  kind: Asset['kind']
-  source_mode: Asset['sourceMode']
-  name: string
-  description: string
-  prompt: string
-  prompt_mode: Asset['promptMode']
-  custom_prompt_mode: Asset['customPromptMode']
-  custom_prompt: string
-  negative_prompt: string
-  reference_items: unknown
-  attributes: unknown
-  image_url: string | null
-  status: Asset['status']
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-type ShotRow = QueryResultRow & {
-  id: string
-  project_id: string
-  tenant_id: string
-  script_episode_id: string | null
-  shot_order: number | string
-  title: string
-  framing: string
-  duration_seconds: number | string
-  prompt: string
-  negative_prompt: string
-  image_url: string | null
-  selected_image_task_id: string | null
-  selected_video_task_id: string | null
-  continuity_mode: Shot['continuityMode']
-  continuity_note: string
-  episode_break_before: boolean
-  episode_number: number | string
-  episode_title: string
-  episode_kind: Shot['episodeKind']
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-type ScriptEpisodeRow = QueryResultRow & {
-  id: string
-  project_id: string
-  tenant_id: string
-  episode_number: number | string
-  title: string
-  content: string
-  draft_content: string
-  status: ScriptEpisode['status']
-  summary: string
-  continuity_state: unknown
-  revision: number | string
-  last_edited_by: string
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-type ProjectTaskPreviewRow = QueryResultRow & {
-  id: string
-  project_id: string
-  tenant_id: string
-  kind: GenerationTask['kind']
-  label: string
-  status: GenerationTask['status']
-  progress: number | string
-  metadata: unknown
-  outputs: unknown
-  updated_at: Date | string
-}
-
-type ProjectListAssetRow = QueryResultRow & {
-  project_id: string
-  kind: Asset['kind']
-  reference_items: unknown
-  attributes: unknown
-  image_url: string | null
-  updated_at: Date | string
-}
-
-type ProjectListShotRow = QueryResultRow & {
-  project_id: string
-  shot_order: number | string
-  image_url: string | null
-}
-
-type ProjectPreviewTask = Pick<
-  GenerationTask,
-  'id' | 'projectId' | 'label' | 'kind' | 'status' | 'progress' | 'metadata' | 'outputs' | 'updatedAt'
->
-type ProjectPreviewAsset = Pick<
-  Asset,
-  'projectId' | 'kind' | 'references' | 'attributes' | 'imageUrl' | 'updatedAt'
->
-type ProjectPreviewShot = Pick<Shot, 'projectId' | 'order' | 'imageUrl'>
-type ProjectPreviewState = {
-  tasks: ProjectPreviewTask[]
-  assets: ProjectPreviewAsset[]
-  shots: ProjectPreviewShot[]
-}
-
-const projectColumns = `
-  id,
-  tenant_id,
-  owner_user_id,
-  name,
-  content_type,
-  visual_style,
-  episode_duration_seconds,
-  aspect_ratio,
-  status,
-  synopsis,
-  script,
-  version,
-  created_at,
-  updated_at
-`
-
-const assetColumns = `
-  id,
-  project_id,
-  tenant_id,
-  kind,
-  source_mode,
-  name,
-  description,
-  prompt,
-  prompt_mode,
-  custom_prompt_mode,
-  custom_prompt,
-  negative_prompt,
-  reference_items,
-  attributes,
-  image_url,
-  status,
-  created_at,
-  updated_at
-`
-
-const shotColumns = `
-  id,
-  project_id,
-  tenant_id,
-  script_episode_id,
-  shot_order,
-  title,
-  framing,
-  duration_seconds,
-  prompt,
-  negative_prompt,
-  image_url,
-  selected_image_task_id,
-  selected_video_task_id,
-  continuity_mode,
-  continuity_note,
-  episode_break_before,
-  episode_number,
-  episode_title,
-  episode_kind,
-  created_at,
-  updated_at
-`
-
-const scriptEpisodeColumns = `
-  id,
-  project_id,
-  tenant_id,
-  episode_number,
-  title,
-  content,
-  draft_content,
-  status,
-  summary,
-  continuity_state,
-  revision,
-  last_edited_by,
-  created_at,
-  updated_at
-`
-
 export type ProjectJsonImportResult = {
   projects: { inserted: number; skipped: number }
   assets: { inserted: number; skipped: number }
   shots: { inserted: number; skipped: number }
+}
+
+export type ProjectRuntimeCacheOptions = {
+  projectIds?: readonly string[]
 }
 
 export class ProjectRepository {
@@ -309,7 +138,7 @@ export class ProjectRepository {
     const canReadAll = canReadAllTenantContent(principal)
     const result = await this.database.query<ProjectRow>(
       `
-      SELECT ${projectColumns}
+      SELECT ${projectListColumns}
       FROM projects
       WHERE tenant_id = $1
         AND status <> 'archived'
@@ -325,7 +154,25 @@ export class ProjectRepository {
     const [tasks, assets, shots] = await Promise.all([
       this.database.query<ProjectTaskPreviewRow>(
         `
-        WITH candidate_tasks AS (
+        WITH active_tasks AS (
+          SELECT
+            id,
+            project_id,
+            tenant_id,
+            kind,
+            label,
+            status,
+            progress,
+            '{}'::jsonb AS metadata,
+            '[]'::jsonb AS outputs,
+            updated_at
+          FROM generation_tasks
+          WHERE tenant_id = $1
+            AND project_id = ANY($2::text[])
+            AND status IN ('queued', 'paused', 'running', 'failed')
+            AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+        ),
+        candidate_completed_tasks AS (
           SELECT
             id,
             project_id,
@@ -344,37 +191,46 @@ export class ProjectRepository {
           FROM generation_tasks
           WHERE tenant_id = $1
             AND project_id = ANY($2::text[])
-            AND (
-              status IN ('queued', 'paused', 'running', 'failed')
-              OR (status = 'completed' AND kind IN ('image', 'video'))
-            )
+            AND status = 'completed'
+            AND kind IN ('image', 'video')
+            AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
         )
         SELECT id, project_id, tenant_id, kind, label, status, progress, metadata, outputs, updated_at
-        FROM candidate_tasks
-        WHERE status <> 'completed' OR preview_rank = 1
+        FROM active_tasks
+        UNION ALL
+        SELECT id, project_id, tenant_id, kind, label, status, progress, metadata, outputs, updated_at
+        FROM candidate_completed_tasks
+        WHERE preview_rank = 1
         ORDER BY updated_at DESC, id DESC
         `,
         [principal.tenantId, projectIds],
       ),
       this.database.query<ProjectListAssetRow>(
         `
-        SELECT project_id, kind, reference_items, attributes, image_url, updated_at
+        SELECT DISTINCT ON (project_id)
+          project_id, kind, reference_items, attributes, image_url, updated_at
         FROM assets
         WHERE tenant_id = $1
           AND project_id = ANY($2::text[])
           AND kind <> 'audio'
-        ORDER BY updated_at DESC
+          AND (
+            image_url IS NOT NULL
+            OR attributes#>>'{faceReference,url}' IS NOT NULL
+            OR reference_items->0->>'url' IS NOT NULL
+          )
+        ORDER BY project_id, updated_at DESC, created_at DESC, id DESC
         `,
         [principal.tenantId, projectIds],
       ),
       this.database.query<ProjectListShotRow>(
         `
-        SELECT project_id, shot_order, image_url
+        SELECT DISTINCT ON (project_id)
+          project_id, shot_order, image_url
         FROM shots
         WHERE tenant_id = $1
           AND project_id = ANY($2::text[])
           AND image_url IS NOT NULL
-        ORDER BY project_id, shot_order ASC
+        ORDER BY project_id, shot_order ASC, id ASC
         `,
         [principal.tenantId, projectIds],
       ),
@@ -457,6 +313,12 @@ export class ProjectRepository {
       assets: assets.rows.map(assetFromRow),
       shots: shots.rows.map(shotFromRow),
     }
+  }
+
+  async workspaceVersion(projectId: string, principal: Principal): Promise<string | null> {
+    return this.database
+      ? readWorkspaceVersion(this.database, projectId, principal)
+      : readWorkspaceVersionFromStore(this.requireStore(), projectId, principal)
   }
 
   async findOwnedAsset(projectId: string, assetId: string, principal: Principal): Promise<Asset | null> {
@@ -1813,6 +1675,9 @@ export class ProjectRepository {
         .filter((project) => canReadAll || project.ownerId === principal.userId)
         .map((project) => ({
           ...project,
+          // Keep the JSON-store path aligned with the Postgres list response.
+          // The full script is fetched only when a project is opened.
+          script: '',
           previewUrl: projectPreviewUrl(project.id, state),
           generationSummary: projectGenerationSummary(project.id, state),
         }))
@@ -1821,20 +1686,28 @@ export class ProjectRepository {
   }
 
   private workspaceFromStore(projectId: string, principal: Principal): ProjectWorkspace | null {
-    const project = this.listFromStore(principal).find((item) => item.id === projectId)
-    if (!project) return null
-    return this.requireStore().read((state) => ({
-      project,
-      scriptEpisodes: state.scriptEpisodes
-        .filter((episode) => episode.projectId === projectId && episode.tenantId === principal.tenantId)
-        .sort((left, right) => left.episodeNumber - right.episodeNumber),
-      assets: state.assets.filter(
-        (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
-      ),
-      shots: state.shots
-        .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
-        .sort((left, right) => left.order - right.order),
-    }))
+    return this.requireStore().read((state) => {
+      const project = state.projects.find(
+        (item) =>
+          item.id === projectId &&
+          item.tenantId === principal.tenantId &&
+          item.status !== 'archived' &&
+          (canReadAllTenantContent(principal) || item.ownerId === principal.userId),
+      )
+      if (!project) return null
+      return {
+        project,
+        scriptEpisodes: state.scriptEpisodes
+          .filter((episode) => episode.projectId === projectId && episode.tenantId === principal.tenantId)
+          .sort((left, right) => left.episodeNumber - right.episodeNumber),
+        assets: state.assets.filter(
+          (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
+        ),
+        shots: state.shots
+          .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
+          .sort((left, right) => left.order - right.order),
+      }
+    })
   }
 
   private async createInStore(input: CreateProject, principal: Principal): Promise<Project> {
@@ -2184,19 +2057,41 @@ export class ProjectRepository {
     }
   }
 
-  async refreshRuntimeCacheFromDatabase(): Promise<void> {
+  async refreshRuntimeCacheFromDatabase(options: ProjectRuntimeCacheOptions = {}): Promise<void> {
     if (!this.database || !this.store) return
+    const projectIds =
+      options.projectIds === undefined ? undefined : [...new Set(options.projectIds.filter(Boolean))]
+    if (projectIds && !projectIds.length) {
+      await this.store.replaceProjectWorkspaceRuntimeCacheAsync({
+        projects: [],
+        scriptEpisodes: [],
+        assets: [],
+        shots: [],
+      })
+      return
+    }
+    const projectFilter = projectIds ? ' WHERE id = ANY($1::text[])' : ''
+    const workspaceFilter = projectIds ? ' WHERE project_id = ANY($1::text[])' : ''
+    const params = projectIds ? [projectIds] : []
     const [projects, scriptEpisodes, assets, shots] = await Promise.all([
-      this.database.query<ProjectRow>(`SELECT ${projectColumns} FROM projects ORDER BY updated_at DESC`),
+      this.database.query<ProjectRow>(
+        `SELECT ${projectColumns} FROM projects${projectFilter} ORDER BY updated_at DESC`,
+        params,
+      ),
       this.database.query<ScriptEpisodeRow>(
-        `SELECT ${scriptEpisodeColumns} FROM script_episodes ORDER BY project_id, episode_number ASC`,
+        `SELECT ${scriptEpisodeColumns} FROM script_episodes${workspaceFilter} ORDER BY project_id, episode_number ASC`,
+        params,
       ),
       this.database.query<AssetRow>(
-        `SELECT ${assetColumns} FROM assets ORDER BY updated_at DESC, created_at DESC`,
+        `SELECT ${assetColumns} FROM assets${workspaceFilter} ORDER BY updated_at DESC, created_at DESC`,
+        params,
       ),
-      this.database.query<ShotRow>(`SELECT ${shotColumns} FROM shots ORDER BY shot_order ASC`),
+      this.database.query<ShotRow>(
+        `SELECT ${shotColumns} FROM shots${workspaceFilter} ORDER BY shot_order ASC`,
+        params,
+      ),
     ])
-    this.store.replaceProjectWorkspaceRuntimeCache({
+    await this.store.replaceProjectWorkspaceRuntimeCacheAsync({
       projects: projects.rows.map(projectFromRow),
       scriptEpisodes: scriptEpisodes.rows.map(scriptEpisodeFromRow),
       assets: assets.rows.map(assetFromRow),
@@ -2206,12 +2101,12 @@ export class ProjectRepository {
 
   private async mirrorProject(project: Project): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => upsertProject(state, project))
+    await this.store.mutateProjectWorkspaceRuntimeCacheAsync((state) => upsertProject(state, project))
   }
 
   private async mirrorScriptEpisode(episode: ScriptEpisode): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+    await this.store.mutateProjectWorkspaceRuntimeCacheAsync((state) => {
       const index = state.scriptEpisodes.findIndex(
         (item) => item.id === episode.id && item.tenantId === episode.tenantId,
       )
@@ -2226,7 +2121,7 @@ export class ProjectRepository {
 
   private async mirrorAsset(asset: Asset): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+    await this.store.mutateProjectWorkspaceRuntimeCacheAsync((state) => {
       upsertAsset(state, asset)
       const project = state.projects.find(
         (item) => item.id === asset.projectId && item.tenantId === asset.tenantId,
@@ -2237,14 +2132,14 @@ export class ProjectRepository {
 
   private async mirrorDeletedAsset(projectId: string, assetId: string): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+    await this.store.mutateProjectWorkspaceRuntimeCacheAsync((state) => {
       state.assets = state.assets.filter((asset) => asset.id !== assetId || asset.projectId !== projectId)
     })
   }
 
   private async mirrorShot(shot: Shot): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+    await this.store.mutateProjectWorkspaceRuntimeCacheAsync((state) => {
       upsertShot(state, shot)
       const project = state.projects.find(
         (item) => item.id === shot.projectId && item.tenantId === shot.tenantId,
@@ -2260,7 +2155,7 @@ export class ProjectRepository {
     updatedAtOverride?: string,
   ): Promise<void> {
     if (!this.store) return
-    this.store.mutateProjectWorkspaceRuntimeCache((state) => {
+    await this.store.mutateProjectWorkspaceRuntimeCacheAsync((state) => {
       const tenantId = shots[0]?.tenantId ?? tenantIdOverride
       state.shots = state.shots.filter(
         (shot) => shot.projectId !== projectId || (tenantId ? shot.tenantId !== tenantId : false),
@@ -2590,232 +2485,4 @@ function shotInsertParams(shot: Shot): unknown[] {
     shot.createdAt,
     shot.updatedAt,
   ]
-}
-
-function upsertProject(state: AppState, project: Project): void {
-  const index = state.projects.findIndex(
-    (item) => item.id === project.id && item.tenantId === project.tenantId,
-  )
-  if (index >= 0) {
-    state.projects[index] = project
-  } else {
-    state.projects.push(project)
-  }
-}
-
-function upsertAsset(state: AppState, asset: Asset): void {
-  const index = state.assets.findIndex(
-    (item) => item.id === asset.id && item.projectId === asset.projectId && item.tenantId === asset.tenantId,
-  )
-  if (index >= 0) {
-    state.assets[index] = asset
-  } else {
-    state.assets.push(asset)
-  }
-}
-
-function upsertShot(state: AppState, shot: Shot): void {
-  const index = state.shots.findIndex(
-    (item) => item.id === shot.id && item.projectId === shot.projectId && item.tenantId === shot.tenantId,
-  )
-  if (index >= 0) {
-    state.shots[index] = shot
-  } else {
-    state.shots.push(shot)
-  }
-}
-
-export function projectPreviewUrl(projectId: string, state: ProjectPreviewState): string | null {
-  const completedVideoFrame = state.tasks
-    .filter((task) => task.projectId === projectId && task.kind === 'video' && task.status === 'completed')
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .flatMap((task) => task.outputs)
-    .find((output) => output.mediaType === 'image' && output.view === 'last-frame')
-  if (completedVideoFrame?.url) return completedVideoFrame.url
-
-  const storyboardImage = state.tasks
-    .filter((task) => task.projectId === projectId && task.kind === 'image' && task.status === 'completed')
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .flatMap((task) => task.outputs)
-    .find((output) => output.mediaType === 'image' && output.view === 'single')
-  if (storyboardImage?.url) return storyboardImage.url
-
-  const shotImage = state.shots
-    .filter((shot) => shot.projectId === projectId && shot.imageUrl)
-    .sort((left, right) => left.order - right.order)
-    .find((shot) => shot.imageUrl)?.imageUrl
-  if (shotImage) return shotImage
-
-  const asset = state.assets
-    .filter((item) => item.projectId === projectId && item.kind !== 'audio')
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .find((item) => assetPreviewUrl(item))
-  return asset ? assetPreviewUrl(asset) : null
-}
-
-export function projectGenerationSummary(
-  projectId: string,
-  state: Pick<ProjectPreviewState, 'tasks'>,
-): ProjectGenerationSummary {
-  const relevantStatuses = new Set(['queued', 'paused', 'running', 'failed'])
-  const tasks = state.tasks
-    .filter(
-      (task) =>
-        task.projectId === projectId &&
-        relevantStatuses.has(task.status) &&
-        typeof task.metadata?.queueHiddenAt !== 'string',
-    )
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-
-  return {
-    queued: tasks.filter((task) => task.status === 'queued').length,
-    paused: tasks.filter((task) => task.status === 'paused').length,
-    running: tasks.filter((task) => task.status === 'running').length,
-    failed: tasks.filter((task) => task.status === 'failed').length,
-    latest: tasks.slice(0, 3).map((task) => ({
-      id: task.id,
-      label: task.label,
-      kind: task.kind,
-      status: task.status as 'queued' | 'paused' | 'running' | 'failed',
-      progress: task.progress,
-      updatedAt: task.updatedAt,
-    })),
-  }
-}
-
-function assetPreviewUrl(asset: ProjectPreviewAsset): string | null {
-  if (asset.imageUrl) return asset.imageUrl
-  const attributes = asset.attributes as Record<string, unknown>
-  const faceReference = attributes.faceReference as { url?: unknown } | null | undefined
-  if (typeof faceReference?.url === 'string') return faceReference.url
-  return asset.references?.[0]?.url ?? null
-}
-
-function projectFromRow(row: ProjectRow): Project {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    ownerId: row.owner_user_id,
-    name: row.name,
-    contentType: row.content_type,
-    visualStyle: row.visual_style,
-    episodeDurationSeconds: Number(row.episode_duration_seconds),
-    aspectRatio: row.aspect_ratio,
-    status: row.status,
-    synopsis: row.synopsis,
-    script: row.script,
-    version: Number(row.version),
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function scriptEpisodeFromRow(row: ScriptEpisodeRow): ScriptEpisode {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    episodeNumber: Number(row.episode_number),
-    title: row.title,
-    content: row.content,
-    draftContent: row.draft_content,
-    status: row.status,
-    summary: row.summary,
-    continuityState: jsonValue(row.continuity_state, {}),
-    revision: Number(row.revision),
-    lastEditedBy: row.last_edited_by,
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function assetFromRow(row: AssetRow): Asset {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    kind: row.kind,
-    sourceMode: row.source_mode,
-    name: row.name,
-    description: row.description,
-    prompt: row.prompt,
-    promptMode: row.prompt_mode,
-    customPromptMode: row.custom_prompt_mode,
-    customPrompt: row.custom_prompt,
-    negativePrompt: row.negative_prompt,
-    references: jsonValue(row.reference_items, []),
-    attributes: jsonValue(row.attributes, { type: row.kind }) as Asset['attributes'],
-    imageUrl: row.image_url,
-    status: row.status,
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function shotFromRow(row: ShotRow): Shot {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    scriptEpisodeId: row.script_episode_id,
-    order: Number(row.shot_order),
-    title: row.title,
-    framing: row.framing,
-    duration: Number(row.duration_seconds),
-    prompt: row.prompt,
-    negativePrompt: row.negative_prompt,
-    imageUrl: row.image_url,
-    selectedImageTaskId: row.selected_image_task_id,
-    selectedVideoTaskId: row.selected_video_task_id,
-    continuityMode: row.continuity_mode,
-    continuityNote: row.continuity_note,
-    episodeBreakBefore: row.episode_break_before,
-    episodeNumber: Number(row.episode_number),
-    episodeTitle: row.episode_title,
-    episodeKind: row.episode_kind,
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-  }
-}
-
-function projectPreviewTaskFromRow(row: ProjectTaskPreviewRow): GenerationTask {
-  return {
-    id: row.id,
-    clientRequestId: row.id,
-    projectId: row.project_id,
-    tenantId: row.tenant_id,
-    userId: '',
-    kind: row.kind,
-    label: row.label,
-    prompt: '',
-    negativePrompt: '',
-    provider: '',
-    model: null,
-    tier: null,
-    metadata: jsonValue(row.metadata, {}),
-    status: row.status,
-    progress: Number(row.progress),
-    estimatedCredits: 0,
-    createdAt: isoString(row.updated_at),
-    updatedAt: isoString(row.updated_at),
-    resultUrl: null,
-    outputs: jsonValue(row.outputs, []),
-    error: null,
-  }
-}
-
-function jsonValue<T>(value: unknown, fallback: T): T {
-  if (value === null || value === undefined) return fallback
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value) as T
-    } catch {
-      return fallback
-    }
-  }
-  return structuredClone(value) as T
-}
-
-function isoString(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }

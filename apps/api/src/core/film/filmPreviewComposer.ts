@@ -76,7 +76,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 
   async recoverInterrupted(): Promise<void> {
-    const recovered = await this.store.mutate((state) => {
+    const recovered = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const now = new Date().toISOString()
       const tasks: GenerationTask[] = []
       for (const task of state.tasks) {
@@ -103,7 +103,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 
   async start(task: GenerationTask): Promise<GenerationTask> {
-    const started = await this.store.mutate((state) => {
+    const started = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored || stored.status !== 'queued') return stored ?? task
       const now = new Date()
@@ -287,7 +287,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         this.ioTimeoutMs,
         '上传完整预览视频超时',
       )
-      await this.store.mutate((state) => {
+      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
         const stored = state.tasks.find((item) => item.id === taskId)
         if (!stored || stored.status !== 'running') return
         if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
@@ -313,7 +313,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       await this.notifyStateChange(taskId)
     } catch (error) {
       const message = error instanceof Error ? error.message : '完整预览合成失败'
-      await this.store.mutate((state) => {
+      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
         const task = state.tasks.find((item) => item.id === taskId)
         if (!task) return
         if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
@@ -387,7 +387,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       this.ioTimeoutMs,
       'Cache downloaded shot video timed out',
     )
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find(
         (item) =>
           item.id === source.id &&
@@ -420,7 +420,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     leaseToken: string,
     metadata: Record<string, unknown> = {},
   ): Promise<void> {
-    const updated = await this.store.mutate((state) => {
+    const updated = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return false
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false
@@ -443,7 +443,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
   }
 
   private async renewLease(taskId: string, leaseToken: string): Promise<void> {
-    const renewed = await this.store.mutate((state) => {
+    const renewed = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return false
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false

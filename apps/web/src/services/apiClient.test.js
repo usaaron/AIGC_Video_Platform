@@ -351,6 +351,64 @@ describe('api client', () => {
     )
   })
 
+  it('sends task polling validators and handles an unchanged 304 response', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json([], { status: 200, headers: { ETag: '"queue-v1"' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 304, headers: { ETag: '"queue-v1"' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.pollTasks('project-1')).resolves.toMatchObject({
+      notModified: false,
+      etag: '"queue-v1"',
+      tasks: [],
+    })
+    await expect(api.pollTasks('project-1', '"queue-v1"')).resolves.toMatchObject({
+      notModified: true,
+      etag: '"queue-v1"',
+      tasks: null,
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/projects/project-1/generation/tasks/poll',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: { 'If-None-Match': '"queue-v1"' },
+      }),
+    )
+  })
+
+  it('polls a compact workspace version and handles an unchanged 304 response', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ version: 'project-v1' }, { status: 200, headers: { ETag: '"workspace-v1"' } }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 304, headers: { ETag: '"workspace-v1"' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.pollWorkspaceVersion('project-1')).resolves.toMatchObject({
+      notModified: false,
+      etag: '"workspace-v1"',
+      value: { version: 'project-v1' },
+    })
+    await expect(api.pollWorkspaceVersion('project-1', '"workspace-v1"')).resolves.toMatchObject({
+      notModified: true,
+      etag: '"workspace-v1"',
+      value: null,
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/projects/project-1/workspace/version',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: { 'If-None-Match': '"workspace-v1"' },
+      }),
+    )
+  })
+
   it('lists trusted portraits by whitelist type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json([]))
     vi.stubGlobal('fetch', fetchMock)

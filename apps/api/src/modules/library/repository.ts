@@ -177,7 +177,7 @@ export class AssetLibraryRepository {
         `SELECT ${versionColumns} FROM asset_library_item_versions ORDER BY created_at DESC, version DESC`,
       ),
     ])
-    this.store.replaceLibraryRuntimeCache({
+    await this.store.replaceLibraryRuntimeCacheAsync({
       assetLibraryItems: items.rows.map(itemFromRow),
       assetLibraryItemVersions: versions.rows.map(versionFromRow),
     })

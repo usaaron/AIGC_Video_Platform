@@ -54,6 +54,7 @@ type GenerationTaskRunnerOptions = {
   leaseTtlMs?: number
   taskMutationLockTimeoutMs?: number
   textPreviewPersistTimeoutMs?: number
+  beforeLockTick?: () => Promise<void>
   beforeTick?: () => Promise<void>
   afterTick?: () => Promise<void>
   persistTickTasks?: (taskIds: readonly string[]) => Promise<void>
@@ -78,6 +79,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private tickPromise: Promise<void> | null = null
   private tickRequested = false
   private readonly beforeTick: (() => Promise<void>) | null
+  private readonly beforeLockTick: (() => Promise<void>) | null
   private readonly afterTick: (() => Promise<void>) | null
   private readonly persistTickTasks: ((taskIds: readonly string[]) => Promise<void>) | null
   private readonly persistTextPreview: ((taskId: string) => Promise<void>) | null
@@ -100,6 +102,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly leaseTtlMs: number
   private readonly taskMutationLockTimeoutMs: number
   private readonly textPreviewPersistTimeoutMs: number
+  private readonly periodicRefundIntervalMs = 10_000
+  private lastPeriodicRefundAt = 0
   private pendingTaskMutations = 0
   private mutationIdleWaiters: Array<() => void> = []
 
@@ -120,6 +124,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const dependencyResolver = new DependencyResolver()
 
     this.beforeTick = options.beforeTick ?? null
+    this.beforeLockTick = options.beforeLockTick ?? null
     this.afterTick = options.afterTick ?? null
     this.persistTickTasks = options.persistTickTasks ?? null
     this.persistTextPreview = options.persistTextPreview ?? null
@@ -204,12 +209,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
       // Otherwise a queued tick can repeatedly win the advisory lock while a final
       // task writeback is waiting for it.
       await this.waitForTaskMutations()
+      await this.beforeLockTick?.()
       await this.taskRunnerLock.runExclusive(async () => {
         maintenanceWork = await this.runTick(context)
       })
       // Refund bookkeeping performs database calls for historical terminal tasks.
       // Keep it outside the claim lock so it cannot starve new generations.
-      await this.refundService.refundTerminalTasks()
+      await this.refundTerminalTasksIfDue()
     })()
     this.tickPromise = tickPromise
 
@@ -697,11 +703,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
   }
 
   private captureTaskVersions(): Map<string, string> {
-    return this.store.read((state) => new Map(state.tasks.map((task) => [task.id, task.updatedAt])))
+    return this.store.readGenerationTaskRuntimeCache(
+      (state) => new Map(state.tasks.map((task) => [task.id, task.updatedAt])),
+    )
   }
 
   private changedTaskIdsSince(before: Map<string, string>): string[] {
-    return this.store.read((state) =>
+    return this.store.readGenerationTaskRuntimeCache((state) =>
       state.tasks.filter((task) => before.get(task.id) !== task.updatedAt).map((task) => task.id),
     )
   }
@@ -722,6 +730,13 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private async waitForTaskMutations(): Promise<void> {
     if (this.pendingTaskMutations === 0) return
     await new Promise<void>((resolve) => this.mutationIdleWaiters.push(resolve))
+  }
+
+  private async refundTerminalTasksIfDue(): Promise<void> {
+    const now = Date.now()
+    if (now - this.lastPeriodicRefundAt < this.periodicRefundIntervalMs) return
+    this.lastPeriodicRefundAt = now
+    await this.refundService.refundTerminalTasks()
   }
 
   private warnTaskRunnerFailure(operation: string, taskId: string, error: unknown): void {

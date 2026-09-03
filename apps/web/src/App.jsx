@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
@@ -21,7 +21,10 @@ import { useAuth } from './components/AuthProvider'
 import { canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
 import { useAccountScope } from './features/account/useAccountScope'
 import { api } from './services/apiClient'
-import { selectShotAssetReferences } from './features/storyboard/referenceSelector'
+import {
+  createShotAssetReferenceIndex,
+  selectShotAssetReferencesFromIndex,
+} from './features/storyboard/referenceSelector'
 import {
   activeVideoTasksForShots,
   isCompatibleCompletedVideoTask,
@@ -68,6 +71,7 @@ function App() {
   const [recentTasksLoaded, setRecentTasksLoaded] = useState(false)
   const workspaceCacheRef = useRef(new Map())
   const activeProjectIdRef = useRef(null)
+  const taskCacheWriteAtRef = useRef(new Map())
   const {
     notifications,
     notificationPopups,
@@ -78,25 +82,15 @@ function App() {
 
   const replaceTasks = useCallback((projectId, nextTasks) => {
     setTasks(nextTasks)
-    if (projectId) writeProjectTaskCache(projectId, nextTasks)
+    if (!projectId) return
+    const now = Date.now()
+    const lastWriteAt = taskCacheWriteAtRef.current.get(projectId) || 0
+    const hasActiveTask = nextTasks.some((task) => ['queued', 'paused', 'running'].includes(task?.status))
+    if (!lastWriteAt || now - lastWriteAt >= 15_000 || !hasActiveTask) {
+      writeProjectTaskCache(projectId, nextTasks)
+      taskCacheWriteAtRef.current.set(projectId, now)
+    }
   }, [])
-
-  const hydrateProject = useCallback(
-    async (projectId) => {
-      try {
-        const [nextWorkspace, nextTasks] = await Promise.all([api.project(projectId), api.tasks(projectId)])
-        workspaceCacheRef.current.set(projectId, nextWorkspace)
-        if (activeProjectIdRef.current !== projectId) return nextWorkspace
-        setWorkspace(nextWorkspace)
-        replaceTasks(projectId, nextTasks)
-        return nextWorkspace
-      } catch (error) {
-        if (activeProjectIdRef.current === projectId) setToast(error.message || '项目内容暂时无法加载。')
-        throw error
-      }
-    },
-    [replaceTasks],
-  )
 
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
@@ -137,7 +131,6 @@ function App() {
             },
           )
           replaceTasks(initialProjectId, readProjectTaskCache(initialProjectId))
-          void hydrateProject(initialProjectId).catch(() => {})
         }
       })
       .catch((error) => {
@@ -173,6 +166,11 @@ function App() {
   useEffect(() => {
     warmVideoPlaybackCache(tasks)
   }, [tasks])
+
+  const workspaceAssetReferenceIndex = useMemo(
+    () => createShotAssetReferenceIndex(workspace?.assets),
+    [workspace?.assets],
+  )
 
   useEffect(() => {
     if (!toast) return undefined
@@ -237,7 +235,6 @@ function App() {
     tasks,
     workspaceCacheRef,
     activeProjectIdRef,
-    hydrateProject,
     replaceTasks,
     refreshSession,
     markNotificationRead,
@@ -249,6 +246,7 @@ function App() {
     setProjects,
     setNewProjectOpen,
     setToast,
+    assetReferenceIndex: workspaceAssetReferenceIndex,
   })
 
   const renderContent = () => {
@@ -359,7 +357,7 @@ function App() {
     }
 
     const pages = {
-      overview: (
+      overview: () => (
         <OverviewPage
           project={project}
           assets={workspace.assets}
@@ -375,7 +373,7 @@ function App() {
           }}
         />
       ),
-      script: (
+      script: () => (
         <ScriptPage
           key={project.id}
           project={project}
@@ -536,7 +534,7 @@ function App() {
           onNext={() => navigateTo('assets')}
         />
       ),
-      assets: (
+      assets: () => (
         <AssetsPage
           project={project}
           assets={workspace.assets}
@@ -652,7 +650,7 @@ function App() {
           onNext={() => navigateTo('storyboard')}
         />
       ),
-      storyboard: (
+      storyboard: () => (
         <StoryboardPage
           project={project}
           scriptEpisodes={workspace.scriptEpisodes}
@@ -722,14 +720,28 @@ function App() {
               )
             }
 
+            const completedVideoTasksByShot = new Map()
+            for (const task of tasks) {
+              if (task.kind !== 'video' || task.status !== 'completed') continue
+              const shotId = task.metadata?.shotId
+              if (!shotId) continue
+              const candidates = completedVideoTasksByShot.get(shotId) || []
+              candidates.push(task)
+              completedVideoTasksByShot.set(shotId, candidates)
+            }
             const laneResults = await Promise.all(
               plan.lanes.map(async (lane) => {
                 let created = 0
                 let previousVideoTask = null
                 for (const [shotIndex, shot] of lane.entries()) {
-                  const references = selectShotAssetReferences(workspace.assets, shot)
+                  const references = selectShotAssetReferencesFromIndex(
+                    workspaceAssetReferenceIndex,
+                    shot,
+                    6,
+                    workspace.assets,
+                  )
                   const mustProvideLastFrame = lane[shotIndex + 1]?.continuityMode === 'continue'
-                  const existingVideo = tasks.find(
+                  const existingVideo = (completedVideoTasksByShot.get(shot.id) || []).find(
                     (task) =>
                       isCompatibleCompletedVideoTask(task, {
                         shotId: shot.id,
@@ -776,7 +788,7 @@ function App() {
           onNext={() => navigateTo('generate')}
         />
       ),
-      generate: (
+      generate: () => (
         <GenerationPage
           jobs={tasks}
           concurrency={billing.concurrency}
@@ -818,7 +830,7 @@ function App() {
           onNext={() => navigateTo('film')}
         />
       ),
-      film: (
+      film: () => (
         <FilmPage
           project={project}
           shots={workspace.shots}
@@ -857,7 +869,7 @@ function App() {
           onExport={() => exportProject(workspace, tasks)}
         />
       ),
-      library: (
+      library: () => (
         <AssetLibraryPage
           currentProject={project}
           onToast={setToast}
@@ -877,7 +889,7 @@ function App() {
         />
       ),
     }
-    return pages[activeStep] || pages.overview
+    return (pages[activeStep] || pages.overview)()
   }
 
   const runningJobs = tasks.filter((task) => task.status === 'running')

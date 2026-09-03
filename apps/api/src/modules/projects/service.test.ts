@@ -1066,6 +1066,21 @@ describe('ProjectRepository script episodes', () => {
 })
 
 describe('ProjectRepository project archiving', () => {
+  it('keeps project-list payloads light without losing workspace script details', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new ProjectRepository(store)
+    const member = {
+      userId: 'user-member',
+      tenantId: 'tenant-seqora-demo',
+      roles: ['member'] as const,
+    }
+
+    const listed = await repository.list(member)
+    expect(listed.find((project) => project.id === 'project-midnight-film')?.script).toBe('')
+    expect((await repository.workspace('project-midnight-film', member))?.project.script).toBeTruthy()
+  })
+
   it('allows a tenant owner to archive a project created by another tenant member', async () => {
     const store = new AppStore(null)
     await store.initialize()

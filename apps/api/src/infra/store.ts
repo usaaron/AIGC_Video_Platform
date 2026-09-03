@@ -1,4 +1,3 @@
-import { assetLibraryItemRecordSchema, assetLibraryItemVersionRecordSchema } from '@seqora/contracts'
 import type {
   AiJob,
   Asset,
@@ -21,12 +20,13 @@ import type {
   Shot,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, open as openFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashPassword } from '../core/auth/password.js'
-import { normalizeAiJobLifecycle } from '../core/jobs/aiJobLease.js'
-import { normalizeGenerationTaskLifecycle } from '../core/jobs/taskLease.js'
+import { defaultAssetAttributes, normalizeState, removeLegacyDemoCharacters } from './storeNormalization.js'
+
+export { defaultAssetAttributes } from './storeNormalization.js'
 
 export type StoredUser = {
   id: string
@@ -90,6 +90,13 @@ export type AppState = {
   novelStoryBibles: StoredNovelStoryBible[]
 }
 
+export type RuntimeCacheSlice = 'account' | 'projectWorkspace' | 'generationTasks' | 'aiJobs' | 'library'
+
+type FileSignature = {
+  mtimeMs: number
+  size: number
+}
+
 export type BootstrapUsers = {
   memberName?: string
   memberEmail: string
@@ -122,8 +129,10 @@ const developmentBootstrapUsers: BootstrapUsers = {
 
 export class AppStore {
   private state!: AppState
-  private writeQueue = Promise.resolve()
+  private mutationQueue = Promise.resolve()
   private readonly lockPath: string | null
+  private readonly databaseBackedRuntime: boolean
+  private fileSignature: FileSignature | null = null
   private accountRuntimeCache: Pick<AppState, 'users' | 'ledger'> | null = null
   private accountPersistenceBackup: Pick<AppState, 'users' | 'ledger'> | null = null
   private projectWorkspaceRuntimeCache: Pick<
@@ -148,8 +157,10 @@ export class AppStore {
     private readonly bootstrapDemoWorkspace = true,
     private readonly bootstrapOnMissingFile = true,
     private readonly normalizeLegacyRoleAliases = true,
+    databaseBackedRuntime = false,
   ) {
     this.lockPath = filePath ? `${filePath}.lock` : null
+    this.databaseBackedRuntime = databaseBackedRuntime
   }
 
   async initialize(): Promise<void> {
@@ -160,6 +171,7 @@ export class AppStore {
             normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
           }),
         )
+        this.fileSignature = await this.readFileSignature()
         return
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
@@ -183,6 +195,12 @@ export class AppStore {
     return structuredClone(reader(this.state))
   }
 
+  readGenerationTaskRuntimeCache<T>(reader: (state: Readonly<AppState>) => T): T {
+    if (!this.generationTaskRuntimeCache) return this.read(reader)
+    this.applyGenerationTaskRuntimeCache()
+    return structuredClone(reader(this.state))
+  }
+
   async mutate<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
     return this.runWrite(mutator)
   }
@@ -192,14 +210,20 @@ export class AppStore {
   }
 
   replaceAccountRuntimeCache(input: Pick<AppState, 'users' | 'ledger'>): void {
-    if (!this.accountPersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.accountPersistenceBackup) {
       this.accountPersistenceBackup = structuredClone({
         users: this.state.users,
         ledger: this.state.ledger,
       })
     }
-    this.accountRuntimeCache = structuredClone(input)
+    this.accountRuntimeCache = this.databaseBackedRuntime ? input : structuredClone(input)
     this.applyAccountRuntimeCache()
+  }
+
+  async replaceAccountRuntimeCacheAsync(input: Pick<AppState, 'users' | 'ledger'>): Promise<void> {
+    await this.enqueueMutation(async () => {
+      this.replaceAccountRuntimeCache(input)
+    })
   }
 
   mutateAccountRuntimeCache<T>(mutator: (state: AppState) => T): T {
@@ -208,7 +232,7 @@ export class AppStore {
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
     this.applyLibraryRuntimeCache()
-    if (!this.accountPersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.accountPersistenceBackup) {
       this.accountPersistenceBackup = structuredClone({
         users: this.state.users,
         ledger: this.state.ledger,
@@ -225,10 +249,21 @@ export class AppStore {
     return structuredClone(result)
   }
 
+  async mutateAccountRuntimeCacheAsync<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runRuntimeWrite(mutator, ['account'])
+  }
+
+  async mutateRuntimeCachesAsync<T>(
+    mutator: (state: AppState) => T | Promise<T>,
+    slices: RuntimeCacheSlice[],
+  ): Promise<T> {
+    return this.runRuntimeWrite(mutator, slices)
+  }
+
   replaceProjectWorkspaceRuntimeCache(
     input: Pick<AppState, 'projects' | 'scriptEpisodes' | 'assets' | 'shots'>,
   ): void {
-    if (!this.projectWorkspacePersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.projectWorkspacePersistenceBackup) {
       this.projectWorkspacePersistenceBackup = structuredClone({
         projects: this.state.projects,
         scriptEpisodes: this.state.scriptEpisodes,
@@ -236,35 +271,67 @@ export class AppStore {
         shots: this.state.shots,
       })
     }
-    this.projectWorkspaceRuntimeCache = structuredClone(input)
+    this.projectWorkspaceRuntimeCache = this.databaseBackedRuntime ? input : structuredClone(input)
     this.applyProjectWorkspaceRuntimeCache()
   }
 
+  async replaceProjectWorkspaceRuntimeCacheAsync(
+    input: Pick<AppState, 'projects' | 'scriptEpisodes' | 'assets' | 'shots'>,
+  ): Promise<void> {
+    await this.enqueueMutation(async () => {
+      this.replaceProjectWorkspaceRuntimeCache(input)
+    })
+  }
+
   replaceGenerationTaskRuntimeCache(tasks: GenerationTask[]): void {
-    if (!this.generationTaskPersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.generationTaskPersistenceBackup) {
       this.generationTaskPersistenceBackup = structuredClone({ tasks: this.state.tasks })
     }
-    this.generationTaskRuntimeCache = structuredClone({ tasks })
+    this.generationTaskRuntimeCache = {
+      tasks: this.databaseBackedRuntime ? tasks : structuredClone(tasks),
+    }
     this.applyGenerationTaskRuntimeCache()
   }
 
+  async replaceGenerationTaskRuntimeCacheAsync(tasks: GenerationTask[]): Promise<void> {
+    await this.enqueueMutation(async () => {
+      this.replaceGenerationTaskRuntimeCache(tasks)
+    })
+  }
+
   replaceAiJobRuntimeCache(aiJobs: AiJob[]): void {
-    if (!this.aiJobPersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.aiJobPersistenceBackup) {
       this.aiJobPersistenceBackup = structuredClone({ aiJobs: this.state.aiJobs })
     }
-    this.aiJobRuntimeCache = structuredClone({ aiJobs })
+    this.aiJobRuntimeCache = {
+      aiJobs: this.databaseBackedRuntime ? aiJobs : structuredClone(aiJobs),
+    }
     this.applyAiJobRuntimeCache()
   }
 
+  async replaceAiJobRuntimeCacheAsync(aiJobs: AiJob[]): Promise<void> {
+    await this.enqueueMutation(async () => {
+      this.replaceAiJobRuntimeCache(aiJobs)
+    })
+  }
+
   replaceLibraryRuntimeCache(input: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'>): void {
-    if (!this.libraryPersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.libraryPersistenceBackup) {
       this.libraryPersistenceBackup = structuredClone({
         assetLibraryItems: this.state.assetLibraryItems,
         assetLibraryItemVersions: this.state.assetLibraryItemVersions,
       })
     }
-    this.libraryRuntimeCache = structuredClone(input)
+    this.libraryRuntimeCache = this.databaseBackedRuntime ? input : structuredClone(input)
     this.applyLibraryRuntimeCache()
+  }
+
+  async replaceLibraryRuntimeCacheAsync(
+    input: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'>,
+  ): Promise<void> {
+    await this.enqueueMutation(async () => {
+      this.replaceLibraryRuntimeCache(input)
+    })
   }
 
   mutateLibraryRuntimeCache<T>(mutator: (state: AppState) => T): T {
@@ -273,7 +340,7 @@ export class AppStore {
     this.applyGenerationTaskRuntimeCache()
     this.applyAiJobRuntimeCache()
     this.applyLibraryRuntimeCache()
-    if (!this.libraryPersistenceBackup) {
+    if (!this.databaseBackedRuntime && !this.libraryPersistenceBackup) {
       this.libraryPersistenceBackup = structuredClone({
         assetLibraryItems: this.state.assetLibraryItems,
         assetLibraryItemVersions: this.state.assetLibraryItemVersions,
@@ -290,6 +357,10 @@ export class AppStore {
     return structuredClone(result)
   }
 
+  async mutateLibraryRuntimeCacheAsync<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runRuntimeWrite(mutator, ['library'])
+  }
+
   mutateProjectWorkspaceRuntimeCache<T>(mutator: (state: AppState) => T): T {
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
@@ -302,37 +373,114 @@ export class AppStore {
     return structuredClone(result)
   }
 
+  async mutateProjectWorkspaceRuntimeCacheAsync<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runRuntimeWrite(mutator, ['projectWorkspace'])
+  }
+
+  mutateGenerationTaskRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyGenerationTaskRuntimeCache()
+    const result = mutator(this.state)
+    this.captureGenerationTaskRuntimeCache()
+    return structuredClone(result)
+  }
+
+  async mutateGenerationTaskRuntimeCacheAsync<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runRuntimeWrite(mutator, ['generationTasks'])
+  }
+
+  mutateAiJobRuntimeCache<T>(mutator: (state: AppState) => T): T {
+    this.applyAiJobRuntimeCache()
+    const result = mutator(this.state)
+    this.captureAiJobRuntimeCache()
+    return structuredClone(result)
+  }
+
+  async mutateAiJobRuntimeCacheAsync<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.runRuntimeWrite(mutator, ['aiJobs'])
+  }
+
   private async runWrite<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
-    let result!: T
-    const operation = this.writeQueue.then(async () => {
-      await this.withWriteLock(async () => {
-        await this.reloadFromDisk()
-        this.applyAccountRuntimeCache()
-        this.applyProjectWorkspaceRuntimeCache()
-        this.applyGenerationTaskRuntimeCache()
-        this.applyAiJobRuntimeCache()
-        this.applyLibraryRuntimeCache()
-        const snapshot = structuredClone(this.state)
-        try {
-          result = await mutator(this.state)
-          this.captureAccountRuntimeCache()
-          this.captureProjectWorkspaceRuntimeCache()
-          this.captureGenerationTaskRuntimeCache()
-          this.captureAiJobRuntimeCache()
-          this.captureLibraryRuntimeCache()
-          await this.persist()
-        } catch (error) {
+    return this.enqueueMutation(async () => this.runPersistentWrite(mutator))
+  }
+
+  private async runRuntimeWrite<T>(
+    mutator: (state: AppState) => T | Promise<T>,
+    slices: RuntimeCacheSlice[],
+  ): Promise<T> {
+    return this.enqueueMutation(async () => {
+      if (!this.hasRuntimeCache(slices)) return this.runPersistentWrite(mutator)
+
+      this.applyRuntimeCaches()
+      const snapshot = this.databaseBackedRuntime ? null : structuredClone(this.state)
+      try {
+        const result = await mutator(this.state)
+        this.captureRuntimeCaches(slices)
+        return result
+      } catch (error) {
+        if (snapshot) {
           this.state = snapshot
-          throw error
+          this.captureRuntimeCaches(['account', 'projectWorkspace', 'generationTasks', 'aiJobs', 'library'])
         }
-      })
+        throw error
+      }
     })
-    this.writeQueue = operation.then(
+  }
+
+  private async runPersistentWrite<T>(mutator: (state: AppState) => T | Promise<T>): Promise<T> {
+    return this.withWriteLock(async () => {
+      await this.reloadFromDisk()
+      this.applyRuntimeCaches()
+      const snapshot = this.databaseBackedRuntime ? null : structuredClone(this.state)
+      try {
+        const result = await mutator(this.state)
+        this.captureRuntimeCaches(['account', 'projectWorkspace', 'generationTasks', 'aiJobs', 'library'])
+        await this.persist()
+        return result
+      } catch (error) {
+        if (snapshot) {
+          this.state = snapshot
+          this.captureRuntimeCaches(['account', 'projectWorkspace', 'generationTasks', 'aiJobs', 'library'])
+        }
+        throw error
+      }
+    })
+  }
+
+  private enqueueMutation<T>(operation: () => T | Promise<T>): Promise<T> {
+    const queuedOperation = this.mutationQueue.then(operation)
+    this.mutationQueue = queuedOperation.then(
       () => undefined,
       () => undefined,
     )
-    await operation
-    return structuredClone(result)
+    return queuedOperation.then((result) => structuredClone(result))
+  }
+
+  private hasRuntimeCache(slices: RuntimeCacheSlice[]): boolean {
+    return slices.some((slice) => {
+      if (slice === 'account') return this.accountRuntimeCache !== null
+      if (slice === 'projectWorkspace') return this.projectWorkspaceRuntimeCache !== null
+      if (slice === 'generationTasks') return this.generationTaskRuntimeCache !== null
+      if (slice === 'aiJobs') return this.aiJobRuntimeCache !== null
+      return this.libraryRuntimeCache !== null
+    })
+  }
+
+  private applyRuntimeCaches(): void {
+    this.applyAccountRuntimeCache()
+    this.applyProjectWorkspaceRuntimeCache()
+    this.applyGenerationTaskRuntimeCache()
+    this.applyAiJobRuntimeCache()
+    this.applyLibraryRuntimeCache()
+  }
+
+  private captureRuntimeCaches(slices: RuntimeCacheSlice[]): void {
+    for (const slice of slices) {
+      if (slice === 'account') this.captureAccountRuntimeCache()
+      else if (slice === 'projectWorkspace') this.captureProjectWorkspaceRuntimeCache()
+      else if (slice === 'generationTasks') this.captureGenerationTaskRuntimeCache()
+      else if (slice === 'aiJobs') this.captureAiJobRuntimeCache()
+      else this.captureLibraryRuntimeCache()
+    }
   }
 
   private async persist(): Promise<void> {
@@ -342,6 +490,7 @@ export class AppStore {
     try {
       await writeFile(temporary, `${JSON.stringify(this.stateForPersistence(), null, 2)}\n`, 'utf8')
       await renameWithRetry(temporary, this.filePath)
+      this.fileSignature = await this.readFileSignature()
     } finally {
       await rm(temporary, { force: true }).catch(() => {})
     }
@@ -349,12 +498,15 @@ export class AppStore {
 
   private async reloadFromDisk(): Promise<void> {
     if (!this.filePath) return
+    const signature = await this.readFileSignature()
+    if (!signature || sameFileSignature(signature, this.fileSignature)) return
     try {
       this.state = removeLegacyDemoCharacters(
         normalizeState(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<AppState>, {
           normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
         }),
       )
+      this.fileSignature = signature
       this.applyAccountRuntimeCache()
       this.applyProjectWorkspaceRuntimeCache()
       this.applyGenerationTaskRuntimeCache()
@@ -367,11 +519,14 @@ export class AppStore {
 
   private reloadFromDiskSync(): void {
     if (!this.filePath || !existsSync(this.filePath)) return
+    const signature = this.readFileSignatureSync()
+    if (!signature || sameFileSignature(signature, this.fileSignature)) return
     this.state = removeLegacyDemoCharacters(
       normalizeState(JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppState>, {
         normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
       }),
     )
+    this.fileSignature = signature
     this.applyAccountRuntimeCache()
     this.applyProjectWorkspaceRuntimeCache()
     this.applyGenerationTaskRuntimeCache()
@@ -379,70 +534,90 @@ export class AppStore {
     this.applyLibraryRuntimeCache()
   }
 
+  private async readFileSignature(): Promise<FileSignature | null> {
+    if (!this.filePath) return null
+    const file = await stat(this.filePath).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    })
+    return file ? { mtimeMs: file.mtimeMs, size: file.size } : null
+  }
+
+  private readFileSignatureSync(): FileSignature | null {
+    if (!this.filePath) return null
+    try {
+      const file = statSync(this.filePath)
+      return { mtimeMs: file.mtimeMs, size: file.size }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  }
+
   private applyAccountRuntimeCache(): void {
     if (!this.accountRuntimeCache) return
-    this.state.users = structuredClone(this.accountRuntimeCache.users)
-    this.state.ledger = structuredClone(this.accountRuntimeCache.ledger)
+    this.state.users = this.accountRuntimeCache.users
+    this.state.ledger = this.accountRuntimeCache.ledger
   }
 
   private applyProjectWorkspaceRuntimeCache(): void {
     if (!this.projectWorkspaceRuntimeCache) return
-    this.state.projects = structuredClone(this.projectWorkspaceRuntimeCache.projects)
-    this.state.scriptEpisodes = structuredClone(this.projectWorkspaceRuntimeCache.scriptEpisodes)
-    this.state.assets = structuredClone(this.projectWorkspaceRuntimeCache.assets)
-    this.state.shots = structuredClone(this.projectWorkspaceRuntimeCache.shots)
+    this.state.projects = this.projectWorkspaceRuntimeCache.projects
+    this.state.scriptEpisodes = this.projectWorkspaceRuntimeCache.scriptEpisodes
+    this.state.assets = this.projectWorkspaceRuntimeCache.assets
+    this.state.shots = this.projectWorkspaceRuntimeCache.shots
   }
 
   private applyGenerationTaskRuntimeCache(): void {
     if (!this.generationTaskRuntimeCache) return
-    this.state.tasks = structuredClone(this.generationTaskRuntimeCache.tasks)
+    this.state.tasks = this.generationTaskRuntimeCache.tasks
   }
 
   private applyAiJobRuntimeCache(): void {
     if (!this.aiJobRuntimeCache) return
-    this.state.aiJobs = structuredClone(this.aiJobRuntimeCache.aiJobs)
+    this.state.aiJobs = this.aiJobRuntimeCache.aiJobs
   }
 
   private applyLibraryRuntimeCache(): void {
     if (!this.libraryRuntimeCache) return
-    this.state.assetLibraryItems = structuredClone(this.libraryRuntimeCache.assetLibraryItems)
-    this.state.assetLibraryItemVersions = structuredClone(this.libraryRuntimeCache.assetLibraryItemVersions)
+    this.state.assetLibraryItems = this.libraryRuntimeCache.assetLibraryItems
+    this.state.assetLibraryItemVersions = this.libraryRuntimeCache.assetLibraryItemVersions
   }
 
   private captureAccountRuntimeCache(): void {
     if (!this.accountRuntimeCache) return
-    this.accountRuntimeCache = structuredClone({
+    this.accountRuntimeCache = {
       users: this.state.users,
       ledger: this.state.ledger,
-    })
+    }
   }
 
   private captureProjectWorkspaceRuntimeCache(): void {
     if (!this.projectWorkspaceRuntimeCache) return
-    this.projectWorkspaceRuntimeCache = structuredClone({
+    this.projectWorkspaceRuntimeCache = {
       projects: this.state.projects,
       scriptEpisodes: this.state.scriptEpisodes,
       assets: this.state.assets,
       shots: this.state.shots,
-    })
+    }
   }
 
   private captureGenerationTaskRuntimeCache(): void {
     if (!this.generationTaskRuntimeCache) return
-    this.generationTaskRuntimeCache = structuredClone({ tasks: this.state.tasks })
+    this.generationTaskRuntimeCache = { tasks: this.state.tasks }
   }
 
   private captureAiJobRuntimeCache(): void {
     if (!this.aiJobRuntimeCache) return
-    this.aiJobRuntimeCache = structuredClone({ aiJobs: this.state.aiJobs })
+    this.aiJobRuntimeCache = { aiJobs: this.state.aiJobs }
   }
 
   private captureLibraryRuntimeCache(): void {
     if (!this.libraryRuntimeCache) return
-    this.libraryRuntimeCache = structuredClone({
+    this.libraryRuntimeCache = {
       assetLibraryItems: this.state.assetLibraryItems,
       assetLibraryItemVersions: this.state.assetLibraryItemVersions,
-    })
+    }
   }
 
   private stateForPersistence(): AppState {
@@ -732,110 +907,6 @@ function seedAssets(projectId: string, tenantId: string, now: string): Asset[] {
   })
 }
 
-function removeLegacyDemoCharacters(state: AppState): AppState {
-  const legacyIds = new Set(['asset-lin', 'asset-zhou'])
-  return {
-    ...state,
-    assets: state.assets.filter((asset) => !legacyIds.has(asset.id)),
-  }
-}
-
-export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes'] {
-  if (kind === 'character') {
-    return {
-      type: 'character',
-      subjectType: 'human',
-      gender: 'female',
-      ageGroup: 'young',
-      exactAge: null,
-      ethnicity: 'unspecified',
-      skinTone: 'unspecified',
-      eyeColor: 'unspecified',
-      hairColor: 'unspecified',
-      species: '',
-      anthropomorphic: false,
-      visualStyle: 'cinematic-cg',
-      framing: 'full',
-      bodyType: 'balanced',
-      background: 'solid',
-      faceStatus: 'pending',
-      bodyStatus: 'pending',
-      faceReference: null,
-      bodyReference: null,
-      portraitSource: 'ai-virtual',
-      trustedPortrait: null,
-      legStretch: false,
-      turnaround: false,
-      turnaroundLayout: 'sheet',
-      appearanceVariants: [],
-      activeAppearanceVariantId: null,
-    }
-  }
-  if (kind === 'scene') {
-    return {
-      type: 'scene',
-      space: 'exterior',
-      sceneType: 'street',
-      era: 'modern',
-      time: 'night',
-      weather: 'clear',
-      mood: 'mystery',
-      camera: 'wide',
-      visualStyle: 'cinematic-cg',
-      emptyScene: true,
-      activitySpace: true,
-    }
-  }
-  if (kind === 'prop') {
-    return {
-      type: 'prop',
-      category: 'daily',
-      material: 'mixed',
-      condition: 'used',
-      view: 'front',
-      background: 'solid',
-      visualStyle: 'cinematic-cg',
-    }
-  }
-  if (kind === 'costume') {
-    return {
-      type: 'costume',
-      characterAssetId: null,
-      audience: 'unisex',
-      category: 'daily',
-      season: 'all-season',
-      design: 'minimal',
-      presentation: 'flat',
-      visualStyle: 'cinematic-cg',
-      turnaround: false,
-    }
-  }
-  if (kind === 'brand') {
-    return {
-      type: 'brand',
-      brandType: 'logo',
-      usage: 'general',
-      background: 'transparent',
-      layout: 'centered',
-      exactText: '',
-      palette: '',
-      visualStyle: 'cinematic-cg',
-    }
-  }
-  return {
-    type: 'audio',
-    audioType: 'ambience',
-    gender: 'unspecified',
-    ageGroup: 'young',
-    emotion: 'neutral',
-    tone: 'warm',
-    speed: 'normal',
-    language: 'mandarin',
-    duration: 15,
-    loop: false,
-  }
-}
-
 function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
   return [
     ['shot-1', 1, '雨夜空镜', '大全景', 4, '临港市雨夜，镜头缓慢推向废弃火车站，冷色调', '/demo/rain.jpg'],
@@ -866,206 +937,8 @@ function seedShots(projectId: string, tenantId: string, now: string): Shot[] {
   }))
 }
 
-function normalizeState(
-  input: Partial<AppState>,
-  options: { normalizeLegacyRoleAliases?: boolean } = {},
-): AppState {
-  const users = (input.users ?? []).map((user) => ({
-    ...user,
-    roles: normalizeStoredRoles(
-      (user as { roles?: readonly unknown[] }).roles ?? [],
-      options.normalizeLegacyRoleAliases ?? true,
-    ),
-  }))
-  const assets = (input.assets ?? []).map((stored) => {
-    const legacy = stored as Omit<Partial<Asset>, 'kind'> & {
-      id: string
-      projectId: string
-      tenantId: string
-      kind: Asset['kind'] | 'sound'
-      name: string
-      description: string
-      prompt: string
-      imageUrl: string | null
-      status: Asset['status']
-      createdAt: string
-      updatedAt: string
-    }
-    const kind: Asset['kind'] = legacy.kind === 'sound' ? 'audio' : legacy.kind
-    return {
-      ...legacy,
-      kind,
-      sourceMode: legacy.sourceMode ?? 'generate',
-      promptMode: legacy.promptMode ?? 'standard',
-      customPromptMode: legacy.customPromptMode ?? 'append',
-      customPrompt: legacy.customPrompt ?? '',
-      negativePrompt: legacy.negativePrompt ?? '',
-      references: legacy.references ?? [],
-      attributes:
-        legacy.attributes?.type === kind
-          ? { ...defaultAssetAttributes(kind), ...legacy.attributes }
-          : defaultAssetAttributes(kind),
-    } as Asset
-  })
-  const tasks = (input.tasks ?? []).map((task) => ({
-    ...task,
-    prompt: task.prompt ?? '',
-    negativePrompt: task.negativePrompt ?? '',
-    provider: task.provider ?? 'local',
-    model: task.model ?? null,
-    metadata: task.metadata ?? {},
-    outputs: task.outputs ?? [],
-  }))
-  const projects = input.projects ?? []
-  const storedEpisodes = input.scriptEpisodes ?? []
-  const migratedEpisodes = projects.flatMap((project) => {
-    if (
-      project.contentType !== 'short-drama' ||
-      !project.script.trim() ||
-      storedEpisodes.some(
-        (episode) => episode.projectId === project.id && episode.tenantId === project.tenantId,
-      )
-    ) {
-      return []
-    }
-    return [
-      {
-        id: `legacy-${project.id}`,
-        projectId: project.id,
-        tenantId: project.tenantId,
-        episodeNumber: 1,
-        title: '第 1 集',
-        content: project.script,
-        draftContent: '',
-        status: 'saved' as const,
-        summary: project.script.replace(/\s+/g, ' ').slice(0, 500),
-        continuityState: {},
-        revision: 1,
-        lastEditedBy: project.ownerId,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-      },
-    ]
-  })
-  return {
-    users,
-    projects,
-    scriptEpisodes: [...storedEpisodes, ...migratedEpisodes].map((episode) => ({
-      ...episode,
-      draftContent: episode.draftContent ?? '',
-      status: episode.status ?? 'saved',
-      summary: episode.summary ?? episode.content.replace(/\s+/g, ' ').slice(0, 500),
-      continuityState: episode.continuityState ?? {},
-      revision: episode.revision ?? 1,
-    })),
-    assets,
-    shots: (input.shots ?? []).map((shot) => ({
-      ...shot,
-      scriptEpisodeId: shot.scriptEpisodeId ?? null,
-      negativePrompt: shot.negativePrompt ?? '',
-      continuityMode: shot.continuityMode ?? 'independent',
-      continuityNote: shot.continuityNote ?? '',
-      episodeBreakBefore: shot.episodeBreakBefore ?? false,
-      episodeNumber: shot.episodeNumber ?? 1,
-      episodeTitle: shot.episodeTitle ?? '主故事',
-      episodeKind: shot.episodeKind ?? 'standard',
-    })),
-    tasks: tasks.map((task) => normalizeGenerationTaskLifecycle(task)),
-    aiJobs: (input.aiJobs ?? []).map((job) => normalizeAiJobLifecycle(job)),
-    ledger: input.ledger ?? [],
-    media: input.media ?? [],
-    assetLibraryItems: normalizeAssetLibraryItems(input.assetLibraryItems ?? []),
-    assetLibraryItemVersions: normalizeAssetLibraryItemVersions(input.assetLibraryItemVersions ?? []),
-    novelDocuments: input.novelDocuments ?? [],
-    novelChapters: input.novelChapters ?? [],
-    novelChapterSummaries: input.novelChapterSummaries ?? [],
-    novelSummaryQueues: input.novelSummaryQueues ?? [],
-    novelSummaryQueueItems: input.novelSummaryQueueItems ?? [],
-    novelBoundaries: input.novelBoundaries ?? [],
-    novelStoryBibles: input.novelStoryBibles ?? [],
-  }
-}
-
-function normalizeAssetLibraryItems(items: readonly unknown[]): AssetLibraryItemRecord[] {
-  return items.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-    const record = item as Partial<AssetLibraryItemRecord>
-    const parsed = assetLibraryItemRecordSchema.safeParse({
-      ...record,
-      description: typeof record.description === 'string' ? record.description : '',
-      sourceProjectId: nullableString(record.sourceProjectId),
-      sourceProjectName: nullableString(record.sourceProjectName),
-      sourceAssetId: nullableString(record.sourceAssetId),
-      sourceTaskId: nullableString(record.sourceTaskId),
-      sourceMediaId: nullableString(record.sourceMediaId),
-      sourceSnapshot:
-        record.sourceSnapshot &&
-        typeof record.sourceSnapshot === 'object' &&
-        !Array.isArray(record.sourceSnapshot)
-          ? record.sourceSnapshot
-          : {},
-      contentHash:
-        typeof record.contentHash === 'string' && record.contentHash
-          ? record.contentHash
-          : `legacy:${record.id}`,
-      previewStorageKey: nullableString(record.previewStorageKey),
-      sizeBytes: Number(record.sizeBytes),
-      duplicateOfItemId: nullableString(record.duplicateOfItemId),
-      currentVersion: Number(record.currentVersion ?? 1),
-      tags: Array.isArray(record.tags) ? record.tags : [],
-      restoredAt: nullableString(record.restoredAt),
-      deletedAt: nullableString(record.deletedAt),
-    })
-    return parsed.success ? [parsed.data] : []
-  })
-}
-
-function normalizeAssetLibraryItemVersions(items: readonly unknown[]): AssetLibraryItemVersionRecord[] {
-  return items.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-    const record = item as Partial<AssetLibraryItemVersionRecord>
-    const itemId = typeof record.itemId === 'string' && record.itemId ? record.itemId : ''
-    const version = Number(record.version ?? 1)
-    const parsed = assetLibraryItemVersionRecordSchema.safeParse({
-      ...record,
-      id: typeof record.id === 'string' && record.id ? record.id : `${itemId}:v${version}`,
-      itemId,
-      version,
-      sourceSnapshot:
-        record.sourceSnapshot &&
-        typeof record.sourceSnapshot === 'object' &&
-        !Array.isArray(record.sourceSnapshot)
-          ? record.sourceSnapshot
-          : {},
-      contentHash:
-        typeof record.contentHash === 'string' && record.contentHash
-          ? record.contentHash
-          : `legacy:${itemId}`,
-      sizeBytes: Number(record.sizeBytes),
-      createdBy:
-        typeof record.createdBy === 'string' && record.createdBy ? record.createdBy : record.ownerUserId,
-    })
-    return parsed.success ? [parsed.data] : []
-  })
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' && value ? value : null
-}
-
-function normalizeStoredRoles(roles: readonly unknown[], normalizeLegacyRoleAliases: boolean): Role[] {
-  const allowed = new Set([
-    'member',
-    'admin',
-    'organization_admin',
-    'organization_member',
-    'super_admin',
-    'owner',
-  ])
-  const normalized = roles.flatMap((role) =>
-    normalizeLegacyRoleAliases && String(role) === 'creator' ? ['member'] : [String(role)],
-  )
-  return [...new Set(normalized.filter((role) => allowed.has(role)))].map((role) => role as Role)
+function sameFileSignature(left: FileSignature, right: FileSignature | null): boolean {
+  return Boolean(right && left.mtimeMs === right.mtimeMs && left.size === right.size)
 }
 
 const DEFAULT_SCRIPT = `雨夜，临港市旧火车站。

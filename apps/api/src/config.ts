@@ -52,6 +52,12 @@ const configSchema = z
     STRIPE_CREDIT_PRICE_ID: z.string().default(''),
     STRIPE_CREDIT_PACK_CREDITS: z.coerce.number().int().positive().max(1_000_000).default(100),
     DATABASE_URL: z.union([z.literal(''), z.string().min(1)]).default(''),
+    // Keep database concurrency bounded per process. API and worker each own a
+    // pool, so an explicit limit prevents a traffic spike from exhausting PG.
+    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
+    DATABASE_POOL_MIN: z.coerce.number().int().min(0).max(20).default(0),
+    DATABASE_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(10_000),
+    DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(500).max(60_000).default(5_000),
     BOOTSTRAP_MEMBER_NAME: z.string().min(1).max(80).default('默认 C 端用户'),
     BOOTSTRAP_MEMBER_EMAIL: z.string().email().default('member@seqora.local'),
     BOOTSTRAP_MEMBER_PASSWORD: z.string().min(12).max(128).default(developmentMemberPassword),
@@ -131,6 +137,13 @@ const configSchema = z
     TOKENADVENT_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(300_000).default(180_000),
   })
   .superRefine((config, context) => {
+    if (config.DATABASE_POOL_MIN > config.DATABASE_POOL_MAX) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DATABASE_POOL_MIN'],
+        message: 'DATABASE_POOL_MIN cannot exceed DATABASE_POOL_MAX',
+      })
+    }
     if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'demo') {
       context.addIssue({
         code: 'custom',

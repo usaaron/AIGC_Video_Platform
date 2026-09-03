@@ -21,6 +21,13 @@ export type DatabaseInitializeOptions = {
   mode?: DatabaseMigrationMode
 }
 
+export type AccountDatabaseOptions = {
+  max?: number
+  min?: number
+  idleTimeoutMillis?: number
+  connectionTimeoutMillis?: number
+}
+
 export class AccountDatabase {
   private readonly pool: PgPool
   private initialized = false
@@ -29,8 +36,9 @@ export class AccountDatabase {
   constructor(
     connectionString: string,
     private readonly migrationsPath: string = migrationsDirectory,
+    options: AccountDatabaseOptions = {},
   ) {
-    this.pool = new Pool({ connectionString })
+    this.pool = new Pool({ connectionString, ...options })
   }
 
   async initialize(options: DatabaseInitializeOptions = {}): Promise<void> {

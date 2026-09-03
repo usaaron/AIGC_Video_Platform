@@ -112,8 +112,8 @@ export async function createRuntimeQueues(input: {
     providerStallTimeoutMs: config.VIDEO_PROCESSING_STALL_TIMEOUT_MS,
     providerStatusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
     providerPollConcurrency: config.VIDEO_POLL_CONCURRENCY,
-    ...(repositories.refreshProjectDomainRuntimeCache
-      ? { beforeTick: repositories.refreshProjectDomainRuntimeCache }
+    ...(repositories.refreshQueueRuntimeCache
+      ? { beforeLockTick: repositories.refreshQueueRuntimeCache }
       : {}),
     ...(database
       ? {
@@ -138,8 +138,8 @@ export async function createRuntimeQueues(input: {
   })
   const aiJobRunner = new AiJobRunner(repositories.aiJobRepository, {
     concurrency: config.TASK_QUEUE_WORKER_CONCURRENCY,
-    ...(repositories.refreshProjectDomainRuntimeCache
-      ? { beforeTick: repositories.refreshProjectDomainRuntimeCache }
+    ...(repositories.refreshQueueRuntimeCache
+      ? { beforeLockTick: repositories.refreshQueueRuntimeCache }
       : {}),
     ...(database
       ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database, 'seqora:ai-job-runner') }

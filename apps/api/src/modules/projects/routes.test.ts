@@ -66,6 +66,16 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     expect(savedScript.statusCode).toBe(200)
     expect(savedScript.json()).toMatchObject({ id: projectId, synopsis: 'Lifecycle synopsis', script })
 
+    const projectList = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects',
+      headers: { cookie: memberCookie },
+    })
+    expect(projectList.statusCode).toBe(200)
+    expect(projectList.json()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: projectId, script: '' })]),
+    )
+
     const createdAsset = await app.inject({
       method: 'POST',
       url: `/api/v1/projects/${projectId}/assets`,
@@ -328,6 +338,22 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     })
     expect(workspace.json().assets).toHaveLength(4)
     expect(workspace.json().shots).toHaveLength(5)
+
+    const workspaceVersion = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/workspace/version',
+      headers: { cookie },
+    })
+    expect(workspaceVersion.statusCode).toBe(200)
+    expect(workspaceVersion.json()).toMatchObject({ version: expect.any(String) })
+    expect(workspaceVersion.headers.etag).toEqual(expect.any(String))
+
+    const unchangedWorkspaceVersion = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/workspace/version',
+      headers: { cookie, 'if-none-match': workspaceVersion.headers.etag },
+    })
+    expect(unchangedWorkspaceVersion.statusCode).toBe(304)
 
     await withDatabase(async (database) => {
       const counts = await database.query<{

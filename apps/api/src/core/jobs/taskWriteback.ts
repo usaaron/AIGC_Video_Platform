@@ -47,39 +47,42 @@ export class GenerationResultWriteback {
     leaseToken: string,
     descriptors: GeneratedOutputDescriptor[],
   ): Promise<GenerationTask | null> {
-    return this.store.mutate((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
-      if (!task || task.status !== 'running') return null
-      if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return null
-      task.status = 'completed'
-      task.progress = 100
-      task.error = null
-      task.metadata = { ...task.metadata, providerState: 'completed', generatedOutputs: descriptors }
-      task.outputs = descriptors.map((descriptor) => ({
-        id: `${task.id}-${descriptor.view}`,
-        url: `/api/v1/generation/tasks/${task.id}/outputs/${descriptor.view}`,
-        mediaType: 'image',
-        view: descriptor.view,
-      }))
-      task.resultUrl = task.outputs[0]?.url ?? null
-      task.updatedAt = new Date().toISOString()
-      releaseGenerationTaskLease(task)
+    return this.store.mutateRuntimeCachesAsync(
+      (state) => {
+        const task = state.tasks.find((item) => item.id === taskId)
+        if (!task || task.status !== 'running') return null
+        if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return null
+        task.status = 'completed'
+        task.progress = 100
+        task.error = null
+        task.metadata = { ...task.metadata, providerState: 'completed', generatedOutputs: descriptors }
+        task.outputs = descriptors.map((descriptor) => ({
+          id: `${task.id}-${descriptor.view}`,
+          url: `/api/v1/generation/tasks/${task.id}/outputs/${descriptor.view}`,
+          mediaType: 'image',
+          view: descriptor.view,
+        }))
+        task.resultUrl = task.outputs[0]?.url ?? null
+        task.updatedAt = new Date().toISOString()
+        releaseGenerationTaskLease(task)
 
-      const assetId = typeof task.metadata.assetId === 'string' ? task.metadata.assetId : null
-      const shotId = typeof task.metadata.shotId === 'string' ? task.metadata.shotId : null
-      const asset = state.assets.find((item) => item.id === assetId && item.projectId === task.projectId)
-      const shot = state.shots.find((item) => item.id === shotId && item.projectId === task.projectId)
-      if (asset && task.resultUrl) {
-        asset.imageUrl = task.resultUrl
-        asset.updatedAt = task.updatedAt
-      }
-      if (shot && task.resultUrl) {
-        shot.imageUrl = task.resultUrl
-        shot.selectedImageTaskId = task.id
-        shot.updatedAt = task.updatedAt
-      }
-      return task
-    })
+        const assetId = typeof task.metadata.assetId === 'string' ? task.metadata.assetId : null
+        const shotId = typeof task.metadata.shotId === 'string' ? task.metadata.shotId : null
+        const asset = state.assets.find((item) => item.id === assetId && item.projectId === task.projectId)
+        const shot = state.shots.find((item) => item.id === shotId && item.projectId === task.projectId)
+        if (asset && task.resultUrl) {
+          asset.imageUrl = task.resultUrl
+          asset.updatedAt = task.updatedAt
+        }
+        if (shot && task.resultUrl) {
+          shot.imageUrl = task.resultUrl
+          shot.selectedImageTaskId = task.id
+          shot.updatedAt = task.updatedAt
+        }
+        return task
+      },
+      ['generationTasks', 'projectWorkspace'],
+    )
   }
 
   async persistVideoLastFrame(
@@ -121,84 +124,89 @@ export class GenerationResultWriteback {
     lastFrameDescriptor?: GeneratedOutputDescriptor | null
     lastFrameError?: string | null
   }): Promise<GenerationTask | null> {
-    return this.store.mutate((state) => {
-      const stored = state.tasks.find((item) => item.id === input.taskId)
-      if (!stored || stored.status !== 'running') return null
-      if (!generationTaskLeaseMatches(stored, input.leaseOwnerId, input.leaseToken)) return null
-      const updatedAt = new Date()
-      const progressChanged = input.status.progress !== stored.progress
-      stored.status = input.status.status
-      stored.progress = input.status.progress
-      stored.error = input.status.error
-      const descriptors = generatedDescriptors(stored).filter(
-        (item) =>
-          (!input.videoDescriptor || item.view !== 'single') &&
-          (!input.lastFrameDescriptor || item.view !== 'last-frame'),
-      )
-      if (input.videoDescriptor) descriptors.push(input.videoDescriptor)
-      if (input.lastFrameDescriptor) descriptors.push(input.lastFrameDescriptor)
-      stored.metadata = {
-        ...stored.metadata,
-        providerState: input.status.status,
-        providerPollErrors: 0,
-        providerProgressChangedAt: progressChanged
-          ? updatedAt.toISOString()
-          : (stored.metadata.providerProgressChangedAt ?? stored.metadata.providerSubmittedAt),
-        ...(input.videoDescriptor || input.lastFrameDescriptor
-          ? {
-              generatedOutputs: descriptors,
-            }
-          : {}),
-        ...(input.videoDescriptor
-          ? {
-              videoStorageKey: input.videoDescriptor.storageKey,
-              videoContentType: input.videoDescriptor.contentType,
-              videoSize: input.videoDescriptor.size,
-            }
-          : {}),
-        ...(input.lastFrameDescriptor
-          ? {
-              lastFrameStorageKey: input.lastFrameDescriptor.storageKey,
-              lastFrameContentType: input.lastFrameDescriptor.contentType,
-            }
-          : {}),
-        ...(input.videoCacheError ? { videoCacheError: input.videoCacheError } : {}),
-        ...(input.lastFrameError ? { lastFrameError: input.lastFrameError } : {}),
-      }
-      if (input.status.status === 'running') {
-        renewGenerationTaskLease(stored, input.leaseOwnerId, input.leaseToken, input.leaseTtlMs, updatedAt)
-      } else {
-        releaseGenerationTaskLease(stored)
-      }
-      stored.updatedAt = updatedAt.toISOString()
-      if (input.status.status === 'completed') {
-        const url = `/api/v1/generation/tasks/${stored.id}/content`
-        stored.outputs = [
-          { id: `${stored.id}-video`, url, mediaType: 'video', view: 'single' },
-          ...(input.lastFrameDescriptor
-            ? [
-                {
-                  id: `${stored.id}-last-frame`,
-                  url: `/api/v1/generation/tasks/${stored.id}/outputs/last-frame`,
-                  mediaType: 'image' as const,
-                  view: 'last-frame' as const,
-                },
-              ]
-            : []),
-        ]
-        stored.resultUrl = url
-        const shotId = typeof stored.metadata.shotId === 'string' ? stored.metadata.shotId : null
-        const shot = state.shots.find(
+    return this.store.mutateRuntimeCachesAsync(
+      (state) => {
+        const stored = state.tasks.find((item) => item.id === input.taskId)
+        if (!stored || stored.status !== 'running') return null
+        if (!generationTaskLeaseMatches(stored, input.leaseOwnerId, input.leaseToken)) return null
+        const updatedAt = new Date()
+        const progressChanged = input.status.progress !== stored.progress
+        stored.status = input.status.status
+        stored.progress = input.status.progress
+        stored.error = input.status.error
+        const descriptors = generatedDescriptors(stored).filter(
           (item) =>
-            item.id === shotId && item.projectId === stored.projectId && item.tenantId === stored.tenantId,
+            (!input.videoDescriptor || item.view !== 'single') &&
+            (!input.lastFrameDescriptor || item.view !== 'last-frame'),
         )
-        if (shot) {
-          shot.selectedVideoTaskId = stored.id
-          shot.updatedAt = stored.updatedAt
+        if (input.videoDescriptor) descriptors.push(input.videoDescriptor)
+        if (input.lastFrameDescriptor) descriptors.push(input.lastFrameDescriptor)
+        stored.metadata = {
+          ...stored.metadata,
+          providerState: input.status.status,
+          providerPollErrors: 0,
+          providerProgressChangedAt: progressChanged
+            ? updatedAt.toISOString()
+            : (stored.metadata.providerProgressChangedAt ?? stored.metadata.providerSubmittedAt),
+          ...(input.videoDescriptor || input.lastFrameDescriptor
+            ? {
+                generatedOutputs: descriptors,
+              }
+            : {}),
+          ...(input.videoDescriptor
+            ? {
+                videoStorageKey: input.videoDescriptor.storageKey,
+                videoContentType: input.videoDescriptor.contentType,
+                videoSize: input.videoDescriptor.size,
+              }
+            : {}),
+          ...(input.lastFrameDescriptor
+            ? {
+                lastFrameStorageKey: input.lastFrameDescriptor.storageKey,
+                lastFrameContentType: input.lastFrameDescriptor.contentType,
+              }
+            : {}),
+          ...(input.videoCacheError ? { videoCacheError: input.videoCacheError } : {}),
+          ...(input.lastFrameError ? { lastFrameError: input.lastFrameError } : {}),
         }
-      }
-      return stored
-    })
+        if (input.status.status === 'running') {
+          renewGenerationTaskLease(stored, input.leaseOwnerId, input.leaseToken, input.leaseTtlMs, updatedAt)
+        } else {
+          releaseGenerationTaskLease(stored)
+        }
+        stored.updatedAt = updatedAt.toISOString()
+        if (input.status.status === 'completed') {
+          const url = `/api/v1/generation/tasks/${stored.id}/content`
+          stored.outputs = [
+            { id: `${stored.id}-video`, url, mediaType: 'video', view: 'single' },
+            ...(input.lastFrameDescriptor
+              ? [
+                  {
+                    id: `${stored.id}-last-frame`,
+                    url: `/api/v1/generation/tasks/${stored.id}/outputs/last-frame`,
+                    mediaType: 'image' as const,
+                    view: 'last-frame' as const,
+                  },
+                ]
+              : []),
+          ]
+          stored.resultUrl = url
+          const shotId = typeof stored.metadata.shotId === 'string' ? stored.metadata.shotId : null
+          const shot = state.shots.find(
+            (item) =>
+              item.id === shotId && item.projectId === stored.projectId && item.tenantId === stored.tenantId,
+          )
+          if (shot) {
+            shot.selectedVideoTaskId = stored.id
+            shot.updatedAt = stored.updatedAt
+          }
+        }
+        return stored
+      },
+      input.status.status === 'completed' || input.videoDescriptor || input.lastFrameDescriptor
+        ? ['generationTasks', 'projectWorkspace']
+        : ['generationTasks'],
+    )
   }
 }
 

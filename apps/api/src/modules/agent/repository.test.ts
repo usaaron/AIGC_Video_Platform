@@ -61,6 +61,17 @@ describe('AgentRunRepository in-memory fallback', () => {
     })
   })
 
+  it('reports a confirmed active project to the worker cache scope', async () => {
+    const draft = await repository.savePlan({
+      originalPrompt: '为确认后的项目执行完整制作流程',
+      plan: completePlan(),
+      principal,
+    })
+    const confirmed = await repository.confirm(draft.id, 'confirm-active-project', principal)
+
+    await expect(repository.activeProjectIds()).resolves.toEqual([confirmed.projectId])
+  })
+
   it('only permits a failed, degradable current stage to be skipped', async () => {
     const draft = await repository.savePlan({ originalPrompt: '完整要求', plan: completePlan(), principal })
     const confirmed = await repository.confirm(draft.id, 'confirm-skip', principal)

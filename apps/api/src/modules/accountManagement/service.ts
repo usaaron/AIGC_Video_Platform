@@ -271,7 +271,7 @@ export class AccountManagementService {
     if (result.kind === 'missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    this.removeTenantFromRuntimeCache(tenantId)
+    await this.removeTenantFromRuntimeCache(tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: principal.userId,
@@ -308,7 +308,7 @@ export class AccountManagementService {
     if (result.kind === 'missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    this.removeTenantFromRuntimeCache(tenantId)
+    await this.removeTenantFromRuntimeCache(tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: principal.userId,
@@ -376,8 +376,8 @@ export class AccountManagementService {
         'Target organization member does not exist',
       )
     }
-    this.mirrorMembership(result.previousOrganizationAdmin)
-    this.mirrorMembership(result.newOrganizationAdmin)
+    await this.mirrorMembership(result.previousOrganizationAdmin)
+    await this.mirrorMembership(result.newOrganizationAdmin)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.newOrganizationAdmin.userId,
@@ -454,8 +454,8 @@ export class AccountManagementService {
         'Target organization member does not exist',
       )
     }
-    this.mirrorMembership(result.previousOrganizationAdmin)
-    this.mirrorMembership(result.newOrganizationAdmin)
+    await this.mirrorMembership(result.previousOrganizationAdmin)
+    await this.mirrorMembership(result.newOrganizationAdmin)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.newOrganizationAdmin.userId,
@@ -491,7 +491,7 @@ export class AccountManagementService {
     if (result.kind === 'last_owner') {
       throw new AppError(409, 'LAST_OWNER_CANNOT_LEAVE', 'Transfer ownership before leaving this workspace')
     }
-    this.removeMembershipFromRuntimeCache(principal.userId, tenantId)
+    await this.removeMembershipFromRuntimeCache(principal.userId, tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: principal.userId,
@@ -884,7 +884,7 @@ export class AccountManagementService {
     if (!member) {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
     }
-    this.mirrorMembership(member)
+    await this.mirrorMembership(member)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: member.userId,
@@ -930,7 +930,7 @@ export class AccountManagementService {
     if (!member) {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
     }
-    this.mirrorMembership(member)
+    await this.mirrorMembership(member)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: member.userId,
@@ -972,7 +972,7 @@ export class AccountManagementService {
     if (result.kind === 'tenant_missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    this.mirrorMembership(result.membership, passwordHash)
+    await this.mirrorMembership(result.membership, passwordHash)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.membership.userId,
@@ -1025,7 +1025,7 @@ export class AccountManagementService {
     if (result.kind === 'tenant_missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    this.mirrorMembership(result.membership, passwordHash)
+    await this.mirrorMembership(result.membership, passwordHash)
     await this.accounts.recordAuditLog({
       tenantId,
       userId: result.membership.userId,
@@ -1079,7 +1079,7 @@ export class AccountManagementService {
     if (result.kind === 'tenant_missing') {
       throw new AppError(404, 'WORKSPACE_NOT_FOUND', 'Workspace does not exist')
     }
-    this.mirrorMembership(result.membership, passwordHash)
+    await this.mirrorMembership(result.membership, passwordHash)
     await this.accounts.recordAuditLog({
       tenantId: result.membership.tenantId,
       userId: result.membership.userId,
@@ -1145,7 +1145,7 @@ export class AccountManagementService {
     }
     const updated = await this.accounts.updateMembershipRoles(tenantId, userId, roles)
     if (!updated) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-    this.mirrorMembership(updated)
+    await this.mirrorMembership(updated)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -1195,7 +1195,7 @@ export class AccountManagementService {
     }
     const updated = await this.accounts.updateMembershipRoles(tenantId, userId, roles)
     if (!updated) throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
-    this.mirrorMembership(updated)
+    await this.mirrorMembership(updated)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -1246,7 +1246,7 @@ export class AccountManagementService {
     if (!(await this.accounts.disableMembership(tenantId, userId))) {
       throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
     }
-    this.removeMembershipFromRuntimeCache(userId, tenantId)
+    await this.removeMembershipFromRuntimeCache(userId, tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -1291,7 +1291,7 @@ export class AccountManagementService {
     if (!(await this.accounts.disableMembership(tenantId, userId))) {
       throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'Membership does not exist')
     }
-    this.removeMembershipFromRuntimeCache(userId, tenantId)
+    await this.removeMembershipFromRuntimeCache(userId, tenantId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -1338,7 +1338,7 @@ export class AccountManagementService {
     if (!(await this.accounts.disableAccount(userId))) {
       throw new AppError(404, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     }
-    this.removeAccountFromRuntimeCache(userId)
+    await this.removeAccountFromRuntimeCache(userId)
     await this.accounts.recordAuditLog({
       tenantId,
       userId,
@@ -1524,7 +1524,7 @@ export class AccountManagementService {
     if (!createdSession) {
       throw new AppError(500, 'SESSION_CREATE_FAILED', 'Could not create session')
     }
-    this.mirrorWorkspace(created)
+    await this.mirrorWorkspace(created)
     return {
       token: issued.token,
       session: {
@@ -1852,9 +1852,9 @@ export class AccountManagementService {
     }
   }
 
-  private mirrorWorkspace(workspace: AccountWorkspace): void {
+  private async mirrorWorkspace(workspace: AccountWorkspace): Promise<void> {
     if (!this.store) return
-    this.store.mutateAccountRuntimeCache((state) => {
+    await this.store.mutateAccountRuntimeCacheAsync((state) => {
       const next = {
         id: workspace.account.id,
         email: normalizeEmail(workspace.account.email),
@@ -1876,9 +1876,9 @@ export class AccountManagementService {
     })
   }
 
-  private mirrorMembership(membership: Membership, passwordHash?: string): void {
+  private async mirrorMembership(membership: Membership, passwordHash?: string): Promise<void> {
     if (!this.store) return
-    this.store.mutateAccountRuntimeCache((state) => {
+    await this.store.mutateAccountRuntimeCacheAsync((state) => {
       const existing = state.users.find(
         (item) => item.id === membership.userId && item.tenantId === membership.tenantId,
       )
@@ -1905,24 +1905,24 @@ export class AccountManagementService {
     })
   }
 
-  private removeTenantFromRuntimeCache(tenantId: string): void {
+  private async removeTenantFromRuntimeCache(tenantId: string): Promise<void> {
     if (!this.store) return
-    this.store.mutateAccountRuntimeCache((state) => {
+    await this.store.mutateAccountRuntimeCacheAsync((state) => {
       state.users = state.users.filter((item) => item.tenantId !== tenantId)
       state.ledger = state.ledger.filter((item) => item.tenantId !== tenantId)
     })
   }
 
-  private removeMembershipFromRuntimeCache(userId: string, tenantId: string): void {
+  private async removeMembershipFromRuntimeCache(userId: string, tenantId: string): Promise<void> {
     if (!this.store) return
-    this.store.mutateAccountRuntimeCache((state) => {
+    await this.store.mutateAccountRuntimeCacheAsync((state) => {
       state.users = state.users.filter((item) => !(item.id === userId && item.tenantId === tenantId))
     })
   }
 
-  private removeAccountFromRuntimeCache(userId: string): void {
+  private async removeAccountFromRuntimeCache(userId: string): Promise<void> {
     if (!this.store) return
-    this.store.mutateAccountRuntimeCache((state) => {
+    await this.store.mutateAccountRuntimeCacheAsync((state) => {
       state.users = state.users.filter((item) => item.id !== userId)
       state.ledger = state.ledger.filter((item) => item.userId !== userId)
     })

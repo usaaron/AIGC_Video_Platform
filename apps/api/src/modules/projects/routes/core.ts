@@ -4,10 +4,25 @@ import { requirePermission } from '../../../core/auth/authorization.js'
 import { sessionMetadataFromRequest } from '../../../core/auth/requestMetadata.js'
 import type { ProjectService } from '../service.js'
 import { parseRequest, projectParams } from './support.js'
+import { createHash } from 'node:crypto'
 
 export function registerProjectCoreRoutes(app: FastifyInstance, service: ProjectService): void {
   app.get('/projects', { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) }, (request) =>
     service.list(request.principal!),
+  )
+  app.get(
+    '/projects/:projectId/workspace/version',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) },
+    async (request, reply) => {
+      const projectId = parseRequest(projectParams, request.params).projectId
+      const snapshot = await service.workspaceVersion(projectId, request.principal!)
+      const etag = `"${createHash('sha256').update(snapshot.version).digest('base64url')}"`
+      reply.header('Cache-Control', 'private, no-cache').header('ETag', etag)
+      if (request.headers['if-none-match']?.split(',').some((value) => value.trim() === etag)) {
+        return reply.code(304).send()
+      }
+      return { version: snapshot.version }
+    },
   )
   app.post(
     '/projects',

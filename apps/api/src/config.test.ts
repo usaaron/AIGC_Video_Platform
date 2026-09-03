@@ -59,6 +59,22 @@ describe('production configuration', () => {
     ).toThrow('REDIS_URL is required when TASK_QUEUE_DRIVER=bullmq')
   })
 
+  it('applies bounded database pool defaults and rejects an invalid minimum', () => {
+    expect(loadConfig({ NODE_ENV: 'test' })).toMatchObject({
+      DATABASE_POOL_MAX: 20,
+      DATABASE_POOL_MIN: 0,
+      DATABASE_POOL_IDLE_TIMEOUT_MS: 10_000,
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS: 5_000,
+    })
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'test',
+        DATABASE_POOL_MAX: '4',
+        DATABASE_POOL_MIN: '5',
+      }),
+    ).toThrow('DATABASE_POOL_MIN cannot exceed DATABASE_POOL_MAX')
+  })
+
   it('normalizes explicitly disabled local service URLs', () => {
     expect(
       loadConfig({

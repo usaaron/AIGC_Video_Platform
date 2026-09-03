@@ -40,10 +40,15 @@ import {
   createVideoProvider,
   videoProviderName,
 } from './runtime/providers.js'
+import { databaseOptions } from './runtime/database.js'
 
 const config = loadConfig()
 const store = new AppStore(
-  config.DATA_FILE === ':memory:' ? null : resolve(config.DATA_FILE),
+  config.NODE_ENV === 'production' && config.DATABASE_URL
+    ? null
+    : config.DATA_FILE === ':memory:'
+      ? null
+      : resolve(config.DATA_FILE),
   {
     memberName: config.BOOTSTRAP_MEMBER_NAME,
     memberEmail: config.BOOTSTRAP_MEMBER_EMAIL,
@@ -61,9 +66,12 @@ const store = new AppStore(
   config.BOOTSTRAP_DEMO_WORKSPACE,
   config.NODE_ENV !== 'production',
   config.NODE_ENV !== 'production',
+  Boolean(config.NODE_ENV === 'production' && config.DATABASE_URL),
 )
 await store.initialize()
-const database = config.DATABASE_URL ? new AccountDatabase(config.DATABASE_URL) : null
+const database = config.DATABASE_URL
+  ? new AccountDatabase(config.DATABASE_URL, undefined, databaseOptions(config))
+  : null
 if (database) {
   if (config.NODE_ENV === 'production') {
     await database.ensureLatestMigrations()
@@ -77,7 +85,6 @@ if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
 }
 await users.refreshRuntimeCacheFromDatabase()
 const projectRepository = new ProjectRepository(store, database)
-await projectRepository.refreshRuntimeCacheFromDatabase()
 
 const objectStorage = createObjectStorage(config)
 const mediaRepository = new MediaRepository(
@@ -97,16 +104,36 @@ if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
 const outboxRepository =
   database && config.TASK_QUEUE_DRIVER === 'bullmq' ? new OutboxRepository(database) : null
 const generationTaskRepository = new GenerationTaskRepository(store, creditLedger, database, outboxRepository)
-await generationTaskRepository.refreshRuntimeCacheFromDatabase()
 const agentRunRepository = new AgentRunRepository(database, store)
 const aiJobRepository = new AiJobRepository(store, creditLedger, database, outboxRepository)
-await aiJobRepository.refreshRuntimeCacheFromDatabase()
-const refreshProjectDomainRuntimeCache = database
+await generationTaskRepository.refreshRuntimeCacheFromDatabase({ activeOnly: Boolean(database) })
+const initialWorkerProjectIds = await activeWorkerProjectIds(generationTaskRepository, agentRunRepository)
+let cachedWorkerProjectIdsKey = workerProjectIdsKey(initialWorkerProjectIds)
+await Promise.all([
+  projectRepository.refreshRuntimeCacheFromDatabase({
+    projectIds: initialWorkerProjectIds,
+  }),
+  aiJobRepository.refreshRuntimeCacheFromDatabase({ activeOnly: Boolean(database) }),
+])
+let queueRuntimeSyncPromise: Promise<void> | null = null
+const refreshQueueRuntimeCache = database
   ? async () => {
-      await projectRepository.refreshRuntimeCacheFromDatabase()
-      await users.refreshRuntimeCacheFromDatabase()
-      await generationTaskRepository.refreshRuntimeCacheFromDatabase()
-      await aiJobRepository.refreshRuntimeCacheFromDatabase()
+      if (queueRuntimeSyncPromise) return queueRuntimeSyncPromise
+      queueRuntimeSyncPromise = (async () => {
+        await Promise.all([
+          generationTaskRepository.refreshRuntimeCacheDeltaFromDatabase(),
+          aiJobRepository.refreshRuntimeCacheDeltaFromDatabase(),
+        ])
+        const projectIds = await activeWorkerProjectIds(generationTaskRepository, agentRunRepository)
+        const nextProjectIdsKey = workerProjectIdsKey(projectIds)
+        if (nextProjectIdsKey !== cachedWorkerProjectIdsKey) {
+          await projectRepository.refreshRuntimeCacheFromDatabase({ projectIds })
+          cachedWorkerProjectIdsKey = nextProjectIdsKey
+        }
+      })().finally(() => {
+        queueRuntimeSyncPromise = null
+      })
+      return queueRuntimeSyncPromise
     }
   : null
 const filmPreviewComposer =
@@ -157,7 +184,7 @@ const taskRunner = new GenerationTaskRunner(store, {
   providerStallTimeoutMs: config.VIDEO_PROCESSING_STALL_TIMEOUT_MS,
   providerStatusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
   providerPollConcurrency: config.VIDEO_POLL_CONCURRENCY,
-  ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
+  ...(refreshQueueRuntimeCache ? { beforeLockTick: refreshQueueRuntimeCache } : {}),
   ...(database
     ? {
         persistTickTasks: (taskIds: readonly string[]) =>
@@ -181,7 +208,7 @@ const taskRunner = new GenerationTaskRunner(store, {
 })
 const aiJobRunner = new AiJobRunner(aiJobRepository, {
   concurrency: config.TASK_QUEUE_WORKER_CONCURRENCY,
-  ...(refreshProjectDomainRuntimeCache ? { beforeTick: refreshProjectDomainRuntimeCache } : {}),
+  ...(refreshQueueRuntimeCache ? { beforeLockTick: refreshQueueRuntimeCache } : {}),
   ...(database
     ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database, 'seqora:ai-job-runner') }
     : {}),
@@ -246,6 +273,17 @@ const shutdown = async (signal: string) => {
     await database.close().catch(() => {})
   }
   process.exit(0)
+}
+
+function workerProjectIdsKey(projectIds: readonly string[]): string {
+  return [...new Set(projectIds)].sort().join('\u0000')
+}
+
+async function activeWorkerProjectIds(
+  generationTasks: GenerationTaskRepository,
+  agentRuns: AgentRunRepository,
+): Promise<string[]> {
+  return [...new Set([...generationTasks.runtimeProjectIds(), ...(await agentRuns.activeProjectIds())])]
 }
 
 process.on('SIGINT', () => void shutdown('SIGINT'))

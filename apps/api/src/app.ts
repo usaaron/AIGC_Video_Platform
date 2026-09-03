@@ -138,7 +138,11 @@ async function registerHttpPlugins(app: FastifyInstance, config: AppConfig): Pro
     timeWindow: '1 minute',
   })
   await app.register(cookie)
-  await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true })
+  await app.register(cors, {
+    origin: config.WEB_ORIGIN,
+    credentials: true,
+    exposedHeaders: ['ETag'],
+  })
   await app.register(fastifyRawBody, { global: false, runFirst: true, encoding: 'utf8' })
   await app.register(multipart, {
     limits: { files: 1, fileSize: config.MAX_UPLOAD_BYTES, parts: 2 },

@@ -289,6 +289,27 @@ export class AgentRunRepository {
     })
   }
 
+  async activeProjectIds(): Promise<string[]> {
+    if (!this.database) {
+      return [
+        ...new Set(
+          this.memoryRuns
+            .filter((run) => ['queued', 'running', 'pausing'].includes(run.status) && run.projectId)
+            .map((run) => run.projectId!),
+        ),
+      ]
+    }
+    const result = await this.database.query<{ project_id: string }>(
+      `
+      SELECT DISTINCT project_id
+      FROM agent_runs
+      WHERE status IN ('queued', 'running', 'pausing')
+        AND project_id IS NOT NULL
+      `,
+    )
+    return result.rows.map((row) => row.project_id)
+  }
+
   async saveClaimed(run: AgentRun, ownerId: string): Promise<AgentRun> {
     const normalized = agentRunSchema.parse(run)
     if (!this.database) {

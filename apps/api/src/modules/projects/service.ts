@@ -122,6 +122,12 @@ export class ProjectService {
     return workspace
   }
 
+  async workspaceVersion(projectId: string, principal: Principal) {
+    const version = await this.repository.workspaceVersion(projectId, principal)
+    if (!version) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权访问')
+    return { version }
+  }
+
   create(input: CreateProject, principal: Principal) {
     return this.repository.create(input, principal)
   }

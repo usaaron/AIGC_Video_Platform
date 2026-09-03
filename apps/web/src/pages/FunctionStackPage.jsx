@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowUp,
@@ -104,6 +104,7 @@ function AgentStudio({ billing, onOpenProject, onProjectCreated }) {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const runsSnapshotRef = useRef('')
   const selected =
     selectedId === 'new' ? null : (runs.find((run) => run.id === selectedId) ?? runs[0] ?? null)
 
@@ -113,7 +114,11 @@ function AgentStudio({ billing, onOpenProject, onProjectCreated }) {
       try {
         const next = await api.agentRuns()
         if (!active) return
-        setRuns(next)
+        const nextSnapshot = agentRunsSnapshotKey(next)
+        if (nextSnapshot !== runsSnapshotRef.current) {
+          runsSnapshotRef.current = nextSnapshot
+          setRuns(next)
+        }
         setSelectedId((current) => current ?? next[0]?.id ?? null)
       } catch (loadError) {
         if (active) setError(loadError.message)
@@ -286,6 +291,36 @@ function AgentStudio({ billing, onOpenProject, onProjectCreated }) {
       </div>
     </section>
   )
+}
+
+function agentRunsSnapshotKey(runs) {
+  return (Array.isArray(runs) ? runs : [])
+    .map((run) =>
+      [
+        run?.id,
+        run?.status,
+        run?.updatedAt,
+        run?.projectId,
+        run?.originalPrompt,
+        run?.plan?.projectName,
+        run?.plan?.contentType,
+        run?.plan?.durationSeconds,
+        run?.plan?.episodeDurationSeconds,
+        run?.plan?.aspectRatio,
+        run?.plan?.visualStyle,
+        run?.plan?.storyBrief,
+        run?.plan?.missingFields?.join(','),
+        run?.plan?.estimate?.estimatedShots,
+        run?.plan?.estimate?.totalCredits,
+        run?.stages
+          ?.map((stage) => [stage?.key, stage?.status, stage?.progress, stage?.error].join(':'))
+          .join(','),
+        run?.deliveries
+          ?.map((delivery) => [delivery?.taskId, delivery?.episodeNumber, delivery?.url].join(':'))
+          .join(','),
+      ].join('|'),
+    )
+    .join('||')
 }
 
 function AgentWelcome() {

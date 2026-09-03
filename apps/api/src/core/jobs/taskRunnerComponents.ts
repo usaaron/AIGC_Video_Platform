@@ -36,6 +36,7 @@ import {
   renewGenerationTaskLease,
 } from './taskLease.js'
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
+import { DependencyResolver } from './taskDependencyResolver.js'
 import {
   GenerationResultWriteback,
   generatedDescriptors,
@@ -72,48 +73,7 @@ export type AppliedVideoPollOutcome = {
   stalledProviderTaskId: string | null
 }
 
-export class DependencyResolver {
-  state(task: GenerationTask, userTasks: GenerationTask[]): 'ready' | 'waiting' | 'failed' {
-    const dependencyIds = Array.isArray(task.metadata.dependsOnTaskIds)
-      ? task.metadata.dependsOnTaskIds.filter((value): value is string => typeof value === 'string')
-      : typeof task.metadata.dependsOnTaskId === 'string'
-        ? [task.metadata.dependsOnTaskId]
-        : []
-    if (!dependencyIds.length) return 'ready'
-
-    let waiting = false
-    for (const dependencyId of dependencyIds) {
-      const dependency = userTasks.find(
-        (item) =>
-          item.id === dependencyId && item.projectId === task.projectId && item.tenantId === task.tenantId,
-      )
-      if (
-        !dependency ||
-        dependency.status === 'failed' ||
-        dependency.status === 'cancelled' ||
-        typeof dependency.metadata.queueHiddenAt === 'string'
-      ) {
-        return 'failed'
-      }
-      if (this.continuityDependencyMissingFrame(task, userTasks)) return 'failed'
-      if (dependency.status !== 'completed') waiting = true
-    }
-    return waiting ? 'waiting' : 'ready'
-  }
-
-  continuityDependencyMissingFrame(task: GenerationTask, userTasks: GenerationTask[]): boolean {
-    const sourceTaskId = task.metadata.continuitySourceTaskId
-    if (typeof sourceTaskId !== 'string') return false
-    const source = userTasks.find(
-      (item) =>
-        item.id === sourceTaskId && item.projectId === task.projectId && item.tenantId === task.tenantId,
-    )
-    return Boolean(
-      source?.status === 'completed' &&
-      !generatedDescriptors(source).some((item) => item.view === 'last-frame'),
-    )
-  }
-}
+export { DependencyResolver } from './taskDependencyResolver.js'
 
 export class TaskClaimer {
   constructor(
@@ -130,64 +90,81 @@ export class TaskClaimer {
   ) {}
 
   async recoverStaleRunningTasks(): Promise<ClaimedRemoteTasks> {
-    return this.store.mutate((state) => {
-      const now = new Date()
-      const nowIso = now.toISOString()
-      const video: GenerationTask[] = []
-      const image: GenerationTask[] = []
-      const local: GenerationTask[] = []
-      state.tasks
-        .filter((task) => task.status === 'running' && task.provider !== 'local-compose')
-        .forEach((task) => {
-          const providerName = this.remoteProviderName(task)
-          if (!this.ownsTask(task, providerName)) return
-          const leaseActive = generationTaskLeaseActive(task, now.getTime())
-          // A script handler writes its episode draft before returning its result. Finish
-          // from that durable writeback even if the final task mutation was interrupted.
-          if (recoverScriptTaskFromDraft(task, state, nowIso, leaseActive)) return
-          if (leaseActive) return
-          if (providerName && !task.metadata.providerTaskId) {
+    return this.store.mutateRuntimeCachesAsync(
+      (state) => {
+        const now = new Date()
+        const nowIso = now.toISOString()
+        const video: GenerationTask[] = []
+        const image: GenerationTask[] = []
+        const local: GenerationTask[] = []
+        state.tasks
+          .filter((task) => task.status === 'running' && task.provider !== 'local-compose')
+          .forEach((task) => {
+            const providerName = this.remoteProviderName(task)
+            if (!this.ownsTask(task, providerName)) return
+            const leaseActive = generationTaskLeaseActive(task, now.getTime())
+            // A script handler writes its episode draft before returning its result. Finish
+            // from that durable writeback even if the final task mutation was interrupted.
+            if (recoverScriptTaskFromDraft(task, state, nowIso, leaseActive)) return
+            if (leaseActive) return
+            if (providerName && !task.metadata.providerTaskId) {
+              claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now, {
+                countAttempt: false,
+              })
+              task.progress = Math.max(1, task.progress)
+              task.error = null
+              task.metadata = {
+                ...task.metadata,
+                providerName,
+                providerState: 'submitting',
+                providerIdempotencyKey: providerIdempotencyKeyFor(task),
+                providerSubmissionRecoveredAt: nowIso,
+              }
+              task.updatedAt = nowIso
+              if (this.isRemoteVideoTask(task)) video.push(task)
+              if (this.isRemoteImageTask(task)) image.push(task)
+              return
+            }
             claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now, {
               countAttempt: false,
             })
-            task.progress = Math.max(1, task.progress)
-            task.error = null
-            task.metadata = {
-              ...task.metadata,
-              providerName,
-              providerState: 'submitting',
-              providerIdempotencyKey: providerIdempotencyKeyFor(task),
-              providerSubmissionRecoveredAt: nowIso,
-            }
             task.updatedAt = nowIso
-            if (this.isRemoteVideoTask(task)) video.push(task)
-            if (this.isRemoteImageTask(task)) image.push(task)
-            return
-          }
-          claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now, {
-            countAttempt: false,
+            if (!providerName) local.push(task)
           })
-          task.updatedAt = nowIso
-          if (!providerName) local.push(task)
-        })
-      return { video, image, local }
-    })
+        return { video, image, local }
+      },
+      ['generationTasks', 'projectWorkspace'],
+    )
   }
 
   async claimQueuedTasks(): Promise<ClaimedRemoteTasks> {
-    return this.store.mutate((state) => {
+    return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const now = new Date()
       const nowIso = now.toISOString()
       const selectedVideoTasks: GenerationTask[] = []
       const selectedImageTasks: GenerationTask[] = []
       const selectedLocalTasks: GenerationTask[] = []
+      const tasksByUser = new Map<string, GenerationTask[]>()
+      const activeScriptTasks: GenerationTask[] = []
+      const nextEpisodeScriptTasks: GenerationTask[] = []
+
+      for (const task of state.tasks) {
+        const key = `${task.tenantId}:${task.userId}`
+        const userTasks = tasksByUser.get(key)
+        if (userTasks) userTasks.push(task)
+        else tasksByUser.set(key, [task])
+        if (isActiveScriptTask(task)) activeScriptTasks.push(task)
+        if (task.status === 'queued' && isNextEpisodeScriptTask(task)) {
+          nextEpisodeScriptTasks.push(task)
+        }
+      }
 
       // Older clients could enqueue a second script task while the first one was
       // still running. Finish those stale queue entries before they consume a
       // text slot and later collide with the first task's episode draft.
-      const activeScriptTasks = state.tasks
-        .filter((task) => isActiveScriptTask(task))
-        .sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right) || left.id.localeCompare(right.id))
+      activeScriptTasks.sort(
+        (left, right) => taskCreatedAt(left) - taskCreatedAt(right) || left.id.localeCompare(right.id),
+      )
       const firstScriptTaskByProject = new Map<string, GenerationTask>()
       for (const task of activeScriptTasks) {
         const key = `${task.tenantId}:${task.projectId}`
@@ -205,16 +182,14 @@ export class TaskClaimer {
         recordGenerationTaskTerminal(task, new Error(task.error))
       }
 
-      for (const task of state.tasks) {
-        if (task.status !== 'queued' || !isNextEpisodeScriptTask(task)) continue
-        const hasDraft = state.scriptEpisodes.some(
-          (episode) =>
-            episode.projectId === task.projectId &&
-            episode.tenantId === task.tenantId &&
-            episode.status === 'draft' &&
-            episode.draftContent.trim().length > 0,
-        )
-        if (!hasDraft) continue
+      const draftEpisodeProjects = new Set(
+        state.scriptEpisodes
+          .filter((episode) => episode.status === 'draft' && episode.draftContent.trim().length > 0)
+          .map((episode) => `${episode.tenantId}:${episode.projectId}`),
+      )
+      for (const task of nextEpisodeScriptTasks) {
+        if (task.status !== 'queued') continue
+        if (!draftEpisodeProjects.has(`${task.tenantId}:${task.projectId}`)) continue
         task.status = 'failed'
         task.progress = 100
         task.error = '当前项目已有未保存的剧集草稿，请先保存本集后再继续生成'
@@ -223,8 +198,10 @@ export class TaskClaimer {
         recordGenerationTaskTerminal(task, new Error(task.error))
       }
 
-      for (const user of state.users) {
-        const userTasks = state.tasks.filter((task) => task.userId === user.id)
+      const usersByKey = new Map(state.users.map((user) => [`${user.tenantId}:${user.id}`, user]))
+      for (const [key, userTasks] of tasksByUser) {
+        const user = usersByKey.get(key)
+        if (!user) continue
         userTasks
           .filter(
             (task) => task.status === 'queued' && this.dependencyResolver.state(task, userTasks) === 'failed',
@@ -240,21 +217,23 @@ export class TaskClaimer {
             recordGenerationTaskTerminal(task, new Error(task.error))
           })
 
-        const runningTasks = userTasks.filter(
-          (task) => task.status === 'running' && task.provider !== 'local-compose',
-        )
-        let availableTextSlots = Math.max(0, 1 - runningTasks.filter((task) => task.kind === 'text').length)
-        let availableMediaSlots = Math.max(
-          0,
-          (user.plan === 'member' ? 3 : 1) - runningTasks.filter((task) => task.kind !== 'text').length,
-        )
-        const queuedTasks = userTasks
-          .filter((task) => task.status === 'queued' && task.provider !== 'local-compose')
-          .sort((left, right) => {
-            const kindPriority = Number(left.kind !== 'text') - Number(right.kind !== 'text')
-            if (kindPriority !== 0) return kindPriority
-            return Date.parse(left.createdAt) - Date.parse(right.createdAt)
-          })
+        let runningTextTasks = 0
+        let runningMediaTasks = 0
+        const queuedTasks: GenerationTask[] = []
+        for (const task of userTasks) {
+          if (task.status === 'running' && task.provider !== 'local-compose') {
+            if (task.kind === 'text') runningTextTasks += 1
+            else runningMediaTasks += 1
+          }
+          if (task.status === 'queued' && task.provider !== 'local-compose') queuedTasks.push(task)
+        }
+        let availableTextSlots = Math.max(0, 1 - runningTextTasks)
+        let availableMediaSlots = Math.max(0, (user.plan === 'member' ? 3 : 1) - runningMediaTasks)
+        queuedTasks.sort((left, right) => {
+          const kindPriority = Number(left.kind !== 'text') - Number(right.kind !== 'text')
+          if (kindPriority !== 0) return kindPriority
+          return Date.parse(left.createdAt) - Date.parse(right.createdAt)
+        })
         for (const task of queuedTasks) {
           const usesTextSlot = task.kind === 'text'
           if (usesTextSlot ? availableTextSlots <= 0 : availableMediaSlots <= 0) continue
@@ -360,7 +339,7 @@ export class TaskRefundService {
         handledTaskIds.push(task.id)
       }
       if (!handledTaskIds.length) return
-      await this.store.mutate((state) => {
+      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
         const handled = new Set(handledTaskIds)
         const now = new Date().toISOString()
         for (const task of state.tasks) {
@@ -430,7 +409,7 @@ export class TaskWritebackService {
   }
 
   async advanceLocalTasks(shouldSkip: (task: GenerationTask) => boolean = () => false): Promise<void> {
-    await this.store.mutate(async (state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync(async (state) => {
       const now = new Date().toISOString()
       state.tasks
         .filter(
@@ -464,7 +443,7 @@ export class TaskWritebackService {
     result: unknown,
     diagnostics?: LocalTaskDiagnostics,
   ): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
@@ -499,7 +478,7 @@ export class TaskWritebackService {
     preview: string,
     stage = 'first-draft',
   ): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.kind !== 'text' || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
@@ -520,7 +499,7 @@ export class TaskWritebackService {
   }
 
   async renewLocalTaskLease(taskId: string, leaseToken: string): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
@@ -536,7 +515,7 @@ export class TaskWritebackService {
     leaseToken?: string,
     diagnostics?: LocalTaskDiagnostics,
   ): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task) return
       if (leaseToken && !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
@@ -566,7 +545,7 @@ export class TaskWritebackService {
   }
 
   async retryTimedOutVideoSubmission(taskId: string, leaseToken: string, error: string): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
@@ -592,7 +571,7 @@ export class TaskWritebackService {
     leaseToken: string,
     providerTaskId: string,
   ): Promise<GenerationTask | null> {
-    const result = await this.store.mutate((state) => {
+    const result = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
       if (!task || task.status !== 'running') return null
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return null
@@ -660,7 +639,7 @@ export class TaskWritebackService {
     leaseToken: string,
     submission: VideoGenerationSubmission,
   ): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored || stored.status !== 'running') return
       if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
@@ -741,7 +720,7 @@ export class TaskWritebackService {
   }
 
   async markProviderPollError(taskId: string, leaseToken: string, attempts: number): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === taskId)
       if (!stored || !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
       stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
@@ -752,7 +731,7 @@ export class TaskWritebackService {
   private startLeaseHeartbeat(taskId: string, leaseToken: string): () => void {
     const intervalMs = Math.max(1_000, Math.floor(this.leaseTtlMs / 3))
     const heartbeat = () => {
-      void this.store.mutate((state) => {
+      void this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
         const stored = state.tasks.find((item) => item.id === taskId)
         if (!stored || stored.status !== 'running') return
         if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
@@ -810,7 +789,7 @@ export class VideoTaskExecutor {
   }
 
   private prepareStoryboardVideoTask(task: GenerationTask): Promise<GenerationTask> {
-    return this.store.mutate((state) => {
+    return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored) return task
       const leaseToken = stringValue(task.leaseToken, '')
@@ -1024,7 +1003,7 @@ export class ImageTaskExecutor {
   }
 
   private prepareImageTask(task: GenerationTask): Promise<GenerationTask> {
-    return this.store.mutate((state) => {
+    return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (!stored) return task
       const leaseToken = stringValue(task.leaseToken, '')
@@ -1148,7 +1127,7 @@ export class ProviderPoller {
   ) {}
 
   async recoverStatusParseFailures(): Promise<void> {
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const now = new Date().toISOString()
       state.tasks
         .filter(
@@ -1181,7 +1160,7 @@ export class ProviderPoller {
     excludedTaskIds: ReadonlySet<string> = new Set(),
   ): Promise<GenerationTask[]> {
     if (!this.options.videoProvider?.cancel) {
-      await this.store.mutate((state) => {
+      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
         const now = new Date().toISOString()
         for (const stored of state.tasks) {
           if (
@@ -1225,7 +1204,7 @@ export class ProviderPoller {
     const now = Date.now()
     const boundedLimit = Math.max(0, Math.floor(limit))
     if (boundedLimit === 0) return []
-    return this.store.mutate((state) => {
+    return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const tasks = state.tasks
         .filter(
           (task) =>
@@ -1419,7 +1398,7 @@ export class ProviderPoller {
 
   async applyRemoteCancellation(task: GenerationTask, outcome: ProviderCancellationOutcome): Promise<void> {
     const claimToken = stringValue(task.metadata.cancelClaimedAt, '')
-    await this.store.mutate((state) => {
+    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
       if (
         !stored ||
@@ -1468,7 +1447,7 @@ export class ProviderPoller {
   ): Promise<GenerationTask[]> {
     const boundedLimit = Math.max(0, Math.floor(limit))
     if (boundedLimit === 0) return []
-    return this.store.mutate((state) => {
+    return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const now = new Date()
       const nowIso = now.toISOString()
       const leaseExpiresAt = new Date(now.getTime() + this.options.leaseTtlMs).toISOString()

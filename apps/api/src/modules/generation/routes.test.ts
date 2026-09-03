@@ -329,6 +329,32 @@ describe('generation task postgres api', { timeout: 30_000 }, () => {
       expect(hidden.rows[0]?.hidden).toEqual(expect.any(String))
     })
   })
+
+  it('returns 304 when a project task polling snapshot is unchanged', async () => {
+    app = await buildApp({
+      config: localAuthConfig(),
+      store: new AppStore(null),
+      startWorker: false,
+      taskDispatcher: noopTaskDispatcher,
+    })
+    const cookie = await login('member@seqora.local', 'MemberPassword123!')
+
+    const first = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/generation/tasks/poll',
+      headers: { cookie },
+    })
+    expect(first.statusCode).toBe(200)
+    expect(first.headers.etag).toEqual(expect.any(String))
+
+    const second = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/project-midnight-film/generation/tasks/poll',
+      headers: { cookie, 'if-none-match': first.headers.etag },
+    })
+    expect(second.statusCode).toBe(304)
+    expect(second.body).toBe('')
+  })
 })
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {

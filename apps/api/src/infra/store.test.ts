@@ -42,6 +42,59 @@ describe('AppStore mutation queue', () => {
     expect(store.read((state) => state.tasks[0])).toMatchObject({ status: 'running', progress: 8 })
   })
 
+  it('serializes runtime cache writes with ordinary writes', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    store.replaceGenerationTaskRuntimeCache([
+      {
+        id: 'serialized-runtime-task',
+        clientRequestId: 'serialized-runtime-client',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-member',
+        kind: 'text',
+        label: 'Serialized runtime task',
+        prompt: '',
+        negativePrompt: '',
+        provider: 'text',
+        model: 'glm-5.2',
+        metadata: {},
+        status: 'queued',
+        progress: 0,
+        estimatedCredits: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        resultUrl: null,
+        outputs: [],
+        error: null,
+      },
+    ])
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const events: string[] = []
+    const runtimeWrite = store.mutateGenerationTaskRuntimeCacheAsync(async () => {
+      events.push('runtime-start')
+      await gate
+      events.push('runtime-end')
+    })
+
+    await Promise.resolve()
+    const ordinaryWrite = store.mutate((state) => {
+      events.push('ordinary')
+      state.projects[0]!.name = 'serialized-after-runtime'
+    })
+    await Promise.resolve()
+    expect(events).toEqual(['runtime-start'])
+
+    release()
+    await Promise.all([runtimeWrite, ordinaryWrite])
+    expect(events).toEqual(['runtime-start', 'runtime-end', 'ordinary'])
+    expect(store.read((state) => state.projects[0]!.name)).toBe('serialized-after-runtime')
+  })
+
   it('rolls back failed transactions before accepting the next write', async () => {
     const store = new AppStore(null)
     await store.initialize()

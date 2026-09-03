@@ -15,10 +15,23 @@ const COMMON_BIGRAMS = new Set([
 ])
 
 export function selectShotAssetReferences(assets, shot, limit = 6) {
+  const assetIndex = createShotAssetReferenceIndex(assets)
+  return selectShotAssetReferencesFromIndex(assetIndex, shot, limit)
+}
+
+export function createShotAssetReferenceIndex(assets) {
+  const source = Array.isArray(assets) ? assets : []
+  return {
+    byId: new Map(source.filter((asset) => asset?.id).map((asset) => [asset.id, asset])),
+    candidates: source.filter((asset) => asset.kind !== 'audio' && referenceUrl(asset)),
+  }
+}
+
+export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, assets = []) {
+  const resolvedIndex = assetIndex || createShotAssetReferenceIndex(assets)
   const shotText = normalize(`${shot.title || ''}${shot.prompt || ''}`)
-  const candidates = assets
-    .filter((asset) => asset.kind !== 'audio' && referenceUrl(asset))
-    .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText, assets) }))
+  const candidates = resolvedIndex.candidates
+    .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText, resolvedIndex.byId) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
 
   const selected = []
@@ -63,7 +76,7 @@ export function selectVideoReferenceImages(manualReferenceUrl, references, limit
   ].slice(0, limit)
 }
 
-function scoreAsset(asset, shotText, assets) {
+function scoreAsset(asset, shotText, assetById) {
   const name = normalize(asset.name)
   const exactNameMatch = Boolean(name && shotText.includes(name))
   if (asset.kind === 'character' && !exactNameMatch) {
@@ -72,7 +85,7 @@ function scoreAsset(asset, shotText, assets) {
   let matchScore = exactNameMatch ? 200 : 0
   let matchingName = name
   if (asset.kind === 'costume' && asset.attributes?.characterAssetId) {
-    const owner = assets.find((item) => item.id === asset.attributes.characterAssetId)
+    const owner = assetById.get(asset.attributes.characterAssetId)
     const ownerName = normalize(owner?.name)
     if (ownerName) matchingName = name.replace(ownerName, '')
     if (ownerName && shotText.includes(ownerName)) matchScore += 190
