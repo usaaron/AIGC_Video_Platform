@@ -100,6 +100,7 @@ def planning_output_chinese_issues(output: BaseModel) -> list[str]:
             prefix = f"episode_plans.{index}"
             for field_name in (
                 "episode_goal",
+                "synopsis",
                 "entry_state",
                 "central_conflict",
                 "protagonist_decision",
@@ -116,6 +117,9 @@ def planning_output_chinese_issues(output: BaseModel) -> list[str]:
                 value = getattr(plan, field_name)
                 if mainland_text_violates_language_contract(value):
                     issues.append(f"{prefix}.{field_name}")
+            for location_index, location in enumerate(plan.locations):
+                if mainland_text_violates_language_contract(location):
+                    issues.append(f"{prefix}.locations.{location_index}")
             for field_name in (
                 "continuity_requirements",
                 "source_turning_points",

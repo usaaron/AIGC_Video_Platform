@@ -54,6 +54,10 @@ import {
   storyBibleRegenerationPatch,
   storyBibleRewriteVersionSeed,
 } from "@/lib/story-planning-state";
+import {
+  importedStoryBibleInstruction,
+  shouldApplyImportedStoryBibleConstraints,
+} from "@/lib/input-readiness-workflow";
 import { updatePlanningSession } from "@/lib/planning-session";
 import type {
   ScriptProject,
@@ -106,6 +110,19 @@ const STORY_BIBLE_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
 
 const StoryBibleEditableContext = createContext(false);
 
+function importedSourceDocumentForProject(project: ScriptProject): string {
+  const prompt = project.creativePrompt.trim();
+  const materials = (project.referenceMaterials ?? [])
+    .filter((item) => item.extractedText.trim())
+    .map((item) => `# ${item.fileName}\n${item.extractedText.trim()}`);
+  return [prompt, ...materials].filter(Boolean).join("\n\n").slice(0, 130_000);
+}
+
+function hasRecommendedHighCompletionInput(project: ScriptProject): boolean {
+  return project.inputReadiness?.selectedPath === "recommended"
+    && project.inputReadiness.detectedLevel !== "premise";
+}
+
 type ProjectUpdate = Partial<ScriptProject>
   | ((current: ScriptProject) => Partial<ScriptProject>);
 type ProjectUpdateCallback = (patch: ProjectUpdate) => void;
@@ -143,6 +160,11 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     && isCurrentInput
     && !regenerationLocked,
   );
+  const importedSourceDocument = storyBible?.imported_source_document?.trim()
+    || (shouldApplyImportedStoryBibleConstraints(project)
+      ? importedSourceDocumentForProject(project)
+      : "");
+  const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
   const storyBibleCharacterNames = new Map(
     (storyBible?.character_registry ?? []).map((character) => [
       character.character_ref,
@@ -240,7 +262,12 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
             .replace("{attempt}", String(nextAttempt))
             .replace("{max}", String(maxAttempts)),
         ),
-        preparedProject.storyBibleAuthorInstruction ?? "",
+        [
+          preparedProject.storyBibleAuthorInstruction ?? "",
+          shouldApplyImportedStoryBibleConstraints(preparedProject)
+            ? importedStoryBibleInstruction()
+            : "",
+        ].filter(Boolean).join("\n"),
       );
       setStoryBible(generated);
       onProjectUpdate?.({
@@ -772,8 +799,23 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         </div>
       ) : null}
 
+      {importedSourceDocument ? (
+        <details className="story-bible-imported-source" open={!storyBible}>
+          <summary>{t("storyBible.importedSourceTitle")}</summary>
+          <pre>{importedSourceDocument}</pre>
+        </details>
+      ) : null}
+
       {busy === "load" ? <p>{t("storyBible.loading")}</p> : null}
       {regenerationLocked ? <div className="inline-notice">{t("storyBible.regenerationLocked")}</div> : null}
+      {!busy && !storyBible && recommendedHighCompletionInput ? (
+        <div className="inline-notice">
+          {t("inputReadiness.importReviewHint").replace(
+            "{level}",
+            t(`inputReadiness.level.${project.inputReadiness?.detectedLevel ?? "story_bible"}`),
+          )}
+        </div>
+      ) : null}
       {!busy && !storyBible && !regenerationLocked ? (
         <InteractiveStoryBibleBuilder
           onComplete={(completed) => {
@@ -1081,6 +1123,7 @@ function InteractiveStoryBibleBuilder({
     const custom = project.customTags?.find((tag) => tag.id === tagId);
     return custom?.label ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId;
   });
+  const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
 
   useEffect(() => () => {
     inspirationAbortControllerRef.current?.abort();
@@ -1316,6 +1359,7 @@ function InteractiveStoryBibleBuilder({
   }
 
   function switchCreationMode(mode: "direct" | "grill") {
+    if (mode === "grill" && recommendedHighCompletionInput) return;
     setCreationMode(mode);
     setInspirationOpen(mode === "grill");
     setCreationSaveState("idle");
@@ -1478,7 +1522,9 @@ function InteractiveStoryBibleBuilder({
           </div>
           <div className="creation-setting-tabs" role="tablist" aria-label="创作设定模式">
             <button aria-selected={creationMode === "direct"} className={creationMode === "direct" ? "is-active" : ""} onClick={() => switchCreationMode("direct")} role="tab" type="button">自由整理</button>
-            <button aria-selected={creationMode === "grill"} className={creationMode === "grill" ? "is-active" : ""} onClick={() => switchCreationMode("grill")} role="tab" type="button"><Lightbulb aria-hidden="true" size={15} />深入打磨</button>
+            {!recommendedHighCompletionInput ? (
+              <button aria-selected={creationMode === "grill"} className={creationMode === "grill" ? "is-active" : ""} onClick={() => switchCreationMode("grill")} role="tab" type="button"><Lightbulb aria-hidden="true" size={15} />深入打磨</button>
+            ) : null}
           </div>
           <div className="interactive-story-bible-context">
             <strong>已保留已有创作输入</strong>
@@ -1520,7 +1566,7 @@ function InteractiveStoryBibleBuilder({
               </div>
             ) : null}
           </> : null}
-          {creationMode === "grill" || finalGenerationStartedAt !== null ? (
+          {(!recommendedHighCompletionInput && creationMode === "grill") || finalGenerationStartedAt !== null ? (
         <StoryInspirationDialog
           busy={inspirationBusy}
           error={inspirationError}

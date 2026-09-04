@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, Pause, Play, Upload } from "lucide-react";
+import { CheckCircle, LoaderCircle, Pause, Play } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -46,7 +46,7 @@ export function BackgroundGenerationStatus() {
     return (
       <div aria-label={t("backgroundStatus.idle")} className="topbar-generation-status" role="status">
         <span className="topbar-generation-idle" title={t("backgroundStatus.idle")}>
-          <Upload aria-hidden="true" size={14} />
+          <CheckCircle aria-hidden="true" size={14} />
         </span>
       </div>
     );

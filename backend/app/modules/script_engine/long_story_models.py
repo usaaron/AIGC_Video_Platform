@@ -16,6 +16,7 @@ from app.script_delivery_contract import (
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    clamp_legacy_numeric,
     normalize_episode_dialogue_plan_payload,
 )
 from app.modules.script_engine.episode_layer_contracts import EpisodeThreeLayerContract
@@ -423,6 +424,14 @@ class StoryBible(BaseModel):
         default_factory=list,
         max_length=80,
     )
+    imported_source_document: str | None = Field(
+        default=None,
+        max_length=130_000,
+        description=(
+            "Exact author-supplied source retained for review and source-grounded "
+            "planning. It is never generated or silently rewritten."
+        ),
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     approved_at: datetime | None = None
 
@@ -597,7 +606,10 @@ class StoryBibleDraftRequest(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     content_spec_id: str | None = Field(default=None, min_length=3, max_length=120)
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
-    creative_prompt: str = Field(default="", max_length=2_000)
+    # A pasted outline may be much longer than a premise. Keep it intact for
+    # source-grounded generation; the reference-material budget remains the
+    # overall safety boundary.
+    creative_prompt: str = Field(default="", max_length=10_000)
     reference_materials: list[CreativeReferenceMaterial] = Field(
         default_factory=list,
         max_length=8,
@@ -618,6 +630,7 @@ class StoryBibleDraftRequest(BaseModel):
     )
     characters: list[StoryBibleCharacterInput] = Field(default_factory=list, max_length=20)
     target_episode_count: int = Field(default=300, ge=1, le=2_000)
+    preserve_source_document: bool = False
 
     @field_validator("selected_tag_labels")
     @classmethod
@@ -759,7 +772,7 @@ class StoryBibleInteractiveStepRequest(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     content_spec_id: str | None = Field(default=None, min_length=3, max_length=120)
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
-    creative_prompt: str = Field(default="", max_length=2_000)
+    creative_prompt: str = Field(default="", max_length=10_000)
     reference_materials: list[CreativeReferenceMaterial] = Field(default_factory=list, max_length=8)
     selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
     selected_creative_direction: CreativeDirectionCandidate | None = None
@@ -880,13 +893,14 @@ class StoryInspirationChatRequest(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     content_spec_id: str | None = Field(default=None, min_length=3, max_length=120)
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
-    creative_prompt: str = Field(default="", max_length=2_000)
+    creative_prompt: str = Field(default="", max_length=10_000)
     reference_materials: list[CreativeReferenceMaterial] = Field(default_factory=list, max_length=8)
     selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
     messages: list[StoryInspirationMessage] = Field(default_factory=list, max_length=30)
     current_brief: StoryInspirationBrief = Field(default_factory=StoryInspirationBrief)
     user_message: str = Field(default="", max_length=2_000)
     target_episode_count: int = Field(default=300, ge=1, le=2_000)
+    readiness_supplement_questions: list[str] = Field(default_factory=list, max_length=12)
 
     @model_validator(mode="after")
     def ensure_inspiration_reference_budget(self) -> "StoryInspirationChatRequest":
@@ -921,10 +935,11 @@ class StoryBibleInteractiveCompleteRequest(BaseModel):
     story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     content_spec_id: str = Field(min_length=3, max_length=120)
     generation_strategy_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
-    creative_prompt: str = Field(default="", max_length=2_000)
+    creative_prompt: str = Field(default="", max_length=10_000)
     reference_materials: list[CreativeReferenceMaterial] = Field(default_factory=list, max_length=8)
     selected_tag_labels: list[str] = Field(default_factory=list, max_length=20)
     sections: dict[str, Any] = Field(min_length=1, max_length=20)
+    preserve_source_document: bool = False
 
 
 class StoryPlanNodeDraftRequest(BaseModel):
@@ -1453,7 +1468,9 @@ class EpisodePlanGenerationItem(BaseModel):
         return normalize_episode_dialogue_plan_payload(value)
 
     episode_number: int = Field(ge=1, le=2_000)
-    episode_title: str | None = Field(default=None, min_length=2, max_length=18)
+    episode_title: str | None = Field(default=None, min_length=2, max_length=120)
+    synopsis: str | None = Field(default=None, min_length=5, max_length=1_200)
+    locations: list[str] = Field(default_factory=list, max_length=12)
     target_duration_seconds: int = Field(
         default=90,
         ge=EPISODE_RUNTIME_MIN_SECONDS,
@@ -1520,35 +1537,37 @@ class EpisodePlanGenerationItem(BaseModel):
     @field_validator("target_duration_seconds", mode="before")
     @classmethod
     def normalize_legacy_target_duration(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(
-            EPISODE_RUNTIME_MAX_SECONDS,
-            max(EPISODE_RUNTIME_MIN_SECONDS, round(value)),
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_RUNTIME_MIN_SECONDS,
+            maximum=EPISODE_RUNTIME_MAX_SECONDS,
         )
 
     @field_validator("planned_scene_count", mode="before")
     @classmethod
     def normalize_legacy_planned_scene_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(EPISODE_SCENE_MAX, max(EPISODE_SCENE_MIN, round(value)))
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_SCENE_MIN,
+            maximum=EPISODE_SCENE_MAX,
+        )
 
     @field_validator("planned_shot_count", mode="before")
     @classmethod
     def normalize_legacy_planned_shot_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(EPISODE_SHOT_UNIT_MAX, max(EPISODE_SHOT_UNIT_MIN, round(value)))
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_SHOT_UNIT_MIN,
+            maximum=EPISODE_SHOT_UNIT_MAX,
+        )
 
     @field_validator("planned_dialogue_line_count", mode="before")
     @classmethod
     def normalize_legacy_planned_dialogue_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(
-            EPISODE_DIALOGUE_LINE_MAX,
-            max(EPISODE_DIALOGUE_LINE_MIN, round(value)),
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_DIALOGUE_LINE_MIN,
+            maximum=EPISODE_DIALOGUE_LINE_MAX,
         )
 
     @model_validator(mode="after")
@@ -1648,7 +1667,9 @@ class EpisodePlan(BaseModel):
     stage_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     stage_version: int = Field(default=1, ge=1)
     episode_number: int = Field(ge=1, le=2_000)
-    episode_title: str | None = Field(default=None, min_length=2, max_length=18)
+    episode_title: str | None = Field(default=None, min_length=2, max_length=120)
+    synopsis: str | None = Field(default=None, min_length=5, max_length=1_200)
+    locations: list[str] = Field(default_factory=list, max_length=12)
     episode_goal: str = Field(min_length=5, max_length=800)
     entry_state: str = Field(min_length=5, max_length=1_000)
     central_conflict: str = Field(min_length=5, max_length=800)

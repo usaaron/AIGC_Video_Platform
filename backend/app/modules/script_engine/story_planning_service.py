@@ -58,7 +58,6 @@ from app.modules.script_engine.long_story_models import (
     CreativeDirectionDraftRequest,
     CreativeDirectionGenerationOutput,
     CreativeReferenceMaterial,
-    EpisodePlan,
     EpisodePlanBatchDraftRequest,
     EpisodePlanBatchGenerationOutput,
     EpisodePlanGenerationItem,
@@ -102,7 +101,6 @@ from app.modules.script_engine.long_story_models import (
     StoryPlanExpansionStatus,
     StoryPlanNodeGenerationOutput,
     StoryLinePlan,
-    StoryStagePlan,
 )
 from app.modules.script_engine.long_story_service import (
     LongStoryNotFoundError,
@@ -110,6 +108,21 @@ from app.modules.script_engine.long_story_service import (
 )
 from app.modules.script_engine.repository import GenerationStrategyRepository
 from app.modules.script_engine.models import GenerationStrategy
+from app.modules.script_engine.planning_text_utils import (
+    bounded_planning_text,
+    join_planning_clauses,
+    normalize_planning_punctuation,
+    planning_clause,
+)
+from app.modules.script_engine.planning_allocation_utils import (
+    PlanningAllocationError,
+    allocate_compiled_stage_spans,
+    assign_story_lines_to_stage_groups,
+    escalation_stage_weight,
+    group_escalation_stages,
+    planning_match_tokens,
+    weighted_integer_allocation,
+)
 
 
 class StoryPlanningInputError(ValueError):
@@ -134,7 +147,7 @@ def _story_bible_decisions_for_request(
         decisions["creative_input.original"] = CreativeDecisionRecord(
             decision_key="creative_input.original",
             title="用户原始创作输入",
-            value=creative_prompt,
+            value=creative_prompt[:2_000],
             authority=MemoryLayer.canonical,
             status=CreativeDecisionStatus.confirmed,
             source=CreativeDecisionSource.user_input,
@@ -142,6 +155,32 @@ def _story_bible_decisions_for_request(
             ai_permission=CreativeAIPermission.none,
         )
     return list(decisions.values())[:80]
+
+
+def _source_document_from_parts(
+    creative_prompt: str,
+    reference_materials: list[CreativeReferenceMaterial],
+) -> str | None:
+    sections: list[str] = []
+    if creative_prompt.strip():
+        sections.append(creative_prompt.strip())
+    for material in reference_materials:
+        sections.append(
+            "\n".join((
+                f"# {material.file_name}",
+                f"用途：{material.purpose.value}"
+                + (f"（{material.purpose_note}）" if material.purpose_note else ""),
+                material.extracted_text,
+            ))
+        )
+    document = "\n\n".join(section for section in sections if section.strip()).strip()
+    return document[:130_000] or None
+
+
+def _imported_source_document(payload: StoryBibleDraftRequest) -> str | None:
+    if not payload.preserve_source_document:
+        return None
+    return _source_document_from_parts(payload.creative_prompt, payload.reference_materials)
 
 
 def _creative_decision_prompt_contract(
@@ -509,7 +548,7 @@ class _EpisodePlanDiversityPatch(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    episode_title: str | None = Field(default=None, min_length=2, max_length=18)
+    episode_title: str | None = Field(default=None, min_length=2, max_length=120)
     episode_payoff: str = Field(min_length=3, max_length=800)
     pressure_escalation: str = Field(min_length=3, max_length=800)
     cliffhanger: str = Field(min_length=5, max_length=800)
@@ -617,9 +656,9 @@ STORY_LINE_PLANNING_CONTRACT = """【故事线平衡与支线承接要求｜剧�
 每个子节点都要保留与其范围相关的故事线引用，不得无理由丢弃已批准支线，也不得提前解决其全剧收束。"""
 
 EPISODE_ROADMAP_LENGTH_TARGET_CONTRACT = """分集路线图篇幅目标（按每集路线图所有人类可见叙述字段合计、中文字符估算）：
-- 每集 250-450 字；
+- 每集 250-650 字；其中 `synopsis` 单独保持约 120-320 字，必须是可直接给创作者阅读的完整因果梗概；
 - 场景执行蓝图由服务根据已验证字段和制作预算本地派生，不在路线图里写成正文。
-路线图只承担叶节点的逐集展开：本集目标、进入状态、冲突、主角决定、可见回报、退出状态、结尾钩子和下一集压力。不要重复总纲、剧情树或整段场景 prose。若超过上限，先压缩重复说明，再返回 JSON。"""
+路线图只承担叶节点的逐集展开：本集目标、进入状态、冲突、主角决定、可见回报、退出状态、结尾钩子和下一集压力；同时明确本集发生在哪些场地、哪些人物出场，以及一段完整梗概。不要重复总纲、剧情树或整段场景 prose。若超过上限，先压缩重复说明，再返回 JSON。"""
 
 STORY_LINE_EPISODE_DUTY_CONTRACT = """【故事线职责调度与支线连续性要求｜分集规划阶段】
 分集规划必须回答：本集需要推进哪些故事线，每条被选中的故事线获得了什么叙事资源，本集结束时它发生了什么可验证的变化。
@@ -629,11 +668,18 @@ STORY_LINE_EPISODE_DUTY_CONTRACT = """【故事线职责调度与支线连续性
 被列入本集职责的故事线必须出现在至少一个具体事件或场景中；被延期的故事线不能同时被描述为本集已推进。输出前检查主线是否获得主要冲突资源、到期支线是否获得真实场景、每条职责是否有状态变化，以及下一集是否保留承接义务。"""
 
 EPISODE_TITLE_NAMING_CONTRACT = """单集标题是作品标题，不是计划摘要：
-- 优先 4-8 个汉字，允许 3-10 个汉字；不用集号、标点、数字或完整句。
-- 抓住本集独有的视觉物件、关键动作、两难选择或反转，例如“重锤救人”“印背批号”“死者笔迹”“火漆之下”。
+- 推荐使用“英文短标题｜中文短标题”格式：英文部分 2-80 个字符，中文部分 3-10 个汉字；中文短标题必须是英文标题的忠实对应，不是解释性副标题。
+- 也兼容旧数据的中文单标题：3-10 个汉字；不用集号、数字或完整句。分隔符 `｜` 只允许出现在双语标题的中间。
+- 抓住本集独有的视觉物件、关键动作、两难选择或反转，例如“THE RECIPE HE STOLE｜他偷走的配方”“重锤救人”“火漆之下”。
 - 不直接截取 episode_goal，不以“完成、确认、建立、推进、实现、通过、围绕、利用、确立、落实、直面、处理”等汇报词开头。
 - 不使用“本集目标、阶段结果、行动计划、关键节点”之类策划术语；相邻标题的核心意象和句式都应不同。
 - 标题必须忠实于本集已经规划的事件，不得为了悬念虚构新人物、新物件或新反转。"""
+
+EPISODE_HUMAN_READABLE_FIELDS_CONTRACT = """【分集可读字段】
+- `synopsis` 是本集完整、连续、可直接阅读的剧情梗概，建议 120-320 个中文字符；必须交代主要人物在具体场地中的行动、冲突、选择和状态变化，不写镜头脚本或对白。
+- `locations` 是本集实际使用的 1-4 个具体场地名称，例如“现代甜品店前厅”“后厨”；不要填写“核心行动地点”之类占位词。
+- `character_refs` 仍只填写已批准的角色 ID；界面会根据项目角色资料显示姓名和性别，不能在该数组里混入性别或新角色。
+- synopsis、locations、episode_title 与现有 episode_goal 等字段必须描述同一组事件，不能为了补格式另造剧情。"""
 
 INTERACTIVE_STORY_BIBLE_SIMPLE_MAX_OUTPUT_TOKENS = 2_400
 INTERACTIVE_STORY_BIBLE_COMPLEX_MAX_OUTPUT_TOKENS = 3_600
@@ -1682,6 +1728,22 @@ def _normalize_string_list(
     return normalized
 
 
+def _normalize_location_list(value: object) -> object:
+    """Normalize location arrays without splitting spaces inside a place name."""
+
+    if isinstance(value, str):
+        value = re.split(r"[、,，;；\r\n]+", value)
+    elif isinstance(value, list):
+        expanded: list[object] = []
+        for item in value:
+            if isinstance(item, str):
+                expanded.extend(re.split(r"[、,，;；\r\n]+", item))
+            else:
+                expanded.append(item)
+        value = expanded
+    return _normalize_string_list(value, split_identifiers=False)
+
+
 def _parse_body_character_weight(value: object) -> float | None:
     """Read common model representations of a positive body-text weight."""
     if isinstance(value, bool):
@@ -1794,6 +1856,12 @@ _EPISODE_PLAN_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "episode_number", "episode", "episode_no", "number", "ep", "集数", "集号", "第几集"
     ),
     "episode_title": ("episode_title", "title", "本集标题", "集标题"),
+    "synopsis": (
+        "synopsis", "episode_synopsis", "summary", "本集梗概", "梗概", "剧情梗概"
+    ),
+    "locations": (
+        "locations", "location", "settings", "setting", "场地", "场所", "地点"
+    ),
     "target_duration_seconds": (
         "target_duration_seconds", "duration_seconds", "episode_duration_seconds",
         "本集时长秒数", "目标时长秒数", "时长秒数", "时长",
@@ -2049,6 +2117,26 @@ def _episode_title_from_goal(value: str) -> str:
     return "本集待命名"
 
 
+def _episode_synopsis_from_item(item: EpisodePlanGenerationItem) -> str:
+    """Provide a readable legacy synopsis without inventing a new story event."""
+
+    parts = [
+        item.episode_goal,
+        item.central_conflict,
+        item.protagonist_decision,
+        item.episode_payoff,
+        item.exit_state,
+    ]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = re.sub(r"\s+", " ", part.strip())
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            unique.append(text)
+    return "。".join(unique)[:1_200]
+
+
 _EPISODE_TITLE_REPORT_PREFIXES = (
     "完成", "确认", "建立", "推进", "实现", "确保", "通过", "围绕", "利用",
     "依据", "确立", "落实", "直面", "处理", "追踪", "揭露", "启动", "形成",
@@ -2060,8 +2148,29 @@ _EPISODE_TITLE_PLANNING_SUFFIXES = (
 
 
 def _episode_title_quality_issues(value: str | None) -> list[str]:
-    title = re.sub(r"\s+", "", value or "").strip()
+    title = re.sub(r"\s+", " ", value or "").strip()
     issues: list[str] = []
+    parts = [part.strip() for part in title.split("｜")]
+    if len(parts) == 2:
+        english, chinese = parts
+        if not 2 <= len(english) <= 80 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 &'’\-]*", english):
+            issues.append("english_format")
+        chinese_chars = re.sub(r"\s+", "", chinese)
+        if not 3 <= len(chinese_chars) <= 10:
+            issues.append("length")
+        if re.search(r"[\d０-９，,。；;！？!?：:、·—–\-（）()【】\[\]《》]", chinese_chars):
+            issues.append("format")
+        if chinese_chars.startswith(_EPISODE_TITLE_REPORT_PREFIXES):
+            issues.append("report_prefix")
+        if chinese_chars.endswith(_EPISODE_TITLE_PLANNING_SUFFIXES):
+            issues.append("planning_suffix")
+        if chinese_chars in {"本集待命名", "本集关键行动", "关键行动", "剧情推进"}:
+            issues.append("placeholder")
+        return issues
+    if len(parts) != 1:
+        issues.append("format")
+        return issues
+    title = parts[0].replace(" ", "")
     if not 3 <= len(title) <= 10:
         issues.append("length")
     if re.search(r"[\d０-９，,。；;！？!?：:、·—–\-（）()【】\[\]《》]", title):
@@ -2183,15 +2292,20 @@ def normalize_episode_plan_batch_generation_output(
             "payoff_refs",
             "character_refs",
             "story_line_refs",
+            "locations",
             "continuity_requirements",
             "source_turning_points",
             "source_unit_story_beats",
         ):
             if field_name in normalized:
-                normalized[field_name] = _normalize_string_list(
-                    normalized[field_name],
-                    split_identifiers=field_name
-                    in {"setup_refs", "payoff_refs", "character_refs", "story_line_refs"},
+                normalized[field_name] = (
+                    _normalize_location_list(normalized[field_name])
+                    if field_name == "locations"
+                    else _normalize_string_list(
+                        normalized[field_name],
+                        split_identifiers=field_name
+                        in {"setup_refs", "payoff_refs", "character_refs", "story_line_refs"},
+                    )
                 )
         if "episode_number" in normalized:
             number = _parse_positive_int(normalized["episode_number"])
@@ -2243,7 +2357,7 @@ def normalize_episode_plan_batch_generation_output(
             if len(title) < 2:
                 normalized.pop("episode_title", None)
             else:
-                normalized["episode_title"] = title[:18]
+                normalized["episode_title"] = title[:120]
         normalized_items.append(normalized)
 
     if expected_episode_numbers is not None and (
@@ -3918,6 +4032,8 @@ _STORY_PLAN_NODE_MODIFICATION_DEPENDENCIES: dict[str, set[str]] = {
 
 _EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES: dict[str, set[str]] = {
     "episode_title": {"episode_title"},
+    "synopsis": {"synopsis", "episode_goal", "central_conflict", "protagonist_decision", "episode_payoff", "exit_state"},
+    "locations": {"locations", "synopsis", "scene_execution_plan"},
     "episode_goal": {"episode_title", "episode_goal", "entry_state", "central_conflict"},
     "entry_state": {"entry_state", "episode_title", "episode_goal", "central_conflict"},
     "central_conflict": {"central_conflict", "protagonist_decision", "stage_opposition", "emotional_movement"},
@@ -4011,7 +4127,8 @@ def infer_episode_roadmap_modification_scope(
         selection_context=selection_context,
         dependencies=_EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES,
         labels=(
-            ("标题", {"episode_title"}), ("目标", {"episode_goal"}),
+            ("标题", {"episode_title"}), ("梗概", {"synopsis"}), ("场地", {"locations"}),
+            ("目标", {"episode_goal"}),
             ("进入", {"entry_state"}), ("冲突", {"central_conflict"}),
             ("决定", {"protagonist_decision"}), ("揭示", {"reveal"}), ("情绪", {"emotional_movement"}),
             ("阻力", {"stage_opposition"}), ("回报", {"episode_payoff"}), ("压力", {"pressure_escalation"}),
@@ -4495,6 +4612,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 locked_facts=output.locked_facts,
                 avoid_patterns=output.avoid_patterns,
                 creative_decisions=creative_decisions,
+                imported_source_document=_imported_source_document(payload),
             )
         )
 
@@ -4950,6 +5068,9 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
 参考资料：
 {reference_context}
 
+输入识别层发现的可选补充问题（仅作为提问线索，不是已确认事实；必须先判断它们是否仍与当前未决前沿相关）：
+{json.dumps(payload.readiness_supplement_questions, ensure_ascii=False) if payload.readiness_supplement_questions else '暂无'}
+
 已有对话：{transcript or '尚未开始'}
 历史问题（严禁重复）：{previous_questions or '暂无'}
 当前结构化结论：{current_brief}
@@ -5184,6 +5305,14 @@ All human-readable output values must be written in Simplified Chinese."""
                 major_setup_payoff_refs=output.major_setup_payoff_refs,
                 locked_facts=output.locked_facts,
                 avoid_patterns=output.avoid_patterns,
+                imported_source_document=(
+                    _source_document_from_parts(
+                        payload.creative_prompt,
+                        payload.reference_materials,
+                    )
+                    if payload.preserve_source_document
+                    else None
+                ),
             )
         )
 
@@ -6272,7 +6401,7 @@ Return only JSON matching the provided schema."""
         self,
         payload: StoryPlanNodeDecompositionRequest,
     ) -> list[StoryPlanNode]:
-        project = self._long_story_service.get_project(payload.story_project_id)
+        self._long_story_service.get_project(payload.story_project_id)
         parent = self._long_story_service.get_story_plan_node(
             payload.story_project_id,
             payload.parent_node_id,
@@ -6991,7 +7120,6 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         )
 
         children: list[StoryPlanNodeChildOutput] = []
-        market_contract = cls._story_bible_market_contract_text(story_bible)
         start_episode = parent.planned_start_episode
         assert start_episode is not None
         entry_state = parent.entry_state
@@ -7123,59 +7251,30 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
 
     @staticmethod
     def _bounded_planning_text(value: str, maximum: int) -> str:
-        normalized = StoryPlanningService._normalize_planning_punctuation(value)
-        if len(normalized) <= maximum:
-            return normalized
-        return normalized[: maximum - 1].rstrip("；，。 ") + "。"
+        return bounded_planning_text(value, maximum)
 
     @staticmethod
     def _planning_clause(value: str) -> str:
-        normalized = re.sub(r"\s+", " ", value).strip()
-        return re.sub(r"[，,。；;：:！？!?、\s]+$", "", normalized)
+        return planning_clause(value)
 
     @classmethod
     def _join_planning_clauses(cls, values: Iterable[str]) -> str:
-        clauses = [
-            clause
-            for value in values
-            if (clause := cls._planning_clause(str(value)))
-        ]
-        return "；".join(clauses)
+        return join_planning_clauses(values)
 
     @staticmethod
     def _normalize_planning_punctuation(value: str) -> str:
-        normalized = re.sub(r"\s+", " ", value).strip()
-        normalized = re.sub(r"。+\s*[；;]+", "；", normalized)
-        normalized = re.sub(r"[；;]+\s*。+", "。", normalized)
-        normalized = re.sub(r"。{2,}", "。", normalized)
-        normalized = re.sub(r"[；;]{2,}", "；", normalized)
-        normalized = re.sub(r"。+\s*[，,]+", "，", normalized)
-        return re.sub(r"[，,]+\s*。+", "。", normalized)
+        return normalize_planning_punctuation(value)
 
     @staticmethod
     def _escalation_stage_weight(stage: ShortDramaEscalationStage) -> int:
-        return max(
-            1,
-            len(stage.stage_goal)
-            + len(stage.stage_opposition)
-            + len(stage.stage_payoff)
-            + len(stage.escalation_to_next),
-        )
+        return escalation_stage_weight(stage)
 
     @staticmethod
     def _group_escalation_stages(
         stages: list[ShortDramaEscalationStage],
         child_count: int,
     ) -> list[list[ShortDramaEscalationStage]]:
-        groups: list[list[ShortDramaEscalationStage]] = []
-        cursor = 0
-        for index in range(child_count):
-            remaining_stages = len(stages) - cursor
-            remaining_groups = child_count - index
-            size = math.ceil(remaining_stages / remaining_groups)
-            groups.append(stages[cursor : cursor + size])
-            cursor += size
-        return groups
+        return group_escalation_stages(stages, child_count)
 
     @classmethod
     def _assign_story_lines_to_stage_groups(
@@ -7183,55 +7282,11 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         story_lines: list[StoryLinePlan],
         stage_groups: list[list[ShortDramaEscalationStage]],
     ) -> list[list[StoryLinePlan]]:
-        if not story_lines:
-            return [[] for _ in stage_groups]
-        main_lines = [
-            line
-            for line in story_lines
-            if getattr(line.story_line_type, "value", line.story_line_type) == "main"
-        ]
-        base_lines = main_lines or [story_lines[0]]
-        assignments = [list(base_lines) for _ in stage_groups]
-        stage_tokens = [
-            cls._planning_match_tokens(
-                " ".join(
-                    value
-                    for stage in group
-                    for value in (
-                        stage.title,
-                        stage.stage_goal,
-                        stage.stage_opposition,
-                        stage.stage_payoff,
-                        stage.escalation_to_next,
-                    )
-                )
-            )
-            for group in stage_groups
-        ]
-        secondary_lines = [line for line in story_lines if line not in base_lines]
-        for line_index, line in enumerate(secondary_lines):
-            line_tokens = cls._planning_match_tokens(
-                f"{line.title} {line.premise} {line.planned_resolution}"
-            )
-            scores = [len(line_tokens & tokens) for tokens in stage_tokens]
-            best_score = max(scores, default=0)
-            if best_score:
-                target_index = scores.index(best_score)
-            else:
-                target_index = line_index % len(stage_groups)
-            assignments[target_index].append(line)
-        return assignments
+        return assign_story_lines_to_stage_groups(story_lines, stage_groups)
 
     @staticmethod
     def _planning_match_tokens(value: str) -> set[str]:
-        normalized = re.sub(r"\s+", "", value).casefold()
-        chinese_bigrams = {
-            normalized[index : index + 2]
-            for index in range(len(normalized) - 1)
-            if "\u4e00" <= normalized[index] <= "\u9fff"
-            and "\u4e00" <= normalized[index + 1] <= "\u9fff"
-        }
-        return chinese_bigrams | set(re.findall(r"[a-z0-9_.-]{3,}", value.casefold()))
+        return planning_match_tokens(value)
 
     @classmethod
     def _allocate_compiled_stage_spans(
@@ -7241,34 +7296,14 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         desired_child_count: int,
         stage_weights: list[int],
     ) -> list[int]:
-        for child_count in range(desired_child_count, 1, -1):
-            grouped_weights = []
-            cursor = 0
-            for index in range(child_count):
-                remaining = len(stage_weights) - cursor
-                group_size = math.ceil(remaining / (child_count - index))
-                grouped_weights.append(sum(stage_weights[cursor : cursor + group_size]))
-                cursor += group_size
-            if total_episodes >= 16 * child_count:
-                return cls._weighted_integer_allocation(
-                    total=total_episodes,
-                    minimum=16,
-                    weights=grouped_weights,
-                )
-            if 8 * child_count <= total_episodes <= 12 * child_count:
-                return cls._weighted_integer_allocation(
-                    total=total_episodes,
-                    minimum=8,
-                    maximum=12,
-                    weights=grouped_weights,
-                )
-        if 25 <= total_episodes <= 31:
-            first = total_episodes - 16
-            return [first, 16]
-        raise StoryPlanningInputError(
-            "The approved escalation stages cannot be allocated into valid recursive "
-            "episode ranges."
-        )
+        try:
+            return allocate_compiled_stage_spans(
+                total_episodes=total_episodes,
+                desired_child_count=desired_child_count,
+                stage_weights=stage_weights,
+            )
+        except PlanningAllocationError as error:
+            raise StoryPlanningInputError(str(error)) from error
 
     @staticmethod
     def _weighted_integer_allocation(
@@ -7278,28 +7313,15 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         weights: list[int],
         maximum: int | None = None,
     ) -> list[int]:
-        allocations = [minimum for _ in weights]
-        remaining = total - minimum * len(weights)
-        if remaining <= 0:
-            return allocations
-        positive_weights = [max(1, weight) for weight in weights]
-        while remaining:
-            candidates = [
-                index
-                for index, allocation in enumerate(allocations)
-                if maximum is None or allocation < maximum
-            ]
-            if not candidates:
-                raise StoryPlanningInputError(
-                    "Episode allocation exceeded the valid child range."
-                )
-            index = max(
-                candidates,
-                key=lambda item: positive_weights[item] / (allocations[item] + 1),
+        try:
+            return weighted_integer_allocation(
+                total=total,
+                minimum=minimum,
+                weights=weights,
+                maximum=maximum,
             )
-            allocations[index] += 1
-            remaining -= 1
-        return allocations
+        except PlanningAllocationError as error:
+            raise StoryPlanningInputError(str(error)) from error
 
     def generate_episode_plan_batch(
         self,
@@ -7974,6 +7996,7 @@ return an episode_plans wrapper, screenplay prose, dialogue, Markdown, or explan
 All human-readable values must follow the market contract above.
 {EPISODE_ROADMAP_LENGTH_TARGET_CONTRACT}
 {STORY_LINE_EPISODE_DUTY_CONTRACT}
+{EPISODE_HUMAN_READABLE_FIELDS_CONTRACT}
 
 User instruction:
 {resolved_instruction}
@@ -8019,6 +8042,7 @@ Requirements:
 1. Keep episode_number exactly {current_plan.episode_number}; target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}.
 1a. If the defining action, choice or reversal changes, update episode_title too.
 {EPISODE_TITLE_NAMING_CONTRACT}
+1b. If the revision changes where the episode happens or its causal summary, update `locations` and/or `synopsis`; otherwise preserve them exactly.
 2. Continue causally from the preceding checkpoint and produce a distinct pressure-action-payoff cycle with an observable exit state and concrete cliffhanger.
 3. Preserve every still-active continuity requirement, unresolved setup, open hook and state
    handoff in the durable memory. Do not fix a local sentence by contradicting an earlier fact.
@@ -8026,7 +8050,7 @@ Requirements:
 5. Copy every immutable value above exactly. Keep all narrative values concise and production-ready. ending_hook_type must be only a 2-20 character Simplified-Chinese classification label with no explanation.
 6. Do not return scene_execution_plan. The service derives the executable scene blueprint
    locally from the validated episode fields and production budgets.
-7. Keep the combined human-readable roadmap fields within 250-450 Chinese characters. If the
+7. Keep the combined human-readable roadmap fields within 250-650 Chinese characters. If the
    revision runs long, shorten repeated upper-layer context before returning; preserve the
    episode's distinct causal contribution and handoff.
 8. Return only the complete JSON object matching the authoritative schema."""
@@ -8348,6 +8372,8 @@ Requirements:
         updates: dict[str, object] = {}
         if not item.episode_title:
             updates["episode_title"] = _episode_title_from_goal(item.episode_goal)
+        if not item.synopsis:
+            updates["synopsis"] = _episode_synopsis_from_item(item)
         if item.stage_opposition == "承接当前阶段的具体阻力。":
             updates["stage_opposition"] = item.central_conflict
         if item.episode_payoff == "兑现一个可见的阶段推进结果。":
@@ -8380,6 +8406,9 @@ Requirements:
         dialogue_targets = distribute(item.planned_dialogue_line_count)
         shot_targets = distribute(item.planned_shot_count)
         scenes: list[EpisodeSceneExecutionBeat] = []
+        locations = [location.strip() for location in item.locations if location.strip()]
+        if not locations:
+            locations = ["核心行动地点"]
         for index in range(scene_count):
             first_scene = index == 0
             final_scene = index == scene_count - 1
@@ -8411,7 +8440,7 @@ Requirements:
             )
             scenes.append(EpisodeSceneExecutionBeat(
                 scene_number=index + 1,
-                scene_heading=f"INT. 第{index + 1}场核心行动地点 日",
+                scene_heading=f"INT. {locations[min(index, len(locations) - 1)]} 日",
                 character_refs=item.character_refs,
                 scene_objective=objective,
                 visible_action=visible_action,
@@ -10237,7 +10266,7 @@ Return exactly {expected_count} complete episode plan objects for these episode 
 in this exact order: {json.dumps(expected_episode_numbers, ensure_ascii=False)}.
 
 Each episode object must use exactly these fields:
-episode_number, episode_title, episode_goal, entry_state, central_conflict, protagonist_decision,
+episode_number, episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision,
 reveal, emotional_movement, stage_opposition, episode_payoff, pressure_escalation,
 setup_refs, payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
 continuity_requirements, source_turning_points, source_unit_story_beats,
@@ -11006,8 +11035,9 @@ Durable planning memory: {memory_context}
 
 Requirements:
 1. Return exactly one plan for every episode number from {start_episode} through {end_episode}, in order.
-2. Each plan must have episode_title, episode_goal, entry_state, central_conflict, protagonist_decision, emotional_movement, stage_opposition, episode_payoff, pressure_escalation, exit_state and cliffhanger.
+2. Each plan must have episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, emotional_movement, stage_opposition, episode_payoff, pressure_escalation, exit_state and cliffhanger.
 {EPISODE_TITLE_NAMING_CONTRACT}
+{EPISODE_HUMAN_READABLE_FIELDS_CONTRACT}
 3. The next episode entry_state must follow the previous episode exit_state; do not repeat the same beat.
 4. Use only supplied character and story-line references. Preserve the segment's setup/payoff direction.
 5. These plans are human-reviewable contracts. Keep them concise and actionable for the existing DraftMasterScript generator.
@@ -11024,13 +11054,13 @@ contains a story-specific 待定 slot, preserve it as a visible planning blocker
 14. The batch must complete the segment's Required local resolution by the final episode, then preserve the Required handoff pressure as the concrete next-segment obligation. Do not postpone this segment's climax or local settlement to a later planning module.
 15. Plan production load independently for every episode. target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count must be {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count must be {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count must be {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}. One scene is valid when it can complete the episode; never split scenes or actions merely to reach a count. Choose the load from that episode's actual conflict, action, reveal, payoff and hook work. Do not evenly distribute the segment and do not copy one duration, scene count, dialogue count or shot count across all episodes merely for consistency. More time, dialogue or shots must correspond to visible dramatic work, never padding. Keep deliberate editing headroom inside the runtime range.
 16. Do not return scene_execution_plan or layer_contracts. The service derives both locally from the validated episode fields and production budgets.
-17. Treat 250-450 Chinese characters per episode as the target for the combined human-readable roadmap fields,
+17. Treat 250-650 Chinese characters per episode as the target for the combined human-readable roadmap fields,
 not as a schema maximum. If any item exceeds the target, compress repeated segment or Story Bible context before
 returning; do not add prose, scene detail or filler to reach a minimum.
 
 The top-level object must contain only episode_plans. Every item must use these exact fields:
 episode_number, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
-episode_title, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
+synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
 continuity_requirements, source_turning_points, source_unit_story_beats, ending_hook_type,
@@ -11132,6 +11162,7 @@ All human-readable values must follow the market contract above. Technical refer
 must be copied exactly.
 {EPISODE_ROADMAP_LENGTH_TARGET_CONTRACT}
 {STORY_LINE_EPISODE_DUTY_CONTRACT}
+{EPISODE_HUMAN_READABLE_FIELDS_CONTRACT}
 
 Approved segment: {node.title}
 Narrative purpose: {node.narrative_purpose}
@@ -11176,6 +11207,7 @@ Required source_unit_story_beats for this episode (copy exactly, no additions):
 Rules:
 1. episode_number must be exactly {episode_number}.
 1a. {EPISODE_TITLE_NAMING_CONTRACT}
+1b. Provide a complete `synopsis` and concrete `locations` alongside the structural fields; the synopsis must describe the same causal events, not a generic summary.
 2. entry_state must causally continue the preceding checkpoint. The episode must execute
    a distinct pressure-action-payoff cycle and end in a new observable state.
 3. Use only the allowed reference IDs. story_line_refs must contain at least one allowed ID.
@@ -11199,13 +11231,13 @@ Rules:
    imitate an even distribution.
 10. Do not return scene_execution_plan. The service derives the executable scene blueprint
    locally from this validated episode core and its production budgets.
-11. Keep the combined human-readable roadmap fields within 250-450 Chinese characters. If the
+11. Keep the combined human-readable roadmap fields within 250-650 Chinese characters. If the
     draft is longer, remove repeated upper-layer context and ornamental wording before returning;
     preserve the episode's distinct action, payoff, exit state and hook.
 
 Return exactly these root fields:
 episode_number, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
-episode_title, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
+synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
 continuity_requirements, source_turning_points, source_unit_story_beats, ending_hook_type,

@@ -1,13 +1,10 @@
 import type { StoryBible } from "@/lib/story-planning-client";
+import { safeFilename } from "@/lib/filename";
 
 function requireConfirmedStoryBible(storyBible: StoryBible): void {
   if (storyBible.status !== "approved") {
     throw new Error("Only a confirmed Story Bible can be exported.");
   }
-}
-
-function safeFilename(value: string): string {
-  return value.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "story-bible";
 }
 
 function list(title: string, values: string[]): string[] {
@@ -73,5 +70,5 @@ export function storyBibleMarkdown(projectTitle: string, storyBible: StoryBible)
 }
 
 export function storyBibleMarkdownFilename(projectTitle: string, version: number): string {
-  return `${safeFilename(projectTitle)}-故事总纲-v${version}.md`;
+  return `${safeFilename(projectTitle, "story-bible")}-故事总纲-v${version}.md`;
 }

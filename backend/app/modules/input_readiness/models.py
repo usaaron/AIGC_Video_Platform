@@ -25,6 +25,20 @@ class InputReadinessAnalysisMethod(str, Enum):
     model_assisted = "model_assisted"
 
 
+class InputReadinessCapacityStatus(str, Enum):
+    sufficient = "sufficient"
+    supplement_recommended = "supplement_recommended"
+    target_reduce_recommended = "target_reduce_recommended"
+
+
+class InputReadinessSourceKind(str, Enum):
+    premise = "premise"
+    story_bible = "story_bible"
+    episode_plan = "episode_plan"
+    script = "script"
+    mixed = "mixed"
+
+
 class InputReadinessCoverage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -50,6 +64,7 @@ class CreativeInputReadinessRequest(BaseModel):
         max_length=8,
     )
     episode_count: int = Field(ge=1, le=2_000)
+    target_total_characters: int = Field(default=140_000, ge=1_000, le=10_000_000)
 
     @model_validator(mode="after")
     def validate_creative_source(self) -> "CreativeInputReadinessRequest":
@@ -79,6 +94,13 @@ class CreativeInputReadiness(BaseModel):
     recommended_stage: RecommendedWorkflowStage
     requires_user_confirmation: bool = True
     analysis_method: InputReadinessAnalysisMethod
+    source_character_count: int = Field(default=0, ge=0)
+    detected_episode_count: int | None = Field(default=None, ge=1, le=2_000)
+    source_kinds: list[InputReadinessSourceKind] = Field(default_factory=list, max_length=5)
+    estimated_supported_characters: int = Field(default=0, ge=0)
+    capacity_status: InputReadinessCapacityStatus = InputReadinessCapacityStatus.sufficient
+    recommended_target_total_characters: int | None = Field(default=None, ge=1_000)
+    supplement_questions: list[str] = Field(default_factory=list, max_length=12)
 
 
 class CreativeInputReadinessResponse(BaseModel):

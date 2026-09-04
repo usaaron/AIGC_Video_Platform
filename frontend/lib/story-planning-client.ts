@@ -35,6 +35,10 @@ import {
 import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
 import { mainlandTextIsEnglishDominant } from "@/lib/mainland-language";
 import {
+  importedPlanningInstruction,
+  shouldApplyImportedPlanningConstraints,
+} from "@/lib/input-readiness-workflow";
+import {
   marketProfileForReleaseRegion,
   type CreativeDirectionCandidate,
   type EpisodeRoadmapItem,
@@ -79,6 +83,31 @@ interface StoryBibleInteractiveStepResponse {
     step: StoryBibleInteractiveStep;
     question: string;
     candidates: StoryBibleInteractiveCandidate[];
+  };
+}
+
+function planningAuthorInstruction(
+  project: ScriptProject,
+  authorInstruction = "",
+): string {
+  return [
+    authorInstruction.trim(),
+    shouldApplyImportedPlanningConstraints(project) ? importedPlanningInstruction() : "",
+  ].filter(Boolean).join("\n");
+}
+
+function storyPlanningSourcePayload(
+  project: ScriptProject,
+  maxPromptCharacters: number,
+) {
+  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
+  return {
+    creative_prompt: (project.creativePrompt
+      || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, maxPromptCharacters),
+    reference_materials: referenceMaterialsForApi(project.referenceMaterials),
+    selected_tag_labels: project.selectedTagIds.map((tagId) => (
+      customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
+    )),
   };
 }
 interface StoryInspirationChatResponse {
@@ -369,6 +398,7 @@ export interface StoryBible {
   locked_facts: string[];
   avoid_patterns: string[];
   creative_decisions: CreativeDecisionRecord[];
+  imported_source_document?: string | null;
   created_at: string;
   approved_at: string | null;
 }
@@ -449,6 +479,8 @@ export interface EpisodePlan {
   stage_version: number;
   episode_number: number;
   episode_title?: string | null;
+  synopsis?: string | null;
+  locations?: string[];
   episode_goal: string;
   entry_state: string;
   central_conflict: string;
@@ -676,10 +708,6 @@ export async function generateCreativeDirections(
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法生成创作方向候选。");
   }
-  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
-  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
-    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
-  ));
   const response = await generateWithAutomaticTransientRetry({
     generate: () => apiRequest<CreativeDirectionResponse>(
       `/story-projects/${project.id}/creative-directions/draft`,
@@ -689,10 +717,7 @@ export async function generateCreativeDirections(
           story_project_id: project.id,
           content_spec_id: project.contentSpecId,
           generation_strategy_id: project.generationStrategyId,
-          creative_prompt: (project.creativePrompt
-            || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
-          reference_materials: referenceMaterialsForApi(project.referenceMaterials),
-          selected_tag_labels: selectedTagLabels,
+          ...storyPlanningSourcePayload(project, 2_000),
           option_count: 4,
           characters: [],
         }),
@@ -731,10 +756,6 @@ export async function generateStoryBibleDraft(
     throw new Error("当前项目尚未形成创作规格，无法生成长篇总纲。");
   }
 
-  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
-  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
-    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
-  ));
   const knownVersion = project.storyBibleVersion ?? 0;
   const response = await generateWithAutomaticTransientRetry({
     generate: async (): Promise<StoryBibleDraftResponse | { data: StoryBible }> => {
@@ -747,15 +768,14 @@ export async function generateStoryBibleDraft(
               story_project_id: project.id,
               content_spec_id: project.contentSpecId,
               generation_strategy_id: project.generationStrategyId,
-              creative_prompt: (project.creativePrompt
-                || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
-              reference_materials: referenceMaterialsForApi(project.referenceMaterials),
-              selected_tag_labels: selectedTagLabels,
+              ...storyPlanningSourcePayload(project, 10_000),
               selected_creative_direction: project.selectedCreativeDirection ?? null,
               author_instruction: authorInstruction.trim(),
               creative_decisions: creativeDecisions,
               characters: [],
               target_episode_count: project.generationSettings.episodeCount,
+              preserve_source_document: project.inputReadiness?.selectedPath === "recommended"
+                && project.inputReadiness.detectedLevel !== "premise",
             }),
             signal,
           },
@@ -799,19 +819,12 @@ export async function generateStoryBibleInteractiveStep(
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法继续构建故事总纲。");
   }
-  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
-  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
-    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
-  ));
   const requestBody = {
     story_project_id: project.id,
     content_spec_id: project.contentSpecId,
     generation_strategy_id: project.generationStrategyId,
-    creative_prompt: (project.creativePrompt
-      || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
-    reference_materials: referenceMaterialsForApi(project.referenceMaterials),
+    ...storyPlanningSourcePayload(project, 10_000),
     selected_creative_direction: project.selectedCreativeDirection ?? null,
-    selected_tag_labels: selectedTagLabels,
     step,
     previous_sections: previousSections,
     author_instruction: authorInstruction.trim(),
@@ -847,10 +860,6 @@ export async function generateStoryInspirationTurn(
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法开始寻找灵感。");
   }
-  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
-  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
-    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
-  ));
   const response = await apiRequest<StoryInspirationChatResponse>(
     `/story-projects/${project.id}/story-bibles/inspiration-chat`,
     {
@@ -859,10 +868,7 @@ export async function generateStoryInspirationTurn(
         story_project_id: project.id,
         content_spec_id: project.contentSpecId,
         generation_strategy_id: project.generationStrategyId,
-        creative_prompt: (project.creativePrompt
-          || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
-        reference_materials: referenceMaterialsForApi(project.referenceMaterials),
-        selected_tag_labels: selectedTagLabels,
+        ...storyPlanningSourcePayload(project, 10_000),
         messages: messages.slice(-30).map((message) => ({
           role: message.role,
           content: message.content,
@@ -871,6 +877,9 @@ export async function generateStoryInspirationTurn(
         current_brief: currentBrief,
         user_message: userMessage.trim(),
         target_episode_count: project.generationSettings.episodeCount,
+        readiness_supplement_questions: project.inputReadiness?.selectedPath === "recommended"
+          ? (project.inputReadiness.supplementQuestions ?? []).slice(0, 12)
+          : [],
       }),
       signal,
     },
@@ -885,10 +894,6 @@ export async function completeStoryBibleInteractive(
 ): Promise<StoryBible> {
   if (!project.contentSpecId) throw new Error("当前项目缺少创作规格。");
   if (!project.generationStrategyId) throw new Error("当前项目缺少生成策略。");
-  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
-  const selectedTagLabels = project.selectedTagIds.map((tagId) => (
-    customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
-  ));
   const response = await apiRequest<StoryBibleResponse>(
     `/story-projects/${project.id}/story-bibles/interactive-complete`,
     {
@@ -897,11 +902,10 @@ export async function completeStoryBibleInteractive(
         story_project_id: project.id,
         content_spec_id: project.contentSpecId,
         generation_strategy_id: project.generationStrategyId,
-        creative_prompt: (project.creativePrompt
-          || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, 2_000),
-        reference_materials: referenceMaterialsForApi(project.referenceMaterials),
-        selected_tag_labels: selectedTagLabels,
+        ...storyPlanningSourcePayload(project, 10_000),
         sections,
+        preserve_source_document: project.inputReadiness?.selectedPath === "recommended"
+          && project.inputReadiness.detectedLevel !== "premise",
       }),
       signal,
     },
@@ -1169,7 +1173,7 @@ export async function generateTopLevelStoryPlanNodes(
       story_bible_id: storyBible.story_bible_id,
       story_bible_version: storyBible.version,
       generation_strategy_id: project.generationStrategyId,
-      author_instruction: authorInstruction.trim(),
+      author_instruction: planningAuthorInstruction(project, authorInstruction),
       sequence_order: 1,
       target_episode_count: project.generationSettings.episodeCount,
     }),
@@ -1346,7 +1350,7 @@ export async function decomposeStoryPlanNode(
               ...(requestedChildCount === undefined
                 ? {}
                 : { requested_child_count: requestedChildCount }),
-              author_instruction: options?.authorInstruction?.trim() ?? "",
+              author_instruction: planningAuthorInstruction(project, options?.authorInstruction),
               max_episode_ready_span: MAX_EPISODE_READY_SPAN,
             }),
           },
@@ -1400,14 +1404,7 @@ export async function loadEpisodePlans(
   const response = await apiRequest<{ data: EpisodePlan[] }>(
     `/story-projects/${projectId}/episode-plans${query ? `?${query}` : ""}`,
   );
-  const latestByEpisode = new Map<number, EpisodePlan>();
-  for (const plan of response.data) {
-    const current = latestByEpisode.get(plan.episode_number);
-    if (!current || plan.version > current.version) {
-      latestByEpisode.set(plan.episode_number, plan);
-    }
-  }
-  return Array.from(latestByEpisode.values()).sort(
+  return latestPlanningVersions(response.data, "episode_number").sort(
     (left, right) => left.episode_number - right.episode_number,
   );
 }

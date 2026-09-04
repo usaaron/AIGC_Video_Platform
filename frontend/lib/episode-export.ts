@@ -12,6 +12,8 @@ import {
   clientSceneHeading,
 } from "./client-screenplay-format.ts";
 import { orderedScreenplayBody } from "./screenplay-body-order.ts";
+import { safeFilename } from "./filename.ts";
+import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import type JSZip from "jszip";
 
@@ -285,10 +287,7 @@ export function seriesArchiveFilename(
 }
 
 function episodeDurationSeconds(draft: GeneratedDraft): number {
-  const metadata = draft.llm_metadata;
-  const estimated = metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? Number((metadata as Record<string, unknown>).estimated_duration_seconds)
-    : Number.NaN;
+  const estimated = draftMetadataCoercedNumber(draft, "estimated_duration_seconds") ?? Number.NaN;
   if (Number.isFinite(estimated) && estimated >= 75 && estimated <= 115) {
     return Math.round(estimated);
   }
@@ -302,10 +301,6 @@ function episodeEndingHook(draft: GeneratedDraft): string {
   return draft.continuation_hook?.ending_hook_summary
     ?? draft.next_episode_question
     ?? draft.hook;
-}
-
-function safeFilename(value: string): string {
-  return value.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "script-project";
 }
 
 async function addArchiveAttachments(

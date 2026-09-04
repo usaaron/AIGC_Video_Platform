@@ -68,6 +68,9 @@ import {
   updatePlanningSession,
 } from "@/lib/planning-session";
 import {
+  episodeRoadmapCharacters,
+  episodeRoadmapLocations,
+  episodeRoadmapSynopsis,
   storyPlanningFilename,
   toStoryPlanningMarkdown,
 } from "@/lib/story-planning-export";
@@ -261,7 +264,6 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const [, setAssistantRevision] = useState(0);
   const [autoExpansionRequested, setAutoExpansionRequested] = useState(false);
   const [revisionHistory, setRevisionHistory] = useState<GlobalRevisionEntry[]>([]);
-  const autoFirstLayerRequestedRef = useRef<string | null>(null);
   // This is deliberately transient: a top-level direction applies to one
   // generation round and must not become the default for later layers.
   const [treeAuthorInstruction, setTreeAuthorInstruction] = useState("");
@@ -372,38 +374,6 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       .finally(() => { if (active) setBusy(null); });
     return () => { active = false; };
   }, [project.id, storyBible.story_bible_id, storyBible.version, t]);
-
-  // Entering the planning workspace should already show the first layer. The
-  // request is guarded by the planning version so a failed generation does not
-  // loop, while an existing saved layer is always reused.
-  useEffect(() => {
-    const planningKey = `${project.id}:${storyBible.story_bible_id}:${storyBible.version}`;
-    if (
-      planningLocked
-      || busy !== null
-      || message
-      || topLevelNodes.length
-      || topLevelTaskActive
-      || topLevelTask?.status === "completed"
-      || topLevelTask?.status === "failed"
-      || roadmapBatchTaskActive
-      || autoFirstLayerRequestedRef.current === planningKey
-    ) return;
-    autoFirstLayerRequestedRef.current = planningKey;
-    const timer = window.setTimeout(() => { void generateInteractiveTopLevel(); }, 0);
-    return () => window.clearTimeout(timer);
-  }, [
-    busy,
-    message,
-    planningLocked,
-    project.id,
-    roadmapBatchTaskActive,
-    storyBible.story_bible_id,
-    storyBible.version,
-    topLevelNodes.length,
-    topLevelTask?.status,
-    topLevelTaskActive,
-  ]);
 
   useEffect(() => {
     if (
@@ -939,7 +909,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       latestProjectRef.current = { ...requestProject, planningSession: saved };
       await persistProjectUpdate(onProjectUpdate, { planningSession: saved });
       setRevisionHistory([]);
-      router.push(`/projects/${requestProject.id}/workspace?generate=1`);
+      // Confirmation only unlocks the script workspace. Starting the first
+      // generation remains an explicit action on that page, so a refresh or
+      // redirect can never turn the approval click into an implicit request.
+      router.push(`/projects/${requestProject.id}/workspace`);
     } catch (error) {
       setMessage(userFacingError(error, t("storyPlanNode.planningConfirmFailed")));
     } finally {
@@ -961,7 +934,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   function exportConfirmedPlanning() {
     if (!planningLocked || !planningComplete) return;
     downloadPlanningFile(
-      toStoryPlanningMarkdown(project.title, activeTreeNodes, project.episodeRoadmaps ?? []),
+      toStoryPlanningMarkdown(project.title, activeTreeNodes, project.episodeRoadmaps ?? [], project.characters),
       storyPlanningFilename(project.title),
     );
   }
@@ -1619,12 +1592,16 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
 
   function updateRoadmapTextField(
     item: EpisodeRoadmapItem,
-    field: "episode_title" | "episode_goal" | "central_conflict" | "ending_hook_type" | "cliffhanger",
+    field: "episode_title" | "synopsis" | "locations" | "episode_goal" | "central_conflict" | "ending_hook_type" | "cliffhanger",
     value: string,
   ) {
     requestRoadmapManualRevision(item, (latest) => ({
       ...latest,
-      [field]: field === "episode_title" ? value.trim() || null : value,
+      [field]: field === "episode_title"
+        ? value.trim() || null
+        : field === "locations"
+          ? value.split(/[、,，;；\n]/).map((location) => location.trim()).filter(Boolean)
+          : value,
     }));
   }
 
@@ -1876,6 +1853,27 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
                     />
                   </strong>
                   <p>
+                    场地：
+                    <InlinePlanningText
+                      label={`第${item.episode_number}集场地`}
+                      locked={roadmapRevisionLocked}
+                      onChange={(value) => updateRoadmapTextField(item, "locations", value)}
+                      value={episodeRoadmapLocations(item)}
+                    />
+                  </p>
+                  <p>
+                    出场人物 & 性别：{episodeRoadmapCharacters(item, project.characters)}
+                  </p>
+                  <p>
+                    梗概：
+                    <InlinePlanningText
+                      label={`第${item.episode_number}集梗概`}
+                      locked={roadmapRevisionLocked}
+                      onChange={(value) => updateRoadmapTextField(item, "synopsis", value)}
+                      value={episodeRoadmapSynopsis(item)}
+                    />
+                  </p>
+                  <p>
                     目标：
                     <InlinePlanningText
                       label={`第${item.episode_number}集目标`}
@@ -2110,12 +2108,12 @@ function reconcileRoadmapsAfterNodeRevision(
   ));
 }
 
-    function PlanListField({ editing, label, locked = false, onChange, values }: {
-      editing: boolean;
-      label: string;
-      locked?: boolean;
-      onChange: (value: string[]) => void;
-      values: string[];
+function PlanListField({ editing, label, locked = false, onChange, values }: {
+  editing: boolean;
+  label: string;
+  locked?: boolean;
+  onChange: (value: string[]) => void;
+  values: string[];
 }) {
   return (
     <label className="story-bible-field">

@@ -22,7 +22,7 @@ import {
   type SyntheticEvent,
 } from "react";
 
-import { ArrowIcon, CloseIcon } from "@/components/icons";
+import { CloseIcon } from "@/components/icons";
 import type { DocumentOutlineEntry } from "@/components/document-outline";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import {
@@ -48,6 +48,9 @@ import {
   modifyEpisodeDraft,
   reviewEpisodeDraft,
 } from "@/lib/generation-client";
+import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
+import { safeFilename } from "@/lib/filename";
+import { draftMetadataBoolean, draftMetadataNumber } from "@/lib/draft-metadata";
 import {
   applyEpisodeStreamEvent,
   completeEpisodeStream,
@@ -90,7 +93,6 @@ import {
   type ScriptGenerationTaskSnapshot,
 } from "@/lib/script-generation-background";
 import {
-  nextBatchRange,
   nextLeafBatchRange,
   scriptBodyLengthGuidance,
   targetScriptBodyCharacters,
@@ -119,22 +121,17 @@ import {
   storyNodeExecutionContext,
   storySegmentBodyReference,
 } from "@/lib/episode-generation-planning";
-import type { EpisodeGenerationConstraint } from "@/lib/episode-generation-planning";
 import {
   collectionDocumentFilename,
   createCollectionArchive,
   createEpisodeArchive,
-  episodeDocumentFilename,
   seriesArchiveFilename,
-  toEpisodeMarkdown,
-  toEpisodePlainText,
   toSeriesDocument,
   type EpisodeDocumentFormat,
 } from "@/lib/episode-export";
 import { buildProductionIndex } from "@/lib/production-index";
 import { createProductionWorkbookAttachments } from "@/lib/production-workbooks";
 import { createScreenplayDocxBlob } from "@/lib/episode-docx";
-import { completeScriptQualityLoop } from "@/lib/quality-loop-client";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
   saveEpisodeArtifactOnServer,
@@ -228,6 +225,16 @@ const SCRIPT_QUICK_ACTIONS: Array<{ id: PlanningCanvasAction; label: string; ins
   { id: "expand", label: "扩写", instruction: "请补足当前正文的必要动作、情绪和场面细节，不改变既定剧情走向。" },
   { id: "shorten", label: "精简", instruction: "请压缩当前正文的重复表达，保留全部关键行动、信息和对白。" },
 ];
+
+const AUTHOR_INTENT_WORKFLOW_RULE = "工作流最高原则：用户明确表达的意志、选择、修改和否决永远优先于系统建议、模板和模型推断；未明确决定的内容保持待定，不得擅自补写或替用户做决定。";
+
+function withAuthorIntentWorkflowRule(instruction?: string): string {
+  const prefix = AUTHOR_INTENT_WORKFLOW_RULE;
+  const value = instruction?.trim() ?? "";
+  if (!value) return prefix;
+  const remaining = Math.max(0, 4000 - prefix.length - 1);
+  return `${prefix}；${value.slice(0, remaining)}`;
+}
 
 type ScriptWorkspaceTranslator = (key: string) => string;
 
@@ -506,24 +513,6 @@ export function ScriptWorkspace() {
       : `/projects/${project.id}/planning`;
     router.replace(destination);
   }, [isReady, project?.id, router, scriptAccessible]);
-
-  useEffect(() => {
-    if (
-      !project
-      || !scriptAccessible
-      || project.episodes.length > 0
-      || generationIntent
-      || generationIntentConsumed
-    ) return;
-    router.replace(`/projects/${project.id}/workspace?generate=1`);
-  }, [
-    generationIntent,
-    generationIntentConsumed,
-    project?.episodes.length,
-    project?.id,
-    router,
-    scriptAccessible,
-  ]);
 
   useEffect(() => {
     if (
@@ -842,8 +831,9 @@ export function ScriptWorkspace() {
         .replace("{projected}", numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes))
         .replace("{estimated}", numberFormatter.format(seriesTextMetrics.estimatedEpisodesToTarget));
 
-  function blockCrossMarketMutation(): boolean {
-    return false;
+  function hasCurrentEpisodeInlineEdits(): boolean {
+    return pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber)
+      || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber);
   }
 
   function replaceEpisode(
@@ -987,7 +977,7 @@ export function ScriptWorkspace() {
     instructionOverride?: string,
     selectionOverride: StoryBibleSelectionContext | null = scriptDocumentSelection,
   ) {
-    if (blockCrossMarketMutation() || currentEpisodeLocked) return;
+    if (currentEpisodeLocked) return;
     const submittedInstruction = (instructionOverride ?? scriptChatInstruction).trim();
     if (!submittedInstruction) return;
     if (currentEpisodeHasDirectEdits) {
@@ -1151,7 +1141,7 @@ export function ScriptWorkspace() {
   }
 
   async function requestDeepening() {
-    if (blockCrossMarketMutation() || currentEpisodeLocked) return;
+    if (currentEpisodeLocked) return;
     if (currentEpisodeHasDirectEdits) {
       candidateBaseInlineEditsRef.current.add(currentEpisode.episodeNumber);
     } else {
@@ -1164,10 +1154,11 @@ export function ScriptWorkspace() {
         ?? currentDraft;
       const result = await deepenEpisodeDraft(currentEpisode.generationRun, latestDraft);
       if (!result.candidate_valid_for_comparison || !result.candidate_draft_master_script) {
+        const hasInlineEdits = hasCurrentEpisodeInlineEdits();
         replaceEpisode({
-          status: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber) ? "editing" : "saved",
+          status: hasInlineEdits ? "editing" : "saved",
           deepeningRun: undefined,
-          hasLocalDraftEdits: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber),
+          hasLocalDraftEdits: hasInlineEdits,
         });
         setMessage(t("workspace.deepeningRejected"));
         return;
@@ -1176,10 +1167,11 @@ export function ScriptWorkspace() {
       setSelectedDocumentView("deepening");
       setMessage(t("workspace.deepeningReady"));
     } catch (error) {
+      const hasInlineEdits = hasCurrentEpisodeInlineEdits();
       replaceEpisode({
-        status: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber) ? "editing" : "saved",
+        status: hasInlineEdits ? "editing" : "saved",
         deepeningRun: undefined,
-        hasLocalDraftEdits: pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber),
+        hasLocalDraftEdits: hasInlineEdits,
       });
       setMessage(formatWorkflowError(error, t, "workspace.deepeningFailed"));
     } finally {
@@ -1235,7 +1227,6 @@ export function ScriptWorkspace() {
     optionalInstruction = "",
     requestedRange?: { startEpisode: number; endEpisode: number },
   ) {
-    if (blockCrossMarketMutation()) return;
     setBusyAction("batch");
     setMessage(null);
     const orderedExistingEpisodes = currentProject.episodes
@@ -1517,10 +1508,12 @@ export function ScriptWorkspace() {
           adaptiveSceneCount: adaptiveEpisodeSceneCount(generationConstraint),
           plannedShotCount: plannedEpisodeShotCount(generationConstraint),
           previousEpisode,
-          episodeInstruction: episodeGenerationInstruction(
-            generationConstraint,
-            episodeNumber === batchRange.startEpisode ? optionalInstruction : "",
-            { isSeriesFinale: episodeNumber === batchRange.totalEpisodes },
+          episodeInstruction: withAuthorIntentWorkflowRule(
+            episodeGenerationInstruction(
+              generationConstraint,
+              episodeNumber === batchRange.startEpisode ? optionalInstruction : "",
+              { isSeriesFinale: episodeNumber === batchRange.totalEpisodes },
+            ),
           ),
           relevantCharacterRefs: episodeGenerationCharacterRefs(generationConstraint),
           approvedStoryNode: storyNodeExecutionContext(generationConstraint),
@@ -1987,11 +1980,11 @@ export function ScriptWorkspace() {
             <div className="candidate-decision-bar">
               <div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "modification"} onClick={() => setSelectedDocumentView("modification")} type="button">{t("workspace.aiCandidate")}</button></div>
               <span>{currentEpisode.modificationCandidate?.instruction}</span>
-              <div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyModification()} type="button">{busyAction === "save" ? t("workspace.saving") : t("workspace.applyCandidate")}</button><button className="outline-action" disabled={busyAction === "save"} onClick={() => { const hasInlineEdits = pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", hasLocalDraftEdits: hasInlineEdits, modificationCandidate: undefined }, {}, { skipContinuitySync: true }); setSelectedDocumentView("current"); }} type="button">{t("workspace.discardCandidate")}</button></div>
+              <div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyModification()} type="button">{busyAction === "save" ? t("workspace.saving") : t("workspace.applyCandidate")}</button><button className="outline-action" disabled={busyAction === "save"} onClick={() => { const hasInlineEdits = hasCurrentEpisodeInlineEdits(); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", hasLocalDraftEdits: hasInlineEdits, modificationCandidate: undefined }, {}, { skipContinuitySync: true }); setSelectedDocumentView("current"); }} type="button">{t("workspace.discardCandidate")}</button></div>
             </div>
           ) : null}
           {currentEpisode.deepeningRun && deepeningDraft ? (
-            <div className="candidate-decision-bar"><div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "deepening"} onClick={() => setSelectedDocumentView("deepening")} type="button">{t("workspace.version.deepening")}</button></div><span>{deepeningRun?.comparison_metadata?.summary ?? t("workspace.deepeningReady")}</span><div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyDeepening()} type="button">{t("workspace.applyDeepening")}</button><button className="outline-action" onClick={() => { const hasInlineEdits = pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber) || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", deepeningRun: undefined, hasLocalDraftEdits: hasInlineEdits }); setSelectedDocumentView("current"); }} type="button">{t("workspace.keepCurrent")}</button></div></div>
+            <div className="candidate-decision-bar"><div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "deepening"} onClick={() => setSelectedDocumentView("deepening")} type="button">{t("workspace.version.deepening")}</button></div><span>{deepeningRun?.comparison_metadata?.summary ?? t("workspace.deepeningReady")}</span><div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyDeepening()} type="button">{t("workspace.applyDeepening")}</button><button className="outline-action" onClick={() => { const hasInlineEdits = hasCurrentEpisodeInlineEdits(); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", deepeningRun: undefined, hasLocalDraftEdits: hasInlineEdits }); setSelectedDocumentView("current"); }} type="button">{t("workspace.keepCurrent")}</button></div></div>
           ) : null}
           {message ? <div className="inline-notice">{message}</div> : null}
 
@@ -2327,6 +2320,18 @@ function PendingScriptWorkspace({
           </div>
           {batch.length ? <ScriptGenerationStatus batch={batch} detailsOpen={detailsOpen} onDetailsToggle={onDetailsToggle} onRetryEpisode={onRetryEpisode} project={project} retryDisabled={retryDisabled} task={task} t={t} /> : null}
           {message ? <div className="inline-notice">{message}</div> : null}
+          {!batch.length && !task ? (
+            <div className="script-generation-empty-actions">
+              <button
+                className="primary-action"
+                disabled={retryDisabled}
+                onClick={() => onRetryEpisode(activeEpisodeNumber)}
+                type="button"
+              >
+                {t("workspace.generateNextPart")}
+              </button>
+            </div>
+          ) : null}
           <ScriptLiveGenerationPreview item={selectedItem} onRetryEpisode={onRetryEpisode} project={project} retryDisabled={retryDisabled} t={t} />
         </div>
       </div>
@@ -2743,10 +2748,12 @@ function InitialScriptBatchLauncher({
           adaptiveSceneCount: adaptiveEpisodeSceneCount(generationConstraint),
           plannedShotCount: plannedEpisodeShotCount(generationConstraint),
           previousEpisode,
-          episodeInstruction: episodeGenerationInstruction(
-            generationConstraint,
-            "",
-            { isSeriesFinale: episodeNumber === batchRange.totalEpisodes },
+          episodeInstruction: withAuthorIntentWorkflowRule(
+            episodeGenerationInstruction(
+              generationConstraint,
+              "",
+              { isSeriesFinale: episodeNumber === batchRange.totalEpisodes },
+            ),
           ),
           relevantCharacterRefs: episodeGenerationCharacterRefs(generationConstraint),
           approvedStoryNode: storyNodeExecutionContext(generationConstraint),
@@ -3263,12 +3270,12 @@ function mergeEpisodesByNumber(
 }
 
 function scriptBodyTargetCharacters(draft: GeneratedDraft): number | null {
-  const metadata = draft.llm_metadata;
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const values = metadata as Record<string, unknown>;
-  const target = values.script_body_reference_characters
-    ?? values.script_body_target_characters;
-  return typeof target === "number" && Number.isFinite(target) && target > 0
+  const target = draftMetadataNumber(
+    draft,
+    "script_body_reference_characters",
+    "script_body_target_characters",
+  );
+  return target !== null && target > 0
     ? Math.round(target)
     : null;
 }
@@ -3278,31 +3285,27 @@ function generationPerformanceDetails(draft: GeneratedDraft): {
   generationElapsedMs?: number;
   firstPassAccepted?: boolean;
 } {
-  const metadata = draft.llm_metadata;
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return {};
-  const values = metadata as Record<string, unknown>;
+  const modelPassCount = draftMetadataNumber(draft, "model_pass_count");
+  const generationElapsedMs = draftMetadataNumber(draft, "generation_elapsed_ms");
+  const firstPassAccepted = draftMetadataBoolean(draft, "first_pass_accepted");
   return {
-    ...(typeof values.model_pass_count === "number"
-      ? { modelPassCount: values.model_pass_count }
+    ...(modelPassCount !== null
+      ? { modelPassCount }
       : {}),
-    ...(typeof values.generation_elapsed_ms === "number"
-      ? { generationElapsedMs: values.generation_elapsed_ms }
+    ...(generationElapsedMs !== null
+      ? { generationElapsedMs }
       : {}),
-    ...(typeof values.first_pass_accepted === "boolean"
-      ? { firstPassAccepted: values.first_pass_accepted }
+    ...(firstPassAccepted !== undefined
+      ? { firstPassAccepted }
       : {}),
   };
 }
 
 function parseWorkingDraft(value?: string): GeneratedDraft | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as Partial<GeneratedDraft>;
-    if (typeof parsed.title !== "string" || !Array.isArray(parsed.scenes) || parsed.scenes.some((scene) => !Array.isArray(scene.character_actions) || !Array.isArray(scene.dialogues))) return null;
-    return parsed as GeneratedDraft;
-  } catch {
-    return null;
-  }
+  return parseGeneratedDraft(value, {
+    requireTitle: true,
+    requireCompleteScenes: true,
+  });
 }
 
 function formatWorkflowError(
@@ -3311,10 +3314,6 @@ function formatWorkflowError(
   fallbackKey: string,
 ): string {
   return userFacingError(error, t(fallbackKey));
-}
-
-function safeFilename(value: string): string {
-  return value.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "script-project";
 }
 
 function downloadFile(content: string, filename: string, type: string) {

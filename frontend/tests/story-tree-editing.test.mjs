@@ -110,14 +110,14 @@ test("confirmed outline enters planning and confirms only after a saved complete
 
   assert.doesNotMatch(workspace, /router\.replace\(`\/projects\/\$\{project\.id\}\/planning\/structure`\)/);
   assert.match(storyBible, /router\.push\(`\/projects\/\$\{project\.id\}\/planning\/structure`\)/);
-  assert.match(panel, /autoFirstLayerRequestedRef/);
+  assert.doesNotMatch(panel, /autoFirstLayerRequestedRef/);
   assert.doesNotMatch(panel, /saveCurrentLayer\(\)/);
   assert.doesNotMatch(panel, /storyPlanNode\.saveLayer/);
   assert.match(panel, /finalProgress\.generatedRoadmapCount !== (?:project|requestProject)\.generationSettings\.episodeCount/);
   assert.match(panel, /syncProjectSnapshot\((?:project|requestProject)\)/);
   assert.match(panel, /savePlanningCheckpoint/);
   assert.match(panel, /storyPlanNode\.confirmPlanning/);
-  assert.match(panel, /router\.push\([^)]*workspace\?generate=1/);
+  assert.match(panel, /router\.push\([^)]*workspace`/);
   assert.doesNotMatch(panel, /storyPlanNode\.generateEpisodeScript/);
   assert.doesNotMatch(panel, /storyPlanNode\.roadmapPending/);
   assert.doesNotMatch(panel, /story-plan-episode-script-link/);

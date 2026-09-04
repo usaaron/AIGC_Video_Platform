@@ -19,6 +19,7 @@ from app.script_delivery_contract import (
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    clamp_legacy_numeric,
     normalize_episode_dialogue_plan_payload,
 )
 from app.modules.script_engine.long_story_models import (
@@ -1178,9 +1179,11 @@ class ScriptGenerationDraftRequest(BaseModel):
     @field_validator("desired_scene_count", mode="before")
     @classmethod
     def normalize_legacy_desired_scene_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(EPISODE_SCENE_MAX, max(EPISODE_SCENE_MIN, round(value)))
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_SCENE_MIN,
+            maximum=EPISODE_SCENE_MAX,
+        )
 
     @model_validator(mode="after")
     def align_release_region_and_dialogue_language(self) -> "ScriptGenerationDraftRequest":
@@ -1285,32 +1288,37 @@ class ApprovedEpisodePlanContext(BaseModel):
     @field_validator("target_duration_seconds", mode="before")
     @classmethod
     def normalize_legacy_target_duration(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(115, max(75, round(value)))
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_RUNTIME_MIN_SECONDS,
+            maximum=EPISODE_RUNTIME_MAX_SECONDS,
+        )
 
     @field_validator("planned_scene_count", mode="before")
     @classmethod
     def normalize_legacy_planned_scene_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(EPISODE_SCENE_MAX, max(EPISODE_SCENE_MIN, round(value)))
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_SCENE_MIN,
+            maximum=EPISODE_SCENE_MAX,
+        )
 
     @field_validator("planned_shot_count", mode="before")
     @classmethod
     def normalize_legacy_planned_shot_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(EPISODE_SHOT_UNIT_MAX, max(EPISODE_SHOT_UNIT_MIN, round(value)))
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_SHOT_UNIT_MIN,
+            maximum=EPISODE_SHOT_UNIT_MAX,
+        )
 
     @field_validator("planned_dialogue_line_count", mode="before")
     @classmethod
     def normalize_legacy_planned_dialogue_count(cls, value: Any) -> Any:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return value
-        return min(
-            EPISODE_DIALOGUE_LINE_MAX,
-            max(EPISODE_DIALOGUE_LINE_MIN, round(value)),
+        return clamp_legacy_numeric(
+            value,
+            minimum=EPISODE_DIALOGUE_LINE_MIN,
+            maximum=EPISODE_DIALOGUE_LINE_MAX,
         )
 
     @model_validator(mode="after")

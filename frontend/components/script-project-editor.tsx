@@ -7,8 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowIcon, ScriptIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { SectionHelp } from "@/components/section-help";
 import { userFacingError } from "@/lib/api-error";
+import { safeFilename } from "@/lib/filename";
 import { TagSelector } from "@/components/tag-selector";
 import { apiRequest } from "@/lib/api-client";
+import {
+  detectEpisodeCountFromCreativeInput,
+} from "@/lib/input-readiness";
 import { analyzeInputReadiness } from "@/lib/input-readiness-client";
 import {
   createReferenceMaterial,
@@ -74,18 +78,66 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   const [isReadingReferences, setIsReadingReferences] = useState(false);
   const [inputReadiness, setInputReadiness] = useState<InputReadinessAnalysis | null>(null);
   const [isAnalyzingInput, setIsAnalyzingInput] = useState(false);
+  const [readinessNotice, setReadinessNotice] = useState<string | null>(null);
   const [episodeCountInput, setEpisodeCountInput] = useState(() => (
     project ? String(project.generationSettings.episodeCount) : ""
   ));
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const inputReadinessRequestRef = useRef(0);
+  const episodeCountManuallyEditedRef = useRef(mode === "edit" || Boolean(project));
+  const episodeCountAutoDetectedRef = useRef<number | null>(null);
 
   useEffect(() => {
+    episodeCountManuallyEditedRef.current = mode === "edit" || Boolean(project);
+    episodeCountAutoDetectedRef.current = null;
     if (project) {
       setDraft(toDraft(project));
       setEpisodeCountInput(String(project.generationSettings.episodeCount));
     }
-  }, [project?.id]);
+  }, [mode, project?.id]);
+
+  useEffect(() => {
+    if (mode !== "create" || isReadOnly || episodeCountManuallyEditedRef.current) return;
+    const detectedEpisodeCount = detectEpisodeCountFromCreativeInput(draft);
+    const previousAutoDetected = episodeCountAutoDetectedRef.current;
+    const validDetectedEpisodeCount = detectedEpisodeCount !== null
+      && detectedEpisodeCount >= 8
+      && detectedEpisodeCount <= 2_000
+      ? detectedEpisodeCount
+      : null;
+    if (validDetectedEpisodeCount === null) {
+      if (previousAutoDetected === null) return;
+      episodeCountAutoDetectedRef.current = null;
+      setEpisodeCountInput((current) => current === String(previousAutoDetected) ? "" : current);
+      setDraft((current) => current.generationSettings.episodeCount === previousAutoDetected
+        ? {
+            ...current,
+            generationSettings: normalizeGenerationSettings({
+              ...current.generationSettings,
+              episodeCountMode: DEFAULT_GENERATION_SETTINGS.episodeCountMode,
+              episodeCount: DEFAULT_GENERATION_SETTINGS.episodeCount,
+            }),
+          }
+        : current);
+      return;
+    }
+    episodeCountAutoDetectedRef.current = validDetectedEpisodeCount;
+    setEpisodeCountInput((current) => (
+      !current.trim() || current === String(previousAutoDetected)
+        ? String(validDetectedEpisodeCount)
+        : current
+    ));
+    setDraft((current) => current.generationSettings.episodeCount === validDetectedEpisodeCount
+      ? current
+      : {
+          ...current,
+          generationSettings: normalizeGenerationSettings({
+            ...current.generationSettings,
+            episodeCountMode: "custom",
+            episodeCount: validDetectedEpisodeCount,
+          }),
+        });
+  }, [draft, isReadOnly, mode]);
 
   useEffect(() => {
     let active = true;
@@ -246,11 +298,12 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
   async function beginProjectCreation() {
     if (
       !hasRequiredCreativeInput
-      || !episodeCountIsValid
+      || (episodeCountInput.trim().length > 0 && !episodeCountIsValid)
       || isReadingReferences
       || isAnalyzingInput
       || saveState === "saving"
     ) return;
+    setReadinessNotice(null);
     const requestId = inputReadinessRequestRef.current + 1;
     inputReadinessRequestRef.current = requestId;
     setIsAnalyzingInput(true);
@@ -258,8 +311,37 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     if (requestId !== inputReadinessRequestRef.current) return;
     setIsAnalyzingInput(false);
     if (!analysis) {
-      await saveNewProject();
+      if (episodeCountIsValid) {
+        await saveNewProject();
+      } else {
+        setReadinessNotice(t("inputReadiness.episodeCountRequired"));
+      }
       return;
+    }
+    const detectedEpisodeCount = analysis.detectedEpisodeCount;
+    const detectedEpisodeCountValue = typeof detectedEpisodeCount === "number"
+      && detectedEpisodeCount >= 8
+      && detectedEpisodeCount <= 2_000
+      ? detectedEpisodeCount
+      : null;
+    const detectedEpisodeCountIsValid = detectedEpisodeCountValue !== null;
+    if (
+      !episodeCountInput.trim()
+      && detectedEpisodeCountValue !== null
+    ) {
+      episodeCountAutoDetectedRef.current = detectedEpisodeCountValue;
+      setEpisodeCountInput(String(detectedEpisodeCountValue));
+      setDraft((current) => ({
+        ...current,
+        generationSettings: normalizeGenerationSettings({
+          ...current.generationSettings,
+          episodeCountMode: "custom",
+          episodeCount: detectedEpisodeCountValue,
+        }),
+      }));
+    }
+    if (!episodeCountIsValid && !detectedEpisodeCountIsValid) {
+      setReadinessNotice(t("inputReadiness.episodeCountRequired"));
     }
     setInputReadiness(analysis);
   }
@@ -300,6 +382,8 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
 
   function updateEpisodeCount(value: string) {
     if (isReadOnly) return;
+    episodeCountManuallyEditedRef.current = true;
+    episodeCountAutoDetectedRef.current = null;
     invalidateInputReadiness();
     setEpisodeCountInput(value);
     if (!/^\d+$/.test(value)) return;
@@ -328,7 +412,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-") || "script-project"}.json`;
+    anchor.download = `${safeFilename(draft.title)}.json`;
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();
@@ -353,6 +437,10 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
     inputReadinessRequestRef.current += 1;
     setInputReadiness(null);
     setIsAnalyzingInput(false);
+    setReadinessNotice(null);
+    setDraft((current) => current.inputReadiness
+      ? { ...current, inputReadiness: undefined }
+      : current);
   }
 
   function createWithReadinessPath(path: "recommended" | "full_workflow") {
@@ -405,7 +493,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             <div className="prompt-editor-wrap">
               <textarea
                 aria-label={t("editor.ideaLabel")}
-                maxLength={240}
+                maxLength={10_000}
                 onChange={(event) => updatePrompt(event.target.value)}
                 placeholder={t("editor.ideaPlaceholder")}
                 readOnly={isReadOnly}
@@ -413,7 +501,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
                 value={draft.creativePrompt}
               />
               <div className="prompt-editor-footer">
-                <span>{draft.creativePrompt.length}/240</span>
+                <span>{draft.creativePrompt.length}/10,000</span>
               </div>
             </div>
             <div className="reference-upload-panel">
@@ -640,13 +728,16 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
           {mode === "create" && inputReadiness ? (
             <InputReadinessConfirmation analysis={inputReadiness} t={t} />
           ) : null}
+          {readinessNotice ? (
+            <div className="inline-notice is-error" role="alert">{readinessNotice}</div>
+          ) : null}
           <div className="inspector-actions">
             {mode === "create" ? (
               inputReadiness ? (
                 <>
                   <button
                     className="primary-action full-width"
-                    disabled={saveState === "saving"}
+                    disabled={saveState === "saving" || !episodeCountIsValid}
                     onClick={() => createWithReadinessPath("recommended")}
                     type="button"
                   >
@@ -654,7 +745,7 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
                   </button>
                   <button
                     className="outline-action full-width"
-                    disabled={saveState === "saving"}
+                    disabled={saveState === "saving" || !episodeCountIsValid}
                     onClick={() => createWithReadinessPath("full_workflow")}
                     type="button"
                   >
@@ -664,11 +755,11 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
               ) : (
                 <button
                   className="primary-action full-width"
-                  disabled={!hasRequiredCreativeInput || !episodeCountIsValid || isReadingReferences || isAnalyzingInput || saveState === "saving"}
+                  disabled={!hasRequiredCreativeInput || (episodeCountInput.trim().length > 0 && !episodeCountIsValid) || isReadingReferences || isAnalyzingInput || saveState === "saving"}
                   onClick={() => void beginProjectCreation()}
                   type="button"
                 >
-                  {isAnalyzingInput ? t("inputReadiness.analyzing") : t("editor.createProjectAndPlan")} <ArrowIcon />
+                  {isAnalyzingInput ? t("inputReadiness.analyzing") : t("inputReadiness.checkAndContinue")} <ArrowIcon />
                 </button>
               )
             ) : (
@@ -704,6 +795,9 @@ export function ScriptProjectEditor({ project, mode }: ScriptProjectEditorProps)
             )}
           </div>
           {mode === "create" && !hasRequiredCreativeInput ? <small className="readiness-hint">{t("editor.beginHint")}</small> : null}
+          {mode === "create" && hasRequiredCreativeInput && !inputReadiness && !readinessNotice && !isAnalyzingInput ? (
+            <small className="readiness-hint">{t("inputReadiness.checkHint")}</small>
+          ) : null}
           {mode === "edit" && !hasExistingEpisodes ? <small className="readiness-hint">{storyBibleReady ? t("generation.recursivePlanningPending") : t("generation.planRequired")}</small> : null}
         </div>
       </aside>
@@ -736,6 +830,29 @@ function InputReadinessConfirmation({
         {t("inputReadiness.recommendation")}
         <b>{t(`inputReadiness.stage.${analysis.recommendedStage}`)}</b>
       </p>
+      {analysis.sourceCharacterCount || analysis.estimatedSupportedCharacters ? (
+        <div className="input-readiness-capacity">
+          <span>{t("inputReadiness.capacity")}</span>
+          <p>
+            {t("inputReadiness.capacitySource")}
+            <b>{(analysis.sourceCharacterCount ?? 0).toLocaleString()} {t("inputReadiness.characters")}</b>
+          </p>
+          <p>
+            {t("inputReadiness.capacityEstimate")}
+            <b>{(analysis.estimatedSupportedCharacters ?? 0).toLocaleString()} {t("inputReadiness.characters")}</b>
+          </p>
+          {analysis.capacityStatus !== "sufficient" ? (
+            <strong className="input-readiness-capacity-warning">
+              {analysis.capacityStatus === "target_reduce_recommended"
+                ? t("inputReadiness.capacityReduce")
+                : t("inputReadiness.capacitySupplement")}
+              {analysis.recommendedTargetTotalCharacters
+                ? ` ${t("inputReadiness.capacityTarget").replace("{count}", analysis.recommendedTargetTotalCharacters.toLocaleString())}`
+                : ""}
+            </strong>
+          ) : null}
+        </div>
+      ) : null}
       <div className="input-readiness-coverage">
         {coverage.map(([key, label]) => {
           const value = analysis.coverage[key];
@@ -754,6 +871,12 @@ function InputReadinessConfirmation({
           <ul>{analysis.missingItems.map((item) => <li key={item}>{item}</li>)}</ul>
         ) : <p>{t("inputReadiness.missingNone")}</p>}
       </div>
+      {analysis.supplementQuestions?.length ? (
+        <div className="input-readiness-questions">
+          <span>{t("inputReadiness.supplementQuestions")}</span>
+          <ul>{analysis.supplementQuestions.map((question) => <li key={question}>{question}</li>)}</ul>
+        </div>
+      ) : null}
       <small>{t("inputReadiness.guardrail")}</small>
     </section>
   );

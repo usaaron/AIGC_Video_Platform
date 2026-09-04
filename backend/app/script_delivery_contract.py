@@ -43,6 +43,19 @@ PARTNER_SCREENPLAY_SAMPLE_SHA256 = (
 )
 
 
+def clamp_legacy_numeric(
+    value: Any,
+    *,
+    minimum: int,
+    maximum: int,
+) -> Any:
+    """Preserve legacy non-numeric values while normalizing numeric budgets."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return min(maximum, max(minimum, round(value)))
+
+
 def normalize_episode_dialogue_plan_payload(value: Any) -> Any:
     """Upgrade legacy episode dialogue budgets without changing story content."""
 

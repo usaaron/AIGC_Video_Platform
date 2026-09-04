@@ -1097,12 +1097,15 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
-from app.modules.script_engine.models import ScriptGenerationDraftRun, ScriptRevisionRun
+from app.modules.script_engine.models import (
+    ScriptGenerationDraftRun as _ScriptGenerationDraftRun,
+    ScriptRevisionRun as _ScriptRevisionRun,
+)
 
 MasterScriptFinalizeRequest.model_rebuild(
     _types_namespace={
-        "ScriptGenerationDraftRun": ScriptGenerationDraftRun,
-        "ScriptRevisionRun": ScriptRevisionRun,
+        "ScriptGenerationDraftRun": _ScriptGenerationDraftRun,
+        "ScriptRevisionRun": _ScriptRevisionRun,
     }
 )
 MasterScript.model_rebuild()

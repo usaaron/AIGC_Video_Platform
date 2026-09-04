@@ -1,12 +1,56 @@
 import type { StoryPlanNode } from "./story-planning-client.ts";
-import type { EpisodeRoadmapItem } from "./types.ts";
+import type { CharacterDraft, EpisodeRoadmapItem } from "./types.ts";
 
 const STORY_PLAN_ROOT_MARKER = "system_story_bible_root.v1";
+
+export function episodeRoadmapSynopsis(item: EpisodeRoadmapItem): string {
+  const synopsis = item.synopsis?.trim();
+  if (synopsis) return synopsis;
+  return [
+    item.episode_goal,
+    item.central_conflict,
+    item.protagonist_decision,
+    item.episode_payoff,
+    item.exit_state,
+  ].filter(Boolean).join("。 ");
+}
+
+export function episodeRoadmapLocations(item: EpisodeRoadmapItem): string {
+  const locations = (item.locations ?? []).map((location) => location.trim()).filter(Boolean);
+  if (locations.length) return locations.join("、");
+  const headings = (item.scene_execution_plan ?? [])
+    .map((scene) => scene.scene_heading
+      .replace(/^(?:INT|EXT)\.\s*/i, "")
+      .replace(/\s+(?:DAY|NIGHT|日|夜)\s*$/i, "")
+      .trim())
+    .filter(Boolean);
+  return Array.from(new Set(headings)).join("、") || "场地待定";
+}
+
+function normalizedGenderLabel(gender: string): string {
+  const normalized = gender.trim().toLowerCase();
+  if (["女", "女性", "woman", "female"].includes(normalized)) return "女";
+  if (["男", "男性", "man", "male"].includes(normalized)) return "男";
+  return gender.trim() || "未指定";
+}
+
+export function episodeRoadmapCharacters(
+  item: EpisodeRoadmapItem,
+  characters: CharacterDraft[],
+): string {
+  return item.character_refs.map((reference) => {
+    const character = characters.find((candidate) => candidate.id === reference || candidate.name === reference);
+    return character
+      ? `${character.name}（${normalizedGenderLabel(character.gender)}）`
+      : reference;
+  }).join("、") || "人物待定";
+}
 
 export function toStoryPlanningMarkdown(
   projectTitle: string,
   nodes: StoryPlanNode[],
   roadmaps: EpisodeRoadmapItem[],
+  characters: CharacterDraft[] = [],
 ): string {
   const activeNodes = nodes
     .filter((node) => (
@@ -44,18 +88,15 @@ export function toStoryPlanningMarkdown(
       && nodeVersions.has(`${item.source_node_id}:${item.source_node_version}`)
     ))
     .sort((left, right) => left.episode_number - right.episode_number)
-    .map((item) => [
-      `## 第 ${item.episode_number} 集${item.episode_title?.trim() ? `《${item.episode_title.trim()}》` : ""}`,
-      `- 本集目标：${item.episode_goal}`,
-      `- 进入状态：${item.entry_state}`,
-      `- 中心冲突：${item.central_conflict}`,
-      `- 主角决定：${item.protagonist_decision}`,
-      `- 情绪变化：${item.emotional_movement}`,
-      `- 本集回报：${item.episode_payoff}`,
-      `- 退出状态：${item.exit_state}`,
-      `- 结尾钩子：${item.ending_hook_type}：${item.cliffhanger}`,
-      `- 下一集义务：${item.next_episode_obligation}`,
-    ].join("\n"));
+    .map((item) => {
+      const title = item.episode_title?.trim() || "本集待命名";
+      return [
+      `## EP${String(item.episode_number).padStart(2, "0")}｜${title}`,
+      `- 场地：${episodeRoadmapLocations(item)}`,
+      `- 出场人物 & 性别：${episodeRoadmapCharacters(item, characters)}`,
+      `- 梗概：${episodeRoadmapSynopsis(item)}`,
+      ].join("\n");
+    });
 
   return [
     `# ${projectTitle} · 剧情规划`,

@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from app.modules.content_spec.models import ContentSpec
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.master_script.models import (
+    DraftMasterScript,
     DraftSceneCard,
     MasterScript,
     MasterScriptFinalizationResult,
@@ -73,7 +74,6 @@ class MasterScriptService:
     ) -> MasterScriptFinalizationResult:
         draft_run = payload.script_generation_draft_run
         revision_run = payload.script_revision_run
-        draft_master_script = draft_run.draft_master_script
         revised_draft_master_script = revision_run.revised_draft_master_script
 
         self._validate_finalization_chain(

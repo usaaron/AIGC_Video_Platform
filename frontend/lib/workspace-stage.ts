@@ -66,8 +66,11 @@ export function workspaceSectionHref(
 ): string {
   if (section === "story-bible") return `/projects/${project.id}/planning`;
   if (section === "planning") return `/projects/${project.id}/planning/structure`;
-  const generationIntent = project.episodes.length ? "" : "?generate=1";
-  return `/projects/${project.id}/workspace${generationIntent}`;
+  // Entering the script workspace must never start generation implicitly.
+  // Generation is launched only by an explicit user action. Legacy callers
+  // may still provide `?generate=1` when they intentionally request a batch;
+  // this navigation helper never adds that intent itself.
+  return `/projects/${project.id}/workspace`;
 }
 
 export function currentWorkspaceHref(project: WorkspaceStageProject): string {

@@ -5,8 +5,8 @@ import {
   importedPlanningInstruction,
   importedStoryBibleInstruction,
   inputReadinessWorkflowIntent,
-  shouldAutoNormalizeImportedStoryBible,
-  shouldAutoPrepareImportedPlanning,
+  shouldApplyImportedPlanningConstraints,
+  shouldApplyImportedStoryBibleConstraints,
 } from "../lib/input-readiness-workflow.ts";
 
 function analysis(detectedLevel, selectedPath = "recommended") {
@@ -30,7 +30,7 @@ function analysis(detectedLevel, selectedPath = "recommended") {
   };
 }
 
-test("premise and full-workflow selections never start automatic import", () => {
+test("premise and full-workflow selections do not apply import constraints", () => {
   assert.deepEqual(inputReadinessWorkflowIntent(analysis("premise")), {
     normalizeStoryBible: false,
     prepareCompletePlanning: false,
@@ -47,11 +47,11 @@ test("premise and full-workflow selections never start automatic import", () => 
   });
 });
 
-test("recommended Story Bible input starts only Story Bible normalization", () => {
+test("recommended Story Bible input applies only Story Bible import constraints", () => {
   const project = { inputReadiness: analysis("story_bible") };
 
-  assert.equal(shouldAutoNormalizeImportedStoryBible(project), true);
-  assert.equal(shouldAutoPrepareImportedPlanning(project), false);
+  assert.equal(shouldApplyImportedStoryBibleConstraints(project), true);
+  assert.equal(shouldApplyImportedPlanningConstraints(project), false);
   assert.deepEqual(inputReadinessWorkflowIntent(project), {
     normalizeStoryBible: true,
     prepareCompletePlanning: false,

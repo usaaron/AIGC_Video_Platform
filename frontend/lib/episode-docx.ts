@@ -1,4 +1,5 @@
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
+import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
 import {
   applyChineseCharacterNames,
   mergeOverseasCharacterNames,
@@ -337,10 +338,7 @@ function latinUppercase(value: string): string {
 }
 
 function episodeDurationSeconds(draft: GeneratedDraft): number {
-  const metadata = draft.llm_metadata;
-  const estimated = metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? Number((metadata as Record<string, unknown>).estimated_duration_seconds)
-    : Number.NaN;
+  const estimated = draftMetadataCoercedNumber(draft, "estimated_duration_seconds") ?? Number.NaN;
   if (Number.isFinite(estimated) && estimated >= 75 && estimated <= 115) {
     return Math.round(estimated);
   }

@@ -39,7 +39,7 @@ test("workspace sections appear only after their planning checkpoint", () => {
   })).script, true);
 });
 
-test("approved legacy roadmap sessions remain able to enter script", () => {
+test("approved legacy roadmap sessions remain able to enter script without starting generation", () => {
   const legacyApproved = project({
     planningSession: { phase: "episode_roadmap", status: "approved" },
   });
@@ -47,7 +47,7 @@ test("approved legacy roadmap sessions remain able to enter script", () => {
   assert.equal(workspaceSectionAccess(legacyApproved).script, true);
   assert.equal(
     workspaceSectionHref(legacyApproved, "script"),
-    "/projects/project.stage/workspace?generate=1",
+    "/projects/project.stage/workspace",
   );
 });
 
@@ -58,7 +58,7 @@ test("legacy projects infer access only when no planning session exists", () => 
     episodePlansReadyThrough: 100,
   });
   assert.equal(workspaceSectionAccess(completed).script, true);
-  assert.equal(currentWorkspaceHref(completed), "/projects/project.stage/workspace?generate=1");
+  assert.equal(currentWorkspaceHref(completed), "/projects/project.stage/workspace");
 });
 
 test("navigation repairs an interrupted session transition from durable project data", () => {
@@ -97,7 +97,7 @@ test("page transitions and route guards share the planning session boundary", as
   assert.match(scriptWorkspace, /workspaceSectionAccess\(project\)\.script/);
   assert.match(scriptWorkspace, /router\.replace\(`\/projects\/\$\{project\.id\}\/workspace\?generate=1`\)/);
   assert.match(planningPanel, /phase:\s*"script"/);
-  assert.match(planningPanel, /router\.push\([^)]*workspace\?generate=1/);
+  assert.match(planningPanel, /router\.push\([^)]*workspace`/);
   for (const navigationSource of [appShell, home, sidebar, editor]) {
     assert.match(navigationSource, /currentWorkspaceHref\(project\)/);
     assert.doesNotMatch(navigationSource, /project\.episodes\.length\s*\?\s*`\/projects/);

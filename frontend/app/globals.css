@@ -287,7 +287,6 @@ select:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 .topbar-generation-idle { display: inline-flex; color: var(--ink-faint); }
-.topbar-generation-idle:hover { color: var(--ink); }
 .topbar-generation-status-item {
   display: inline-flex;
   min-width: 0;
@@ -1192,6 +1191,33 @@ select:focus-visible {
 .story-bible-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .story-bible-generation-timer { margin-top: 12px; color: var(--ink-soft); font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
 .story-bible-empty { margin-top: 18px; padding: 20px 0 4px; border-top: 1px solid var(--line); color: var(--ink-soft); }
+
+.story-bible-imported-source {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  background: rgba(247, 248, 243, 0.72);
+}
+
+.story-bible-imported-source summary {
+  cursor: pointer;
+  padding: 11px 14px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.story-bible-imported-source pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 0 14px 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.6;
+}
 .story-bible-content { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
 .story-bible-workbench { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(340px, .7fr); gap: 0; align-items: stretch; margin-top: 20px; border-top: 1px solid var(--line); }
 .story-bible-workbench.has-section-directory { grid-template-columns: 176px minmax(0, 1.6fr) minmax(340px, .7fr); }
@@ -3276,6 +3302,44 @@ select:focus-visible {
 
 .input-readiness-missing p {
   margin-top: 5px;
+}
+
+.input-readiness-capacity,
+.input-readiness-questions {
+  display: grid;
+  gap: 5px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+
+.input-readiness-capacity p {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.input-readiness-capacity p b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.input-readiness-capacity-warning {
+  color: #8a6127;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.input-readiness-questions ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--ink);
+  line-height: 1.45;
 }
 
 .outline-action {

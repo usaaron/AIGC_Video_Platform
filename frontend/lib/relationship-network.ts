@@ -4,6 +4,7 @@ import type {
   GeneratedDraft,
   ScriptProject,
 } from "@/lib/types";
+import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
 
 export interface RelationshipNodePosition {
   id: string;
@@ -207,13 +208,7 @@ function resolveEpisodeDraft(episode: EpisodeWorkspace): GeneratedDraft | null {
 }
 
 function parseDraft(value?: string): GeneratedDraft | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as GeneratedDraft;
-    return Array.isArray(parsed.scenes) && parsed.scenes.length ? parsed : null;
-  } catch {
-    return null;
-  }
+  return parseGeneratedDraft(value, { requireNonEmptyScenes: true });
 }
 
 function normalizeName(value: string): string {

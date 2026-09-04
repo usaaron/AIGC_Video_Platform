@@ -48,6 +48,10 @@ from app.modules.script_engine.screenplay_duration import (
     ScreenplayDurationEstimate,
     estimate_screenplay_duration,
 )
+from app.modules.script_engine.production_count_utils import (
+    episode_production_counts,
+    production_count_metadata,
+)
 
 
 EDITOR_DURATION_MIN_SECONDS = EPISODE_RUNTIME_MIN_SECONDS
@@ -255,11 +259,10 @@ class ScriptPostEditor:
                 EDITOR_DURATION_MIN_SECONDS,
                 EDITOR_DURATION_MAX_SECONDS,
             ],
-            "episode_scene_count": scene_count,
-            "episode_dialogue_line_count": dialogue_count,
-            "episode_shot_unit_count": shot_count,
-            "episode_production_count_policy": (
-                "scenes_1_5_dialogues_25_35_shots_15_20_v2"
+            **production_count_metadata(
+                scene_count=scene_count,
+                dialogue_count=dialogue_count,
+                shot_count=shot_count,
             ),
             "partner_screenplay_format_version": PARTNER_SCREENPLAY_FORMAT_VERSION,
         }
@@ -677,11 +680,10 @@ class ScriptPostEditor:
                         EDITOR_DURATION_MIN_SECONDS,
                         EDITOR_DURATION_MAX_SECONDS,
                     ],
-                    "episode_scene_count": scene_count,
-                    "episode_dialogue_line_count": dialogue_count,
-                    "episode_shot_unit_count": shot_count,
-                    "episode_production_count_policy": (
-                        "scenes_1_5_dialogues_25_35_shots_15_20_v2"
+                    **production_count_metadata(
+                        scene_count=scene_count,
+                        dialogue_count=dialogue_count,
+                        shot_count=shot_count,
                     ),
                     "partner_screenplay_format_version": (
                         PARTNER_SCREENPLAY_FORMAT_VERSION
@@ -792,11 +794,10 @@ class ScriptPostEditor:
             "script_editor_total_elapsed_ms": total_elapsed_ms or 0,
             "script_editor_source_duration_seconds": duration.total_seconds,
             "estimated_duration_seconds": duration.total_seconds,
-            "episode_scene_count": scene_count,
-            "episode_dialogue_line_count": dialogue_count,
-            "episode_shot_unit_count": shot_count,
-            "episode_production_count_policy": (
-                "scenes_1_5_dialogues_25_35_shots_15_20_v2"
+            **production_count_metadata(
+                scene_count=scene_count,
+                dialogue_count=dialogue_count,
+                shot_count=shot_count,
             ),
             "partner_screenplay_format_version": PARTNER_SCREENPLAY_FORMAT_VERSION,
         }
@@ -1646,11 +1647,7 @@ class ScriptPostEditor:
 
     @staticmethod
     def _production_counts(draft: DraftMasterScript) -> tuple[int, int, int]:
-        return (
-            len(draft.scenes),
-            sum(len(scene.dialogues) for scene in draft.scenes),
-            sum(len(scene.character_actions) for scene in draft.scenes),
-        )
+        return episode_production_counts(draft)
 
     @staticmethod
     def _build_prompt(

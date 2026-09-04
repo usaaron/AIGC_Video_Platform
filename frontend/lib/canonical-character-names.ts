@@ -4,6 +4,7 @@ import type {
   ScriptProject,
 } from "./types.ts";
 import { clientDialogueSpeaker } from "./client-screenplay-format.ts";
+import { parseGeneratedDraft } from "./generated-draft-parser.ts";
 import { normalizeScreenplayBodyOrder } from "./screenplay-body-order.ts";
 
 export interface CanonicalCharacterName {
@@ -292,12 +293,7 @@ function canonicalizeIdentityText(
 }
 
 function parseJsonDraft(value: string | undefined): GeneratedDraft | null {
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as GeneratedDraft;
-  } catch {
-    return null;
-  }
+  return parseGeneratedDraft(value);
 }
 
 function normalizeEnglishName(value: string): string {

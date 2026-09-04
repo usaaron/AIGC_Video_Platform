@@ -11,8 +11,10 @@ from app.modules.input_readiness.models import (
     CreativeInputReadiness,
     CreativeInputReadinessRequest,
     InputReadinessAnalysisMethod,
+    InputReadinessCapacityStatus,
     InputReadinessCoverage,
     InputReadinessLevel,
+    InputReadinessSourceKind,
     RecommendedWorkflowStage,
 )
 from app.modules.script_engine.llm_adapter import LLMAdapter
@@ -341,6 +343,13 @@ class CreativeInputReadinessService:
             InputReadinessLevel.script: screenplay_structure,
         }[level]
         confidence = cls._bounded(0.55 + confidence_score * 0.4, minimum=0.55, maximum=0.96)
+        capacity = cls._capacity_fields(
+            payload,
+            signals,
+            level,
+            coverage,
+            missing_items=missing_items,
+        )
         return CreativeInputReadiness(
             detected_level=level,
             confidence=round(confidence, 3),
@@ -349,6 +358,7 @@ class CreativeInputReadinessService:
             missing_items=missing_items,
             recommended_stage=cls._recommended_stage(level, coverage),
             analysis_method=InputReadinessAnalysisMethod.heuristic,
+            **capacity,
         )
 
     def _run_model_assessment(
@@ -430,6 +440,13 @@ class CreativeInputReadinessService:
             ],
             limit=20,
         )
+        capacity = cls._capacity_fields(
+            payload,
+            signals,
+            detected_level,
+            merged_coverage,
+            missing_items=missing_items,
+        )
         return CreativeInputReadiness(
             detected_level=detected_level,
             confidence=round(
@@ -445,7 +462,109 @@ class CreativeInputReadinessService:
             missing_items=missing_items,
             recommended_stage=cls._recommended_stage(detected_level, merged_coverage),
             analysis_method=InputReadinessAnalysisMethod.model_assisted,
+            **capacity,
         )
+
+    @classmethod
+    def _capacity_fields(
+        cls,
+        payload: CreativeInputReadinessRequest,
+        signals: _DocumentSignals,
+        level: InputReadinessLevel,
+        coverage: InputReadinessCoverage,
+        *,
+        missing_items: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Estimate how much final script the supplied material can safely support.
+
+        This is a planning warning, not a hard quota. The estimate intentionally
+        leaves room for the existing workflow to expand structure and dialogue,
+        while making very sparse inputs visible before generation starts.
+        """
+
+        coverage_value = coverage.model_dump()[level.value]
+        expansion_factor = {
+            InputReadinessLevel.premise: 4.0,
+            InputReadinessLevel.story_bible: 6.0,
+            InputReadinessLevel.episode_plan: 3.2,
+            InputReadinessLevel.script: 1.25,
+        }[level]
+        confidence_factor = 0.55 + cls._bounded(coverage_value) * 0.45
+        estimated = max(
+            0,
+            round(signals.character_count * expansion_factor * confidence_factor),
+        )
+        target = max(1_000, payload.target_total_characters)
+        ratio = estimated / target if target else 0.0
+        if ratio >= 0.85:
+            status = InputReadinessCapacityStatus.sufficient
+        elif ratio >= 0.45:
+            status = InputReadinessCapacityStatus.supplement_recommended
+        else:
+            status = InputReadinessCapacityStatus.target_reduce_recommended
+
+        recommended_target: int | None = None
+        if status != InputReadinessCapacityStatus.sufficient:
+            recommended_target = max(1_000, round(estimated / 0.85))
+            if target >= 80_000:
+                recommended_target = max(80_000, recommended_target)
+            recommended_target = min(target, recommended_target)
+
+        questions: list[str] = []
+        if level == InputReadinessLevel.premise:
+            if not signals.premise_protagonist:
+                questions.append("主角是谁，当前最想得到或守住什么？")
+            if not signals.premise_conflict:
+                questions.append("谁或什么力量会阻止主角，冲突的具体表现是什么？")
+            if not signals.premise_ending:
+                questions.append("你希望观众最终获得什么情绪或价值上的落点？")
+        elif level == InputReadinessLevel.story_bible:
+            questions.extend([
+                "是否有需要优先推进或尽快收束的故事线？没有的话，系统将按每条故事线自身的因果节奏安排，不能静默遗忘任何已建立的故事线。",
+                "主要人物在结局前必须发生哪些不可逆的变化？",
+            ])
+        elif level == InputReadinessLevel.episode_plan:
+            questions.extend([
+                "缺失分集的集号、局部目标和结尾状态分别是什么？",
+                "哪些分集或故事线是不能改写的固定安排？",
+            ])
+        if missing_items and level in (
+            InputReadinessLevel.story_bible,
+            InputReadinessLevel.episode_plan,
+            InputReadinessLevel.script,
+        ):
+            questions.extend(
+                f"针对“{item.rstrip('。')}”，你希望补充哪些明确内容？"
+                for item in missing_items[:4]
+            )
+        if status != InputReadinessCapacityStatus.sufficient:
+            questions.append(
+                f"当前输入预计可支撑约 {estimated:,} 字，是否补充设定或将目标调整到约 {recommended_target or estimated:,} 字？"
+            )
+        return {
+            "source_character_count": signals.character_count,
+            "detected_episode_count": len(signals.episode_numbers) or None,
+            "source_kinds": cls._source_kinds(signals),
+            "estimated_supported_characters": estimated,
+            "capacity_status": status,
+            "recommended_target_total_characters": recommended_target,
+            "supplement_questions": cls._dedupe_text(questions, limit=12),
+        }
+
+    @staticmethod
+    def _source_kinds(signals: _DocumentSignals) -> list[InputReadinessSourceKind]:
+        kinds: list[InputReadinessSourceKind] = []
+        if signals.scene_heading_count or signals.dialogue_line_count:
+            kinds.append(InputReadinessSourceKind.script)
+        if signals.episode_numbers and signals.plan_signals:
+            kinds.append(InputReadinessSourceKind.episode_plan)
+        if signals.bible_signals:
+            kinds.append(InputReadinessSourceKind.story_bible)
+        if not kinds:
+            kinds.append(InputReadinessSourceKind.premise)
+        if len(kinds) > 1:
+            return [InputReadinessSourceKind.mixed]
+        return kinds
 
     @staticmethod
     def _maximum_structurally_supported_level(

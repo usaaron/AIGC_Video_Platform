@@ -545,6 +545,8 @@ export interface EpisodeRoadmapItem {
   status: "draft" | "approved";
   episode_number: number;
   episode_title?: string | null;
+  synopsis?: string | null;
+  locations?: string[];
   target_duration_seconds: number;
   planned_scene_count: number;
   planned_shot_count: number;
@@ -1005,6 +1007,18 @@ export type InputReadinessLevel =
 
 export type InputReadinessStage = "story_bible" | "planning" | "script";
 
+export type InputReadinessCapacityStatus =
+  | "sufficient"
+  | "supplement_recommended"
+  | "target_reduce_recommended";
+
+export type InputReadinessSourceKind =
+  | "premise"
+  | "story_bible"
+  | "episode_plan"
+  | "script"
+  | "mixed";
+
 export interface InputReadinessAnalysis {
   schemaVersion: "input_readiness.v1";
   detectedLevel: InputReadinessLevel;
@@ -1021,8 +1035,15 @@ export interface InputReadinessAnalysis {
   requiresUserConfirmation: boolean;
   analysisMethod: "heuristic" | "model_assisted";
   analyzedAt: string;
+  detectedEpisodeCount?: number | null;
   selectedPath?: "recommended" | "full_workflow";
   selectedAt?: string;
+  sourceCharacterCount?: number;
+  sourceKinds?: InputReadinessSourceKind[];
+  estimatedSupportedCharacters?: number;
+  capacityStatus?: InputReadinessCapacityStatus;
+  recommendedTargetTotalCharacters?: number | null;
+  supplementQuestions?: string[];
 }
 
 export type TagCategory = "Genre" | "Story Element" | "Emotion" | "Audience" | "My Tags";

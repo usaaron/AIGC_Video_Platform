@@ -13,6 +13,7 @@ import type {
   ProjectStoryLine,
 } from "@/lib/types";
 import type { StoryBible } from "@/lib/story-planning-client";
+import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
 
 const PROJECT_CONTINUITY_SUMMARY_MAX_CHARACTERS = 7000;
 const CRITICAL_CONTINUITY_DOMAINS = new Set([
@@ -1406,11 +1407,5 @@ function resolveEpisodeDraft(episode: EpisodeWorkspace): GeneratedDraft {
 }
 
 function parseDraft(value?: string): GeneratedDraft | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as GeneratedDraft;
-    return Array.isArray(parsed.scenes) ? parsed : null;
-  } catch {
-    return null;
-  }
+  return parseGeneratedDraft(value);
 }

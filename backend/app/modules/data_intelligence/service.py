@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from typing import Any
 
 from app.modules.content_spec.models import (
     ContentSpec,
