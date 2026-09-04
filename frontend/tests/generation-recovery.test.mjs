@@ -149,6 +149,16 @@ test("completed planning continues ready script parts but respects every stop st
   }), false);
 });
 
+test("automatic script continuation keeps legacy callers without planning status compatible", () => {
+  assert.equal(shouldAutomaticallyContinueScriptGeneration({
+    planningPhase: "script",
+    existingEpisodeCount: 1,
+    nextReadyEpisode: 2,
+    generationIntent: false,
+    busy: false,
+  }), true);
+});
+
 test("generation checkpoints advance monotonically across success, failure, and retry", () => {
   const afterSuccess = completeRecoveryEpisode(baseTask, 11);
   const afterFailure = failGenerationRecoveryTask(afterSuccess, 12, "timeout");

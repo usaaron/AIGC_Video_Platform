@@ -593,6 +593,7 @@ export function ScriptWorkspace() {
     project?.generationSettings.episodeCount,
     project?.id,
     project?.planningSession?.phase,
+    project?.planningSession?.status,
     project?.storyBibleVersion,
     scriptAccessible,
   ]);
@@ -692,6 +693,7 @@ export function ScriptWorkspace() {
     project?.activeGenerationTask?.status,
     project?.episodes.length,
     project?.id,
+    project?.planningSession?.status,
     scriptAccessible,
   ]);
 
