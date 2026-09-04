@@ -79,6 +79,9 @@ export function storyBibleRegenerationPatch(
     storyBibleInputSignature: project.storyBibleInputSignature,
     storyBibleStatus: generated.status,
     storyBibleVersion: generated.version,
+    // Episode-plan source audits are lineage-bound to the prior Story Bible;
+    // a new draft/version must be inspected again instead of being reused.
+    episodePlanImportDraft: undefined,
     episodePlansReadyThrough: undefined,
     episodeRoadmaps: [],
     storyTreeQualityAudit: undefined,

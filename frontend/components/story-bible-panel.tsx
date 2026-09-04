@@ -361,6 +361,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         planningSession: confirmedSession,
         episodeRoadmapRequired: true,
         episodeRoadmaps: [],
+        episodePlanImportDraft: undefined,
       });
       void savePlanningSession(project, confirmedSession)
         .then((saved) => onProjectUpdate?.({ planningSession: saved }))
@@ -386,6 +387,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       onProjectUpdate?.({
         storyBibleStatus: saved.status,
         storyBibleVersion: saved.version,
+        episodePlanImportDraft: undefined,
       });
       setIsEditing(false);
       setMessage(t("storyBible.saved"));
@@ -543,6 +545,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       onProjectUpdate?.({
         storyBibleStatus: restored.status,
         storyBibleVersion: restored.version,
+        episodePlanImportDraft: undefined,
         episodePlansReadyThrough: undefined,
         episodeRoadmaps: [],
       });

@@ -19,6 +19,7 @@ test("Story Bible regeneration clears downstream state and adopts its generated 
     episodes: [],
     generationBatches: [{ id: "batch.1" }],
     episodeRoadmaps: [{ episode: 1 }],
+    episodePlanImportDraft: { sourceFingerprint: "sha256:stale" },
     continuationHooks: [{ episodeNumber: 1 }],
     activeEpisodeNumber: 4,
     storyLines: [{ id: "storyline.1" }],
@@ -46,6 +47,7 @@ test("Story Bible regeneration clears downstream state and adopts its generated 
   assert.deepEqual(patch.episodes, []);
   assert.deepEqual(patch.generationBatches, []);
   assert.deepEqual(patch.episodeRoadmaps, []);
+  assert.equal(patch.episodePlanImportDraft, undefined);
   assert.deepEqual(patch.continuationHooks, []);
   assert.deepEqual(patch.storyLines, []);
   assert.deepEqual(patch.characterRelationships, []);

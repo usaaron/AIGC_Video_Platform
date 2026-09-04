@@ -34,6 +34,16 @@ test("planning requires a saved checkpoint before approval and locks the approve
   assert.match(panel, /planningLocked \? \([\s\S]*导出规划/);
 });
 
+test("a new Story Bible lineage invalidates a prior episode import audit", async () => {
+  const [panel, state] = await Promise.all([
+    source("components/story-bible-panel.tsx"),
+    source("lib/story-planning-state.ts"),
+  ]);
+
+  assert.match(panel, /episodePlanImportDraft:\s*undefined/);
+  assert.match(state, /episodePlanImportDraft:\s*undefined/);
+});
+
 test("the planning export includes only the confirmed active roadmap lineage", () => {
   const nodes = [
     planningNode({ node_id: "active", version: 2, title: "当前剧情" }),
