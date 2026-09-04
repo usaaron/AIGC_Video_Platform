@@ -183,7 +183,10 @@ export function shouldAutomaticallyContinueScriptGeneration(input: {
   recoveryTaskStatus?: GenerationRecoveryStatus;
 }): boolean {
   return input.planningPhase === "script"
-    && input.planningStatus === "approved"
+    // Keep callers that predate durable planning-session status compatible;
+    // the workspace passes the status whenever it has one, which blocks a
+    // malformed active/awaiting_review session from auto-starting.
+    && (input.planningStatus === undefined || input.planningStatus === "approved")
     && input.existingEpisodeCount > 0
     && input.nextReadyEpisode !== null
     && !input.generationIntent
