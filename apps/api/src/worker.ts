@@ -109,6 +109,7 @@ const aiJobRepository = new AiJobRepository(store, creditLedger, database, outbo
 await generationTaskRepository.refreshRuntimeCacheFromDatabase({ activeOnly: Boolean(database) })
 const initialWorkerProjectIds = await activeWorkerProjectIds(generationTaskRepository, agentRunRepository)
 let cachedWorkerProjectIdsKey = workerProjectIdsKey(initialWorkerProjectIds)
+let cachedWorkerProjectVersions = await projectRepository.runtimeProjectVersions(initialWorkerProjectIds)
 await Promise.all([
   projectRepository.refreshRuntimeCacheFromDatabase({
     projectIds: initialWorkerProjectIds,
@@ -129,7 +130,21 @@ const refreshQueueRuntimeCache = database
         if (nextProjectIdsKey !== cachedWorkerProjectIdsKey) {
           await projectRepository.refreshRuntimeCacheFromDatabase({ projectIds })
           cachedWorkerProjectIdsKey = nextProjectIdsKey
+          cachedWorkerProjectVersions = await projectRepository.runtimeProjectVersions(projectIds)
+          return
         }
+
+        const nextProjectVersions = await projectRepository.runtimeProjectVersions(projectIds)
+        const changedProjectIds = projectIds.filter(
+          (projectId) => cachedWorkerProjectVersions.get(projectId) !== nextProjectVersions.get(projectId),
+        )
+        if (changedProjectIds.length) {
+          await projectRepository.refreshRuntimeCacheFromDatabase({
+            projectIds: changedProjectIds,
+            merge: true,
+          })
+        }
+        cachedWorkerProjectVersions = nextProjectVersions
       })().finally(() => {
         queueRuntimeSyncPromise = null
       })

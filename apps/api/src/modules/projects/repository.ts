@@ -45,6 +45,11 @@ import {
   upsertShot,
 } from './repositoryData.js'
 import { readWorkspaceVersion, readWorkspaceVersionFromStore } from './workspaceVersion.js'
+import {
+  refreshProjectWorkspaceRuntimeCache,
+  type ProjectRuntimeCacheOptions,
+  readRuntimeProjectVersions,
+} from './runtimeCache.js'
 
 export { projectGenerationSummary, projectPreviewUrl } from './projectPreview.js'
 
@@ -56,10 +61,6 @@ export type ProjectJsonImportResult = {
   projects: { inserted: number; skipped: number }
   assets: { inserted: number; skipped: number }
   shots: { inserted: number; skipped: number }
-}
-
-export type ProjectRuntimeCacheOptions = {
-  projectIds?: readonly string[]
 }
 
 export class ProjectRepository {
@@ -2058,45 +2059,11 @@ export class ProjectRepository {
   }
 
   async refreshRuntimeCacheFromDatabase(options: ProjectRuntimeCacheOptions = {}): Promise<void> {
-    if (!this.database || !this.store) return
-    const projectIds =
-      options.projectIds === undefined ? undefined : [...new Set(options.projectIds.filter(Boolean))]
-    if (projectIds && !projectIds.length) {
-      await this.store.replaceProjectWorkspaceRuntimeCacheAsync({
-        projects: [],
-        scriptEpisodes: [],
-        assets: [],
-        shots: [],
-      })
-      return
-    }
-    const projectFilter = projectIds ? ' WHERE id = ANY($1::text[])' : ''
-    const workspaceFilter = projectIds ? ' WHERE project_id = ANY($1::text[])' : ''
-    const params = projectIds ? [projectIds] : []
-    const [projects, scriptEpisodes, assets, shots] = await Promise.all([
-      this.database.query<ProjectRow>(
-        `SELECT ${projectColumns} FROM projects${projectFilter} ORDER BY updated_at DESC`,
-        params,
-      ),
-      this.database.query<ScriptEpisodeRow>(
-        `SELECT ${scriptEpisodeColumns} FROM script_episodes${workspaceFilter} ORDER BY project_id, episode_number ASC`,
-        params,
-      ),
-      this.database.query<AssetRow>(
-        `SELECT ${assetColumns} FROM assets${workspaceFilter} ORDER BY updated_at DESC, created_at DESC`,
-        params,
-      ),
-      this.database.query<ShotRow>(
-        `SELECT ${shotColumns} FROM shots${workspaceFilter} ORDER BY shot_order ASC`,
-        params,
-      ),
-    ])
-    await this.store.replaceProjectWorkspaceRuntimeCacheAsync({
-      projects: projects.rows.map(projectFromRow),
-      scriptEpisodes: scriptEpisodes.rows.map(scriptEpisodeFromRow),
-      assets: assets.rows.map(assetFromRow),
-      shots: shots.rows.map(shotFromRow),
-    })
+    await refreshProjectWorkspaceRuntimeCache(this.database, this.store, options)
+  }
+
+  async runtimeProjectVersions(projectIds: readonly string[]): Promise<Map<string, string>> {
+    return this.database ? readRuntimeProjectVersions(this.database, projectIds) : new Map()
   }
 
   private async mirrorProject(project: Project): Promise<void> {
