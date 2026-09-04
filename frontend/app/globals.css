@@ -6292,3 +6292,22 @@ select:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.series-export-confirmation {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.85rem 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line, #d8d2c7);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--surface, #fff) 92%, #d49b52 8%);
+}
+
+.series-export-confirmation.is-confirmed {
+  border-color: color-mix(in srgb, #4f8b64 55%, var(--line, #d8d2c7));
+}
+
+.series-export-confirmation p {
+  margin: 0;
+  color: var(--muted, #70695e);
+  font-size: 0.86rem;
+}

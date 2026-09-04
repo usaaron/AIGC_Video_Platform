@@ -84,6 +84,7 @@ import {
   isScriptGenerationAbortError,
   isScriptGenerationPauseRequested,
   isScriptGenerationPauseAbort,
+  isScriptGenerationRunning,
   registerScriptGenerationAbortController,
   requestScriptGenerationPause,
   resumeScriptGenerationTask,
@@ -133,6 +134,10 @@ import {
 import { buildProductionIndex } from "@/lib/production-index";
 import { createProductionWorkbookAttachments } from "@/lib/production-workbooks";
 import { createScreenplayDocxBlob } from "@/lib/episode-docx";
+import {
+  buildSeriesDeliveryConfirmation,
+  isSeriesDeliveryConfirmationCurrent,
+} from "@/lib/episode-delivery-confirmation";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
   saveEpisodeArtifactOnServer,
@@ -213,6 +218,23 @@ function episodeHasSavedDraft(episode: EpisodeWorkspace): boolean {
       || normalized.status === "confirmed"
       || normalized.status === "final"
   ) && !normalized.deepeningRun?.candidate_draft_master_script;
+}
+
+function isPlannedEpisodeNumber(episodeNumber: number, episodeCount: number): boolean {
+  return Number.isSafeInteger(episodeNumber)
+    && episodeNumber >= 1
+    && Number.isSafeInteger(episodeCount)
+    && episodeCount > 0
+    && episodeNumber <= episodeCount;
+}
+
+function plannedEpisodesForProject(
+  project: Pick<ScriptProject, "episodes" | "generationSettings">,
+): EpisodeWorkspace[] {
+  return project.episodes.filter((episode) => isPlannedEpisodeNumber(
+    episode.episodeNumber,
+    project.generationSettings.episodeCount,
+  ));
 }
 
 const CREATIVE_DEEPENING_ENABLED = (
@@ -475,6 +497,11 @@ export function ScriptWorkspace() {
   const automaticallyStartedScriptParts = useRef(new Set<string>());
   const pendingInlineDraftsRef = useRef(new Map<number, GeneratedDraft>());
   const candidateBaseInlineEditsRef = useRef(new Set<number>());
+  const deliveryValidationCacheRef = useRef<{
+    project: ScriptProject;
+    confirmation: unknown;
+    value: boolean;
+  } | null>(null);
   const generateNextStageRef = useRef<(
     instruction?: string,
     requestedRange?: { startEpisode: number; endEpisode: number },
@@ -763,9 +790,9 @@ export function ScriptWorkspace() {
   const projectCharacterNameMap = Object.fromEntries(
     collectProjectOverseasCharacterNames(currentProject),
   );
+  const plannedEpisodes = plannedEpisodesForProject(currentProject);
   const seriesMissingBilingualCount = currentProject.generationSettings.releaseRegion === "overseas"
-    ? currentProject.episodes
-      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
+    ? plannedEpisodes
       .reduce((count, item) => {
         const draft = resolveSavedDraft(item);
         if (!draft) return count + 1;
@@ -782,7 +809,7 @@ export function ScriptWorkspace() {
         projectCharacterNameMap,
       )
     : undefined;
-  const metricDrafts = currentProject.episodes.map((item) => (
+  const metricDrafts = plannedEpisodes.map((item) => (
     resolveWorkingDraft(item)
   ));
   const seriesTextMetrics = calculateSeriesTextMetrics(
@@ -814,8 +841,33 @@ export function ScriptWorkspace() {
       || currentProject.activeGenerationTask.status === "completed");
   const allPlannedEpisodesSaved = allPlannedEpisodesGenerated
     && currentProject.episodes
-      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
+      .filter((item) => isPlannedEpisodeNumber(
+        item.episodeNumber,
+        currentProject.generationSettings.episodeCount,
+      )).length === currentProject.generationSettings.episodeCount
+    && currentProject.episodes
+      .filter((item) => isPlannedEpisodeNumber(
+        item.episodeNumber,
+        currentProject.generationSettings.episodeCount,
+      ))
       .every(episodeHasSavedDraft);
+  const cachedDeliveryValidation = deliveryValidationCacheRef.current;
+  const seriesDeliveryConfirmed = cachedDeliveryValidation
+    && cachedDeliveryValidation.project === currentProject
+    && cachedDeliveryValidation.confirmation === currentProject.deliveryConfirmation
+    ? cachedDeliveryValidation.value
+    : (() => {
+        const value = isSeriesDeliveryConfirmationCurrent(
+          currentProject,
+          currentProject.deliveryConfirmation,
+        );
+        deliveryValidationCacheRef.current = {
+          project: currentProject,
+          confirmation: currentProject.deliveryConfirmation,
+          value,
+        };
+        return value;
+      })();
   const currentEpisodeLocked = episodeIsLocked(currentEpisode);
   const scriptInlineEditingEnabled = !currentEpisodeLocked
     && selectedDocumentView === "current"
@@ -1709,13 +1761,66 @@ export function ScriptWorkspace() {
 
   generateNextStageRef.current = generateNextStage;
 
+  async function confirmSeriesDelivery() {
+    if (!allPlannedEpisodesSaved || seriesExportBusy) return;
+    setSeriesExportBusy(true);
+    setMessage(null);
+    try {
+      const confirmed = await confirmLatestSeriesDelivery(
+        currentProject.id,
+        updateProject,
+        getProject,
+      );
+      if (!confirmed) throw new Error(t("workspace.confirmSeriesDeliveryFailed"));
+      setMessage(t("workspace.confirmSeriesDeliverySaved"));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t("workspace.confirmSeriesDeliveryFailed"));
+    } finally {
+      setSeriesExportBusy(false);
+    }
+  }
+
+  function getConfirmedSeriesExportProject(): ScriptProject | null {
+    try {
+      const latestProject = getProject(currentProject.id) ?? currentProject;
+      const episodeCount = latestProject.generationSettings.episodeCount;
+      const plannedEpisodes = plannedEpisodesForProject(latestProject);
+      const ready = Number.isInteger(episodeCount)
+        && episodeCount > 0
+        && plannedEpisodes.length === episodeCount
+        && contiguousEpisodeCoverageThrough(
+          latestProject.episodes.map((item) => item.episodeNumber),
+        ) >= episodeCount
+        && !isScriptGenerationRunning(latestProject.id)
+        && (!latestProject.activeGenerationTask
+          || latestProject.activeGenerationTask.status === "completed")
+        && plannedEpisodes.every(episodeHasSavedDraft);
+      if (!ready) {
+        setMessage(t("workspace.exportSaveRequiredSeries"));
+        return null;
+      }
+      if (!isSeriesDeliveryConfirmationCurrent(
+        latestProject,
+        latestProject.deliveryConfirmation,
+      )) {
+        setMessage(t("workspace.exportSeriesConfirmationRequired"));
+        return null;
+      }
+      return latestProject;
+    } catch {
+      setMessage(t("workspace.exportSeriesConfirmationRequired"));
+      return null;
+    }
+  }
+
   function downloadSeriesData() {
     if (!allPlannedEpisodesSaved) {
       setMessage(t("workspace.exportSaveRequiredSeries"));
       return;
     }
-    const ordered = currentProject.episodes
-      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
+    const exportProject = getConfirmedSeriesExportProject();
+    if (!exportProject) return;
+    const ordered = plannedEpisodesForProject(exportProject)
       .slice()
       .sort((a, b) => a.episodeNumber - b.episodeNumber)
       .map((item) => {
@@ -1730,15 +1835,22 @@ export function ScriptWorkspace() {
     downloadFile(
       JSON.stringify({
         schema_version: "ai_comic_series_export.v1",
-        project_id: currentProject.id,
-        title: currentProject.title,
-        tags: currentProject.selectedTagIds,
-        characters: currentProject.characters,
+        project_id: exportProject.id,
+        title: exportProject.title,
+        tags: exportProject.selectedTagIds,
+        characters: exportProject.characters,
         planning_mode: "recursive_tree",
-        text_metrics: seriesTextMetrics,
+        text_metrics: exportProject === currentProject
+          ? seriesTextMetrics
+          : calculateSeriesTextMetrics(
+              plannedEpisodesForProject(exportProject).map((item) => resolveWorkingDraft(item)),
+              exportProject.generationSettings.targetTotalCharacters,
+              exportProject.generationSettings.episodeCount,
+            ),
+        delivery_confirmation: exportProject.deliveryConfirmation,
         episodes: ordered,
       }, null, 2),
-      `${safeFilename(currentProject.title)}-full-script.json`,
+      `${safeFilename(exportProject.title)}-full-script.json`,
       "application/json",
     );
   }
@@ -1752,18 +1864,29 @@ export function ScriptWorkspace() {
       setMessage(t("workspace.exportSaveRequiredSeries"));
       return;
     }
+    const exportProject = getConfirmedSeriesExportProject();
+    if (!exportProject) return;
+    const exportCharacterNameMap = exportProject === currentProject
+      ? projectCharacterNameMap
+      : Object.fromEntries(collectProjectOverseasCharacterNames(exportProject));
+    const exportTextMetrics = exportProject === currentProject
+      ? seriesTextMetrics
+      : calculateSeriesTextMetrics(
+          plannedEpisodesForProject(exportProject).map((item) => resolveWorkingDraft(item)),
+          exportProject.generationSettings.targetTotalCharacters,
+          exportProject.generationSettings.episodeCount,
+        );
 
-    const episodes = currentProject.episodes
-      .filter((item) => item.episodeNumber <= currentProject.generationSettings.episodeCount)
+    const episodes = plannedEpisodesForProject(exportProject)
       .slice()
       .sort((a, b) => a.episodeNumber - b.episodeNumber)
       .map((item) => {
         const draft = resolveSavedDraft(item);
         if (!draft) throw new Error(t("workspace.exportSaveRequiredSeries"));
-        const bilingualView = currentProject.generationSettings.releaseRegion === "overseas"
+        const bilingualView = exportProject.generationSettings.releaseRegion === "overseas"
           ? resolveCurrentOverseasDialogueView(
               draft,
-              projectCharacterNameMap,
+              exportCharacterNameMap,
             )
           : undefined;
         return {
@@ -1773,7 +1896,7 @@ export function ScriptWorkspace() {
         };
       });
     const missingBilingualCount = formats.length
-      && currentProject.generationSettings.releaseRegion === "overseas"
+      && exportProject.generationSettings.releaseRegion === "overseas"
       ? episodes.filter((item) => !item.bilingualView).length
       : 0;
     if (missingBilingualCount > 0) {
@@ -1785,11 +1908,11 @@ export function ScriptWorkspace() {
     try {
       const productionAttachments = seriesExportProductionPackage
         ? (await createProductionWorkbookAttachments(
-            currentProject.title,
+            exportProject.title,
             buildProductionIndex({
-              characters: currentProject.characters,
-              relationships: currentProject.characterRelationships,
-              continuityStates: currentProject.continuityStates,
+              characters: exportProject.characters,
+              relationships: exportProject.characterRelationships,
+              continuityStates: exportProject.continuityStates,
               episodes,
             }),
           )).map((attachment) => ({
@@ -1799,35 +1922,37 @@ export function ScriptWorkspace() {
         : [];
       if (seriesExportMode === "episodes") {
         const archive = await createEpisodeArchive(
-          currentProject.title,
+          exportProject.title,
           episodes,
           formats,
           productionAttachments,
         );
-        downloadBlob(archive, seriesArchiveFilename(currentProject.title, "episodes"));
+        if (!getConfirmedSeriesExportProject()) return;
+        downloadBlob(archive, seriesArchiveFilename(exportProject.title, "episodes"));
       } else {
         const documents = await Promise.all(formats.map(async (format) => ({
           format,
           content: format === "word"
-            ? await createScreenplayDocxBlob(currentProject.title, episodes, { includeCover: true })
+            ? await createScreenplayDocxBlob(exportProject.title, episodes, { includeCover: true })
             : toSeriesDocument(
-                currentProject.title,
+                exportProject.title,
                 episodes,
                 format,
-                seriesExportPreface(format, seriesTextMetrics, numberFormatter),
+                seriesExportPreface(format, exportTextMetrics, numberFormatter),
               ),
         })));
         if (documents.length === 1 && !productionAttachments.length) {
           const document = documents[0];
+          if (!getConfirmedSeriesExportProject()) return;
           if (document.content instanceof Blob) {
             downloadBlob(
               document.content,
-              collectionDocumentFilename(currentProject.title, document.format),
+              collectionDocumentFilename(exportProject.title, document.format),
             );
           } else {
             downloadFile(
               document.content,
-              collectionDocumentFilename(currentProject.title, document.format),
+              collectionDocumentFilename(exportProject.title, document.format),
               document.format === "markdown"
                 ? "text/markdown;charset=utf-8"
                 : "text/plain;charset=utf-8",
@@ -1835,11 +1960,12 @@ export function ScriptWorkspace() {
           }
         } else {
           const archive = await createCollectionArchive(
-            currentProject.title,
+            exportProject.title,
             documents,
             productionAttachments,
           );
-          downloadBlob(archive, seriesArchiveFilename(currentProject.title, "collection"));
+          if (!getConfirmedSeriesExportProject()) return;
+          downloadBlob(archive, seriesArchiveFilename(exportProject.title, "collection"));
         }
       }
       setSeriesExportOpen(false);
@@ -2079,20 +2205,38 @@ export function ScriptWorkspace() {
               {(seriesExportMode === "episodes"
                 ? t("workspace.exportEpisodesSummary")
                 : t("workspace.exportCollectionSummary"))
-                .replace("{count}", numberFormatter.format(currentProject.episodes.length))}
+                .replace("{count}", numberFormatter.format(plannedEpisodes.length))}
               {seriesExportProductionPackage ? ` ${t("workspace.exportProductionPackageSummary")}` : ""}
             </p>
+            <section className={`series-export-confirmation${seriesDeliveryConfirmed ? " is-confirmed" : ""}`}>
+              <strong>{t("workspace.deliveryConfirmTitle")}</strong>
+              <p>
+                {seriesDeliveryConfirmed
+                  ? t("workspace.deliveryConfirmCurrent").replace("{time}", currentProject.deliveryConfirmation?.confirmedAt ?? "")
+                  : t("workspace.deliveryConfirmPending")}
+              </p>
+              {!seriesDeliveryConfirmed ? (
+                <button
+                  className="outline-action"
+                  disabled={seriesExportBusy}
+                  onClick={() => void confirmSeriesDelivery()}
+                  type="button"
+                >
+                  {t("workspace.confirmSeriesDelivery")}
+                </button>
+              ) : null}
+            </section>
             {seriesMissingBilingualCount > 0 && Object.values(seriesExportFormats).some(Boolean) ? (
               <div className="inline-notice">
                 {t("workspace.exportBilingualRequired").replace("{count}", String(seriesMissingBilingualCount))}
               </div>
             ) : null}
             <div className="tag-dialog-actions">
-              <button className="text-action series-export-data" disabled={seriesExportBusy} onClick={downloadSeriesData} type="button">{t("workspace.exportAllData")}</button>
+              <button className="text-action series-export-data" disabled={seriesExportBusy || !seriesDeliveryConfirmed} onClick={downloadSeriesData} type="button">{t("workspace.exportAllData")}</button>
               <button className="outline-action" disabled={seriesExportBusy} onClick={() => setSeriesExportOpen(false)} type="button">{t("tags.cancelCustom")}</button>
               <button
                 className="primary-action"
-                disabled={seriesExportBusy || (!Object.values(seriesExportFormats).some(Boolean) && !seriesExportProductionPackage)}
+                disabled={seriesExportBusy || !seriesDeliveryConfirmed || (!Object.values(seriesExportFormats).some(Boolean) && !seriesExportProductionPackage)}
                 onClick={() => void downloadSeriesDocuments()}
                 type="button"
               >
@@ -3235,17 +3379,67 @@ function resolveSavedDraft(episode: EpisodeWorkspace): GeneratedDraft | null {
   return resolveWorkingDraft(episode);
 }
 
+async function confirmLatestSeriesDelivery(
+  projectId: string,
+  updateProject: (
+    projectId: string,
+    patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
+  ) => Promise<boolean>,
+  getProject: (projectId: string) => ScriptProject | undefined,
+): Promise<boolean> {
+  const beforeConfirmation = getProject(projectId)?.deliveryConfirmation;
+  const saved = await updateProject(projectId, (latestProject) => {
+    try {
+      const episodeCount = latestProject.generationSettings.episodeCount;
+      const plannedEpisodes = plannedEpisodesForProject(latestProject);
+      const ready = Number.isInteger(episodeCount)
+        && episodeCount > 0
+        && plannedEpisodes.length === episodeCount
+        && contiguousEpisodeCoverageThrough(
+          latestProject.episodes.map((item) => item.episodeNumber),
+        ) >= episodeCount
+        && !isScriptGenerationRunning(projectId)
+        && (!latestProject.activeGenerationTask
+          || latestProject.activeGenerationTask.status === "completed")
+        && plannedEpisodes.every(episodeHasSavedDraft);
+      if (!ready) return {};
+      const confirmation = buildSeriesDeliveryConfirmation(latestProject);
+      return { deliveryConfirmation: confirmation };
+    } catch {
+      return {};
+    }
+  });
+  if (!saved) {
+    // updateProject is optimistic; clear a confirmation that could not be
+    // persisted so a transient local state cannot leave the gate open.
+    await updateProject(projectId, { deliveryConfirmation: undefined });
+    return false;
+  }
+  const latestProject = getProject(projectId);
+  return Boolean(
+    latestProject
+      && !isScriptGenerationRunning(projectId)
+      && (!latestProject.activeGenerationTask
+        || latestProject.activeGenerationTask.status === "completed")
+      && latestProject.deliveryConfirmation !== beforeConfirmation
+      && isSeriesDeliveryConfirmationCurrent(
+        latestProject,
+        latestProject.deliveryConfirmation,
+      ),
+  );
+}
+
 function collectProjectOverseasCharacterNames(
   project: Pick<
     ScriptProject,
-    "canonicalCharacterNames" | "episodes" | "referenceMaterials"
+    "canonicalCharacterNames" | "episodes" | "referenceMaterials" | "generationSettings"
   >,
 ): Map<string, string> {
   const names = new Map([
     ...Object.entries(project.canonicalCharacterNames ?? {}),
     ...canonicalCharacterNameMap(project.referenceMaterials),
   ]);
-  for (const episode of [...project.episodes].sort(
+  for (const episode of [...plannedEpisodesForProject(project)].sort(
     (left, right) => left.episodeNumber - right.episodeNumber,
   )) {
     const draft = resolveWorkingDraft(episode);

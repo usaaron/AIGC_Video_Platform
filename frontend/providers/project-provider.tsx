@@ -52,6 +52,13 @@ interface ProjectContextValue {
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
+const DELIVERY_CONFIRMATION_SAFE_PATCH_KEYS = new Set<keyof ScriptProject>([
+  "activeEpisodeNumber",
+  "activeGenerationTask",
+  "serverSync",
+  "deliveryConfirmation",
+]);
+
 function sortProjects(projects: ScriptProject[]): ScriptProject[] {
   return [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
@@ -70,6 +77,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     listStoredProjects()
       .then(async (localProjects) => {
         if (!active) return;
+        projectsRef.current = localProjects;
         setProjects(localProjects);
         setIsReady(true);
 
@@ -89,13 +97,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
                 }
               : project
           ));
-          setProjects(sortProjects(offlineProjects));
+          const nextProjects = sortProjects(offlineProjects);
+          projectsRef.current = nextProjects;
+          setProjects(nextProjects);
           await Promise.all(offlineProjects.map((project) => saveStoredProject(project)));
           return;
         }
 
         const merged = mergeProjects(localProjects, serverResult.projects);
-        setProjects(sortProjects(merged.projects));
+        const nextProjects = sortProjects(merged.projects);
+        projectsRef.current = nextProjects;
+        setProjects(nextProjects);
         await Promise.all(merged.projects.map((project) => saveStoredProject(project)));
         merged.localNewer.forEach((project) => requestServerSync(project));
       })
@@ -134,6 +146,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setupPayoffs: [],
       continuityStates: [],
       activeEpisodeNumber: 1,
+      deliveryContentRevision: 0,
       storyLines: [],
       characterRelationships: [],
       serverSync: {
@@ -146,7 +159,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       updatedAt: now,
     };
     await saveStoredProject(project);
-    setProjects((current) => sortProjects([project, ...current]));
+    setProjects((current) => {
+      const nextProjects = sortProjects([project, ...current]);
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
     requestServerSync(project);
     return project;
   }
@@ -168,12 +185,40 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           return current;
         }
 
+        // A delivery confirmation is a snapshot, not a durable status bit.
+        // Any edit to the project or its episode set invalidates that snapshot
+        // unless the caller is explicitly writing a new confirmation now.
+        const hasExplicitDeliveryConfirmation = Object.prototype.hasOwnProperty.call(
+          resolvedPatch,
+          "deliveryConfirmation",
+        );
+        const deliveryContentChanged = Object.keys(resolvedPatch).some(
+          (key) => !DELIVERY_CONFIRMATION_SAFE_PATCH_KEYS.has(key as keyof ScriptProject),
+        );
+        const currentDeliveryContentRevision = Number.isSafeInteger(existing.deliveryContentRevision)
+          && (existing.deliveryContentRevision ?? 0) >= 0
+          ? existing.deliveryContentRevision ?? 0
+          : 0;
+        const deliveryContentRevision = deliveryContentChanged
+          ? currentDeliveryContentRevision + 1
+          : currentDeliveryContentRevision;
+        // Never accept a stale confirmation bundled with a content mutation.
+        // A fresh confirmation is written in its own update after the author
+        // has reviewed the complete saved episode set.
+        const deliveryConfirmation = deliveryContentChanged
+          ? undefined
+          : hasExplicitDeliveryConfirmation
+            ? resolvedPatch.deliveryConfirmation
+            : existing.deliveryConfirmation;
+
         const nextMarketProfile = resolvedPatch.generationSettings
           ? marketProfileForReleaseRegion(resolvedPatch.generationSettings.releaseRegion)
           : existing.marketProfile;
         const updated: ScriptProject = {
           ...existing,
           ...resolvedPatch,
+          deliveryConfirmation,
+          deliveryContentRevision,
           marketProfile: nextMarketProfile,
           generationSettings: resolvedPatch.generationSettings
             ? enforceMarketDeliveryContract(
@@ -200,9 +245,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
             resolve(false);
           });
         requestServerSync(updated);
-        return sortProjects(
+        const nextProjects = sortProjects(
           current.map((project) => (project.id === projectId ? updated : project)),
         );
+        // Keep imperative readers (for example, the export confirmation
+        // handshake) on the same optimistic snapshot before React renders.
+        projectsRef.current = nextProjects;
+        return nextProjects;
       });
     });
   }
@@ -212,16 +261,24 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (!project) return true;
     const result = await deleteProjectPermanentlyOnServer(project);
     if (!result.deleted) {
-      setProjects((current) => current.map((item) => (
-        item.id === projectId ? { ...item, serverSync: result.serverSync } : item
-      )));
+      setProjects((current) => {
+        const nextProjects = current.map((item) => (
+          item.id === projectId ? { ...item, serverSync: result.serverSync } : item
+        ));
+        projectsRef.current = nextProjects;
+        return nextProjects;
+      });
       setServerPersistenceAvailable(result.serverSync.status !== "unavailable");
       setStorageError(
         result.serverSync.error ?? "Unable to delete the project safely.",
       );
       return false;
     }
-    setProjects((current) => current.filter((project) => project.id !== projectId));
+    setProjects((current) => {
+      const nextProjects = current.filter((project) => project.id !== projectId);
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
     try {
       await deleteStoredProject(projectId);
     } catch (error: unknown) {
@@ -234,25 +291,29 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   function getProject(projectId: string): ScriptProject | undefined {
-    return projects.find((project) => project.id === projectId);
+    return projectsRef.current.find((project) => project.id === projectId);
   }
 
   async function syncProjectSnapshot(
     project: ScriptProject,
     options: { forceWorkspaceOverwrite?: boolean } = {},
   ): Promise<ProjectServerSyncState> {
-    setProjects((current) => current.map((item) => (
-      item.id === project.id && item.serverSync?.status === "conflict"
-        ? {
-            ...item,
-            serverSync: {
-              ...item.serverSync,
-              status: "syncing" as const,
-              error: undefined,
-            },
-          }
-        : item
-    )));
+    setProjects((current) => {
+      const nextProjects = current.map((item) => (
+        item.id === project.id && item.serverSync?.status === "conflict"
+          ? {
+              ...item,
+              serverSync: {
+                ...item.serverSync,
+                status: "syncing" as const,
+                error: undefined,
+              },
+            }
+          : item
+      ));
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
     const serverSync = options.forceWorkspaceOverwrite
       ? await forceWorkspaceOverwrite(project)
       : await queueProjectServerSync(project);
@@ -271,13 +332,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       );
       throw error;
     }
-    setProjects((current) => sortProjects(current.map((item) => {
-      if (item.id !== project.id) return item;
-      return {
-        ...item,
-        serverSync: syncStateForSnapshot(item, project, serverSync),
-      };
-    })));
+    setProjects((current) => {
+      const nextProjects = sortProjects(current.map((item) => {
+        if (item.id !== project.id) return item;
+        return {
+          ...item,
+          serverSync: syncStateForSnapshot(item, project, serverSync),
+        };
+      }));
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
     return serverSync;
   }
 
@@ -310,9 +375,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
     await saveStoredProject(remoteProject);
     clearAutomaticConflictRetries(projectId);
-    setProjects((current) => sortProjects(current.map((item) => (
-      item.id === projectId ? remoteProject : item
-    ))));
+    setProjects((current) => {
+      const nextProjects = sortProjects(current.map((item) => (
+        item.id === projectId ? remoteProject : item
+      )));
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
     return remoteProject.serverSync ?? null;
   }
 

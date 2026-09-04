@@ -3,6 +3,26 @@ export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "de
 /** Episode closing contract. Missing legacy values are treated as serial_hook. */
 export type EndingMode = "serial_hook" | "season_finale" | "series_finale";
 
+export interface EpisodeDeliverySnapshot {
+  episodeNumber: number;
+  episodeId: string;
+  draftId: string;
+  episodeUpdatedAt: string;
+  draftContentSignature: string;
+  artifactVersion?: number;
+  artifactChecksum?: string;
+}
+
+export interface SeriesDeliveryConfirmation {
+  schemaVersion: "series_delivery_confirmation.v1";
+  confirmedAt: string;
+  episodeCount: number;
+  contentRevision: number;
+  contentSignature: string;
+  storyBibleVersion?: number;
+  snapshot: EpisodeDeliverySnapshot[];
+}
+
 export type MemoryLayer = "canonical" | "derived" | "provisional";
 
 export type ProjectTitleSource = "derived" | "user" | "generated";
@@ -204,6 +224,10 @@ export interface ScriptProject {
   episodePlansReadyThrough?: number;
   episodeRoadmapRequired?: boolean;
   episodeRoadmaps?: EpisodeRoadmapItem[];
+  /** Explicit author acknowledgement for the exact full-series export set. */
+  deliveryConfirmation?: SeriesDeliveryConfirmation;
+  /** Monotonic local revision for export-relevant project changes. */
+  deliveryContentRevision?: number;
   storyTreeQualityAudit?: StoryTreeQualityAudit;
   sourceProjectId?: string;
   serverSync?: ProjectServerSyncState;
