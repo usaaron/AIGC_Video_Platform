@@ -63,6 +63,7 @@ test("readiness analysis remains advisory until the user selects the recommended
 test("automatic script continuation is opt-in to a completed planning phase and idle tasks", () => {
   const ready = {
     planningPhase: "script",
+    planningStatus: "approved",
     existingEpisodeCount: 1,
     nextReadyEpisode: 2,
     generationIntent: false,
@@ -72,6 +73,7 @@ test("automatic script continuation is opt-in to a completed planning phase and 
   assert.equal(shouldAutomaticallyContinueScriptGeneration(ready), true);
   for (const blocked of [
     { planningPhase: "episode_roadmap" },
+    { planningStatus: "awaiting_review" },
     { existingEpisodeCount: 0 },
     { nextReadyEpisode: null },
     { generationIntent: true },
@@ -87,6 +89,18 @@ test("automatic script continuation is opt-in to a completed planning phase and 
       JSON.stringify(blocked),
     );
   }
+});
+
+test("script auto-continuation is blocked if a malformed session is not approved", () => {
+  const ready = {
+    planningPhase: "script",
+    planningStatus: "awaiting_review",
+    existingEpisodeCount: 1,
+    nextReadyEpisode: 2,
+    generationIntent: false,
+    busy: false,
+  };
+  assert.equal(shouldAutomaticallyContinueScriptGeneration(ready), false);
 });
 
 test("recovery never restarts a paused/completed task or an already covered range", () => {
@@ -107,11 +121,12 @@ test("recovery never restarts a paused/completed task or an already covered rang
     checkpointedAt: "2026-09-01T00:00:00.000Z",
   };
 
-  assert.equal(shouldAutoResumeGenerationRecovery(task, [1]), true);
+  assert.equal(shouldAutoResumeGenerationRecovery(task, [1], undefined, "approved"), true);
   assert.equal(shouldAutoResumeGenerationRecovery({ ...task, status: "paused" }, [1]), false);
   assert.equal(shouldAutoResumeGenerationRecovery({ ...task, status: "completed" }, [1]), false);
   assert.equal(shouldAutoResumeGenerationRecovery(task, [1, 2, 3]), false);
   assert.equal(shouldAutoResumeGenerationRecovery(task, [1], "running"), false);
+  assert.equal(shouldAutoResumeGenerationRecovery(task, [1], undefined, "active"), false);
 });
 
 test("empty script workspace keeps generation behind an explicit action", async () => {
@@ -131,3 +146,10 @@ test("empty script workspace keeps generation behind an explicit action", async 
   assert.match(workspace, /const generationIntent = searchParams\.get\("generate"\) === "1"/);
 });
 
+test("recovery automation carries the planning approval state into its guard", async () => {
+  const workspace = await source("components/script-workspace.tsx");
+  assert.match(
+    workspace,
+    /shouldAutoResumeGenerationRecovery\([\s\S]*project\.planningSession\?\.status/,
+  );
+});

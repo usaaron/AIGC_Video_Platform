@@ -555,6 +555,7 @@ export function ScriptWorkspace() {
     );
     if (!shouldAutomaticallyContinueScriptGeneration({
       planningPhase: project.planningSession?.phase,
+      planningStatus: project.planningSession?.status,
       existingEpisodeCount: project.episodes.length,
       nextReadyEpisode: nextEpisode,
       generationIntent,
@@ -664,6 +665,7 @@ export function ScriptWorkspace() {
         task,
         project.episodes.map((item) => item.episodeNumber),
         backgroundScriptTask?.status,
+        project.planningSession?.status,
       )
     ) return;
 

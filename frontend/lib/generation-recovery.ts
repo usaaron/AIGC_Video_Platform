@@ -146,8 +146,14 @@ export function shouldAutoResumeGenerationRecovery(
   task: GenerationRecoveryTask | undefined,
   existingEpisodeNumbers: number[],
   browserTaskStatus?: string,
+  planningStatus?: string,
 ): task is GenerationRecoveryTask {
   if (!task || task.status === "paused" || task.status === "completed") return false;
+  // A phase/script session that was left in awaiting_review/active by a
+  // partial client transition must not restart a generation task on refresh.
+  // Keep the argument optional for legacy projects that never persisted a
+  // planning session; those projects retain their previous recovery behavior.
+  if (planningStatus !== undefined && planningStatus !== "approved") return false;
   if (
     browserTaskStatus === "running"
     || browserTaskStatus === "pausing"
@@ -168,6 +174,7 @@ export function automaticGenerationRecoveryDelayMs(
 
 export function shouldAutomaticallyContinueScriptGeneration(input: {
   planningPhase?: string;
+  planningStatus?: string;
   existingEpisodeCount: number;
   nextReadyEpisode: number | null;
   generationIntent: boolean;
@@ -176,6 +183,7 @@ export function shouldAutomaticallyContinueScriptGeneration(input: {
   recoveryTaskStatus?: GenerationRecoveryStatus;
 }): boolean {
   return input.planningPhase === "script"
+    && input.planningStatus === "approved"
     && input.existingEpisodeCount > 0
     && input.nextReadyEpisode !== null
     && !input.generationIntent

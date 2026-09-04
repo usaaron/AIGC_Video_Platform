@@ -45,6 +45,8 @@ test("recovery always resumes from the first episode missing from the workspace"
 
 test("recovery resumes orphaned work and only bounded transient failures", () => {
   assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined), true);
+  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined, "approved"), true);
+  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined, "awaiting_review"), false);
   assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], "running"), false);
   assert.equal(shouldAutoResumeGenerationRecovery(
     { ...baseTask, status: "paused" },
@@ -112,6 +114,7 @@ test("automatic recovery uses bounded gateway cooldowns", () => {
 test("completed planning continues ready script parts but respects every stop state", () => {
   const ready = {
     planningPhase: "script",
+    planningStatus: "approved",
     existingEpisodeCount: 10,
     nextReadyEpisode: 11,
     generationIntent: false,
