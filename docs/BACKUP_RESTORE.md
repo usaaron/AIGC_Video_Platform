@@ -23,7 +23,7 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api \
 
 ## 备份
 
-推荐在低峰期做 quiesced backup：暂停 API 和 Worker 写入，保持 Postgres/Redis 运行，完成后脚本会恢复原先运行的 API/Worker。
+推荐在低峰期做 quiesced backup：暂停 API 和 Worker 写入，保持 Postgres/Redis 运行，完成后脚本会恢复原先运行的 API/Worker。脚本同时读取 `demo.env` 和 `release.env`，并以 `--no-recreate --no-deps` 保持数据服务容器与数据卷不变。
 
 ```bash
 sudo /opt/seqora/deploy/backup-demo.sh

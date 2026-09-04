@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT="${SEQORA_ROOT:-/opt/seqora}"
 COMPOSE_FILE="${SEQORA_COMPOSE_FILE:-${ROOT}/compose.demo.yml}"
 DEMO_ENV="${SEQORA_DEMO_ENV:-${ROOT}/deploy/demo.env}"
+RELEASE_ENV="${SEQORA_RELEASE_ENV:-${ROOT}/deploy/release.env}"
 BACKUP_ROOT="${SEQORA_BACKUP_DIR:-/opt/seqora-backups/manual}"
 DATA_VOLUME="${SEQORA_DATA_VOLUME:-seqora-demo_seqora_data}"
 QUIESCE="${SEQORA_BACKUP_QUIESCE:-true}"
@@ -47,7 +48,11 @@ fi
 [[ -f "$DEMO_ENV" ]] || { echo "Missing env file: $DEMO_ENV"; exit 66; }
 mkdir -p "$BACKUP_ROOT"
 
-compose=(docker compose --env-file "$DEMO_ENV" -f "$COMPOSE_FILE")
+compose=(docker compose --env-file "$DEMO_ENV")
+if [[ -f "$RELEASE_ENV" ]]; then
+  compose+=(--env-file "$RELEASE_ENV")
+fi
+compose+=(-f "$COMPOSE_FILE")
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="${BACKUP_ROOT}/${timestamp}"
 mkdir -p "${backup_dir}/json"
@@ -105,7 +110,8 @@ else
   warn 'Running online backup without quiescing API/Worker.'
 fi
 
-"${compose[@]}" up -d postgres redis >/dev/null
+# Data services own persistent volumes. Never recreate them during a backup.
+"${compose[@]}" up -d --no-recreate --no-deps postgres redis >/dev/null
 for _ in $(seq 1 60); do
   if "${compose[@]}" exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then
     break
