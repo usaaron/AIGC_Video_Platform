@@ -1,5 +1,6 @@
 import type { AgentPlan, Principal } from '@seqora/contracts'
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore } from '../../infra/store.js'
 import { AgentRunRepository } from './repository.js'
 
@@ -94,6 +95,26 @@ describe('AgentRunRepository in-memory fallback', () => {
     expect(skipped.stages.find((stage) => stage.key === 'asset-generation')?.status).toBe('skipped')
     expect(skipped.status).toBe('queued')
     expect(skipped.currentStage).toBe('identity-baseline')
+  })
+})
+
+describe('AgentRunRepository PostgreSQL queries', () => {
+  it('qualifies returned columns when claiming through the next-run join', async () => {
+    let claimSql = ''
+    const database = {
+      transaction: async (operation: (client: { query: (sql: string) => Promise<unknown> }) => unknown) =>
+        operation({
+          query: async (sql: string) => {
+            claimSql = sql
+            return { rows: [] }
+          },
+        }),
+    } as unknown as AccountDatabase
+
+    const repository = new AgentRunRepository(database)
+
+    await expect(repository.claimNext('test-owner')).resolves.toBeNull()
+    expect(claimSql).toContain('RETURNING r.id, r.client_request_id')
   })
 })
 

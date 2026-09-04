@@ -35,11 +35,32 @@ type AgentRunRow = QueryResultRow & {
   completed_at: Date | string | null
 }
 
-const runColumns = `
-  id, client_request_id, tenant_id, user_id, project_id, original_prompt, plan, status,
-  pause_requested, current_stage, stages, deliveries, last_error, lease_owner_id,
-  lease_expires_at, created_at, updated_at, confirmed_at, completed_at
-`
+const runColumnNames = [
+  'id',
+  'client_request_id',
+  'tenant_id',
+  'user_id',
+  'project_id',
+  'original_prompt',
+  'plan',
+  'status',
+  'pause_requested',
+  'current_stage',
+  'stages',
+  'deliveries',
+  'last_error',
+  'lease_owner_id',
+  'lease_expires_at',
+  'created_at',
+  'updated_at',
+  'confirmed_at',
+  'completed_at',
+] as const
+const runColumns = runColumnNames.join(', ')
+
+function qualifiedRunColumns(alias: string): string {
+  return runColumnNames.map((column) => `${alias}.${column}`).join(', ')
+}
 
 export class AgentRunRepository {
   private readonly memoryRuns: AgentRun[] = []
@@ -281,7 +302,7 @@ export class AgentRunRepository {
             updated_at = now()
         FROM next_run
         WHERE r.id = next_run.id
-        RETURNING ${runColumns}
+        RETURNING ${qualifiedRunColumns('r')}
         `,
         [ownerId, leaseMs],
       )

@@ -258,9 +258,19 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
   }
   queueWorker = createBullMqGenerationWorker(config, {
     async tick(context?: TaskDispatchContext & { reason?: string }) {
-      await taskRunner.tick(context)
-      await aiJobRunner.tick(context)
-      await agentRunner.tick()
+      const failures: unknown[] = []
+      for (const tick of [
+        () => taskRunner.tick(context),
+        () => aiJobRunner.tick(context),
+        () => agentRunner.tick(),
+      ]) {
+        try {
+          await tick()
+        } catch (error) {
+          failures.push(error)
+        }
+      }
+      if (failures.length) throw new AggregateError(failures, 'One or more worker runners failed')
     },
   })
   await queueWorker.start()
