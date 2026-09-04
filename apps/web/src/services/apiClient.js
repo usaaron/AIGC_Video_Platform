@@ -273,6 +273,14 @@ export const api = {
     request(`/trusted-assets/portraits?groupType=${encodeURIComponent(groupType)}`),
   registerVirtualPortrait: (projectId, assetId) =>
     request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, { method: 'POST' }),
+  createTrustedValidationSession: (projectId, assetId) =>
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/validation-session`, {
+      method: 'POST',
+    }),
+  refreshTrustedValidationSession: (sessionId) =>
+    request(`/trusted-assets/validation-sessions/${encodeURIComponent(sessionId)}`),
+  latestTrustedValidationSession: (projectId, assetId) =>
+    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/validation-session/latest`),
   bindTrustedPortrait: (projectId, assetId, providerAssetId) =>
     request(
       `/projects/${projectId}/assets/${assetId}/trusted-portrait/bind`,

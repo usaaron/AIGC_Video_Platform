@@ -343,11 +343,11 @@ describe('ProjectService script billing', () => {
 
     expect(textProvider.generate).toHaveBeenCalledTimes(1)
     expect(result.script).not.toContain('无台词')
-    expect(result.script).toContain('[画外音]林砚在测试中推进第4步。')
+    expect(result.script).toContain('[内心独白]林砚：不能在这里停下。')
     expect(repository.update).toHaveBeenCalledOnce()
   })
 
-  it('adds compact voiceover beats when a generated episode only contains character dialogue', async () => {
+  it('keeps generated dialogue without manufacturing action voiceovers', async () => {
     const generated = Array.from(
       { length: 6 },
       (_, index) =>
@@ -381,7 +381,7 @@ describe('ProjectService script billing', () => {
       { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
     )
 
-    expect(result.script.match(/\[画外音\]/gu)).toHaveLength(3)
+    expect(result.script.match(/\[画外音\]/gu) || []).toHaveLength(0)
     expect(result.script).toContain('[对白]林砚：我会查清。')
     expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain(
       '每场写 4 到 6 句短而有意义的对白',
@@ -427,7 +427,7 @@ describe('ProjectService script billing', () => {
     )
 
     expect(result.script).not.toContain('无台词')
-    expect(result.script).toContain('[画外音]')
+    expect(result.script).toContain('[内心独白]')
     expect(splitScriptParagraphs(result.script)).toHaveLength(2)
     expect(repository.update).toHaveBeenCalledOnce()
   })

@@ -5,6 +5,7 @@ import {
   ExternalLink,
   Images,
   LoaderCircle,
+  QrCode,
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react'
@@ -20,6 +21,9 @@ export function TrustedPortraitPanel({
   onAttributesChange,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
+  onCreateTrustedValidationSession,
+  onRefreshTrustedValidationSession,
+  onLatestTrustedValidationSession,
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
   onEnsureAsset,
@@ -32,6 +36,9 @@ export function TrustedPortraitPanel({
   const [busyAction, setBusyAction] = useState(null)
   const [error, setError] = useState('')
   const [pollError, setPollError] = useState('')
+  const [validationSession, setValidationSession] = useState(null)
+  const [validationBusy, setValidationBusy] = useState(false)
+  const [validationError, setValidationError] = useState('')
   const refreshTrustedPortraitRef = useRef(onRefreshTrustedPortrait)
   const attributesChangeRef = useRef(onAttributesChange)
   const portrait = attributes.trustedPortrait
@@ -52,6 +59,7 @@ export function TrustedPortraitPanel({
   const boundPreviewUrl = portraitPreviewUrl(portrait)
   const registrationDisabledReason = registrationAvailabilityHint(configuration, attributes.faceStatus)
   const registrationSetupBlocked = Boolean(configuration && !configuration.virtualRegistrationReady)
+  const validationSetupBlocked = Boolean(configuration && !configuration.realValidationReady)
 
   useEffect(() => {
     if (portrait?.assetId) setProviderAssetId(portrait.assetId)
@@ -96,6 +104,56 @@ export function TrustedPortraitPanel({
     }
   }, [assetId, portrait?.status])
 
+  useEffect(() => {
+    if (!assetId || !onLatestTrustedValidationSession) return undefined
+    let cancelled = false
+    void onLatestTrustedValidationSession(assetId)
+      .then((session) => {
+        if (!cancelled && session) setValidationSession(session)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [assetId, onLatestTrustedValidationSession])
+
+  useEffect(() => {
+    if (
+      !validationSession?.id ||
+      !['pending', 'uploading'].includes(validationSession.status) ||
+      !onRefreshTrustedValidationSession
+    ) {
+      return undefined
+    }
+    let cancelled = false
+    let timer
+
+    const poll = async () => {
+      try {
+        const result = await onRefreshTrustedValidationSession(validationSession.id)
+        if (cancelled) return
+        setValidationSession(result.session)
+        if (result.asset?.attributes) onAttributesChange(result.asset.attributes)
+        if (result.session.status === 'pending') timer = window.setTimeout(poll, 3_000)
+      } catch (pollingError) {
+        if (cancelled) return
+        setValidationError(pollingError instanceof Error ? pollingError.message : '真人认证状态同步失败')
+        timer = window.setTimeout(poll, 6_000)
+      }
+    }
+
+    timer = window.setTimeout(poll, 1_000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    validationSession?.id,
+    validationSession?.status,
+    onAttributesChange,
+    onRefreshTrustedValidationSession,
+  ])
+
   const run = async (action, callback) => {
     setBusyAction(action)
     setError('')
@@ -110,6 +168,20 @@ export function TrustedPortraitPanel({
     }
   }
 
+  const startRealValidation = async () => {
+    if (!onCreateTrustedValidationSession) return
+    setValidationBusy(true)
+    setValidationError('')
+    try {
+      const session = await onCreateTrustedValidationSession(assetId)
+      setValidationSession(session)
+    } catch (actionError) {
+      setValidationError(actionError instanceof Error ? actionError.message : '真人认证会话创建失败')
+    } finally {
+      setValidationBusy(false)
+    }
+  }
+
   return (
     <section className={`trusted-portrait-panel status-${status}`}>
       <div className="trusted-portrait-head">
@@ -117,7 +189,7 @@ export function TrustedPortraitPanel({
           <ShieldCheck size={18} />
         </span>
         <div>
-          <span className="eyebrow">Seedance 人脸资源</span>
+          <span className="eyebrow">Dora 人像资源</span>
           <h3>可信人像</h3>
         </div>
         <span className="trusted-portrait-status">{statusLabels[status]}</span>
@@ -227,10 +299,78 @@ export function TrustedPortraitPanel({
         </p>
       )}
 
+      {attributes.subjectType === 'human' && portrait?.groupType !== 'LivenessFace' && (
+        <div className="trusted-validation-box">
+          <div className="trusted-validation-copy">
+            <span className="eyebrow">Dora 真人加白</span>
+            <strong>用手机完成一次真人认证，生成可复用的人像素材</strong>
+            <small>认证令牌只保存在服务端，认证成功后会自动把当前面部基准写入真人素材库。</small>
+          </div>
+          <button
+            className="button primary"
+            type="button"
+            disabled={
+              validationBusy ||
+              busyAction !== null ||
+              !assetId ||
+              attributes.faceStatus !== 'approved' ||
+              validationSetupBlocked ||
+              validationSession?.status === 'pending' ||
+              validationSession?.status === 'uploading'
+            }
+            onClick={() => void startRealValidation()}
+          >
+            {validationBusy || validationSession?.status === 'uploading' ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <ShieldCheck size={15} />
+            )}
+            {validationBusy
+              ? '正在创建认证页'
+              : validationSession?.status === 'uploading'
+                ? '认证成功，正在入库'
+                : validationSession?.status === 'failed' || validationSession?.status === 'expired'
+                  ? '重新开始真人认证'
+                  : '真人认证并加白'}
+          </button>
+          {validationSession?.status === 'pending' && (
+            <div className="trusted-validation-session" role="status" aria-live="polite">
+              <div>
+                <strong>请用手机打开认证页或扫描二维码</strong>
+                <small>完成认证后本页会自动同步，无需把认证码复制给系统。</small>
+                <a href={validationSession.h5Link} target="_blank" rel="noreferrer">
+                  <ExternalLink size={14} /> 打开 Dora 真人认证页
+                </a>
+              </div>
+              {validationSession.qrCode?.startsWith('data:image/') ? (
+                <img src={validationSession.qrCode} alt="Dora 真人认证二维码" />
+              ) : (
+                <QrCode size={44} aria-hidden="true" />
+              )}
+            </div>
+          )}
+          {validationSession?.status === 'completed' && (
+            <p className="trusted-portrait-state active" role="status">
+              <CheckCircle2 size={13} /> 真人认证完成，人物素材已提交到 Dora 真人素材库。
+            </p>
+          )}
+          {(validationSession?.status === 'failed' || validationSession?.status === 'expired') && (
+            <p className="trusted-portrait-error" role="alert">
+              {validationSession.error || '真人认证未完成，请重新开始认证。'}
+            </p>
+          )}
+          {validationError && (
+            <p className="trusted-portrait-error" role="alert">
+              {validationError}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="trusted-portrait-library">
         <div>
           <span className="eyebrow">素材库白名单</span>
-          <strong>同步可用于 Seedance 的人物资源</strong>
+          <strong>同步可用于视频生成的人物资源</strong>
         </div>
         <label>
           <span>资源类型</span>
@@ -345,7 +485,7 @@ export function TrustedPortraitPanel({
       )}
       {libraryLoaded && libraryPortraits.length === 0 && (
         <p className="trusted-library-empty">
-          当前分类没有同步到人像资源，请检查分类或让弦序先完成素材上传。
+          当前分类没有同步到人像资源，请检查分类或让 Dora 先完成素材上传。
         </p>
       )}
 
@@ -365,11 +505,11 @@ export function TrustedPortraitPanel({
       </div>
 
       {!configuration?.configured && configuration !== null && (
-        <p className="trusted-portrait-notice">服务端尚未配置素材库访问密钥 AK/SK，当前只能编辑人物设定。</p>
+        <p className="trusted-portrait-notice">服务端尚未配置 Dora 素材库凭据，当前只能编辑人物设定。</p>
       )}
       {configuration?.configured && !assetId && (
         <p className="trusted-portrait-notice">
-          首次创建会先保存当前人物资产，再把已确认的面部基准提交到弦序素材库。
+          首次创建会先保存当前人物资产，再把已确认的面部基准提交到 Dora 素材库。
         </p>
       )}
       {configuration?.configured && attributes.faceStatus !== 'approved' && (
@@ -384,7 +524,8 @@ export function TrustedPortraitPanel({
       {status === 'active' && (
         <p className="trusted-portrait-state active" role="status" aria-live="polite">
           <CheckCircle2 size={13} />
-          虚拟人像验证通过，后续 Seedance 视频任务会自动使用这个人像资源。
+          {portrait?.groupType === 'LivenessFace' ? '真人素材' : 'AI 人像'}
+          已可用，后续视频任务会自动使用这个人像资源。
         </p>
       )}
       {portrait?.status === 'failed' && (
@@ -423,11 +564,11 @@ export function portraitPreviewUrl(portrait) {
 }
 
 export function registrationAvailabilityHint(configuration, faceStatus) {
-  if (!configuration) return '正在检查弦序素材库配置。'
+  if (!configuration) return '正在检查 Dora 素材库配置。'
   if (faceStatus !== 'approved') return '请先创建任务大头照-设定面部基准后，再创建 AI 人像资源。'
-  if (!configuration.configured) return '弦序素材库凭据尚未配置，请先使用下方素材库绑定已有资源。'
+  if (!configuration.configured) return 'Dora 素材库凭据尚未配置，请联系管理员。'
   if (!configuration.virtualRegistrationReady) {
-    return '自动创建需要配置可公网访问的 API 地址，供弦序读取面部原图；本地可先在弦序上传，再从下方素材库绑定。'
+    return '自动创建需要配置可公网访问的 API 地址，供 Dora 读取面部原图。'
   }
   return ''
 }

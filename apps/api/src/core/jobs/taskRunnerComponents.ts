@@ -1988,7 +1988,7 @@ function isRemoteProviderName(value: unknown): boolean {
 }
 
 function isVideoProviderName(value: unknown): boolean {
-  return value === 'stringx-seedance' || value === 'volc-ark-seedance'
+  return value === 'dora-router-seedance' || value === 'stringx-seedance' || value === 'volc-ark-seedance'
 }
 
 function outputsFor(task: GenerationTask): GenerationTask['outputs'] {

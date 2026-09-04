@@ -17,7 +17,7 @@ export function createTrustedAssetTaskHandler(
     const asset = await service.registerVirtual(task.projectId, assetId, principalForTask(store, task))
     const portrait = asset.attributes.type === 'character' ? asset.attributes.trustedPortrait : null
     if (portrait?.status === 'failed') {
-      throw new Error(portrait.errorMessage || portrait.errorCode || '弦序人像资源审核失败')
+      throw new Error(portrait.errorMessage || portrait.errorCode || 'Dora 人像资源审核失败')
     }
     return asset
   }

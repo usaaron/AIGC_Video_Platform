@@ -216,6 +216,30 @@ export function normalizeState(
     aiJobs: (input.aiJobs ?? []).map((job) => normalizeAiJobLifecycle(job)),
     ledger: input.ledger ?? [],
     media: input.media ?? [],
+    trustedValidationSessions: (input.trustedValidationSessions ?? []).flatMap((session) => {
+      if (!session || typeof session !== 'object') return []
+      const value = session as Partial<import('./store.js').StoredTrustedValidationSession>
+      if (!value.id || !value.tenantId || !value.userId || !value.projectId || !value.assetId) return []
+      return [
+        {
+          id: value.id,
+          tenantId: value.tenantId,
+          userId: value.userId,
+          projectId: value.projectId,
+          assetId: value.assetId,
+          providerToken: value.providerToken ?? '',
+          h5Link: value.h5Link ?? '',
+          qrCode: value.qrCode ?? null,
+          status: value.status ?? 'pending',
+          groupId: value.groupId ?? null,
+          providerAssetId: value.providerAssetId ?? null,
+          error: value.error ?? null,
+          expiresAt: value.expiresAt ?? new Date().toISOString(),
+          createdAt: value.createdAt ?? new Date().toISOString(),
+          updatedAt: value.updatedAt ?? new Date().toISOString(),
+        },
+      ]
+    }),
     assetLibraryItems: normalizeAssetLibraryItems(input.assetLibraryItems ?? []),
     assetLibraryItemVersions: normalizeAssetLibraryItemVersions(input.assetLibraryItemVersions ?? []),
     novelDocuments: input.novelDocuments ?? [],

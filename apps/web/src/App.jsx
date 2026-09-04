@@ -559,6 +559,17 @@ function App() {
           onGetTrustedConfiguration={() => api.trustedAssetConfiguration()}
           onListTrustedPortraits={(groupType) => api.trustedPortraits(groupType)}
           onRegisterVirtualPortrait={createTrustedPortraitJob}
+          onCreateTrustedValidationSession={(assetId) =>
+            api.createTrustedValidationSession(project.id, assetId)
+          }
+          onRefreshTrustedValidationSession={async (sessionId) => {
+            const result = await api.refreshTrustedValidationSession(sessionId)
+            if (result?.asset) mergeWorkspaceAsset(result.asset)
+            return result
+          }}
+          onLatestTrustedValidationSession={(assetId) =>
+            api.latestTrustedValidationSession(project.id, assetId)
+          }
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
             mergeWorkspaceAsset(updated)

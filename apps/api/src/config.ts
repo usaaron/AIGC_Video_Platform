@@ -77,7 +77,12 @@ const configSchema = z
     UPLOAD_DIR: z.string().default('./data/uploads'),
     GCS_BUCKET: z.string().default(''),
     MAX_UPLOAD_BYTES: z.coerce.number().int().min(1_048_576).max(52_428_800).default(10_485_760),
-    VIDEO_PROVIDER: z.enum(['stringx', 'volc-ark']).default('stringx'),
+    VIDEO_PROVIDER: z.enum(['dora-router', 'stringx', 'volc-ark']).default('dora-router'),
+    DORA_ROUTER_BASE_URL: z.string().url().default('https://www.dorarouter.com'),
+    DORA_ROUTER_API_KEY: z.string().default(''),
+    DORA_ROUTER_VIDEO_MODEL: z.string().min(1).default('TH-doubao-seedance2.0'),
+    DORA_ROUTER_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
+    DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(300_000),
     STRINGX_BASE_URL: z.string().url().default('https://maas.stringx.top/api/v3'),
     STRINGX_API_KEY: z.string().default(''),
     STRINGX_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
@@ -94,6 +99,7 @@ const configSchema = z
     ARK_API_KEY: z.string().default(''),
     ARK_VIDEO_MODEL: z.string().min(1).default('doubao-seedance-2-0-260128'),
     ARK_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(120_000),
+    ASSET_LIBRARY_PROVIDER: z.enum(['dora-router', 'volc-ark']).default('dora-router'),
     VOLC_ASSET_BASE_URL: z.string().url().default('https://maas-ark.stringx.top'),
     VOLC_ACCESS_KEY: z.string().default(''),
     VOLC_SECRET_KEY: z.string().default(''),
@@ -305,6 +311,17 @@ const configSchema = z
     if (config.STORAGE_DRIVER === 'gcs' && !config.GCS_BUCKET) {
       context.addIssue({ code: 'custom', path: ['GCS_BUCKET'], message: 'GCS_BUCKET is required' })
     }
+    if (
+      config.NODE_ENV === 'production' &&
+      config.VIDEO_PROVIDER === 'dora-router' &&
+      !config.DORA_ROUTER_API_KEY
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DORA_ROUTER_API_KEY'],
+        message: 'DORA_ROUTER_API_KEY is required for the selected production video provider',
+      })
+    }
     if (config.NODE_ENV === 'production' && config.VIDEO_PROVIDER === 'stringx' && !config.STRINGX_API_KEY) {
       context.addIssue({
         code: 'custom',
@@ -317,6 +334,29 @@ const configSchema = z
         code: 'custom',
         path: ['ARK_API_KEY'],
         message: 'ARK_API_KEY is required for the selected production video provider',
+      })
+    }
+    if (
+      config.NODE_ENV === 'production' &&
+      config.ASSET_LIBRARY_PROVIDER === 'dora-router' &&
+      !config.DORA_ROUTER_API_KEY
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DORA_ROUTER_API_KEY'],
+        message: 'DORA_ROUTER_API_KEY is required for the selected production asset library provider',
+      })
+    }
+    if (
+      config.NODE_ENV === 'production' &&
+      config.ASSET_LIBRARY_PROVIDER === 'volc-ark' &&
+      (!config.VOLC_ACCESS_KEY || !config.VOLC_SECRET_KEY)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['VOLC_ACCESS_KEY'],
+        message:
+          'VOLC_ACCESS_KEY and VOLC_SECRET_KEY are required for the selected production asset library provider',
       })
     }
     if (

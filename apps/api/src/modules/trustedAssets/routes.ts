@@ -12,6 +12,7 @@ const assetParamsSchema = z.object({
 const sourceParamsSchema = z.object({ token: z.string().min(10).max(4_000) })
 const portraitPreviewParamsSchema = z.object({ assetId: z.string().min(1).max(128) })
 const bindSchema = z.object({ providerAssetId: z.string().trim().min(1).max(128) })
+const validationSessionParamsSchema = z.object({ sessionId: z.string().uuid() })
 const listPortraitsQuerySchema = z.object({
   groupType: z.enum(['AIGC', 'LivenessFace']).default('LivenessFace'),
 })
@@ -47,6 +48,35 @@ export async function registerTrustedAssetRoutes(
         .header('Cache-Control', 'private, max-age=300')
         .type(preview.contentType)
         .send(preview.content)
+    },
+  )
+
+  app.post(
+    '/projects/:projectId/assets/:assetId/trusted-portrait/validation-session',
+    { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
+    async (request, reply) => {
+      const params = parse(assetParamsSchema, request.params)
+      return reply
+        .code(201)
+        .send(await service.createValidationSession(params.projectId, params.assetId, request.principal!))
+    },
+  )
+
+  app.get(
+    '/projects/:projectId/assets/:assetId/trusted-portrait/validation-session/latest',
+    { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
+    async (request) => {
+      const params = parse(assetParamsSchema, request.params)
+      return service.latestValidationSession(params.projectId, params.assetId, request.principal!)
+    },
+  )
+
+  app.get(
+    '/trusted-assets/validation-sessions/:sessionId',
+    { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
+    async (request) => {
+      const params = parse(validationSessionParamsSchema, request.params)
+      return service.refreshValidationSession(params.sessionId, request.principal!)
     },
   )
 

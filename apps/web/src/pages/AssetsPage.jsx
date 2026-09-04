@@ -54,6 +54,9 @@ export function AssetsPage({
   onGetTrustedConfiguration,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
+  onCreateTrustedValidationSession,
+  onRefreshTrustedValidationSession,
+  onLatestTrustedValidationSession,
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
   onNext,
@@ -239,6 +242,9 @@ export function AssetsPage({
             // 注册接口返回的是后台任务，不是资产；资产状态由项目轮询同步。
             return onRegisterVirtualPortrait(assetId, assetName)
           }}
+          onCreateTrustedValidationSession={onCreateTrustedValidationSession}
+          onRefreshTrustedValidationSession={onRefreshTrustedValidationSession}
+          onLatestTrustedValidationSession={onLatestTrustedValidationSession}
           onBindTrustedPortrait={async (assetId, providerAssetId) => {
             const updated = await onBindTrustedPortrait(assetId, providerAssetId)
             if (updated) setEditing(updated)

@@ -26,7 +26,7 @@ flowchart LR
   Worker["apps/api/src/worker.ts 任务 worker"] --> Queue
   Worker --> ProjectDb
   Worker --> Outbox
-  Worker --> Providers["Rehdasu / TokenAdvent / StringX"]
+  Worker --> Providers["Rehdasu / TokenAdvent / DoraRouter / StringX"]
   API --> Mail["Resend"]
   ObjectStorage --> GCS["Private GCS"]
 ```
@@ -97,8 +97,8 @@ Migration 文件位于 `apps/api/src/infra/migrations`。dev/test 启动时可�
 
 - 默认文本：Rehdasu OpenAI 兼容接口，`glm-5.2`，服务端变量 `REHDASU_*`。
 - GPT 文本和图片：TokenAdvent；图片只实现 GPT Image 2，混元图片模型尚无 Provider。
-- 视频：StringX Seedance；Volc Ark 是可配置的显式回滚通道。当前 `VIDEO_PROVIDER` 只装配这两条真实运行路径。
-- 可信人像：StringX MaaS Assets OpenAPI，使用独立 AK/SK，不复用 Seedance Bearer Token。
+- 视频：DoraRouter 的 Seedance 兼容接口为默认路径；StringX 和 Volc Ark 是可配置的显式回滚通道。三条路径都通过同一个视频 Provider 抽象进入队列。
+- 可信人像：DoraRouter 素材库 API，默认与 Seedance 共用服务端 Bearer Token；旧 StringX MaaS 适配器仅作为显式回滚通道。
 - 邮件：Resend，负责验证码、邮箱验证、邀请和密码重置。
 
 生产媒体使用私有 GCS，通过鉴权 API 或短期签名地址读取。Provider 密钥只能存在 API/Worker 环境，不得进入 Web、文档、日志或任务元数据。

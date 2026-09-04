@@ -70,6 +70,9 @@ export function AssetEditor({
   onGetTrustedConfiguration,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
+  onCreateTrustedValidationSession,
+  onRefreshTrustedValidationSession,
+  onLatestTrustedValidationSession,
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
 }) {
@@ -428,6 +431,9 @@ export function AssetEditor({
                 trustedConfiguration={trustedConfiguration}
                 onListTrustedPortraits={onListTrustedPortraits}
                 onRegisterVirtualPortrait={onRegisterVirtualPortrait}
+                onCreateTrustedValidationSession={onCreateTrustedValidationSession}
+                onRefreshTrustedValidationSession={onRefreshTrustedValidationSession}
+                onLatestTrustedValidationSession={onLatestTrustedValidationSession}
                 onBindTrustedPortrait={onBindTrustedPortrait}
                 onRefreshTrustedPortrait={onRefreshTrustedPortrait}
                 onEnsureAsset={async () => persistDraft(draft)}

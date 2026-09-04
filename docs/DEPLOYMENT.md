@@ -31,7 +31,7 @@ Demo 媒体存储可设置 `STORAGE_DRIVER=gcs` 和 `GCS_BUCKET`，凭据使用 
 
 ## FFmpeg 运行时
 
-API 进程优先读取弦序返回的尾帧，并使用 FFmpeg 合成完整成片预览。开发机和 API 镜像必须安装带 `libx264` 的 FFmpeg，并保证 `FFMPEG_PATH` 指向可执行文件；默认值为 `ffmpeg`。`FILM_PREVIEW_TIMEOUT_MS` 同时控制尾帧提取和单次合成超时，默认 10 分钟。容器部署时还要为临时视频预留磁盘空间，并保证 API 进程可写系统临时目录。
+API 进程优先读取 Provider 返回的尾帧；DoraRouter 只返回 MP4 时，改由 FFmpeg 提取末帧，再使用 FFmpeg 合成完整成片预览。开发机和 API 镜像必须安装带 `libx264` 的 FFmpeg，并保证 `FFMPEG_PATH` 指向可执行文件；默认值为 `ffmpeg`。`FILM_PREVIEW_TIMEOUT_MS` 同时控制尾帧提取和单次合成超时，默认 10 分钟。容器部署时还要为临时视频预留磁盘空间，并保证 API 进程可写系统临时目录。
 
 当前生成任务和成片合成由独立 Worker 进程执行。正式环境还需要按任务类型设置 CPU、内存、并发上限和告警，并为合成结果配置对象存储生命周期。预览 MP4 当前不包含音频或字幕，不应当作正式交付母版。
 
@@ -57,10 +57,10 @@ chmod 600 deploy/demo.env
 - 生产环境不要启用 `BOOTSTRAP_DEMO_WORKSPACE`；客户登录后直接从空项目列表创建自己的第一个项目。
 - 保持 `TASK_QUEUE_DRIVER=bullmq` 和 `REDIS_URL=redis://redis:6379`，除非已经接入托管 Redis 或云队列适配器。
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WORKER_MEMORY_LIMIT=1536m`、`WORKER_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
-- 保持 `VIDEO_PROVIDER=stringx`，填写私有 `GCS_BUCKET`、`STRINGX_API_KEY`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；选择 DeepSeek V3 时需要 `DEEPSEEK_API_KEY`（可复用 `STRINGX_API_KEY`），选择 DeepSeek V4 Flash 时需要独立的 `DEEPSEEK_V4_API_KEY`。
+- 使用默认的 `VIDEO_PROVIDER=dora-router`，填写 `DORA_ROUTER_BASE_URL=https://www.dorarouter.com` 和服务端 `DORA_ROUTER_API_KEY`；StringX/Ark 只作为显式回退 Provider。另填写私有 `GCS_BUCKET`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；选择 DeepSeek V3 时需要 `DEEPSEEK_API_KEY`，选择 DeepSeek V4 Flash 时需要独立的 `DEEPSEEK_V4_API_KEY`。
 - 生产启动会强制检查当前视频 Provider 密钥、当前文本模型对应密钥和 TokenAdvent GPT Image 2 密钥，缺少时直接停止，不允许静默使用 Mock 结果。
-- 要测试可信人像，再填写弦序 MaaS 素材库专用 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和与 StringX Token 同组织、同项目的 `VOLC_ARK_PROJECT_NAME`。StringX Bearer Token 不能代替素材库 AK/SK。
-- 可选填写 `ASSET_LIBRARY_CONSOLE_URL`，人物编辑器会跳转到弦序私域素材库；不再硬编码火山控制台地址。
+- 可信人像/加白库默认复用 `DORA_ROUTER_API_KEY`，并使用 `ASSET_LIBRARY_PROVIDER=dora-router`；它与默认 Seedance 视频 Provider 共用 `DORA_ROUTER_BASE_URL`。仅在明确回滚到旧素材接口时设置 `ASSET_LIBRARY_PROVIDER=volc-ark`，再填写成对的 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和 `VOLC_ARK_PROJECT_NAME`。DoraRouter Bearer Token 不能填入旧 AK/SK 字段。
+- `ASSET_LIBRARY_CONSOLE_URL` 仅用于旧素材库回滚入口；Dora 真人认证直接由人物编辑器创建 H5/二维码，不需要把上游控制台地址暴露给用户。
 - `ARK_API_*` 只用于官方火山回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
 
@@ -141,7 +141,7 @@ Compose 默认把 API 和 Worker 分别限制为 1.5 CPU、1536MB 内存和 256 
 7. 备份和恢复至少演练一次，升级前执行 `deploy/backup-demo.sh` 并保留 Postgres、JSON 与 GCS 对象版本清单。
 8. 明确告知测试者：Seedance 单镜头可能带音频，但 FFmpeg 完整预览当前会移除音轨；系统仍处封闭外测阶段，不上传敏感或未授权素材。
 9. 浏览器实测登录、剧本、资产、分镜、视频、完整预览和退出登录。
-10. 仿真人测试先确认面部并等待 AIGC 资源变为 Active；真人测试必须由演员本人完成认证授权，制作方接收后再绑定 Asset ID。
+10. 仿真人测试先确认面部并等待 AIGC 资源变为 Active；真人测试必须由演员本人打开 Dora H5 完成认证，确认会话得到 `GroupId` 并自动创建 `LivenessFace` 图片素材，最终等待该素材变为 Active。
 
 ## 生产前必须替换
 

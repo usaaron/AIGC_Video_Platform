@@ -21,7 +21,7 @@
 ## 本次已清理
 
 - 删除已退出运行时装配的 Aideos Seedance Provider 及其测试，共删除约 400 行死代码。
-- `VideoProviderName` 只保留当前真实运行的 `stringx-seedance` 和 `volc-ark-seedance`。
+- `VideoProviderName` 只保留当前真实运行的 `dora-router-seedance`、`stringx-seedance` 和 `volc-ark-seedance`。
 - 删除 Compose 中无人读取的 `DEMO_UNLIMITED_GENERATION_CONCURRENCY` 和 `TASK_WORKER_MODE` 注入项，避免让运维误以为这两个开关仍然有效。
 - 同步修正架构和资产生成文档中对 Aideos 的过期描述。
 

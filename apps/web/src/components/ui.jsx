@@ -89,7 +89,7 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
           <p className={`job-provider-note ${runningSeconds >= 360 ? 'delayed' : ''}`}>
             {runningSeconds >= 360
               ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；进度长时间不变时系统会自动取消旧任务并重试，无需一直等待。`
-              : `弦序生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
+              : `上游生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
           </p>
         )}
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
@@ -122,7 +122,7 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
               <IconButton
                 label={
                   canCancelRunning
-                    ? '取消弦序任务并退回积分'
+                    ? '取消上游任务并退回积分'
                     : job.status === 'queued'
                       ? '删除任务并退回积分'
                       : '移出队列'

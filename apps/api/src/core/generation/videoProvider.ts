@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 
-export type VideoProviderName = 'stringx-seedance' | 'volc-ark-seedance'
+export type VideoProviderName = 'dora-router-seedance' | 'stringx-seedance' | 'volc-ark-seedance'
 
 export type VideoGenerationRequest = {
   taskId: string

@@ -30,11 +30,15 @@ describe('production configuration', () => {
   it('requires the selected video provider key in production', () => {
     const production = {
       ...productionConfig(),
+      DORA_ROUTER_API_KEY: '',
       STRINGX_API_KEY: '',
       TOKENADVENT_API_KEY: 'production-text-image-token',
       REHDASU_API_KEY: 'production-text-token',
     }
-    expect(() => loadConfig(production)).toThrow('STRINGX_API_KEY is required')
+    expect(() => loadConfig(production)).toThrow('DORA_ROUTER_API_KEY is required')
+    expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'stringx' })).toThrow(
+      'STRINGX_API_KEY is required',
+    )
     expect(() => loadConfig({ ...production, VIDEO_PROVIDER: 'volc-ark' })).toThrow('ARK_API_KEY is required')
   })
 
@@ -46,6 +50,35 @@ describe('production configuration', () => {
       VOLC_ARK_PROJECT_NAME: 'default',
       VOLC_ASSET_BASE_URL: 'https://maas-ark.stringx.top',
     })
+  })
+
+  it('defaults the trusted portrait library to DoraRouter and validates explicit legacy mode', () => {
+    expect(loadConfig({ NODE_ENV: 'test', DORA_ROUTER_API_KEY: 'dora-token' })).toMatchObject({
+      ASSET_LIBRARY_PROVIDER: 'dora-router',
+      DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS: 300_000,
+    })
+
+    expect(() =>
+      loadConfig({
+        ...productionConfig({
+          VIDEO_PROVIDER: 'stringx',
+          ASSET_LIBRARY_PROVIDER: 'dora-router',
+          DORA_ROUTER_API_KEY: '',
+        }),
+      }),
+    ).toThrow('DORA_ROUTER_API_KEY is required for the selected production asset library provider')
+
+    expect(() =>
+      loadConfig({
+        ...productionConfig({
+          ASSET_LIBRARY_PROVIDER: 'volc-ark',
+          VOLC_ACCESS_KEY: '',
+          VOLC_SECRET_KEY: '',
+        }),
+      }),
+    ).toThrow(
+      'VOLC_ACCESS_KEY and VOLC_SECRET_KEY are required for the selected production asset library provider',
+    )
   })
 
   it('keeps tests on inline queue by default and validates bullmq Redis config', () => {
@@ -130,7 +163,7 @@ describe('production configuration', () => {
     )
   })
 
-  it('defaults to StringX and ignores removed legacy Seedance aliases', () => {
+  it('defaults to DoraRouter and ignores removed legacy Seedance aliases', () => {
     expect(
       loadConfig({
         SEEDANCE_API_BASE_URL: 'https://legacy-seedance.example',
@@ -138,8 +171,9 @@ describe('production configuration', () => {
         SEEDANCE_MODEL: 'doubao-seedance-2-0-260128',
       }),
     ).toMatchObject({
-      VIDEO_PROVIDER: 'stringx',
-      STRINGX_BASE_URL: 'https://maas.stringx.top/api/v3',
+      VIDEO_PROVIDER: 'dora-router',
+      DORA_ROUTER_BASE_URL: 'https://www.dorarouter.com',
+      DORA_ROUTER_VIDEO_MODEL: 'TH-doubao-seedance2.0',
       VIDEO_POLL_INTERVAL_MS: 5_000,
     })
   })
@@ -255,12 +289,14 @@ describe('production configuration', () => {
 function productionConfig(overrides: Record<string, string> = {}): Record<string, string> {
   return {
     NODE_ENV: 'production',
+    VIDEO_PROVIDER: 'dora-router',
     WEB_ORIGIN: 'https://studio.example.com',
     AUTH_SECRET: 'a-unique-production-secret-with-32-characters',
     BILLING_WEBHOOK_SECRET: 'a-unique-billing-webhook-secret-32-chars',
     EMAIL_PROVIDER: 'resend',
     EMAIL_FROM: 'Seqora <no-reply@example.com>',
     RESEND_API_KEY: 'resend-production-token',
+    DORA_ROUTER_API_KEY: 'production-dora-token',
     STRINGX_API_KEY: 'production-video-token',
     DEEPSEEK_V4_API_KEY: 'production-deepseek-v4-token',
     TOKENADVENT_API_KEY: 'production-image-token',

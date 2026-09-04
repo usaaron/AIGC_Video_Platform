@@ -12,9 +12,11 @@ import type { AppStore, StoredMedia } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { MediaRepository } from '../media/repository.js'
 import type { ProjectRepository } from '../projects/repository.js'
+import type { TrustedValidationSessionRepository } from './validationSessionRepository.js'
 
 const SOURCE_URL_TTL_MS = 24 * 60 * 60 * 1_000
 const PREVIEW_REQUEST_TIMEOUT_MS = 30_000
+const VALIDATION_UPLOAD_LEASE_MS = 10 * 60 * 1_000
 
 type StoredSource = {
   storageKey: string
@@ -23,6 +25,18 @@ type StoredSource = {
 
 type CharacterAsset = Asset & {
   attributes: Extract<Asset['attributes'], { type: 'character' }>
+}
+
+type PublicValidationSession = {
+  id: string
+  status: 'pending' | 'uploading' | 'completed' | 'failed' | 'expired'
+  h5Link: string
+  qrCode: string | null
+  groupId: string | null
+  providerAssetId: string | null
+  error: string | null
+  expiresAt: string
+  updatedAt: string
 }
 
 export class TrustedAssetService {
@@ -42,15 +56,139 @@ export class TrustedAssetService {
       MediaRepository,
       'findSourceById' | 'findSourceByReferenceIds'
     > | null = null,
+    private readonly validationSessionRepository: TrustedValidationSessionRepository | null = null,
   ) {}
 
   configuration() {
     return {
       configured: Boolean(this.provider),
       virtualRegistrationReady: Boolean(this.provider && this.publicApiBaseUrl),
+      realValidationReady: Boolean(
+        this.provider?.createVisualValidateSession &&
+        this.provider.getVisualValidateResult &&
+        this.provider.createAuthorizedAsset &&
+        this.publicApiBaseUrl,
+      ),
       projectName: this.projectName,
       authorizationUrl: this.consoleUrl || null,
     }
+  }
+
+  async createValidationSession(
+    projectId: string,
+    assetId: string,
+    principal: Principal,
+  ): Promise<PublicValidationSession> {
+    const repository = this.requireValidationSessionRepository()
+    const provider = this.requireValidationProvider()
+    const asset = await this.requireCharacterAsset(projectId, assetId, principal)
+    if (asset.attributes.subjectType !== 'human') {
+      throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材可以进行真人认证')
+    }
+    if (asset.attributes.faceStatus !== 'approved') {
+      throw new AppError(409, 'FACE_APPROVAL_REQUIRED', '请先确认人物面部基准，再进行真人认证')
+    }
+    if (!this.publicApiBaseUrl) {
+      throw new AppError(503, 'PUBLIC_API_URL_REQUIRED', '真人素材入库需要配置公网 API 地址')
+    }
+
+    const session = await this.callProvider(() => provider.createVisualValidateSession!())
+    const now = Date.now()
+    const stored = await repository.create({
+      id: randomUUID(),
+      tenantId: principal.tenantId,
+      userId: principal.userId,
+      projectId,
+      assetId: asset.id,
+      providerToken: session.providerToken,
+      h5Link: session.h5Link,
+      qrCode: session.qrCode,
+      status: 'pending',
+      groupId: null,
+      providerAssetId: null,
+      error: null,
+      expiresAt: new Date(now + 5 * 60 * 1_000).toISOString(),
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+    })
+    return publicValidationSession(stored)
+  }
+
+  async refreshValidationSession(
+    sessionId: string,
+    principal: Principal,
+  ): Promise<{ session: PublicValidationSession; asset: Asset | null }> {
+    const repository = this.requireValidationSessionRepository()
+    const session = await repository.findOwned(sessionId, principal)
+    if (!session) throw new AppError(404, 'VALIDATION_SESSION_NOT_FOUND', '真人认证会话不存在或已失效')
+    if (session.status === 'completed' || session.status === 'failed' || session.status === 'expired') {
+      return { session: publicValidationSession(session), asset: null }
+    }
+    if (
+      session.status === 'uploading' &&
+      Date.now() - Date.parse(session.updatedAt) < VALIDATION_UPLOAD_LEASE_MS
+    ) {
+      return { session: publicValidationSession(session), asset: null }
+    }
+    if (session.status === 'uploading') {
+      const reset = await repository.update(session.id, principal, { status: 'pending' })
+      if (!reset) throw new AppError(404, 'VALIDATION_SESSION_NOT_FOUND', '真人认证会话不存在或已失效')
+      return this.refreshValidationSession(sessionId, principal)
+    }
+    if (Date.parse(session.expiresAt) <= Date.now()) {
+      const expired = await repository.update(session.id, principal, { status: 'expired' })
+      return { session: publicValidationSession(expired ?? { ...session, status: 'expired' }), asset: null }
+    }
+
+    const provider = this.requireValidationProvider()
+    const result = await this.callProvider(() => provider.getVisualValidateResult!(session.providerToken))
+    if (!result.groupId) return { session: publicValidationSession(session), asset: null }
+
+    const markedUploading = await repository.claimForUpload(session.id, principal, result.groupId)
+    if (!markedUploading) {
+      const latest = await repository.findOwned(session.id, principal)
+      if (!latest) throw new AppError(404, 'VALIDATION_SESSION_NOT_FOUND', '真人认证会话不存在或已失效')
+      return { session: publicValidationSession(latest), asset: null }
+    }
+
+    try {
+      const asset = await this.requireCharacterAsset(session.projectId, session.assetId, principal)
+      const source = await this.findSource(asset)
+      if (!source) throw new AppError(409, 'FACE_SOURCE_REQUIRED', '认证成功，但当前人物没有可上传的面部基准')
+      const sourceToken = createPublicMediaToken(source, this.authSecret, Date.now() + SOURCE_URL_TTL_MS)
+      const sourceUrl = `${this.publicApiBaseUrl}/api/v1/trusted-assets/source/${sourceToken}`
+      const portrait = await this.callProvider(() =>
+        provider.createAuthorizedAsset!(result.groupId!, `${asset.name}-真人面部基准`, sourceUrl),
+      )
+      const savedAsset = await this.savePortrait(asset, portrait, 'authorized-real', principal)
+      const completed = await repository.update(session.id, principal, {
+        status: 'completed',
+        providerAssetId: portrait.assetId,
+        error: null,
+      })
+      return {
+        session: publicValidationSession(completed ?? { ...markedUploading, status: 'completed' }),
+        asset: savedAsset,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '真人素材入库失败'
+      const failed = await repository.update(session.id, principal, { status: 'failed', error: message })
+      return {
+        session: publicValidationSession(failed ?? { ...markedUploading, status: 'failed', error: message }),
+        asset: null,
+      }
+    }
+  }
+
+  async latestValidationSession(
+    projectId: string,
+    assetId: string,
+    principal: Principal,
+  ): Promise<PublicValidationSession | null> {
+    const repository = this.requireValidationSessionRepository()
+    await this.requireCharacterAsset(projectId, assetId, principal)
+    const session = await repository.findLatestOwned(projectId, assetId, principal)
+    return session ? publicValidationSession(session) : null
   }
 
   async listPortraits(groupType: PortraitGroupType, principal: Principal): Promise<ProviderPortrait[]> {
@@ -91,7 +229,7 @@ export class TrustedAssetService {
       throw new AppError(
         503,
         'PUBLIC_API_URL_REQUIRED',
-        '自动入库需要配置公网 API 地址；本地 localhost 无法供弦序素材库下载素材',
+        '自动入库需要配置公网 API 地址；本地 localhost 无法供 Dora 素材库下载素材',
       )
     }
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
@@ -99,7 +237,7 @@ export class TrustedAssetService {
       throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
     }
     if (asset.attributes.faceStatus !== 'approved') {
-      throw new AppError(409, 'FACE_APPROVAL_REQUIRED', '请先确认人物面部基准，再创建弦序素材资源')
+      throw new AppError(409, 'FACE_APPROVAL_REQUIRED', '请先确认人物面部基准，再创建 Dora 素材资源')
     }
     if (asset.attributes.trustedPortrait?.status === 'active') return asset
 
@@ -117,7 +255,7 @@ export class TrustedAssetService {
 
     const source = await this.findSource(asset)
     if (!source) {
-      throw new AppError(409, 'FACE_SOURCE_REQUIRED', '请先生成或导入并确认人物面部，再创建弦序素材资源')
+      throw new AppError(409, 'FACE_SOURCE_REQUIRED', '请先生成或导入并确认人物面部，再创建 Dora 素材资源')
     }
     const token = createPublicMediaToken(source, this.authSecret, Date.now() + SOURCE_URL_TTL_MS)
     const sourceUrl = `${this.publicApiBaseUrl}/api/v1/trusted-assets/source/${token}`
@@ -158,7 +296,7 @@ export class TrustedAssetService {
   async refresh(projectId: string, assetId: string, principal: Principal): Promise<Asset> {
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
     const current = asset.attributes.trustedPortrait
-    if (!current) throw new AppError(409, 'TRUSTED_PORTRAIT_REQUIRED', '当前人物尚未绑定弦序素材资源')
+    if (!current) throw new AppError(409, 'TRUSTED_PORTRAIT_REQUIRED', '当前人物尚未绑定 Dora 素材资源')
     const portrait =
       current.status === 'processing'
         ? await this.readProcessingPortrait(this.requireProvider(), current)
@@ -228,10 +366,29 @@ export class TrustedAssetService {
       throw new AppError(
         503,
         'ASSET_LIBRARY_NOT_CONFIGURED',
-        '弦序素材库尚未配置 Access Key/Secret Key，单个 sk- API Token 不能代替',
+        '可信人像库尚未配置，请联系管理员配置当前素材库 Provider',
       )
     }
     return this.provider
+  }
+
+  private requireValidationSessionRepository(): TrustedValidationSessionRepository {
+    if (!this.validationSessionRepository) {
+      throw new AppError(503, 'VALIDATION_SESSION_NOT_CONFIGURED', '真人认证会话存储尚未配置')
+    }
+    return this.validationSessionRepository
+  }
+
+  private requireValidationProvider(): AssetLibraryProvider {
+    const provider = this.requireProvider()
+    if (
+      !provider.createVisualValidateSession ||
+      !provider.getVisualValidateResult ||
+      !provider.createAuthorizedAsset
+    ) {
+      throw new AppError(503, 'REAL_VALIDATION_NOT_SUPPORTED', '当前素材库 Provider 不支持真人认证')
+    }
+    return provider
   }
 
   private async visiblePortraitIds(
@@ -341,7 +498,7 @@ export class TrustedAssetService {
   private providerError(error: unknown): AppError {
     if (error instanceof AppError) return error
     const detail = error instanceof Error ? error.message : '未知错误'
-    return new AppError(502, 'ASSET_LIBRARY_REQUEST_FAILED', `弦序素材库请求失败：${detail}`)
+    return new AppError(502, 'ASSET_LIBRARY_REQUEST_FAILED', `Dora 素材库请求失败：${detail}`)
   }
 
   private async requireCharacterAsset(
@@ -546,6 +703,30 @@ function toTrustedPortrait(portrait: ProviderPortrait): TrustedPortrait {
     errorCode: portrait.errorCode,
     errorMessage: portrait.errorMessage,
     checkedAt: new Date().toISOString(),
+  }
+}
+
+function publicValidationSession(session: {
+  id: string
+  status: PublicValidationSession['status']
+  h5Link: string
+  qrCode: string | null
+  groupId: string | null
+  providerAssetId: string | null
+  error: string | null
+  expiresAt: string
+  updatedAt: string
+}): PublicValidationSession {
+  return {
+    id: session.id,
+    status: session.status,
+    h5Link: session.h5Link,
+    qrCode: session.qrCode,
+    groupId: session.groupId,
+    providerAssetId: session.providerAssetId,
+    error: session.error,
+    expiresAt: session.expiresAt,
+    updatedAt: session.updatedAt,
   }
 }
 

@@ -4,14 +4,11 @@ import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider, TextGenerationTiming } from '../../core/generation/textProvider.js'
 import {
   countStructuredScenes,
-  dialogueTextForTiming,
-  normalizedSceneIdentity,
   parseShotFields,
   scriptScenes,
   scriptBodyWithoutAssetManifest,
   splitScriptParagraphs,
 } from './shotPlanning.js'
-import { isNaturalScreenplayHeader } from './screenplayParsing.js'
 
 export type ScriptContentMode = 'web-series' | 'advertisement' | 'short-film' | 'short-video'
 
@@ -23,7 +20,7 @@ const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师
 - 角色字段必须列出所有画面内角色，并为每个人写清主次、画面位置、朝向、视线、服装、当前表情、起始姿态和本镜反应；配角与背景角色不能只作为名单，必须有符合场景的动作或表情变化。
 - 动作字段必须拆成 2 到 3 个可被摄像机看见的微节拍，用“动作1：…；动作2：…；动作3：…”分开；这些微节拍共同完成当前场次的一个核心事件，不代表新增场次，也不能把同一事件换词重复。每个微节拍写清主角起势、执行、一次表情或视线变化和结束姿态；配角、群演只做同步反应。
 - 核心人物每 2 到 3 秒必须有一次可见的表情、视线、姿态或情绪状态变化；配角和背景角色也必须在对应节拍发生至少一次反应，这些变化必须落到动作或角色字段中，不能只写“情绪升级”。
-- 对白字段按实际情况明确标记“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”或“[音效]内容”；优先写 1 到 2 句短而能推进冲突的发声内容，单句尽量 4 到 12 个中文字符、整场口播尽量不超过 24 个中文字符，禁止用长台词解释画面；没有人物对白时用简短画外音补充画面无法表达的信息，并写至少两种现场声音和人物反应，不能返回空白或“无声”。
+- 对白字段按实际情况明确标记“[对白]角色：内容”“[画外音]内容”“[内心独白]角色：内容”或“[音效]内容”；优先写短而能推进冲突的发声内容，单句尽量 4 到 12 个中文字符、整场口播尽量不超过 24 个中文字符。画外音只能说画面无法直接看见的背景事实，例如时间、地点、历史、规则或局势，禁止朗读人物的动作、位置、速度、手部、表情、服装、道具和镜头；人物心里想法必须使用“[内心独白]角色：内容”。没有人物对白时优先使用符合人物处境的短内心独白，并写至少两种现场声音和人物反应，不能返回空白或“无声”。
 - 风格字段写材质、色彩、角色与场景的统一规则；构图字段写景别、主体位置、视线方向、前中后景和画面重心；光影字段写主光方向、软硬、色温、阴影落点；运镜字段写机位、运动方式、速度、跟随对象和结束画面。
 - 每个场次都必须额外写清“目标：”“阻力：”“变化：”“入场状态：”“出场状态：”。目标是本场角色要完成的事；阻力是画面中实际发生的阻碍；变化是本场结束后不可逆的新信息、关系或情绪状态；入场状态必须可作为本场第一镜首帧，出场状态必须可作为本场最后一镜尾帧。
 - 衔接字段必须同时写上一镜头尾帧如何接入本场，以及本场结尾把哪个人物位置、动作方向、视线、服装、物件状态或光线交给下一镜，禁止让每个镜头像独立照片。
@@ -37,7 +34,7 @@ const FAST_WEB_SERIES_SCENE_RULES = `网剧输出必须像正常剧本一样可�
 - 每场是一个约 18 到 25 秒的连续事件，不按单个动作拆场，也不在剧本中预拆镜头。系统会依据时长和叙事目的把约 20 秒的场次规划成约 2 个长镜头。
 - 正文必须让读者直接看见因果：人物从哪里来，以步行、快走、奔跑等何种速度和姿态移动；处于空间哪一侧，朝向哪里，与他人或门窗相距多远；哪只手接触什么；经过看、问、摸、试拉、试按或听见反馈后才得出什么结论；动作结束后人物、物品、门窗和伤势分别停在什么状态。禁止角色无缘无故知道出口、药品、敌人或线索的位置。
 - 地点气氛必须化成可见可听的事实。“破败阴森”要落实为掉漆招牌、碎玻璃、积灰货架、忽明忽暗灯管、狭窄动线、风声或撞击声；危险要写明从哪个方向逼近、数量区间、距离和人物如何确认，不能只写“尸群合围”。
-- 对白必须按真实发生时机穿插在动作之间，格式使用“林晚：“门锁死了。””；画外音使用“画外音：“末日第七天。””；音效可以使用“[音效]卷帘门被连续撞响。”。每场至少 4 句、通常 4 到 6 句短对白或必要画外音，单句尽量 5 到 14 个中文字符；每句用于提问、回答、施压、揭示信息或改变决定，不寒暄、不复述画面。
+- 对白必须按真实发生时机穿插在动作之间，格式使用“林晚：“门锁死了。””；背景说明使用“画外音：“末日已经进入第七天。””，人物心理使用“内心独白：“今晚不能倒下。””；音效可以使用“[音效]卷帘门被连续撞响。”。每场至少 4 句、通常 4 到 6 句短对白或必要的背景说明/内心独白，单句尽量 5 到 14 个中文字符；每句用于提问、回答、施压、揭示信息或改变决定，不寒暄、不复述画面中已经看得见的动作。
 - 说话前后都要写说话者和听者的视线、停顿、表情或动作反应。奔跑、对抗、观察、对白和情绪变化都写成连续可拍的表演，但不要写景别、机位、运镜等导演术语，分镜阶段会依据语义决定全景、中景、特写和推拉。
 - 前一场结尾必须留下下一场能直接承接的人物位置、运动方向、视线、稳定服装、临时伤势、物品归属、门窗状态、光线与声音。已有项目资产必须逐字复用名称，不得为同一资产的临时变化重复建卡。
 - 每场保持约 350 到 600 个中文字符的有效信息密度，不用字段、口号、形容词或重复动作凑字数。`
@@ -62,7 +59,7 @@ const QUICK_SCRIPT_SYSTEM_PROMPT = `你是中文漫剧的快速编剧。你的�
 3. 每行使用统一字段：场次：｜剧情：｜场景：｜角色：｜动作：｜对白：｜风格：｜构图：｜光影：｜运镜：｜衔接：。
 4. 剧情必须有明确目标、阻力、变化和结果；不要写空泛的“氛围感”“电影感”。
 5. 动作必须是可以被摄像机看见的连续动作，明确谁在什么位置做什么，并包含至少 2 个动作拍点和一个结束姿态；不要只写心理活动。
-6. 每场安排 1 到 2 句短、口语化且推动冲突的对白、画外音或内心独白，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符；优先让人物互相回应，不用长旁白解释可见动作，同时写清必要音效和现场声音。
+6. 每场安排 1 到 2 句短、口语化且推动冲突的对白、必要背景画外音或内心独白，单句尽量 4 到 12 个中文字符、整场口播不超过 24 个中文字符；优先让人物互相回应，画外音只说背景事实，人物心理使用内心独白，不解释可见动作，同时写清必要音效和现场声音。
 7. 场景之间必须保持人物、地点、时间、服装和关键物件连续；每一场都要推动主线。
 8. 结尾留下一个清晰的悬念、决定或下一步动作，方便后续补齐专业视觉细节。
 9. ${SCENE_PRODUCTION_RULES}
@@ -134,7 +131,7 @@ export const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主�
 4. 未知信息必须通过搜索、观察、试探、询问或物件反馈获得；角色不能直接知道未看见的后门状态、药品位置、敌人数量或线索结论。
 5. 保持人物身份、稳定服装、地点、时间、光线、伤势和关键物件连续；已有项目资产必须逐字复用，不得把受伤版、污渍版、表情或镜头角度误建成新资产。
 6. 前场快速建立处境，中场增加阻力并迫使人物选择，末场形成明显变化和下一集钩子；最后场仍使用连续 S 编号，把未解决的钩子自然写进结尾动作，不要把场次名改成“剧情钩子”。
-7. 每场写 4 到 6 句短而有意义的对白、画外音或内心独白，并按发生顺序穿插在动作中；画外音只补充画面无法表达的信息，环境声与动作声直接写进现场。
+7. 每场写 4 到 6 句短而有意义的对白、必要背景画外音或内心独白，并按发生顺序穿插在动作中；画外音只补充画面无法直接表达的背景事实，绝不描述人物正在做的动作，人物心理改用内心独白，环境声与动作声直接写进现场。
 8. ${FAST_WEB_SERIES_SCENE_RULES}
 9. 只输出“资产清单 + 正文场次”，不要标题、解释、Markdown 或分析。`
 
@@ -145,7 +142,7 @@ const WEB_SERIES_REWRITE_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧�
 2. 原稿已经按场次组织时，场次数量、编号和顺序必须保持；每场补齐 18 到 25 秒的可执行信息，不在剧本中预拆镜头。
 3. 严格使用“资产清单 + 场次标题 + 自然正文”格式；缺失的空间、位置、方向、左右手、信息获得过程、对白反应、声音和首尾状态可根据上下文合理补齐，但不能新增改变剧情的角色、道具、能力或空间规则。
 4. 每场都要在正常叙事中体现意图、阻碍、变化和结果，动作明确到人物起点、路线、视线、表情、手部和关键物件状态；不要显示“目标/阻力/变化”等检查字段，也不要用“沿用上一场”代替具体状态。
-5. 保留原稿有效对白，并把每场补齐到 4 到 6 句简短发声内容；每句必须改变信息、压力、回答或决定，画外音不得复述可见动作，声音字段另写环境声与动作声。
+5. 保留原稿有效对白，并把每场补齐到 4 到 6 句简短发声内容；每句必须改变信息、压力、回答或决定，画外音只写背景事实，人物心理只用内心独白，二者都不得复述可见动作，声音字段另写环境声与动作声。
 6. 结尾保留并强化原稿的高波动钩子；如果原稿存在“【强制下一集】”，必须独占一行并原样保留。
 7. ${FAST_WEB_SERIES_SCENE_RULES}
 8. 只输出“资产清单 + 重写后的正文场次”，不要标题、解释、Markdown 或分析。`
@@ -186,7 +183,7 @@ const WEB_SERIES_DETAIL_SYSTEM_PROMPT = `你是中文网剧漫剧的视觉导演
 硬性规格：
 1. 保留原有场次、人物、对白、地点、关键物件和剧情因果，不压缩、不另起故事；重点补足空间因果、表演、声音、导演镜头和连续状态。
 2. 每场补齐为“场次标题 + 自然动作段落 + 穿插对白”，常规场次保持 18 到 25 秒；不要在剧本正文显示导演镜头字段，后续分镜会按场次时长和语义规划约 2 个长镜头。
-3. 每场保留或补齐 4 到 6 句短对白、画外音或内心独白，并放在实际说话的位置；说话者发声时写清听者的视线、停顿和表情反应。
+3. 每场保留或补齐 4 到 6 句短对白、必要背景画外音或内心独白，并放在实际说话的位置；画外音只写背景事实，人物心理使用内心独白，不复述可见动作；说话者发声时写清听者的视线、停顿和表情反应。
 4. 补足可供后续导演判断的语义：环境与威胁、人物移动、对话关系、证据出现和情绪落点；正文不写景别、机位或运镜术语。
 5. 场次结尾必须交付人物位置、动作方向、视线、稳定服装、临时伤势、物件和光线状态，下一场开头直接承接。
 6. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
@@ -638,13 +635,13 @@ function completeMissingWebSeriesDialogue(script: string, mode: ScriptContentMod
       const fields = parseShotFields(paragraph.text)
       if (!fields.场次 || sceneHasSpokenDialogue(fields.对白)) return paragraph.text
 
-      const plot = compactDialogueContext(fields.剧情 || fields.动作)
+      const fallback = fallbackSpokenCue(fields.角色)
       const existingSound = String(fields.对白 || '')
         .replace(/无台词[\s，,;；。]*/gu, '')
         .replace(/静音[\s，,;；。]*/gu, '')
         .trim()
       const dialogue = [
-        `[画外音]${plot || '本场的选择正在改变局面。'}`,
+        fallback,
         existingSound,
         existingSound ? '' : '[音效]现场动作声；[环境声]延续当前场景环境声。',
       ]
@@ -664,65 +661,7 @@ function completeMissingWebSeriesDialogue(script: string, mode: ScriptContentMod
 }
 
 export function completeWebSeriesSpokenContent(script: string, mode: ScriptContentMode): string {
-  const completed = completeMissingWebSeriesDialogue(script, mode)
-  if (mode !== 'web-series') return completed
-
-  const paragraphs = splitScriptParagraphs(completed)
-  const fields = paragraphs.map((paragraph) => parseShotFields(paragraph.text))
-  const sceneIndexes = fields.flatMap((scene, index) => (scene.场次 ? [index] : []))
-  if (!sceneIndexes.length) return completed
-
-  const desiredVoiceoverScenes = Math.min(
-    sceneIndexes.length,
-    sceneIndexes.length >= 6 ? 3 : Math.max(1, Math.ceil(sceneIndexes.length / 3)),
-  )
-  const selected = new Set(
-    sceneIndexes.filter((index) => /\[画外音\]/u.test(String(fields[index]?.对白 || ''))),
-  )
-  const sceneChanges = sceneIndexes.filter((index, position) => {
-    if (position === 0) return true
-    const previous = fields[sceneIndexes[position - 1]!]?.场景 || ''
-    const current = fields[index]?.场景 || ''
-    return Boolean(
-      previous && current && normalizedSceneIdentity(previous) !== normalizedSceneIdentity(current),
-    )
-  })
-  const candidates = [
-    sceneIndexes[0],
-    ...sceneChanges,
-    sceneIndexes[Math.floor(sceneIndexes.length / 2)],
-    sceneIndexes[Math.max(0, sceneIndexes.length - 2)],
-    ...sceneIndexes,
-  ].filter((index): index is number => typeof index === 'number')
-
-  for (const index of candidates) {
-    if (selected.size >= desiredVoiceoverScenes) break
-    if (selected.has(index)) continue
-    const scene = fields[index] || {}
-    const dialogue = String(scene.对白 || '').trim()
-    const availableCharacters = Math.max(6, 24 - dialogueTextForTiming(dialogue).length)
-    const voiceover = shortVoiceoverContext(scene.剧情 || scene.动作, Math.min(16, availableCharacters))
-    if (!voiceover) continue
-    const sceneText = paragraphs[index]!.text
-    paragraphs[index]!.text = appendSpokenContent(
-      sceneText,
-      isNaturalScreenplayHeader(sceneText) ? `[画外音]${voiceover}` : `[画外音]${voiceover}；${dialogue}`,
-    )
-    selected.add(index)
-  }
-
-  const completedBody = paragraphs
-    .map((paragraph) =>
-      [
-        paragraph.forceEpisodeBreakBefore ? FORCE_EPISODE_BREAK_MARKER : '',
-        paragraph.forceShotBreakBefore ? FORCE_SHOT_BREAK_MARKER : '',
-        paragraph.text,
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    )
-    .join('\n')
-  return withScriptAssetManifest(completed, completedBody)
+  return completeMissingWebSeriesDialogue(script, mode)
 }
 
 function withScriptAssetManifest(source: string, body: string): string {
@@ -772,33 +711,12 @@ function naturalDialogueLines(dialogue: string): string {
     .join('\n')
 }
 
-function compactDialogueContext(value: string | undefined): string {
-  const normalized = String(value || '')
-    .replace(/动作\s*\d+\s*[：:]/gu, '')
-    .replace(/\s+/gu, ' ')
-    .trim()
-  if (!normalized) return ''
-  const sentence = normalized.split(/(?<=[。！？!?])/u)[0] || normalized
-  return sentence.length <= 52 ? sentence : `${sentence.slice(0, 52)}。`
-}
-
-function shortVoiceoverContext(value: string | undefined, limit: number): string {
-  const normalized = String(value || '')
-    .replace(/(?:目标|阻力|变化|结果)\s*[：:]/gu, '')
-    .replace(/动作\s*\d+\s*[：:]/gu, '')
-    .replace(/[“”"']/gu, '')
-    .replace(/\s+/gu, ' ')
-    .trim()
-  if (!normalized) return ''
-  const clause =
-    normalized
-      .split(/[。！？!?；;，,]/u)
-      .find(Boolean)
-      ?.trim() || normalized
-  const text = (clause.length >= 4 ? clause : normalized)
-    .slice(0, Math.max(4, limit))
-    .replace(/[。！？!?；;，,]+$/u, '')
-  return text ? `${text}。` : ''
+function fallbackSpokenCue(roleField: string | undefined): string {
+  const role = String(roleField || '')
+    .split(/[、，,；;]/u)
+    .map((value) => value.trim().replace(/[（(].*?[）)]/gu, ''))
+    .find((value) => /^[\u3400-\u9fffA-Za-z0-9·]{1,16}$/u.test(value))
+  return role ? `[内心独白]${role}：不能在这里停下。` : '[画外音]局势正在变化。'
 }
 
 export function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode): void {

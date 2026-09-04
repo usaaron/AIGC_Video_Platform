@@ -1,10 +1,19 @@
-import { createHash, createHmac } from 'node:crypto'
 import { z } from 'zod'
+import type {
+  AssetLibraryProvider,
+  PortraitGroupType,
+  PortraitPreview,
+  ProviderPortrait,
+  VisualValidationResult,
+  VisualValidationSession,
+} from './volcArkAssetLibraryProvider.js'
 
 const providerErrorSchema = z
   .object({
     Code: z.string().optional(),
     Message: z.string().optional(),
+    code: z.string().optional(),
+    message: z.string().optional(),
   })
   .passthrough()
 
@@ -15,8 +24,11 @@ const responseSchema = z
         RequestId: z.string().optional(),
         Error: providerErrorSchema.optional(),
       })
-      .passthrough(),
+      .passthrough()
+      .optional(),
     Result: z.unknown().optional(),
+    code: z.string().optional(),
+    message: z.string().optional(),
   })
   .passthrough()
 
@@ -24,11 +36,15 @@ const assetSchema = z
   .object({
     Id: z.string().min(1),
     GroupId: z.string().min(1),
+    GroupType: z.enum(['AIGC', 'LivenessFace']).optional(),
     Name: z.string().optional().default(''),
     AssetType: z.enum(['Image', 'Video', 'Audio']),
-    Status: z.enum(['Active', 'Processing', 'Failed']),
+    Status: z.enum(['Active', 'Processing', 'Pending', 'Failed']),
     URL: z.string().optional().default(''),
     Error: providerErrorSchema.optional(),
+    error: providerErrorSchema.optional(),
+    ErrorCode: z.string().optional(),
+    ErrorMessage: z.string().optional(),
   })
   .passthrough()
 
@@ -36,11 +52,19 @@ const assetGroupSchema = z
   .object({
     Id: z.string().min(1),
     Name: z.string().optional().default(''),
-    GroupType: z.enum(['AIGC', 'LivenessFace']),
+    GroupType: z.enum(['AIGC', 'LivenessFace']).optional(),
   })
   .passthrough()
 
 const idResultSchema = z.object({ Id: z.string().min(1) }).passthrough()
+const visualValidationSessionSchema = z
+  .object({
+    BytedToken: z.string().min(1),
+    H5Link: z.string().min(1),
+    QrCode: z.string().nullish(),
+  })
+  .passthrough()
+const visualValidationResultSchema = z.object({ GroupId: z.string().min(1).nullish() }).passthrough()
 const assetGroupListSchema = z
   .object({
     Items: z.array(assetGroupSchema).default([]),
@@ -54,71 +78,27 @@ const assetListSchema = z
   })
   .passthrough()
 
-export type TrustedPortraitStatus = 'processing' | 'active' | 'failed'
-export type PortraitGroupType = 'AIGC' | 'LivenessFace'
-
-export type ProviderPortrait = {
-  assetId: string
-  groupId: string
-  groupType: 'AIGC' | 'LivenessFace'
-  name: string
-  assetType: 'Image' | 'Video' | 'Audio'
-  status: TrustedPortraitStatus
-  previewUrl: string | null
-  errorCode: string | null
-  errorMessage: string | null
-}
-
-export type PortraitPreview = {
-  content: Buffer
-  contentType: string
-}
-
-export type VisualValidationSession = {
-  providerToken: string
-  h5Link: string
-  qrCode: string | null
-}
-
-export type VisualValidationResult = {
-  groupId: string | null
-}
-
-export interface AssetLibraryProvider {
-  createVirtualGroup(name: string, description: string): Promise<string>
-  createVirtualAsset(groupId: string, name: string, sourceUrl: string): Promise<ProviderPortrait>
-  createAuthorizedAsset?(groupId: string, name: string, sourceUrl: string): Promise<ProviderPortrait>
-  createVisualValidateSession?(): Promise<VisualValidationSession>
-  getVisualValidateResult?(providerToken: string): Promise<VisualValidationResult>
-  getPortrait(assetId: string, expectedGroupType?: PortraitGroupType): Promise<ProviderPortrait>
-  getPortraitPreview?(assetId: string): Promise<PortraitPreview>
-  listPortraits(groupType: PortraitGroupType): Promise<ProviderPortrait[]>
-  listAuthorizedPortraits(): Promise<ProviderPortrait[]>
-}
-
 type Fetcher = typeof fetch
+
 const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 524])
 const PROVIDER_RETRY_DELAY_MS = 350
 
-export type VolcArkAssetLibraryOptions = {
+export type DoraRouterAssetLibraryOptions = {
   baseUrl: string
-  accessKey: string
-  secretKey: string
+  apiKey: string
   projectName: string
   requestTimeoutMs: number
   fetcher?: Fetcher
-  now?: () => Date
 }
 
-export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
+/** DoraRouter's material API uses the same Bearer token as its Seedance endpoint. */
+export class DoraRouterAssetLibraryProvider implements AssetLibraryProvider {
   private readonly baseUrl: string
   private readonly fetcher: Fetcher
-  private readonly now: () => Date
 
-  constructor(private readonly options: VolcArkAssetLibraryOptions) {
+  constructor(private readonly options: DoraRouterAssetLibraryOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
     this.fetcher = options.fetcher ?? fetch
-    this.now = options.now ?? (() => new Date())
   }
 
   async createVirtualGroup(name: string, description: string): Promise<string> {
@@ -126,48 +106,42 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
       await this.call('CreateAssetGroup', {
         Name: name.slice(0, 120),
         Description: description.slice(0, 500),
-        GroupType: 'AIGC',
-        ProjectName: this.options.projectName,
       }),
     )
     return result.Id
   }
 
   async createVirtualAsset(groupId: string, name: string, sourceUrl: string): Promise<ProviderPortrait> {
-    const result = idResultSchema.parse(
-      await this.call('CreateAsset', {
-        GroupId: groupId,
-        URL: sourceUrl,
-        AssetType: 'Image',
-        Name: name.slice(0, 255),
-        ProjectName: this.options.projectName,
-      }),
-    )
+    return this.createAsset(groupId, name, sourceUrl, 'AIGC')
+  }
+
+  async createAuthorizedAsset(groupId: string, name: string, sourceUrl: string): Promise<ProviderPortrait> {
+    return this.createAsset(groupId, name, sourceUrl, 'LivenessFace')
+  }
+
+  async createVisualValidateSession(): Promise<VisualValidationSession> {
+    const result = visualValidationSessionSchema.parse(await this.call('CreateVisualValidateSession', {}))
     return {
-      assetId: result.Id,
-      groupId,
-      groupType: 'AIGC',
-      name,
-      assetType: 'Image',
-      status: 'processing',
-      previewUrl: null,
-      errorCode: null,
-      errorMessage: null,
+      providerToken: result.BytedToken,
+      h5Link: result.H5Link,
+      qrCode: result.QrCode ?? null,
     }
   }
 
+  async getVisualValidateResult(providerToken: string): Promise<VisualValidationResult> {
+    const result = visualValidationResultSchema.parse(
+      await this.call('GetVisualValidateResult', { BytedToken: providerToken }),
+    )
+    return { groupId: result.GroupId ?? null }
+  }
+
   async getPortrait(assetId: string, expectedGroupType?: PortraitGroupType): Promise<ProviderPortrait> {
-    const asset = assetSchema.parse(
-      await this.call('GetAsset', { Id: assetId, ProjectName: this.options.projectName }),
-    )
+    const asset = assetSchema.parse(await this.call('GetAsset', { Id: assetId }))
     if (expectedGroupType) return mapPortrait(asset, expectedGroupType)
-    const group = assetGroupSchema.parse(
-      await this.call('GetAssetGroup', {
-        Id: asset.GroupId,
-        ProjectName: this.options.projectName,
-      }),
-    )
-    return mapPortrait(asset, group.GroupType)
+    const group = assetGroupSchema.parse(await this.call('GetAssetGroup', { Id: asset.GroupId }))
+    const groupType = group.GroupType ?? asset.GroupType ?? (await this.findGroupType(asset.GroupId))
+    if (!groupType) throw new Error('DoraRouter素材详情没有返回可识别的素材组类型')
+    return mapPortrait(asset, groupType)
   }
 
   async getPortraitPreview(assetId: string): Promise<PortraitPreview> {
@@ -198,10 +172,7 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
     if (!contentType.startsWith('image/')) throw new Error('素材库返回的预览内容不是图片')
     const content = Buffer.from(await response.arrayBuffer())
     if (!content.length) throw new Error('素材库返回了空的预览图片')
-    return {
-      content,
-      contentType,
-    }
+    return { content, contentType }
   }
 
   async listAuthorizedPortraits(): Promise<ProviderPortrait[]> {
@@ -209,82 +180,104 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
   }
 
   async listPortraits(groupType: PortraitGroupType): Promise<ProviderPortrait[]> {
-    const groups = assetGroupListSchema.parse(
-      await this.call('ListAssetGroups', {
-        Filter: { GroupType: groupType },
-        PageNumber: 1,
-        PageSize: 100,
-        SortBy: 'UpdateTime',
-        SortOrder: 'Desc',
-        ProjectName: this.options.projectName,
-      }),
-    )
+    const groups = await this.listGroups(groupType)
     const groupIds = groups.Items.map((group) => group.Id)
     if (!groupIds.length) return []
 
     const result = assetListSchema.parse(
       await this.call('ListAssets', {
         Filter: {
+          GroupType: groupType,
           GroupIds: groupIds,
-          Statuses: ['Active', 'Processing', 'Failed'],
+          Statuses: ['Active'],
         },
         PageNumber: 1,
         PageSize: 100,
-        SortBy: 'UpdateTime',
-        SortOrder: 'Desc',
-        ProjectName: this.options.projectName,
       }),
     )
     return result.Items.map((asset) => mapPortrait(asset, groupType))
   }
 
-  private async call(action: string, body: Record<string, unknown>): Promise<unknown> {
-    const payload = JSON.stringify(body)
-    const date = toVolcDate(this.now())
-    const query = `Action=${encodeURIComponent(action)}&Version=2024-01-01`
-    const contentHash = sha256(payload)
-    const signedHeaders = 'x-content-sha256;x-date'
-    const canonicalRequest = [
-      'POST',
-      '/',
-      query,
-      `x-content-sha256:${contentHash}\nx-date:${date}\n`,
-      signedHeaders,
-      contentHash,
-    ].join('\n')
-    const scope = `${date.slice(0, 8)}/cn-beijing/ark/request`
-    const stringToSign = ['HMAC-SHA256', date, scope, sha256(canonicalRequest)].join('\n')
-    const signature = signingSignature(this.options.secretKey, date.slice(0, 8), stringToSign)
-    const authorization = [
-      `HMAC-SHA256 Credential=${this.options.accessKey}/${scope}`,
-      `SignedHeaders=${signedHeaders}`,
-      `Signature=${signature}`,
-    ].join(', ')
+  private async listGroups(groupType: PortraitGroupType): Promise<z.infer<typeof assetGroupListSchema>> {
+    return assetGroupListSchema.parse(
+      await this.call('ListAssetGroups', {
+        Filter: { GroupType: groupType },
+        PageNumber: 1,
+        PageSize: 100,
+        SortBy: 'CreateTime',
+        SortOrder: 'Desc',
+        ProjectName: this.options.projectName,
+      }),
+    )
+  }
 
-    const response = await this.fetchWithRetry(action, `${this.baseUrl}/?${query}`, {
+  private async findGroupType(groupId: string): Promise<PortraitGroupType | null> {
+    for (const groupType of ['AIGC', 'LivenessFace'] as const) {
+      const groups = await this.listGroups(groupType)
+      if (groups.Items.some((group) => group.Id === groupId)) return groupType
+    }
+    return null
+  }
+
+  private async call(action: string, body: Record<string, unknown>): Promise<unknown> {
+    const query = `Action=${encodeURIComponent(action)}&Version=2024-01-01`
+    const response = await this.fetchWithRetry(action, `${this.baseUrl}/v1/material?${query}`, {
       method: 'POST',
       headers: {
-        Authorization: authorization,
-        'Content-Type': 'application/json; charset=utf-8',
-        'X-Content-Sha256': contentHash,
-        'X-Date': date,
+        Authorization: `Bearer ${this.options.apiKey}`,
+        'Content-Type': 'application/json',
       },
-      body: payload,
+      body: JSON.stringify(body),
     })
     const raw = await response.text().catch(() => '')
     let data: unknown
     try {
       data = JSON.parse(raw)
     } catch {
-      throw new Error(`弦序素材库返回了无法解析的响应 (${response.status})`)
+      throw new Error(`DoraRouter素材库返回了无法解析的响应 (${response.status})`)
     }
     const envelope = responseSchema.parse(data)
-    const providerError = envelope.ResponseMetadata.Error
-    if (!response.ok || providerError) {
-      const detail = providerError?.Message || providerError?.Code || `HTTP ${response.status}`
-      throw new Error(`弦序素材库请求失败：${detail}`)
+    const metadataError = envelope.ResponseMetadata?.Error
+    const resultError = readResultError(envelope.Result)
+    if (!response.ok || metadataError || resultError || envelope.code) {
+      const detail =
+        metadataError?.Message ||
+        metadataError?.Code ||
+        resultError?.Message ||
+        resultError?.Code ||
+        envelope.message ||
+        envelope.code ||
+        `HTTP ${response.status}`
+      throw new Error(`DoraRouter素材库请求失败：${detail}`)
     }
     return envelope.Result ?? {}
+  }
+
+  private async createAsset(
+    groupId: string,
+    name: string,
+    sourceUrl: string,
+    groupType: PortraitGroupType,
+  ): Promise<ProviderPortrait> {
+    const result = idResultSchema.parse(
+      await this.call('CreateAsset', {
+        GroupId: groupId,
+        URL: sourceUrl,
+        AssetType: 'Image',
+        Name: name.slice(0, 255),
+      }),
+    )
+    return {
+      assetId: result.Id,
+      groupId,
+      groupType,
+      name,
+      assetType: 'Image',
+      status: 'processing',
+      previewUrl: null,
+      errorCode: null,
+      errorMessage: null,
+    }
   }
 
   private async fetchWithRetry(action: string, url: string, init: RequestInit): Promise<Response> {
@@ -300,12 +293,12 @@ export class VolcArkAssetLibraryProvider implements AssetLibraryProvider {
       } catch (error) {
         lastError = error
         if (attempt === 1 || !isTransientFetchFailure(error)) {
-          throw new Error(`弦序素材库网络暂时不可达（${action}）：${readableFetchFailure(error)}`)
+          throw new Error(`DoraRouter素材库网络暂时不可达（${action}）：${readableFetchFailure(error)}`)
         }
         await delay(PROVIDER_RETRY_DELAY_MS)
       }
     }
-    throw new Error(`弦序素材库网络暂时不可达（${action}）：${readableFetchFailure(lastError)}`)
+    throw new Error(`DoraRouter素材库网络暂时不可达（${action}）：${readableFetchFailure(lastError)}`)
   }
 }
 
@@ -319,36 +312,34 @@ function mapPortrait(
     groupType,
     name: asset.Name,
     assetType: asset.AssetType,
-    status: statusMap[asset.Status],
+    status: asset.Status === 'Active' ? 'active' : asset.Status === 'Failed' ? 'failed' : 'processing',
     previewUrl: asset.URL || null,
-    errorCode: asset.Error?.Code ?? null,
-    errorMessage: asset.Error?.Message ?? null,
+    errorCode:
+      asset.Error?.Code ??
+      asset.Error?.code ??
+      asset.error?.Code ??
+      asset.error?.code ??
+      asset.ErrorCode ??
+      null,
+    errorMessage:
+      asset.Error?.Message ??
+      asset.Error?.message ??
+      asset.error?.Message ??
+      asset.error?.message ??
+      asset.ErrorMessage ??
+      null,
   }
 }
 
-const statusMap = {
-  Active: 'active',
-  Processing: 'processing',
-  Failed: 'failed',
-} as const
-
-function toVolcDate(date: Date): string {
-  return date.toISOString().replace(/[:-]|\.\d{3}/g, '')
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
-}
-
-function hmac(key: string | Buffer, value: string): Buffer {
-  return createHmac('sha256', key).update(value).digest()
-}
-
-function signingSignature(secretKey: string, date: string, value: string): string {
-  const dateKey = hmac(secretKey, date)
-  const regionKey = hmac(dateKey, 'cn-beijing')
-  const serviceKey = hmac(regionKey, 'ark')
-  return createHmac('sha256', hmac(serviceKey, 'request')).update(value).digest('hex')
+function readResultError(value: unknown): { Code?: string; Message?: string } | null {
+  if (!value || typeof value !== 'object') return null
+  const error = (value as { Error?: unknown }).Error
+  if (!error || typeof error !== 'object') return null
+  const record = error as { Code?: unknown; Message?: unknown }
+  return {
+    ...(typeof record.Code === 'string' ? { Code: record.Code } : {}),
+    ...(typeof record.Message === 'string' ? { Message: record.Message } : {}),
+  }
 }
 
 function isTransientFetchFailure(error: unknown): boolean {
@@ -364,7 +355,7 @@ function readableFetchFailure(error: unknown): string {
     return '请求超时，请稍后刷新状态'
   }
   if (/fetch failed|network|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(error.message)) {
-    return 'API 服务暂时无法连接弦序素材库，请稍后刷新状态'
+    return 'API 服务暂时无法连接 DoraRouter 素材库，请稍后刷新状态'
   }
   return error.message || '未知网络错误'
 }

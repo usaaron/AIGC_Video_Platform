@@ -76,6 +76,11 @@ const testConfig: AppConfig = {
   UPLOAD_DIR: resolve('./data/test-uploads'),
   GCS_BUCKET: '',
   MAX_UPLOAD_BYTES: 10_485_760,
+  DORA_ROUTER_BASE_URL: 'https://www.dorarouter.com',
+  DORA_ROUTER_API_KEY: '',
+  DORA_ROUTER_VIDEO_MODEL: 'TH-doubao-seedance2.0',
+  DORA_ROUTER_REQUEST_TIMEOUT_MS: 30_000,
+  DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS: 30_000,
   VIDEO_PROVIDER: 'stringx',
   STRINGX_BASE_URL: 'https://maas.stringx.top/api/v3',
   STRINGX_API_KEY: '',
@@ -93,6 +98,7 @@ const testConfig: AppConfig = {
   ARK_API_KEY: '',
   ARK_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
   ARK_REQUEST_TIMEOUT_MS: 30_000,
+  ASSET_LIBRARY_PROVIDER: 'dora-router',
   VOLC_ASSET_BASE_URL: 'https://maas-ark.stringx.top',
   VOLC_ACCESS_KEY: '',
   VOLC_SECRET_KEY: '',
@@ -131,12 +137,10 @@ const testConfig: AppConfig = {
   TEXT_MODEL: 'gpt-5.6',
   TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
 }
-
 type MemoryLogEntry = {
   level: string
   args: unknown[]
 }
-
 class MemoryLogger {
   public readonly entries: MemoryLogEntry[] = []
   public level = 'info'

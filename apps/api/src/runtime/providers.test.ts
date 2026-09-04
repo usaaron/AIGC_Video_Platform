@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../config.js'
-import { createImageProvider, createTextProvider, textProviderName } from './providers.js'
+import {
+  assetLibraryProviderName,
+  createAssetLibraryProvider,
+  createImageProvider,
+  createTextProvider,
+  textProviderName,
+} from './providers.js'
+import { DoraRouterAssetLibraryProvider } from '../core/generation/doraRouterAssetLibraryProvider.js'
+import { VolcArkAssetLibraryProvider } from '../core/generation/volcArkAssetLibraryProvider.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -310,5 +318,27 @@ describe('runtime providers', () => {
     expect(capturedAuthorization).toBe('Bearer seqora-image2-token')
     expect(JSON.parse(capturedBody).model).toBe('seqora-image2-live')
     expect(createTextProvider(config)).toBeNull()
+  })
+
+  it('creates the DoraRouter trusted portrait provider by default', () => {
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DORA_ROUTER_API_KEY: 'test-dora-router-key',
+    })
+
+    expect(createAssetLibraryProvider(config)).toBeInstanceOf(DoraRouterAssetLibraryProvider)
+    expect(assetLibraryProviderName(config)).toBe('dora-router-material')
+  })
+
+  it('keeps the legacy VolcArk trusted portrait provider behind an explicit switch', () => {
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      ASSET_LIBRARY_PROVIDER: 'volc-ark',
+      VOLC_ACCESS_KEY: 'test-access-key',
+      VOLC_SECRET_KEY: 'test-secret-key',
+    })
+
+    expect(createAssetLibraryProvider(config)).toBeInstanceOf(VolcArkAssetLibraryProvider)
+    expect(assetLibraryProviderName(config)).toBe('volc-ark-material')
   })
 })

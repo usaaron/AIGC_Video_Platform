@@ -39,6 +39,9 @@ export function CharacterWorkflow({
   trustedConfiguration,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
+  onCreateTrustedValidationSession,
+  onRefreshTrustedValidationSession,
+  onLatestTrustedValidationSession,
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
   onEnsureAsset,
@@ -276,6 +279,9 @@ export function CharacterWorkflow({
           onAttributesChange={onAttributesChange}
           onListTrustedPortraits={onListTrustedPortraits}
           onRegisterVirtualPortrait={onRegisterVirtualPortrait}
+          onCreateTrustedValidationSession={onCreateTrustedValidationSession}
+          onRefreshTrustedValidationSession={onRefreshTrustedValidationSession}
+          onLatestTrustedValidationSession={onLatestTrustedValidationSession}
           onBindTrustedPortrait={onBindTrustedPortrait}
           onRefreshTrustedPortrait={onRefreshTrustedPortrait}
           onEnsureAsset={onEnsureAsset}

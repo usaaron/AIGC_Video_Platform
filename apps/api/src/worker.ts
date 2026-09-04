@@ -32,6 +32,7 @@ import { NovelService } from './modules/novels/service.js'
 import { ProjectRepository } from './modules/projects/repository.js'
 import { ProjectService } from './modules/projects/service.js'
 import { TrustedAssetService } from './modules/trustedAssets/service.js'
+import { TrustedValidationSessionRepository } from './modules/trustedAssets/validationSessionRepository.js'
 import { UserRepository } from './modules/users/repository.js'
 import {
   createImageProvider,
@@ -181,6 +182,7 @@ const trustedAssetService = new TrustedAssetService(
   config.ASSET_LIBRARY_CONSOLE_URL,
   projectRepository,
   mediaRepository,
+  new TrustedValidationSessionRepository(store, database),
 )
 const novelService = new NovelService(
   new NovelRepository(store, database, objectStorage),

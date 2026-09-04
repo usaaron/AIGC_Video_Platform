@@ -53,6 +53,24 @@ export type StoredMedia = {
   createdAt: string
 }
 
+export type StoredTrustedValidationSession = {
+  id: string
+  tenantId: string
+  userId: string
+  projectId: string
+  assetId: string
+  providerToken: string
+  h5Link: string
+  qrCode: string | null
+  status: 'pending' | 'uploading' | 'completed' | 'failed' | 'expired'
+  groupId: string | null
+  providerAssetId: string | null
+  error: string | null
+  expiresAt: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type StoredNovelDocument = NovelDocument & {
   clientRequestId?: string
 }
@@ -79,6 +97,7 @@ export type AppState = {
   aiJobs: AiJob[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
+  trustedValidationSessions?: StoredTrustedValidationSession[]
   assetLibraryItems: AssetLibraryItemRecord[]
   assetLibraryItemVersions: AssetLibraryItemVersionRecord[]
   novelDocuments: StoredNovelDocument[]
@@ -815,6 +834,7 @@ function createSeedState(bootstrapUsers: BootstrapUsers, demoWorkspace: boolean)
     tasks: [],
     aiJobs: [],
     media: [],
+    trustedValidationSessions: [],
     assetLibraryItems: [],
     assetLibraryItemVersions: [],
     novelDocuments: [],
@@ -850,6 +870,7 @@ function createEmptyState(): AppState {
     aiJobs: [],
     ledger: [],
     media: [],
+    trustedValidationSessions: [],
     assetLibraryItems: [],
     assetLibraryItemVersions: [],
     novelDocuments: [],

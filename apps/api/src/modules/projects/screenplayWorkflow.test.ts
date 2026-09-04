@@ -62,7 +62,7 @@ describe('readable screenplay workflow', () => {
     expect(extractScriptAssetNameIndex(script).prop).toEqual(['旧铁盒'])
   })
 
-  it('adds a voiceover without duplicating existing natural dialogue', () => {
+  it('does not turn visible actions into a redundant voiceover', () => {
     const scene = `场次：S01｜废弃药店｜深夜｜内景｜20秒
 林晚站在南侧门内，右手握紧铁棍。
 程野：“后门能走吗？”
@@ -70,7 +70,7 @@ describe('readable screenplay workflow', () => {
 
     const completed = completeWebSeriesSpokenContent(scene, 'web-series')
 
-    expect(completed).toContain('画外音：“')
+    expect(completed).not.toContain('画外音：“')
     expect(completed.match(/程野：“后门能走吗？”/gu)).toHaveLength(1)
     expect(completed.match(/林晚：“我先去确认。”/gu)).toHaveLength(1)
   })

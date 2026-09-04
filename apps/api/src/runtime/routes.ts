@@ -23,7 +23,12 @@ import { registerNovelRoutes } from '../modules/novels/routes.js'
 import { registerProjectRoutes } from '../modules/projects/routes.js'
 import { registerQuickStartRoutes } from '../modules/quickStart/routes.js'
 import { registerTrustedAssetRoutes } from '../modules/trustedAssets/routes.js'
-import { textProviderName, videoProviderName, type RuntimeProviders } from './providers.js'
+import {
+  assetLibraryProviderName,
+  textProviderName,
+  videoProviderName,
+  type RuntimeProviders,
+} from './providers.js'
 import type { RuntimeQueues } from './queues.js'
 import type { RuntimeRepositories, RuntimeServices } from './services.js'
 
@@ -143,7 +148,7 @@ function runtimeHealth(config: AppConfig, providers: RuntimeProviders) {
       seedance: providers.videoProvider ? videoProviderName(config) : 'local-mock',
       img2: providers.imageProvider ? IMAGE2_PROVIDER_DISPLAY_NAME : 'local-mock',
       text: providers.textProvider ? textProviderName(config) : 'unavailable',
-      assetLibrary: providers.assetLibraryProvider ? 'stringx-maas' : 'unavailable',
+      assetLibrary: providers.assetLibraryProvider ? assetLibraryProviderName(config) : 'unavailable',
     },
     scriptModels: SCRIPT_MODEL_CATALOG.map((model) => ({
       id: model.id,

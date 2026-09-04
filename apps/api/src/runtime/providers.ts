@@ -20,6 +20,8 @@ import { TokenAdventTextProvider } from '../core/generation/tokenAdventTextProvi
 import type { VideoGenerationProvider, VideoProviderName } from '../core/generation/videoProvider.js'
 import { StringXSeedanceProvider } from '../core/generation/stringXSeedanceProvider.js'
 import { VolcArkSeedanceProvider } from '../core/generation/volcArkSeedanceProvider.js'
+import { DoraRouterSeedanceProvider } from '../core/generation/doraRouterSeedanceProvider.js'
+import { DoraRouterAssetLibraryProvider } from '../core/generation/doraRouterAssetLibraryProvider.js'
 
 export type RuntimeProviderOverrides = {
   videoProvider?: VideoGenerationProvider | null
@@ -53,6 +55,18 @@ export function createRuntimeProviders(
 }
 
 export function createVideoProvider(config: AppConfig): VideoGenerationProvider | null {
+  if (config.VIDEO_PROVIDER === 'dora-router') {
+    if (!config.DORA_ROUTER_API_KEY) return null
+    return new DoraRouterSeedanceProvider({
+      baseUrl: config.DORA_ROUTER_BASE_URL,
+      apiKey: config.DORA_ROUTER_API_KEY,
+      defaultModel: config.DORA_ROUTER_VIDEO_MODEL,
+      requestTimeoutMs: config.DORA_ROUTER_REQUEST_TIMEOUT_MS,
+      statusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
+      ffmpegPath: config.FFMPEG_PATH,
+      frameExtractionTimeoutMs: config.FILM_PREVIEW_TIMEOUT_MS,
+    })
+  }
   if (config.VIDEO_PROVIDER === 'stringx') {
     if (!config.STRINGX_API_KEY) return null
     return new StringXSeedanceProvider({
@@ -80,6 +94,7 @@ export function createVideoProvider(config: AppConfig): VideoGenerationProvider 
 }
 
 export function videoProviderName(config: AppConfig): VideoProviderName {
+  if (config.VIDEO_PROVIDER === 'dora-router') return 'dora-router-seedance'
   if (config.VIDEO_PROVIDER === 'stringx') return 'stringx-seedance'
   return 'volc-ark-seedance'
 }
@@ -301,6 +316,15 @@ function isProviderAvailabilityError(error: unknown): boolean {
 }
 
 export function createAssetLibraryProvider(config: AppConfig): AssetLibraryProvider | null {
+  if (config.ASSET_LIBRARY_PROVIDER === 'dora-router') {
+    if (!config.DORA_ROUTER_API_KEY) return null
+    return new DoraRouterAssetLibraryProvider({
+      baseUrl: config.DORA_ROUTER_BASE_URL,
+      apiKey: config.DORA_ROUTER_API_KEY,
+      projectName: config.VOLC_ARK_PROJECT_NAME,
+      requestTimeoutMs: config.DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS,
+    })
+  }
   if (!config.VOLC_ACCESS_KEY || !config.VOLC_SECRET_KEY) return null
   return new VolcArkAssetLibraryProvider({
     baseUrl: config.VOLC_ASSET_BASE_URL,
@@ -309,4 +333,8 @@ export function createAssetLibraryProvider(config: AppConfig): AssetLibraryProvi
     projectName: config.VOLC_ARK_PROJECT_NAME,
     requestTimeoutMs: config.VOLC_ASSET_REQUEST_TIMEOUT_MS,
   })
+}
+
+export function assetLibraryProviderName(config: AppConfig): string {
+  return config.ASSET_LIBRARY_PROVIDER === 'dora-router' ? 'dora-router-material' : 'volc-ark-material'
 }

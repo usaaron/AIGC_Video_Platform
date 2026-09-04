@@ -76,7 +76,7 @@ scripts/        开发、监控、压测和安全工具
 - migration 只能新增，不能修改或删除已提交 migration。
 - 任务状态固定为 `queued | paused | running | completed | failed | cancelled`。
 - 结束任务的“清理”写 `queueHiddenAt`，不能物理删除输出依赖。
-- 只有等待任务可以本地暂停；运行中的 StringX 视频必须远端取消成功后才能取消和退款。
+- 只有等待任务可以本地暂停；运行中的视频只有在当前 Provider 声明远端取消接口时才调用取消并完成退款，DoraRouter 不支持远端取消时只安全标记跳过。
 - `local-compose` 不扣积分，不占 Seedance 并发。
 - 当前有效并发是免费 1、会员 3；演示不限并发环境变量尚未接入账单摘要，不得假设有效。
 - 分镜图片不是视频前置条件；已有匹配图片时可以作为参考，没有图片时直接使用资产或纯文本。

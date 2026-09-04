@@ -22,17 +22,21 @@
 
 ## 可信人像与人脸审核
 
-Seedance 2.0 不允许把任意含真人人脸的公网图片或 Base64 直接作为参考素材。TokenAdvent 生成的仿真人图片属于跨平台产物，也不会自动成为弦序可信素材。人物在进入视频任务前按来源走两条真实链路：
+Seedance 2.0 不允许把任意含真人人脸的公网图片或 Base64 直接作为参考素材。TokenAdvent 生成的仿真人图片属于跨平台产物，也不会自动成为 Dora 可信素材。人物在进入视频任务前按来源走两条真实链路：
 
-1. **AI 虚拟人物**：先确认面部基准，我们的 API 生成 30 分钟有效的 HTTPS 下载地址，再通过弦序 MaaS 创建 `GroupType=AIGC` 的素材组和图片资源。`CreateAsset` 是异步接口，状态从 `Processing` 变为 `Active` 后才可用于视频；人物编辑器每 5 秒自动刷新，也保留手动刷新；`Failed` 时显示上游 `Error.Code/Message`。
-2. **已授权真人**：制作方在方舟体验中心创建真人资产组和邀约二维码；演员本人登录火山账号完成人脸认证、上传素材并授权；制作方在控制台接收素材后，把得到的 Asset ID 粘贴到人物编辑器校验绑定。`LivenessFace` 只能通过控制台创建和授权，OpenAPI 只支持查询，产品不能伪造或代替本人认证。
+1. **AI 虚拟人物**：先确认面部基准，我们的 API 生成 30 分钟有效的 HTTPS 下载地址，再通过配置的素材库 Provider 创建 `GroupType=AIGC` 的素材组和图片资源。`CreateAsset` 是异步接口，状态从 `Processing` 变为 `Active` 后才可用于视频；人物编辑器每 5 秒自动刷新，也保留手动刷新；`Failed` 时显示上游 `Error.Code/Message`。
+2. **已授权真人**：人物编辑器调用 DoraRouter `CreateVisualValidateSession` 生成一次性 H5 链接和二维码；演员本人打开 H5 完成人脸认证，服务端每 3 秒调用 `GetVisualValidateResult`，拿到 `LivenessFace GroupId` 后自动把当前面部基准创建为真人图片素材。`BytedToken` 只保存在服务端，不返回浏览器；认证会话持久化到 Postgres，刷新页面或切换设备后仍可继续同步。产品不能伪造或代替本人认证。
 
 真人素材建议使用清晰正面图。全身参考图为竖版、人物全身正面；人脸特写图为竖版、正面无表情、肩部以上且面部约占画面三分之二。图片支持 JPEG/JPG/PNG/WebP/GIF/HEIC，小于 30MB，宽高比在 `(0.4, 2.5)`，边长在 300 到 6000px。一个真人素材组只能保存同一演员的不同妆造；每次补充素材都会做人脸一致性校验。
 
-视频和可信素材全走弦序，但使用两个弦序入口和两种凭证：Seedance 视频接口 `https://maas.stringx.top/api/v3` 使用 Bearer Token，MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4。两类弦序凭证必须属于同一租户/项目，素材的 `ProjectName` 当前默认 `default`。当前 `VIDEO_PROVIDER` 仅允许 `stringx | volc-ark`，服务端变量：
+视频和可信素材可以共用 DoraRouter：Seedance 视频和可信人像/加白库默认都走 `https://www.dorarouter.com` 的 Bearer Token，素材库动作使用 `/v1/material?Action=...&Version=2024-01-01`；StringX 与官方 Ark 仍可作为显式回退。旧 MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4，仅在 `ASSET_LIBRARY_PROVIDER=volc-ark` 时启用。素材的 `ProjectName` 当前默认 `default`，必须与上游工作空间一致：
 
 ```dotenv
 PUBLIC_API_BASE_URL=https://xumutv.com
+ASSET_LIBRARY_PROVIDER=dora-router
+DORA_ROUTER_BASE_URL=https://www.dorarouter.com
+DORA_ROUTER_API_KEY=
+DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS=300000
 VOLC_ASSET_BASE_URL=https://maas-ark.stringx.top
 VOLC_ACCESS_KEY=
 VOLC_SECRET_KEY=
@@ -41,9 +45,11 @@ ASSET_LIBRARY_CONSOLE_URL=
 VOLC_ASSET_REQUEST_TIMEOUT_MS=30000
 ```
 
-自动 AIGC 入库需要 `PUBLIC_API_BASE_URL`。服务端为已确认面部生成 24 小时有效的 HMAC 签名下载地址，弦序 MaaS 取回素材后异步入库；链接不包含 API Key，过期或篡改后返回 404。localhost 无法被上游访问，临时隧道也可能在弦序异步取图前失效，因此正式联调必须使用稳定 HTTPS Demo 域名或对象存储。
+`DORA_ROUTER_API_KEY` 同时用于视频和可信素材库，不会复制到前端。健康检查的 `providerNames.assetLibrary` 会显示 `dora-router-material`；如需回滚旧素材接口，改为 `ASSET_LIBRARY_PROVIDER=volc-ark` 并同时配置 `VOLC_ACCESS_KEY` 与 `VOLC_SECRET_KEY`，健康检查会显示 `volc-ark-material`。
 
-人物编辑器的“同步白名单”会先调用 `ListAssetGroups(Filter.GroupType)`，再用得到的 `GroupIds` 调用 `ListAssets`；支持 `AIGC` 虚拟人和 `LivenessFace` 已授权真人。同步结果以缩略图卡片展示名称、Asset ID 和处理状态，只允许选择 `Active` 素材，同时保留手动输入 Asset ID 作为兜底。绑定结果会写回人物资产并在重新进入编辑器时恢复，无需重复绑定。绑定后，视频建单把人物引用转换为 `asset://<asset_id>` 并提交给弦序 Seedance。弦序 MaaS 当前返回的 ID 可能以 `maas-` 开头，调度器不能假设固定为 `asset-` 前缀；非弦序视频 Provider 引用 `maas-*` 时会在扣积分前拒绝。
+自动入库需要 `PUBLIC_API_BASE_URL`。服务端为已确认面部生成 24 小时有效的 HMAC 签名下载地址，DoraRouter 取回素材后异步入库；链接不包含 API Key，过期或篡改后返回 404。localhost 无法被上游访问，临时隧道也可能在 DoraRouter 异步取图前失效，因此正式联调必须使用稳定 HTTPS Demo 域名或对象存储。
+
+人物编辑器的“同步白名单”会先调用 `ListAssetGroups(Filter.GroupType)`，再用得到的 `GroupIds` 调用 `ListAssets`；支持 `AIGC` 虚拟人和 `LivenessFace` 已授权真人。DoraRouter 和旧 VolcArk 适配器共享这一业务契约。同步结果以缩略图卡片展示名称、Asset ID 和处理状态，只允许选择 `Active` 素材，同时保留手动输入 Asset ID 作为兜底。绑定结果会写回人物资产并在重新进入编辑器时恢复，无需重复绑定。绑定后，视频建单把人物引用转换为 `asset://<asset_id>` 并提交给弦序 Seedance。弦序 MaaS 当前返回的 ID 可能以 `maas-` 开头，调度器不能假设固定为 `asset-` 前缀；非弦序视频 Provider 引用 `maas-*` 时会在扣积分前拒绝。
 
 2026-07-20 真实联调确认：`CreateAsset` 成功并返回弦序北京 TOS URL，不等于弦序已成功取到原图。弦序工作人员确认两条测试素材均未上传成功，控制台破损缩略图和长期 `Processing` 是源图获取失败的表现。`Processing` 状态下直接发送 `asset://maas-*` 会返回 `ResourceNotFound (10004)`；发送原始图片或 TOS URL 会返回 `SecurityConstraintViolation (10501)`。必须重新上传并等到 `Active`，不能通过替换 URL 绕过注册。
 
@@ -53,6 +59,9 @@ VOLC_ASSET_REQUEST_TIMEOUT_MS=30000
 
 - `GET /api/v1/trusted-assets/configuration`
 - `GET /api/v1/trusted-assets/portraits?groupType=AIGC|LivenessFace`
+- `POST /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/validation-session`
+- `GET /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/validation-session/latest`
+- `GET /api/v1/trusted-assets/validation-sessions/:sessionId`
 - `POST /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/register`
 - `POST /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/bind`
 - `POST /api/v1/projects/:projectId/assets/:assetId/trusted-portrait/refresh`
@@ -140,13 +149,13 @@ Content-Type: multipart/form-data
 
 ## Seedance 2.0 视频接入
 
-Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默认 `VIDEO_PROVIDER=stringx`，API 服务直接调用弦序。轮询只把明确的成功或失败状态收敛为本地终态；弦序返回的其他短暂状态继续按生成中处理，避免远端仍在运行时被本地误判失败：
+Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默认 `VIDEO_PROVIDER=dora-router`，API 服务调用 DoraRouter 的兼容接口。轮询只把明确的成功或失败状态收敛为本地终态；上游返回的其他短暂状态继续按生成中处理，避免远端仍在运行时被本地误判失败：
 
-- `POST https://maas.stringx.top/api/v3/contents/generations/tasks`：创建异步视频任务
-- `GET https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId`：查询任务状态并取得 `video_url/last_frame_url`
-- `POST https://maas.stringx.top/api/v3/contents/generations/tasks/:taskId/cancel`：取消远端任务
+- `POST https://www.dorarouter.com/v1/video/generations`：创建异步视频任务
+- `GET https://www.dorarouter.com/v1/video/generations/:taskId`：查询任务状态并取得 `metadata.url`
+- DoraRouter 文档没有远端取消接口；取消时服务端不反复请求不存在的地址，直接记录 `providerCancelSkippedAt`，并按本地取消规则退款。
 
-官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，只作为回滚通道。弦序任务记录 `providerName=stringx-seedance`，便于审计真实提交路径。
+StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，均作为回滚通道。DoraRouter 任务记录 `providerName=dora-router-seedance`，便于审计真实提交路径。
 
 分镜页会根据镜头标题和提示词，从已生成的人物、场景、物品和服装中选择最多三项相关资产。人物优先使用已确认全身基准，选择结果写入图片任务的 `references`，并写入图片和视频任务的 `referenceAssetIds`。旧分镜图没有当前资产标记时会显示“需同步资产”，生成视频时忽略这类旧图，直接使用当前资产。
 
@@ -157,9 +166,9 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 分镜按剧集建立连续链：每集第一镜为 `independent`，后续镜头默认 `continue`；高级动作细拆也沿用同一规则。前端的“连续性工作台”只提供两个易懂选项：
 
 - `独立切镜`：不依赖前一个视频，可以按套餐并发生成，适合时间跳转或场景完全变化。
-- `承接上镜`：等待上一镜头完成，由服务端取得弦序返回的末帧并放在下一次图片参考首位；同时保留当前镜头选中的人物、场景、物品和服装。
+- `承接上镜`：等待上一镜头完成，由服务端取得上游返回的末帧；DoraRouter 没有独立尾帧地址时由 FFmpeg 从完成视频提取，再放在下一次图片参考首位；同时保留当前镜头选中的人物、场景、物品和服装。
 
-连续模式会把 `continuityMode`、`continuitySourceTaskId`、`dependsOnTaskId` 和 `videoInputMode: "continuity-first-frame"` 写入任务元数据。弦序要求 `first_frame` 与 `last_frame` 成对出现：当前镜头已有分镜图时，平台把上一镜尾帧作为 `first_frame`、当前分镜图作为 `last_frame`；没有当前分镜图时，上一镜尾帧降级为排序第一的普通参考图，不伪造末帧。弦序完成后读取 `last_frame_url` 并写入对象存储；上一镜头没有可用尾帧时，当前任务失败且不提交。
+连续模式会把 `continuityMode`、`continuitySourceTaskId`、`dependsOnTaskId` 和 `videoInputMode: "continuity-first-frame"` 写入任务元数据。StringX/Ark 路径按其接口支持 `first_frame` / `last_frame` 语义；DoraRouter 文档只定义 `reference_image`，因此 Worker 将上一镜尾帧作为排序第一的普通参考图，并保留当前镜头资产参考，避免提交未被上游支持的角色值。DoraRouter 完成响应只有 `metadata.url` 时，服务端下载 MP4 并用 FFmpeg 提取末帧后写入对象存储；如果视频地址和尾帧都无法取得，当前镜头会失败并退款，不会静默提交断链任务。
 
 ### 服务端质量下限
 
@@ -167,7 +176,7 @@ Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默�
 
 规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 将质量约束编入最终提示词；图片 Provider 使用 `negativePrompt` 字段。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
 
-生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的弦序视频可以调用远端 `cancel`，成功后本地标记 `cancelled`、移出队列并退款。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
+生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的视频仅在 Provider 提供远端 `cancel` 时调用；DoraRouter 当前没有该接口，服务端标记跳过远端取消后按本地规则退款，不会重复请求导致白屏或报错。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
 
 分镜卡片完整显示镜头提示词、参考资产、图片状态和视频状态，并提供独立的“生成图片”和“生成视频”按钮。两个入口互不依赖；“生成全部视频”也不会暗中创建图片任务。已有且匹配当前资产的分镜图会自动加入视频参考，没有时直接走资产或纯提示词。批量入口和每个镜头均可在生成前选择 `480p`、`720p`、`1080p` 或 `4k`，选中值冻结到任务 `metadata.resolution`。
 
@@ -187,4 +196,4 @@ API 从对象存储读取受保护的分镜图和资产图并转换为 Provider 
 
 第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。内容接口支持浏览器 Range 播放，并从对象存储或当前 Provider 的完成结果读取媒体。远端提交或生成失败时，任务会保存错误原因并自动退回本次预扣积分，退款账本使用任务 ID 保证幂等。
 
-本地开发在 `apps/api/.env` 配置 `VIDEO_PROVIDER=stringx`、`STRINGX_BASE_URL` 和 `STRINGX_API_KEY`。未配置密钥时开发环境使用本地模拟视频结果；生产环境缺少所选 Provider 密钥会拒绝启动。所有密钥只能通过服务端环境或 Secret Manager 注入，不能写入镜像、前端或 Git。
+本地开发在 `apps/api/.env` 配置 `VIDEO_PROVIDER=dora-router`、`DORA_ROUTER_BASE_URL` 和 `DORA_ROUTER_API_KEY`。未配置密钥时开发环境使用本地模拟视频结果；生产环境缺少所选 Provider 密钥会拒绝启动。所有密钥只能通过服务端环境或 Secret Manager 注入，不能写入镜像、前端或 Git。

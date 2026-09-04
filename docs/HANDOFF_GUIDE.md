@@ -165,16 +165,16 @@ DeepSeek V4 在配置 `DASHSCOPE_API_KEY` 时优先走阿里云百炼 OpenAI 兼
 
 ### 视频
 
-视频默认调用弦序 StringX Seedance 2.0：
+视频默认调用 DoraRouter 的 Seedance 2.0 兼容接口：
 
 1. Web 根据项目、当前镜头和匹配资产编译提示词。
 2. API 创建任务、幂等预扣积分并记录依赖。
 3. Worker 再按服务端真实项目数据编译一次提示词和负面质量规则。
-4. Worker 按套餐槽位向弦序提交，保存 `providerTaskId`。
-5. 后续 tick 轮询状态，完成后代理视频并保存末帧。
+4. Worker 按套餐槽位向 DoraRouter 提交，保存 `providerTaskId`。
+5. 后续 tick 轮询状态，完成后代理视频；若上游没有尾帧地址，由服务端 FFmpeg 提取并保存末帧。
 6. 失败任务自动创建幂等退款流水。
 
-官方方舟保留为显式回滚 Provider；当前视频主链路使用弦序 StringX Seedance。
+StringX 和官方方舟保留为显式回滚 Provider；当前视频主链路使用 DoraRouter Seedance。
 
 ### 连续性与三路并发
 

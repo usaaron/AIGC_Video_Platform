@@ -56,7 +56,10 @@ export class GenerationService {
       )
     }
     const stringXPortraitNames = await this.repository.stringXPortraitNames(taskInput, principal)
-    if (this.videoProviderName !== 'stringx-seedance' && stringXPortraitNames.length) {
+    if (
+      !['stringx-seedance', 'dora-router-seedance'].includes(this.videoProviderName) &&
+      stringXPortraitNames.length
+    ) {
       throw new AppError(
         409,
         'VIDEO_ASSET_PROVIDER_MISMATCH',

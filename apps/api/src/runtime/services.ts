@@ -36,6 +36,7 @@ import { ProjectRepository } from '../modules/projects/repository.js'
 import { ProjectService } from '../modules/projects/service.js'
 import { QuickStartService } from '../modules/quickStart/service.js'
 import { TrustedAssetService } from '../modules/trustedAssets/service.js'
+import { TrustedValidationSessionRepository } from '../modules/trustedAssets/validationSessionRepository.js'
 import { UserRepository } from '../modules/users/repository.js'
 import { videoProviderName, type RuntimeProviders } from './providers.js'
 
@@ -48,6 +49,7 @@ export type RuntimeRepositories = {
   mediaRepository: MediaRepository
   aiJobRepository: AiJobRepository
   assetLibraryRepository: AssetLibraryRepository
+  trustedValidationSessionRepository: TrustedValidationSessionRepository
   outboxRepository: OutboxRepository | null
   agentRunRepository: AgentRunRepository
   creditLedger: StoreCreditLedger
@@ -90,6 +92,7 @@ export async function createRuntimeRepositories(input: {
   const projectRepository = new ProjectRepository(store, database)
 
   const assetLibraryRepository = new AssetLibraryRepository(store, database)
+  const trustedValidationSessionRepository = new TrustedValidationSessionRepository(store, database)
   if (config.BOOTSTRAP_ACCOUNTS_ON_START) {
     await assetLibraryRepository.bootstrapFromStore()
   }
@@ -150,6 +153,7 @@ export async function createRuntimeRepositories(input: {
     mediaRepository,
     aiJobRepository,
     assetLibraryRepository,
+    trustedValidationSessionRepository,
     outboxRepository,
     agentRunRepository,
     creditLedger,
@@ -298,6 +302,7 @@ export function createRuntimeServices(input: {
     config.ASSET_LIBRARY_CONSOLE_URL,
     repositories.projectRepository,
     mediaRepository,
+    repositories.trustedValidationSessionRepository,
   )
   const paymentProvider =
     paymentProviderOverride !== undefined ? paymentProviderOverride : createRuntimePaymentProvider(config)
