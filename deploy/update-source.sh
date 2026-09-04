@@ -68,7 +68,7 @@ if [[ -z "$APP_DOMAIN" ]]; then
   echo 'APP_ADDRESS is missing from deploy/demo.env.' >&2
   exit 65
 fi
-SOURCE_COMMIT="$(sed -n 's/^SourceCommit=//p' "$ROOT/DEPLOY_BUILD.txt" | tail -n 1)"
+SOURCE_COMMIT="$(sed -n 's/^SourceCommit=//p' "$ROOT/DEPLOY_BUILD.txt" | tr -d '\r' | tail -n 1)"
 if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo 'DEPLOY_BUILD.txt does not contain a valid SourceCommit.' >&2
   exit 65
