@@ -586,6 +586,14 @@ _TECHNICAL_IDENTIFIER_RE = re.compile(IDENTIFIER_PATTERN)
 # plan. Keep the existing floor for schema/repair compatibility; the prompt
 # controls outline density and keeps downstream detail in later planning layers.
 STORY_BIBLE_MIN_OUTPUT_TOKENS = 9_000
+# This contract is injected only by the explicit source-import endpoint.  It
+# keeps import semantics on the server boundary, while the returned artifact
+# still follows the ordinary editable-draft lifecycle.
+STORY_BIBLE_IMPORT_INSTRUCTION = "\n".join((
+    "这是一次作者原文导入整理，不是重新构思任务。",
+    "将用户原文作为第一事实来源，忠实映射到现有故事总纲字段；原文没有明确的高影响内容必须保留为“待定”，不得擅自补写人物身份、关系结果、秘密、死亡或结局。",
+    "原文必须保留在 imported_source_document 中。输出只能是 status=draft 的可编辑总纲，不能批准、跳过审核或进入分集正文。",
+))
 STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS = 7_000
 STORY_DECOMPOSITION_PER_CHILD_OUTPUT_TOKENS = 3_000
 STORY_DECOMPOSITION_MAX_OUTPUT_TOKENS = 12_000

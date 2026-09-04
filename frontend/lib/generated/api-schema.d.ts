@@ -1362,6 +1362,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/story-projects/{project_id}/story-bibles/import-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Story Bible Draft
+         * @description Normalize a supplied outline into an editable, source-preserving draft.
+         *
+         *     This is an explicit adapter boundary, not a shortcut around planning
+         *     approval.  The raw source is retained and the service is forced to keep
+         *     the resulting Story Bible in the ordinary draft lifecycle.
+         */
+        post: operations["import_story_bible_draft_story_projects__project_id__story_bibles_import_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/story-projects/{project_id}/story-bibles/inspiration-chat": {
         parameters: {
             query?: never;
@@ -1756,6 +1780,8 @@ export interface components {
             emotional_movement: string;
             /** Ending Hook Type */
             ending_hook_type?: string | null;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Entry State */
             entry_state: string;
             /** Episode Goal */
@@ -2964,15 +2990,26 @@ export interface components {
         /** CreativeInputReadiness */
         CreativeInputReadiness: {
             analysis_method: components["schemas"]["InputReadinessAnalysisMethod"];
+            /** @default sufficient */
+            capacity_status: components["schemas"]["InputReadinessCapacityStatus"];
             /** Confidence */
             confidence: number;
             coverage: components["schemas"]["InputReadinessCoverage"];
+            /** Detected Episode Count */
+            detected_episode_count?: number | null;
             detected_level: components["schemas"]["InputReadinessLevel"];
+            /**
+             * Estimated Supported Characters
+             * @default 0
+             */
+            estimated_supported_characters: number;
             /** Evidence */
             evidence?: string[];
             /** Missing Items */
             missing_items?: string[];
             recommended_stage: components["schemas"]["RecommendedWorkflowStage"];
+            /** Recommended Target Total Characters */
+            recommended_target_total_characters?: number | null;
             /**
              * Requires User Confirmation
              * @default true
@@ -2983,6 +3020,15 @@ export interface components {
              * @default input_readiness.v1
              */
             schema_version: string;
+            /**
+             * Source Character Count
+             * @default 0
+             */
+            source_character_count: number;
+            /** Source Kinds */
+            source_kinds?: components["schemas"]["InputReadinessSourceKind"][];
+            /** Supplement Questions */
+            supplement_questions?: string[];
         };
         /**
          * CreativeInputReadinessRequest
@@ -3002,6 +3048,11 @@ export interface components {
             episode_count: number;
             /** Reference Materials */
             reference_materials?: components["schemas"]["CreativeReferenceMaterial"][];
+            /**
+             * Target Total Characters
+             * @default 140000
+             */
+            target_total_characters: number;
         };
         /** CreativeInputReadinessResponse */
         CreativeInputReadinessResponse: {
@@ -3324,6 +3375,8 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Episode Goal */
             episode_goal: string;
             /** Generation Strategy Id */
@@ -3404,6 +3457,16 @@ export interface components {
             /** Turning Point */
             turning_point?: string | null;
         };
+        /**
+         * EndingMode
+         * @description How an episode is allowed to close.
+         *
+         *     ``serial_hook`` is the legacy/default behaviour.  The two finale modes are
+         *     deliberately additive so old payloads keep the existing cliffhanger
+         *     contract while a series can opt into an honest resolution.
+         * @enum {string}
+         */
+        EndingMode: "serial_hook" | "season_finale" | "series_finale";
         /** EngagementMetrics */
         EngagementMetrics: {
             /**
@@ -3558,6 +3621,8 @@ export interface components {
             confirmed_continuity_checkpoint?: string | null;
             /** Creative Decisions */
             creative_decisions?: components["schemas"]["CreativeDecisionRecord"][];
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Episode Instruction */
             episode_instruction?: string | null;
             /** Episode Number */
@@ -3663,6 +3728,8 @@ export interface components {
             continuity_requirements?: string[];
             /** Emotional Movement */
             emotional_movement: string;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Entry State */
             entry_state: string;
             /** Episode Goal */
@@ -3675,6 +3742,8 @@ export interface components {
             episode_title?: string | null;
             /** Exit State */
             exit_state: string;
+            /** Locations */
+            locations?: string[];
             /** Payoff Refs */
             payoff_refs?: string[];
             /** Protagonist Decision */
@@ -3707,6 +3776,8 @@ export interface components {
             story_bible_version: number;
             /** Story Project Id */
             story_project_id: string;
+            /** Synopsis */
+            synopsis?: string | null;
             /**
              * Version
              * @default 1
@@ -3745,6 +3816,8 @@ export interface components {
              * @default 因果压力
              */
             ending_hook_type: string;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Entry State */
             entry_state: string;
             /** Episode Goal */
@@ -3763,6 +3836,8 @@ export interface components {
             /** Hook Payoff Target Episode */
             hook_payoff_target_episode?: number | null;
             layer_contracts?: components["schemas"]["EpisodeThreeLayerContract"] | null;
+            /** Locations */
+            locations?: string[];
             /**
              * Next Episode Obligation
              * @default 下一集必须承接本集结尾压力。
@@ -3809,6 +3884,8 @@ export interface components {
             stage_opposition: string;
             /** Story Line Refs */
             story_line_refs?: string[];
+            /** Synopsis */
+            synopsis?: string | null;
             /**
              * Target Duration Seconds
              * @default 90
@@ -4023,6 +4100,8 @@ export interface components {
              * Format: date-time
              */
             draft_generated_at: string;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Finalization Policy Id */
             finalization_policy_id: string;
             /** Finalization Version */
@@ -4405,6 +4484,11 @@ export interface components {
          * @enum {string}
          */
         InputReadinessAnalysisMethod: "heuristic" | "model_assisted";
+        /**
+         * InputReadinessCapacityStatus
+         * @enum {string}
+         */
+        InputReadinessCapacityStatus: "sufficient" | "supplement_recommended" | "target_reduce_recommended";
         /** InputReadinessCoverage */
         InputReadinessCoverage: {
             /** Episode Plan */
@@ -4421,6 +4505,11 @@ export interface components {
          * @enum {string}
          */
         InputReadinessLevel: "premise" | "story_bible" | "episode_plan" | "script";
+        /**
+         * InputReadinessSourceKind
+         * @enum {string}
+         */
+        InputReadinessSourceKind: "premise" | "story_bible" | "episode_plan" | "script" | "mixed";
         /** KeywordEvidence */
         KeywordEvidence: {
             /** Excerpt */
@@ -4545,6 +4634,8 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Episode Goal */
             episode_goal: string;
             /** Hook */
@@ -4603,6 +4694,7 @@ export interface components {
         MasterScriptFinalizeRequest: {
             /** Dialogue Line Count Per Scene */
             dialogue_line_count_per_scene: number;
+            ending_mode?: components["schemas"]["EndingMode"] | null;
             /** Minimum Re Qc Score Override */
             minimum_re_qc_score_override?: number | null;
             script_generation_draft_run: components["schemas"]["ScriptGenerationDraftRun"];
@@ -4886,6 +4978,8 @@ export interface components {
             creative_hook: string;
             /** Desired Scene Count */
             desired_scene_count: number;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
             /** Episode Goal */
             episode_goal: string;
             /** Id */
@@ -4916,6 +5010,8 @@ export interface components {
              * @default 3
              */
             desired_scene_count: number;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
         };
         /** OrchestrationPlanListResponse */
         OrchestrationPlanListResponse: {
@@ -6435,6 +6531,11 @@ export interface components {
             ending_direction: string;
             /** Escalation Stages */
             escalation_stages?: components["schemas"]["ShortDramaEscalationStage"][];
+            /**
+             * Imported Source Document
+             * @description Exact author-supplied source retained for review and source-grounded planning. It is never generated or silently rewritten.
+             */
+            imported_source_document?: string | null;
             /** Locked Facts */
             locked_facts?: string[];
             /** Major Setup Payoff Refs */
@@ -6505,6 +6606,11 @@ export interface components {
             ending_direction: string;
             /** Escalation Stages */
             escalation_stages?: components["schemas"]["ShortDramaEscalationStage"][];
+            /**
+             * Imported Source Document
+             * @description Exact author-supplied source retained for review and source-grounded planning. It is never generated or silently rewritten.
+             */
+            imported_source_document?: string | null;
             /** Locked Facts */
             locked_facts?: string[];
             /** Major Setup Payoff Refs */
@@ -6594,6 +6700,11 @@ export interface components {
             creative_prompt: string;
             /** Generation Strategy Id */
             generation_strategy_id: string;
+            /**
+             * Preserve Source Document
+             * @default false
+             */
+            preserve_source_document: boolean;
             /** Reference Materials */
             reference_materials?: components["schemas"]["CreativeReferenceMaterial"][];
             selected_creative_direction?: components["schemas"]["CreativeDirectionCandidate"] | null;
@@ -6642,6 +6753,11 @@ export interface components {
             creative_prompt: string;
             /** Generation Strategy Id */
             generation_strategy_id: string;
+            /**
+             * Preserve Source Document
+             * @default false
+             */
+            preserve_source_document: boolean;
             /** Reference Materials */
             reference_materials?: components["schemas"]["CreativeReferenceMaterial"][];
             /** Sections */
@@ -6853,6 +6969,8 @@ export interface components {
             generation_strategy_id: string;
             /** Messages */
             messages?: components["schemas"]["StoryInspirationMessage"][];
+            /** Readiness Supplement Questions */
+            readiness_supplement_questions?: string[];
             /** Reference Materials */
             reference_materials?: components["schemas"]["CreativeReferenceMaterial"][];
             /** Selected Tag Labels */
@@ -11814,6 +11932,77 @@ export interface operations {
         };
     };
     generate_story_bible_draft_story_projects__project_id__story_bibles_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryBibleDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryBibleDraftResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+        };
+    };
+    import_story_bible_draft_story_projects__project_id__story_bibles_import_draft_post: {
         parameters: {
             query?: never;
             header?: never;

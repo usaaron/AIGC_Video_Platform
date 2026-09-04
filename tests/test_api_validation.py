@@ -222,6 +222,7 @@ def test_frontend_workflow_endpoints_exist_with_expected_http_methods() -> None:
         "/story-projects/{project_id}/generation-tasks/{job_id}": {"get", "put"},
         "/story-projects/{project_id}/creative-directions/draft": {"post"},
         "/story-projects/{project_id}/story-bibles/draft": {"post"},
+        "/story-projects/{project_id}/story-bibles/import-draft": {"post"},
         "/story-projects/{project_id}/story-bibles/interactive-step": {"post"},
         "/story-projects/{project_id}/story-bibles/interactive-complete": {"post"},
         "/story-projects/{project_id}/story-bibles/{story_bible_id}": {"get"},

@@ -30,6 +30,27 @@ const PLANNING_IMPORT_INSTRUCTION = [
   "完整规划生成后仍必须经过保存和用户确认；不得直接标记为已确认、不得绕过正文门禁，也不得在确认前自动进入正文。",
 ].join("\n");
 
+const STORY_BIBLE_AUTHOR_INSTRUCTION_LIMIT = 7_500;
+
+/** Keep planning requests inside StoryBibleDraftRequest.author_instruction. */
+export function boundStoryBibleAuthorInstruction(value: string): string {
+  return value.trim().slice(0, STORY_BIBLE_AUTHOR_INSTRUCTION_LIMIT);
+}
+
+/**
+ * Append the source-grounding contract without allowing a long prior session
+ * to truncate the contract out of the request body.
+ */
+export function storyBibleInstructionWithImportConstraints(value: string): string {
+  const contract = STORY_BIBLE_IMPORT_INSTRUCTION;
+  const prefixBudget = Math.max(
+    0,
+    STORY_BIBLE_AUTHOR_INSTRUCTION_LIMIT - contract.length - 1,
+  );
+  const prefix = value.trim().slice(0, prefixBudget);
+  return prefix ? `${prefix}\n${contract}` : contract;
+}
+
 export function inputReadinessWorkflowIntent(
   source: InputReadinessWorkflowSource,
 ): InputReadinessWorkflowIntent {

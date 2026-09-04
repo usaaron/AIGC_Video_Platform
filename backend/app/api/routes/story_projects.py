@@ -88,6 +88,7 @@ from app.modules.script_engine.llm_adapter import (
     MissingLLMConfigurationError,
 )
 from app.modules.script_engine.story_planning_service import (
+    STORY_BIBLE_IMPORT_INSTRUCTION,
     StoryPlanningInputError,
     StoryPlanningService,
     StoryPlanningTransientOutputError,
@@ -97,6 +98,20 @@ from app.modules.script_engine.story_planning_service import (
 
 router = APIRouter(prefix="/story-projects", tags=["Long Story Planning"])
 logger = logging.getLogger(__name__)
+
+
+def _source_import_author_instruction(author_instruction: str) -> str:
+    """Keep the import contract intact when the caller already filled the limit."""
+
+    contract = STORY_BIBLE_IMPORT_INSTRUCTION.strip()
+    prefix = author_instruction.strip()
+    if not prefix:
+        return contract
+    # StoryBibleDraftRequest.author_instruction is capped at 7,500 characters.
+    # Reserve room for the non-negotiable import contract instead of truncating
+    # it away when a previous planning session supplied a long instruction.
+    prefix_budget = max(0, 7_500 - len(contract) - 2)
+    return f"{prefix[:prefix_budget]}\n\n{contract}"
 
 
 def _generation_failure_headers(
@@ -747,22 +762,13 @@ def list_episode_narrative_events(
     return NarrativeEventListResponse(data=events)
 
 
-@router.post(
-    "/{project_id}/story-bibles/draft",
-    response_model=StoryBibleDraftResponse,
-    responses={
-        404: {"model": LongStoryErrorResponse},
-        409: {"model": LongStoryErrorResponse},
-        422: {"model": LongStoryErrorResponse},
-        503: {"model": LongStoryErrorResponse},
-        429: {"model": LongStoryErrorResponse},
-    },
-)
-def generate_story_bible_draft(
+def _story_bible_draft_response(
     project_id: str,
     payload: StoryBibleDraftRequest,
-    service: StoryPlanningService = Depends(get_story_planning_service),
-    long_story_service: LongStoryService = Depends(get_long_story_service),
+    service: StoryPlanningService,
+    long_story_service: LongStoryService,
+    *,
+    artifact: str = "story_bible",
 ) -> StoryBibleDraftResponse:
     if payload.story_project_id != project_id:
         raise HTTPException(
@@ -791,7 +797,7 @@ def generate_story_bible_draft(
         _raise_planning_configuration_unavailable(exc)
     except LLMRequestError as exc:
         _raise_planning_upstream_unavailable(
-            exc, artifact="story_bible", project_id=project_id,
+            exc, artifact=artifact, project_id=project_id,
         )
     project = long_story_service.get_project(project_id)
     try:
@@ -804,6 +810,71 @@ def generate_story_bible_draft(
         data=story_bible,
         project_revision=project.revision,
         workspace_revision=workspace_revision,
+    )
+
+
+@router.post(
+    "/{project_id}/story-bibles/draft",
+    response_model=StoryBibleDraftResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+        422: {"model": LongStoryErrorResponse},
+        503: {"model": LongStoryErrorResponse},
+        429: {"model": LongStoryErrorResponse},
+    },
+)
+def generate_story_bible_draft(
+    project_id: str,
+    payload: StoryBibleDraftRequest,
+    service: StoryPlanningService = Depends(get_story_planning_service),
+    long_story_service: LongStoryService = Depends(get_long_story_service),
+) -> StoryBibleDraftResponse:
+    return _story_bible_draft_response(
+        project_id,
+        payload,
+        service,
+        long_story_service,
+    )
+
+
+@router.post(
+    "/{project_id}/story-bibles/import-draft",
+    response_model=StoryBibleDraftResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+        422: {"model": LongStoryErrorResponse},
+        503: {"model": LongStoryErrorResponse},
+        429: {"model": LongStoryErrorResponse},
+    },
+)
+def import_story_bible_draft(
+    project_id: str,
+    payload: StoryBibleDraftRequest,
+    service: StoryPlanningService = Depends(get_story_planning_service),
+    long_story_service: LongStoryService = Depends(get_long_story_service),
+) -> StoryBibleDraftResponse:
+    """Normalize a supplied outline into an editable, source-preserving draft.
+
+    This is an explicit adapter boundary, not a shortcut around planning
+    approval.  The raw source is retained and the service is forced to keep
+    the resulting Story Bible in the ordinary draft lifecycle.
+    """
+    import_payload = payload.model_copy(
+        update={
+            "author_instruction": _source_import_author_instruction(
+                payload.author_instruction,
+            ),
+            "preserve_source_document": True,
+        },
+    )
+    return _story_bible_draft_response(
+        project_id,
+        import_payload,
+        service,
+        long_story_service,
+        artifact="story_bible_import",
     )
 
 

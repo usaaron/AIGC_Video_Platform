@@ -31,10 +31,12 @@ import { SectionHelp } from "@/components/section-help";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { isRequestAborted, userFacingError } from "@/lib/api-error";
+import type { AutomaticRetryEvent } from "@/lib/generation-retry";
 import {
   confirmStoryBible,
   generateStoryInspirationTurn,
   generateStoryBibleDraft,
+  importStoryBibleDraft,
   loadStoryBible,
   modifyStoryBibleDraft,
   prepareStoryPlanningProject,
@@ -55,9 +57,11 @@ import {
   storyBibleRewriteVersionSeed,
 } from "@/lib/story-planning-state";
 import {
-  importedStoryBibleInstruction,
+  boundStoryBibleAuthorInstruction,
   shouldApplyImportedStoryBibleConstraints,
+  storyBibleInstructionWithImportConstraints,
 } from "@/lib/input-readiness-workflow";
+import { buildImportedSourceSnapshot } from "@/lib/input-import-adapter";
 import { updatePlanningSession } from "@/lib/planning-session";
 import type {
   ScriptProject,
@@ -110,17 +114,15 @@ const STORY_BIBLE_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
 
 const StoryBibleEditableContext = createContext(false);
 
-function importedSourceDocumentForProject(project: ScriptProject): string {
-  const prompt = project.creativePrompt.trim();
-  const materials = (project.referenceMaterials ?? [])
-    .filter((item) => item.extractedText.trim())
-    .map((item) => `# ${item.fileName}\n${item.extractedText.trim()}`);
-  return [prompt, ...materials].filter(Boolean).join("\n\n").slice(0, 130_000);
-}
-
 function hasRecommendedHighCompletionInput(project: ScriptProject): boolean {
   return project.inputReadiness?.selectedPath === "recommended"
     && project.inputReadiness.detectedLevel !== "premise";
+}
+
+function storyBibleCreativeDecisions(project: ScriptProject) {
+  const persistedSession = project.planningSession?.storyBibleSections?.[INSPIRATION_SESSION_KEY];
+  if (!persistedSession) return [];
+  return normalizeStoryInspirationSession(persistedSession).brief.creative_decisions;
 }
 
 type ProjectUpdate = Partial<ScriptProject>
@@ -162,7 +164,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   );
   const importedSourceDocument = storyBible?.imported_source_document?.trim()
     || (shouldApplyImportedStoryBibleConstraints(project)
-      ? importedSourceDocumentForProject(project)
+      ? buildImportedSourceSnapshot(project).document
       : "");
   const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
   const storyBibleCharacterNames = new Map(
@@ -232,7 +234,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     }
   }
 
-  async function generateDraft() {
+  async function generateDraft(options: { importSource?: boolean } = {}) {
+    const importSource = options.importSource === true;
     if (generationRequestInFlightRef.current) return;
     if (regenerationLocked) {
       setMessage(t("storyBible.regenerationLocked"));
@@ -255,20 +258,25 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       if (syncState.status !== "synced") {
         throw new Error(syncState.error ?? t("storyBible.syncRequired"));
       }
-      const generated = await generateStoryBibleDraft(
-        preparedProject,
-        ({ nextAttempt, maxAttempts }) => setMessage(
-          t("generation.transientAutoRetry")
-            .replace("{attempt}", String(nextAttempt))
-            .replace("{max}", String(maxAttempts)),
-        ),
-        [
-          preparedProject.storyBibleAuthorInstruction ?? "",
-          shouldApplyImportedStoryBibleConstraints(preparedProject)
-            ? importedStoryBibleInstruction()
-            : "",
-        ].filter(Boolean).join("\n"),
+      const retryNotice = ({ nextAttempt, maxAttempts }: AutomaticRetryEvent) => setMessage(
+        t("generation.transientAutoRetry")
+          .replace("{attempt}", String(nextAttempt))
+          .replace("{max}", String(maxAttempts)),
       );
+      const baseAuthorInstruction = preparedProject.storyBibleAuthorInstruction ?? "";
+      const authorInstruction = !importSource
+        && shouldApplyImportedStoryBibleConstraints(preparedProject)
+        ? storyBibleInstructionWithImportConstraints(baseAuthorInstruction)
+        : boundStoryBibleAuthorInstruction(baseAuthorInstruction);
+      const generated = importSource
+        ? await importStoryBibleDraft(
+            preparedProject,
+            retryNotice,
+            undefined,
+            storyBibleCreativeDecisions(preparedProject),
+            preparedProject.storyBibleAuthorInstruction ?? "",
+          )
+        : await generateStoryBibleDraft(preparedProject, retryNotice, authorInstruction);
       setStoryBible(generated);
       onProjectUpdate?.({
         ...storyBibleRegenerationPatch(preparedProject, generated),
@@ -816,8 +824,12 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
           )}
         </div>
       ) : null}
-      {!busy && !storyBible && !regenerationLocked ? (
+      {(busy === null || busy === "generate") && !storyBible && !regenerationLocked ? (
         <InteractiveStoryBibleBuilder
+          importBusy={busy === "generate"}
+          onImport={recommendedHighCompletionInput
+            ? () => void generateDraft({ importSource: true })
+            : undefined}
           onComplete={(completed) => {
             setStoryBible(completed);
             onProjectUpdate?.((current) => ({
@@ -1076,10 +1088,14 @@ function inspirationBriefInstruction(brief: StoryInspirationBrief, directInput =
 }
 
 function InteractiveStoryBibleBuilder({
+  importBusy = false,
+  onImport,
   project,
   onProjectUpdate,
   onComplete,
 }: {
+  importBusy?: boolean;
+  onImport?: () => void;
   project: ScriptProject;
   onProjectUpdate?: ProjectUpdateCallback;
   onComplete: (storyBible: StoryBible) => void;
@@ -1466,7 +1482,13 @@ function InteractiveStoryBibleBuilder({
       const completed = await generateStoryBibleDraft(
         requestProject,
         undefined,
-        inspirationBriefInstruction(completedSession.brief, additionalDirectInput),
+        shouldApplyImportedStoryBibleConstraints(requestProject)
+          ? storyBibleInstructionWithImportConstraints(
+              inspirationBriefInstruction(completedSession.brief, additionalDirectInput),
+            )
+          : boundStoryBibleAuthorInstruction(
+              inspirationBriefInstruction(completedSession.brief, additionalDirectInput),
+            ),
         controller.signal,
         completedSession.brief.creative_decisions,
       );
@@ -1507,9 +1529,9 @@ function InteractiveStoryBibleBuilder({
           <button className="primary-action" onClick={() => setCreationOpen(true)} type="button">继续创作设定</button>
         </div>
       ) : null}
-      {creationOpen ? <div aria-labelledby="interactive-story-bible-title" aria-modal="true" className="tag-dialog-backdrop creation-setting-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !busy) setCreationOpen(false); }} role="dialog">
+      {creationOpen ? <div aria-labelledby="interactive-story-bible-title" aria-modal="true" className="tag-dialog-backdrop creation-setting-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !busy && !importBusy) setCreationOpen(false); }} role="dialog">
         <div className="tag-dialog interactive-story-bible-dialog unified-creation-dialog">
-          <button aria-label="关闭创作设定" className="tag-dialog-close" disabled={busy} onClick={() => setCreationOpen(false)} type="button"><CloseIcon /></button>
+          <button aria-label="关闭创作设定" className="tag-dialog-close" disabled={busy || importBusy} onClick={() => setCreationOpen(false)} type="button"><CloseIcon /></button>
           <div className="interactive-story-bible-heading">
             <div>
               <span className="section-kicker">总纲生成前的创作控制台</span>
@@ -1594,8 +1616,18 @@ function InteractiveStoryBibleBuilder({
           <footer className="creation-setting-footer">
             <span>{creationSaveState === "saving" ? "正在保存创作设定……" : creationSaveState === "saved" ? "创作设定已保存" : creationSaveState === "error" ? "本次云端同步失败，当前页面内容仍已保留" : inspirationRoundState.active ? (inspirationRoundState.complete ? "本轮问题已全部回答，请点击“提交本轮并继续”；提交后会自动保存" : "请先回答本轮全部问题，回答完点击“提交本轮并继续”") : canGenerateStoryBible ? "已有可用创作方向，可以生成总纲或继续深入打磨" : inspirationSession.messages.length ? "每轮提交后会自动保存，也可以手动保存当前设定" : "输入想法后整理，或直接进入深入打磨"}</span>
             <div>
-              <button className="outline-action" disabled={busy || inspirationBusy || inspirationRoundState.active || creationSaveState === "saving"} onClick={() => void saveCreationSetting()} type="button"><Save aria-hidden="true" size={14} />{inspirationRoundState.active ? "先提交本轮" : creationSaveState === "saving" ? "保存中" : creationSaveState === "saved" ? "已保存" : "保存创作设定"}</button>
-              <button className="primary-action" disabled={!canGenerateStoryBible || busy || inspirationBusy} onClick={() => void generateStoryBibleFromInspiration()} type="button">生成故事总纲</button>
+              {onImport ? (
+                <button
+                  className="outline-action"
+                  disabled={busy || importBusy || inspirationBusy || inspirationRoundState.active}
+                  onClick={onImport}
+                  type="button"
+                >
+                  {importBusy ? "正在按原文整理……" : "按原文导入为总纲草稿"}
+                </button>
+              ) : null}
+              <button className="outline-action" disabled={busy || importBusy || inspirationBusy || inspirationRoundState.active || creationSaveState === "saving"} onClick={() => void saveCreationSetting()} type="button"><Save aria-hidden="true" size={14} />{inspirationRoundState.active ? "先提交本轮" : creationSaveState === "saving" ? "保存中" : creationSaveState === "saved" ? "已保存" : "保存创作设定"}</button>
+              <button className="primary-action" disabled={!canGenerateStoryBible || busy || importBusy || inspirationBusy} onClick={() => void generateStoryBibleFromInspiration()} type="button">生成故事总纲</button>
             </div>
           </footer>
         </div>

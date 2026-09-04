@@ -17,4 +17,5 @@ def test_openapi_export_is_deterministic_and_contains_critical_workflows(tmp_pat
     assert exported == build_openapi_schema()
     assert "/story-projects" in exported["paths"]
     assert "/story-projects/{project_id}/story-bibles/draft" in exported["paths"]
+    assert "/story-projects/{project_id}/story-bibles/import-draft" in exported["paths"]
     assert "/story-projects/{project_id}/agent-runs" in exported["paths"]

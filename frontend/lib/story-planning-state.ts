@@ -28,6 +28,20 @@ export function storyBibleRewriteVersionSeed(
       characters: (project.characters ?? [])
         .filter((item) => item.source !== "generated")
         .map((item) => ({ ...item })),
+      inputReadiness: project.inputReadiness
+        ? {
+            ...project.inputReadiness,
+            coverage: { ...project.inputReadiness.coverage },
+            missingItems: [...project.inputReadiness.missingItems],
+            evidence: [...project.inputReadiness.evidence],
+            sourceKinds: project.inputReadiness.sourceKinds
+              ? [...project.inputReadiness.sourceKinds]
+              : undefined,
+            supplementQuestions: project.inputReadiness.supplementQuestions
+              ? [...project.inputReadiness.supplementQuestions]
+              : undefined,
+          }
+        : undefined,
       generationSettings: { ...project.generationSettings },
     },
     patch: {

@@ -6,6 +6,7 @@ import {
   type InputReadinessStage,
   type ProjectDraft,
 } from "./types.ts";
+import { episodeNumbersFromDocument } from "./input-import-adapter.ts";
 import { referenceMaterialsForApi } from "./reference-materials.ts";
 
 const LEVELS = new Set<InputReadinessLevel>([
@@ -33,16 +34,8 @@ export function detectEpisodeCountFromCreativeInput(
     draft.creativePrompt,
     ...draft.referenceMaterials.map((material) => material.extractedText),
   ].join("\n");
-  const headingPattern = /(?:^\s*(?:#{1,6}\s*)?(?:第\s*0*(\d{1,4})\s*集|episode\s*0*(\d{1,4})\b|ep\.?\s*0*(\d{1,4})\b))/gim;
-  const episodeNumbers = new Set<number>();
-  let match: RegExpExecArray | null;
-  while ((match = headingPattern.exec(source)) !== null) {
-    const episodeNumber = Number(match[1] ?? match[2] ?? match[3]);
-    if (Number.isInteger(episodeNumber) && episodeNumber >= 1 && episodeNumber <= 2_000) {
-      episodeNumbers.add(episodeNumber);
-    }
-  }
-  return episodeNumbers.size > 0 ? episodeNumbers.size : null;
+  const episodeNumbers = episodeNumbersFromDocument(source);
+  return episodeNumbers.length > 0 ? episodeNumbers.length : null;
 }
 
 export function buildInputReadinessRequest(draft: ProjectDraft) {

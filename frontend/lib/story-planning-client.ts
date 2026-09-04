@@ -35,6 +35,7 @@ import {
 import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
 import { mainlandTextIsEnglishDominant } from "@/lib/mainland-language";
 import {
+  boundStoryBibleAuthorInstruction,
   importedPlanningInstruction,
   shouldApplyImportedPlanningConstraints,
 } from "@/lib/input-readiness-workflow";
@@ -755,6 +756,46 @@ export async function generateStoryBibleDraft(
   signal?: AbortSignal,
   creativeDecisions: CreativeDecisionRecord[] = [],
 ): Promise<StoryBible> {
+  return requestStoryBibleDraft(
+    project,
+    onAutomaticRetry,
+    authorInstruction,
+    signal,
+    creativeDecisions,
+    false,
+  );
+}
+
+/**
+ * Normalize an author-supplied high-completion outline into the existing
+ * editable Story Bible contract.  The server keeps the raw source and always
+ * returns a draft; this adapter never marks a planning artifact approved.
+ */
+export async function importStoryBibleDraft(
+  project: ScriptProject,
+  onAutomaticRetry?: (event: AutomaticRetryEvent) => void,
+  signal?: AbortSignal,
+  creativeDecisions: CreativeDecisionRecord[] = [],
+  authorInstruction = "",
+): Promise<StoryBible> {
+  return requestStoryBibleDraft(
+    project,
+    onAutomaticRetry,
+    authorInstruction,
+    signal,
+    creativeDecisions,
+    true,
+  );
+}
+
+async function requestStoryBibleDraft(
+  project: ScriptProject,
+  onAutomaticRetry: ((event: AutomaticRetryEvent) => void) | undefined,
+  authorInstruction: string,
+  signal: AbortSignal | undefined,
+  creativeDecisions: CreativeDecisionRecord[],
+  importSource: boolean,
+): Promise<StoryBible> {
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法生成长篇总纲。");
   }
@@ -764,7 +805,7 @@ export async function generateStoryBibleDraft(
     generate: async (): Promise<StoryBibleDraftResponse | { data: StoryBible }> => {
       try {
         return await apiRequest<StoryBibleDraftResponse>(
-          `/story-projects/${project.id}/story-bibles/draft`,
+          `/story-projects/${project.id}/story-bibles/${importSource ? "import-draft" : "draft"}`,
           {
             method: "POST",
             body: JSON.stringify({
@@ -773,12 +814,13 @@ export async function generateStoryBibleDraft(
               generation_strategy_id: project.generationStrategyId,
               ...storyPlanningSourcePayload(project, 10_000),
               selected_creative_direction: project.selectedCreativeDirection ?? null,
-              author_instruction: authorInstruction.trim(),
+              author_instruction: boundStoryBibleAuthorInstruction(authorInstruction),
               creative_decisions: creativeDecisions,
               characters: [],
               target_episode_count: project.generationSettings.episodeCount,
-              preserve_source_document: project.inputReadiness?.selectedPath === "recommended"
-                && project.inputReadiness.detectedLevel !== "premise",
+              preserve_source_document: importSource
+                || (project.inputReadiness?.selectedPath === "recommended"
+                  && project.inputReadiness.detectedLevel !== "premise"),
             }),
             signal,
           },
@@ -791,6 +833,7 @@ export async function generateStoryBibleDraft(
             recovered
             && recovered.status === "draft"
             && recovered.version > knownVersion
+            && (!importSource || Boolean(recovered.imported_source_document?.trim()))
           ) return { data: recovered };
         } catch {
           // The request may have failed before commit; the bounded retry below

@@ -741,11 +741,17 @@ export function ScriptWorkspace() {
     );
   }
   if (!episode) {
+    const planningRequiredMessage = !requestedLeafRange
+      && !streamBatch.length
+      && !backgroundScriptTask
+      ? t("generation.episodePlansRequired")
+      : null;
     return (
       <PendingScriptWorkspace
         activeEpisodeNumber={activeEpisodeNumber}
         batch={streamBatch}
         detailsOpen={generationDetailsOpen}
+        message={message ?? planningRequiredMessage}
         onDetailsToggle={() => setGenerationDetailsOpen((current) => !current)}
         onRetryEpisode={() => {
           setGenerationIntentConsumed(false);
@@ -756,6 +762,7 @@ export function ScriptWorkspace() {
           void updateProject(project.id, { activeEpisodeNumber: episodeNumber });
         }}
         project={project}
+        retryDisabled={!requestedLeafRange || isScriptGenerationRunning(project.id)}
         task={backgroundScriptTask}
         t={t}
       />

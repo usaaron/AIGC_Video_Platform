@@ -601,6 +601,10 @@
             ],
             "title": "Ending Hook Type"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "entry_state": {
             "maxLength": 1000,
             "minLength": 5,
@@ -4479,6 +4483,10 @@
           "analysis_method": {
             "$ref": "#/components/schemas/InputReadinessAnalysisMethod"
           },
+          "capacity_status": {
+            "$ref": "#/components/schemas/InputReadinessCapacityStatus",
+            "default": "sufficient"
+          },
           "confidence": {
             "maximum": 1.0,
             "minimum": 0.0,
@@ -4488,8 +4496,27 @@
           "coverage": {
             "$ref": "#/components/schemas/InputReadinessCoverage"
           },
+          "detected_episode_count": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Episode Count"
+          },
           "detected_level": {
             "$ref": "#/components/schemas/InputReadinessLevel"
+          },
+          "estimated_supported_characters": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Estimated Supported Characters",
+            "type": "integer"
           },
           "evidence": {
             "items": {
@@ -4510,6 +4537,18 @@
           "recommended_stage": {
             "$ref": "#/components/schemas/RecommendedWorkflowStage"
           },
+          "recommended_target_total_characters": {
+            "anyOf": [
+              {
+                "minimum": 1000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Target Total Characters"
+          },
           "requires_user_confirmation": {
             "default": true,
             "title": "Requires User Confirmation",
@@ -4520,6 +4559,28 @@
             "pattern": "^input_readiness\\.v\\d+$",
             "title": "Schema Version",
             "type": "string"
+          },
+          "source_character_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Source Character Count",
+            "type": "integer"
+          },
+          "source_kinds": {
+            "items": {
+              "$ref": "#/components/schemas/InputReadinessSourceKind"
+            },
+            "maxItems": 5,
+            "title": "Source Kinds",
+            "type": "array"
+          },
+          "supplement_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Supplement Questions",
+            "type": "array"
           }
         },
         "required": [
@@ -4555,6 +4616,13 @@
             "maxItems": 8,
             "title": "Reference Materials",
             "type": "array"
+          },
+          "target_total_characters": {
+            "default": 140000,
+            "maximum": 10000000.0,
+            "minimum": 1000.0,
+            "title": "Target Total Characters",
+            "type": "integer"
           }
         },
         "required": [
@@ -5574,6 +5642,10 @@
             "title": "Created At",
             "type": "string"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "episode_goal": {
             "maxLength": 240,
             "minLength": 5,
@@ -5873,6 +5945,16 @@
         ],
         "title": "DraftSceneCard",
         "type": "object"
+      },
+      "EndingMode": {
+        "description": "How an episode is allowed to close.\n\n``serial_hook`` is the legacy/default behaviour.  The two finale modes are\ndeliberately additive so old payloads keep the existing cliffhanger\ncontract while a series can opt into an honest resolution.",
+        "enum": [
+          "serial_hook",
+          "season_finale",
+          "series_finale"
+        ],
+        "title": "EndingMode",
+        "type": "string"
       },
       "EngagementMetrics": {
         "additionalProperties": false,
@@ -6302,6 +6384,10 @@
             "title": "Creative Decisions",
             "type": "array"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "episode_instruction": {
             "anyOf": [
               {
@@ -6705,6 +6791,10 @@
             "title": "Emotional Movement",
             "type": "string"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "entry_state": {
             "maxLength": 1000,
             "minLength": 5,
@@ -6733,7 +6823,7 @@
           "episode_title": {
             "anyOf": [
               {
-                "maxLength": 18,
+                "maxLength": 120,
                 "minLength": 2,
                 "type": "string"
               },
@@ -6748,6 +6838,14 @@
             "minLength": 5,
             "title": "Exit State",
             "type": "string"
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Locations",
+            "type": "array"
           },
           "payoff_refs": {
             "items": {
@@ -6841,6 +6939,19 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Story Project Id",
             "type": "string"
+          },
+          "synopsis": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 5,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synopsis"
           },
           "version": {
             "default": 1,
@@ -6963,6 +7074,10 @@
             "title": "Ending Hook Type",
             "type": "string"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "entry_state": {
             "maxLength": 1000,
             "minLength": 5,
@@ -6991,7 +7106,7 @@
           "episode_title": {
             "anyOf": [
               {
-                "maxLength": 18,
+                "maxLength": 120,
                 "minLength": 2,
                 "type": "string"
               },
@@ -7029,6 +7144,14 @@
                 "type": "null"
               }
             ]
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Locations",
+            "type": "array"
           },
           "next_episode_obligation": {
             "default": "下一集必须承接本集结尾压力。",
@@ -7138,6 +7261,19 @@
             "maxItems": 20,
             "title": "Story Line Refs",
             "type": "array"
+          },
+          "synopsis": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 5,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synopsis"
           },
           "target_duration_seconds": {
             "default": 90,
@@ -7820,6 +7956,10 @@
             "format": "date-time",
             "title": "Draft Generated At",
             "type": "string"
+          },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
           },
           "finalization_policy_id": {
             "maxLength": 120,
@@ -8824,6 +8964,15 @@
         "title": "InputReadinessAnalysisMethod",
         "type": "string"
       },
+      "InputReadinessCapacityStatus": {
+        "enum": [
+          "sufficient",
+          "supplement_recommended",
+          "target_reduce_recommended"
+        ],
+        "title": "InputReadinessCapacityStatus",
+        "type": "string"
+      },
       "InputReadinessCoverage": {
         "additionalProperties": false,
         "properties": {
@@ -8869,6 +9018,17 @@
           "script"
         ],
         "title": "InputReadinessLevel",
+        "type": "string"
+      },
+      "InputReadinessSourceKind": {
+        "enum": [
+          "premise",
+          "story_bible",
+          "episode_plan",
+          "script",
+          "mixed"
+        ],
+        "title": "InputReadinessSourceKind",
         "type": "string"
       },
       "KeywordEvidence": {
@@ -9278,6 +9438,10 @@
             "title": "Created At",
             "type": "string"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "episode_goal": {
             "maxLength": 240,
             "minLength": 5,
@@ -9493,6 +9657,16 @@
             "minimum": 1.0,
             "title": "Dialogue Line Count Per Scene",
             "type": "integer"
+          },
+          "ending_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndingMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "minimum_re_qc_score_override": {
             "anyOf": [
@@ -10224,6 +10398,10 @@
             "title": "Desired Scene Count",
             "type": "integer"
           },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
           "episode_goal": {
             "maxLength": 240,
             "minLength": 5,
@@ -10310,6 +10488,10 @@
             "minimum": 1.0,
             "title": "Desired Scene Count",
             "type": "integer"
+          },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
           }
         },
         "required": [
@@ -15186,6 +15368,19 @@
             "title": "Escalation Stages",
             "type": "array"
           },
+          "imported_source_document": {
+            "anyOf": [
+              {
+                "maxLength": 130000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact author-supplied source retained for review and source-grounded planning. It is never generated or silently rewritten.",
+            "title": "Imported Source Document"
+          },
           "locked_facts": {
             "items": {
               "type": "string"
@@ -15398,6 +15593,19 @@
             "maxItems": 20,
             "title": "Escalation Stages",
             "type": "array"
+          },
+          "imported_source_document": {
+            "anyOf": [
+              {
+                "maxLength": 130000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact author-supplied source retained for review and source-grounded planning. It is never generated or silently rewritten.",
+            "title": "Imported Source Document"
           },
           "locked_facts": {
             "items": {
@@ -15629,7 +15837,7 @@
           },
           "creative_prompt": {
             "default": "",
-            "maxLength": 2000,
+            "maxLength": 10000,
             "title": "Creative Prompt",
             "type": "string"
           },
@@ -15639,6 +15847,11 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Generation Strategy Id",
             "type": "string"
+          },
+          "preserve_source_document": {
+            "default": false,
+            "title": "Preserve Source Document",
+            "type": "boolean"
           },
           "reference_materials": {
             "items": {
@@ -15766,7 +15979,7 @@
           },
           "creative_prompt": {
             "default": "",
-            "maxLength": 2000,
+            "maxLength": 10000,
             "title": "Creative Prompt",
             "type": "string"
           },
@@ -15776,6 +15989,11 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Generation Strategy Id",
             "type": "string"
+          },
+          "preserve_source_document": {
+            "default": false,
+            "title": "Preserve Source Document",
+            "type": "boolean"
           },
           "reference_materials": {
             "items": {
@@ -15887,7 +16105,7 @@
           },
           "creative_prompt": {
             "default": "",
-            "maxLength": 2000,
+            "maxLength": 10000,
             "title": "Creative Prompt",
             "type": "string"
           },
@@ -16281,7 +16499,7 @@
           },
           "creative_prompt": {
             "default": "",
-            "maxLength": 2000,
+            "maxLength": 10000,
             "title": "Creative Prompt",
             "type": "string"
           },
@@ -16301,6 +16519,14 @@
             },
             "maxItems": 30,
             "title": "Messages",
+            "type": "array"
+          },
+          "readiness_supplement_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Readiness Supplement Questions",
             "type": "array"
           },
           "reference_materials": {
@@ -24500,6 +24726,99 @@
           }
         },
         "summary": "Generate Story Bible Draft",
+        "tags": [
+          "Long Story Planning"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/story-bibles/import-draft": {
+      "post": {
+        "description": "Normalize a supplied outline into an editable, source-preserving draft.\n\nThis is an explicit adapter boundary, not a shortcut around planning\napproval.  The raw source is retained and the service is forced to keep\nthe resulting Story Bible in the ordinary draft lifecycle.",
+        "operationId": "import_story_bible_draft_story_projects__project_id__story_bibles_import_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryBibleDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryBibleDraftResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Import Story Bible Draft",
         "tags": [
           "Long Story Planning"
         ]

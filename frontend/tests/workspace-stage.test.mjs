@@ -92,6 +92,7 @@ test("page transitions and route guards share the planning session boundary", as
   ]);
 
   assert.match(storyBible, /phase:\s*"story_tree"[\s\S]*router\.push\(`\/projects\/\$\{project\.id\}\/planning\/structure`\)/);
+  assert.doesNotMatch(storyBible, /router\.(?:push|replace)\([^)]*workspace\?generate=1/);
   assert.doesNotMatch(storyBibleWorkspace, /router\.(?:push|replace)\([^)]*planning\/structure/);
   assert.match(structureWorkspace, /workspaceSectionAccess\(project\)\.planning/);
   assert.match(scriptWorkspace, /workspaceSectionAccess\(project\)\.script/);
