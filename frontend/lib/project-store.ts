@@ -4,7 +4,10 @@ import {
   type ScriptProject,
 } from "@/lib/types";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
-import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
+import {
+  episodeRoadmapCoverageThrough,
+  normalizeEpisodeRoadmaps,
+} from "@/lib/planning-coverage";
 import { migrateProjectScreenplayFormat } from "@/lib/canonical-character-names";
 
 const DATABASE_NAME = "ai-comic-content-os";
@@ -88,7 +91,10 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
                 updatedAt: project.updatedAt,
               }]
             : [];
-        const episodeRoadmaps = project.episodeRoadmaps ?? [];
+        // Legacy projects omitted roadmap status; normalize only that missing
+        // field so their already-confirmed plans remain usable. Explicit
+        // drafts are never promoted during migration.
+        const episodeRoadmaps = normalizeEpisodeRoadmaps(project.episodeRoadmaps ?? []);
         const recoveredPlanningCoverage = project.episodeRoadmapRequired === true
           ? episodeRoadmapCoverageThrough(episodeRoadmaps)
           : project.episodePlansReadyThrough ?? 0;

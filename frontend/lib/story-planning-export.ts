@@ -1,5 +1,6 @@
 import type { StoryPlanNode } from "./story-planning-client.ts";
 import type { CharacterDraft, EpisodeRoadmapItem } from "./types.ts";
+import { isApprovedEpisodeRoadmap } from "./planning-coverage.ts";
 
 const STORY_PLAN_ROOT_MARKER = "system_story_bible_root.v1";
 
@@ -84,7 +85,7 @@ export function toStoryPlanningMarkdown(
 
   const roadmapSections = roadmaps
     .filter((item) => (
-      item.status === "approved"
+      isApprovedEpisodeRoadmap(item)
       && nodeVersions.has(`${item.source_node_id}:${item.source_node_version}`)
     ))
     .sort((left, right) => left.episode_number - right.episode_number)

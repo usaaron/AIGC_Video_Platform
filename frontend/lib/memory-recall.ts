@@ -7,6 +7,7 @@ import type {
   ProjectStoryLine,
   ScriptProject,
 } from "./types";
+import { isApprovedEpisodeRoadmap } from "./planning-coverage";
 
 export type MemoryRecallStatus = "sufficient" | "insufficient" | "not_applicable";
 export type MemoryRecallTask = "episode_generation" | "episode_modification";
@@ -371,15 +372,18 @@ function roadmapCapsules(
   );
   const latestByNode = new Map<string, number>();
   for (const item of project.episodeRoadmaps ?? []) {
-    if (
-      item.story_bible_version !== effectiveStoryBibleVersion
-      || item.status !== "approved"
-    ) continue;
-    latestByNode.set(item.source_node_id, Math.max(latestByNode.get(item.source_node_id) ?? 0, item.source_node_version));
+    if (item.story_bible_version !== effectiveStoryBibleVersion) continue;
+    // A newer saved revision, even while still draft, supersedes the older
+    // node lineage for recall. This prevents stale approved routes from
+    // surviving a pending rebase; the draft itself is still excluded below.
+    latestByNode.set(
+      item.source_node_id,
+      Math.max(latestByNode.get(item.source_node_id) ?? 0, item.source_node_version),
+    );
   }
   return (project.episodeRoadmaps ?? [])
     .filter((item) => (
-      item.status === "approved"
+      isApprovedEpisodeRoadmap(item)
       && item.episode_number < focus.episodeNumber
       && item.story_bible_version === effectiveStoryBibleVersion
       && item.source_node_version === latestByNode.get(item.source_node_id)

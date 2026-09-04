@@ -31,6 +31,9 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
     SERIES_RUNTIME_MIN_MINUTES,
+    EndingMode,
+    ending_mode_requires_hook,
+    normalize_finale_legacy_fields,
 )
 from app.modules.script_engine.knowledge_bundle import (
     InvalidKnowledgeBundleError,
@@ -1854,6 +1857,9 @@ def planning_payload_for_validation(
 _EPISODE_PLAN_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "episode_number": (
         "episode_number", "episode", "episode_no", "number", "ep", "集数", "集号", "第几集"
+    ),
+    "ending_mode": (
+        "ending_mode", "ending_type", "结尾模式", "收束模式",
     ),
     "episode_title": ("episode_title", "title", "本集标题", "集标题"),
     "synopsis": (
@@ -4150,6 +4156,10 @@ def apply_episode_roadmap_modification_scope(
     for field in _EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES:
         if field not in allowed_fields:
             candidate_values[field] = source_values[field]
+    # Closing mode is an approval boundary, not editable prose. A targeted
+    # revision must not silently turn a continuing episode into a finale (or
+    # vice versa); changing it requires a new reviewed roadmap item.
+    candidate_values["ending_mode"] = source_values["ending_mode"]
     return EpisodePlanGenerationItem.model_validate(candidate_values)
 
 
@@ -7836,7 +7846,7 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                     f"{prompt}\n\nBOUNDED REVISION REPAIR\n"
                     "The previous candidate did not satisfy the complete single-item "
                     "contract. Return a corrected native JSON object only. Preserve the "
-                    "episode number, approved reference IDs, source event assignments, "
+                    "episode number, ending_mode, approved reference IDs, source event assignments, "
                     "and the requested revision.\n"
                     f"Failure: {str(failure)[:1200]}\n"
                     f"Previous candidate: {json.dumps(generated or {}, ensure_ascii=False, separators=(',', ':'))}"
@@ -8017,6 +8027,9 @@ Segment conflict: {node.central_conflict}
 Segment exit state: {node.exit_state}
 Required local resolution: {node.unit_resolution or node.exit_state}
 Required handoff pressure: {node.handoff_pressure or node.exit_state}
+Ending mode: {current_plan.ending_mode.value}; serial_hook requires a causal cliffhanger,
+while season_finale/series_finale must use the approved formal resolution without a
+manufactured continuation hook.
 
 Immediately preceding checkpoint:
 {json.dumps(previous_checkpoint, ensure_ascii=False, separators=(',', ':'))}
@@ -8043,7 +8056,7 @@ Requirements:
 1a. If the defining action, choice or reversal changes, update episode_title too.
 {EPISODE_TITLE_NAMING_CONTRACT}
 1b. If the revision changes where the episode happens or its causal summary, update `locations` and/or `synopsis`; otherwise preserve them exactly.
-2. Continue causally from the preceding checkpoint and produce a distinct pressure-action-payoff cycle with an observable exit state and concrete cliffhanger.
+2. Continue causally from the preceding checkpoint and produce a distinct pressure-action-payoff cycle with an observable exit state. For serial_hook use a concrete cliffhanger; for season_finale or series_finale use the approved formal resolution and do not invent a continuation hook.
 3. Preserve every still-active continuity requirement, unresolved setup, open hook and state
    handoff in the durable memory. Do not fix a local sentence by contradicting an earlier fact.
 4. Preserve the approved segment's local resolution and handoff pressure; do not invent a new plot chain or postpone this episode's contribution.
@@ -8336,6 +8349,11 @@ Requirements:
                 target_episode = output.episode_plans[target_index].episode_number
                 beat_assignments[target_episode].append(beat)
         for item in output.episode_plans:
+            pressure_fallback = (
+                item.cliffhanger
+                if ending_mode_requires_hook(item.ending_mode)
+                else item.episode_payoff or item.exit_state
+            )
             prepared = item.model_copy(update={
                 "stage_opposition": (
                     item.central_conflict
@@ -8348,7 +8366,7 @@ Requirements:
                     else item.episode_payoff
                 ),
                 "pressure_escalation": (
-                    item.cliffhanger
+                    pressure_fallback
                     if item.pressure_escalation == default_escalation
                     else item.pressure_escalation
                 ),
@@ -8382,7 +8400,11 @@ Requirements:
                 f"{item.exit_state}"
             )
         if item.pressure_escalation == "当前结果引出更高一级的因果压力。":
-            updates["pressure_escalation"] = item.cliffhanger
+            updates["pressure_escalation"] = (
+                item.cliffhanger
+                if ending_mode_requires_hook(item.ending_mode)
+                else item.episode_payoff or item.exit_state
+            )
         if not item.scene_execution_plan:
             prepared = item.model_copy(update=updates) if updates else item
             updates["scene_execution_plan"] = (
@@ -8406,6 +8428,7 @@ Requirements:
         dialogue_targets = distribute(item.planned_dialogue_line_count)
         shot_targets = distribute(item.planned_shot_count)
         scenes: list[EpisodeSceneExecutionBeat] = []
+        requires_hook = ending_mode_requires_hook(item.ending_mode)
         locations = [location.strip() for location in item.locations if location.strip()]
         if not locations:
             locations = ["核心行动地点"]
@@ -8421,18 +8444,26 @@ Requirements:
             elif final_scene:
                 objective = item.episode_payoff
                 visible_action = (
-                    f"主角执行“{item.protagonist_decision}”，形成可见结果并触发结尾压力。"
+                    f"主角执行“{item.protagonist_decision}”，形成可见结果"
+                    + (
+                        "并触发结尾压力。"
+                        if requires_hook
+                        else "并完成批准的本集收束。"
+                    )
                 )
             else:
                 objective = item.central_conflict
                 visible_action = (
                     f"对手落实“{item.stage_opposition}”，迫使主角改变行动或承担代价。"
                 )
-            turn_or_reveal = (
-                item.cliffhanger
-                if final_scene
-                else item.reveal or item.protagonist_decision
-            )
+            if final_scene:
+                turn_or_reveal = (
+                    item.cliffhanger
+                    if requires_hook
+                    else item.episode_payoff or item.exit_state
+                )
+            else:
+                turn_or_reveal = item.reveal or item.protagonist_decision
             exit_state = (
                 item.exit_state
                 if final_scene
@@ -10266,11 +10297,14 @@ Return exactly {expected_count} complete episode plan objects for these episode 
 in this exact order: {json.dumps(expected_episode_numbers, ensure_ascii=False)}.
 
 Each episode object must use exactly these fields:
-episode_number, episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision,
+episode_number, ending_mode, episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision,
 reveal, emotional_movement, stage_opposition, episode_payoff, pressure_escalation,
 setup_refs, payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
 continuity_requirements, source_turning_points, source_unit_story_beats,
 ending_hook_type, next_episode_obligation, hook_payoff_target_episode.
+
+Set ending_mode to serial_hook for a continuing episode. A season_finale or series_finale
+must use the approved formal resolution and must not fabricate a continuation cliffhanger.
 
 Structured failure:
 {failure}
@@ -11035,7 +11069,7 @@ Durable planning memory: {memory_context}
 
 Requirements:
 1. Return exactly one plan for every episode number from {start_episode} through {end_episode}, in order.
-2. Each plan must have episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, emotional_movement, stage_opposition, episode_payoff, pressure_escalation, exit_state and cliffhanger.
+2. Each plan must have episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, emotional_movement, stage_opposition, episode_payoff, pressure_escalation and exit_state. Set ending_mode to serial_hook for a continuing episode; a final episode may use season_finale or series_finale only when the approved story direction calls for it. A serial_hook episode must provide a continuable cliffhanger; a finale must describe its formal resolution instead of manufacturing a hook.
 {EPISODE_TITLE_NAMING_CONTRACT}
 {EPISODE_HUMAN_READABLE_FIELDS_CONTRACT}
 3. The next episode entry_state must follow the previous episode exit_state; do not repeat the same beat.
@@ -11044,7 +11078,7 @@ Requirements:
 6. Distribute every approved segment turning point verbatim into exactly one episode's source_turning_points. Do not omit, paraphrase, merge or assign one turning point to multiple episodes. The receiving episode must execute that event in its goal, conflict, decision, reveal, exit state or cliffhanger.
 7. Each episode must make a distinct causal contribution. Adjacent episodes must not repeat the same reveal, obstacle or cliffhanger function using different wording.
 8. Assign story_line_refs only from the approved Story line refs and only when the episode materially advances that line. Every episode must advance at least one approved line.
-9. For each episode define ending_hook_type as a short 2-20 character Simplified-Chinese classification label with no explanation, plus a concrete next_episode_obligation and a realistic hook_payoff_target_episode when the hook is intended to stay open beyond the next episode. Rotate hook functions according to the story; do not create unrelated surprise calls, arrivals, doors, or identity reveals solely for suspense.
+9. For each serial_hook episode define ending_hook_type as a short 2-20 character Simplified-Chinese classification label with no explanation, plus a concrete next_episode_obligation and a realistic hook_payoff_target_episode when the hook is intended to stay open beyond the next episode. For a season_finale or series_finale, use these fields to record the formal resolution and any explicitly approved future obligation; do not manufacture a hook. Rotate hook functions according to the story; do not create unrelated surprise calls, arrivals, doors, or identity reveals solely for suspense.
 10. continuity_requirements must name facts, character states, relationship states, prior hooks, or setup/payoff obligations that the script must preserve or advance. They are not generic writing advice.
 11. Short drama cannot delay all satisfaction until the final opponent. Every episode must contain at least one compact pressure-action-payoff cycle: identify the immediate stage_opposition, make the protagonist act or choose, deliver a visible episode_payoff, then use pressure_escalation to raise the opponent, cost, secret, relationship conflict or decision difficulty. A payoff is a real local win, counterattack, exposure, rescue, acquisition, reversal or relationship change, not only a promise that something may happen later.
 12. Across adjacent episodes, repeat the cycle but escalate its level. Do not write several consecutive episodes that only investigate, prepare, travel, explain or wait for the same final confrontation.
@@ -11059,7 +11093,7 @@ not as a schema maximum. If any item exceeds the target, compress repeated segme
 returning; do not add prose, scene detail or filler to reach a minimum.
 
 The top-level object must contain only episode_plans. Every item must use these exact fields:
-episode_number, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
+episode_number, ending_mode, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
 synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
@@ -11214,8 +11248,9 @@ Rules:
 4. source_turning_points and source_unit_story_beats must exactly equal the two required
    lists assigned to this episode above. Never move, paraphrase, add, or repeat them.
 5. episode_payoff must be a visible local result, not preparation or a future promise.
-6. cliffhanger and next_episode_obligation must arise from this episode's action and must
-   not repeat an earlier hook function. Before writing them, compare the earlier accepted
+6. For serial_hook, cliffhanger and next_episode_obligation must arise from this episode's action and must
+   not repeat an earlier hook function. For a finale, use the approved resolution rather than
+   adding a false continuation. Before writing them, compare the earlier accepted
    episode_payoff, cliffhanger and ending_hook_type values above. Do not copy an earlier
    payoff or cliffhanger sentence; choose a distinct story-native action result and ending
    pressure without inventing an unrelated surprise. ending_hook_type must be only a short
@@ -11236,7 +11271,7 @@ Rules:
     preserve the episode's distinct action, payoff, exit state and hook.
 
 Return exactly these root fields:
-episode_number, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
+episode_number, ending_mode, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count,
 synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
@@ -11544,6 +11579,7 @@ and compress repetition before returning if necessary."""
         previous_contracts = [
             {
                 "episode_number": accepted.episode_number,
+                "ending_mode": accepted.ending_mode.value,
                 "episode_title": accepted.episode_title,
                 "episode_payoff": accepted.episode_payoff,
                 "pressure_escalation": accepted.pressure_escalation,
@@ -11554,6 +11590,7 @@ and compress repetition before returning if necessary."""
             for accepted in accepted_plans
         ]
         editable_fields = {
+            "ending_mode": item.ending_mode.value,
             "episode_title": item.episode_title,
             "episode_payoff": item.episode_payoff,
             "pressure_escalation": item.pressure_escalation,
@@ -11563,6 +11600,7 @@ and compress repetition before returning if necessary."""
         }
         protected_context = {
             "episode_number": item.episode_number,
+            "ending_mode": item.ending_mode.value,
             "episode_goal": item.episode_goal,
             "central_conflict": item.central_conflict,
             "protagonist_decision": item.protagonist_decision,
@@ -11599,8 +11637,11 @@ Rules:
 1a. Rewrite episode_title only as needed to satisfy this naming contract:
 {EPISODE_TITLE_NAMING_CONTRACT}
 2. Make episode_payoff a distinct visible action result, not preparation or a promise.
-3. Make cliffhanger and next_episode_obligation arise directly from this episode's exit
-   state and use a story-native hook function not copied from an earlier episode.
+3. For serial_hook, make cliffhanger and next_episode_obligation arise directly from this
+   episode's exit state and use a story-native hook function not copied from an earlier
+   episode. For season_finale or series_finale, preserve the approved formal resolution;
+   do not add a false continuation hook, and use the legacy fields only to record closure
+   or an explicitly approved future handoff.
 4. All values must follow the market contract above. ending_hook_type must be only a short
    2-20 character classification label with no explanation.
 5. Keep the repaired narrative fields within the 250-450 Chinese-character roadmap target;
@@ -11670,6 +11711,14 @@ next_episode_obligation. Do not return any other field, wrapper, Markdown or exp
                         patch_source["ending_hook_type"]
                     ),
                 }
+            if isinstance(patch_source, dict):
+                # The compact repair schema predates EndingMode and may emit
+                # null legacy hook fields for a finale. Normalize them using
+                # the already-authoritative item mode before validation.
+                patch_source = normalize_finale_legacy_fields(
+                    {**patch_source, "ending_mode": item.ending_mode.value},
+                    require_legacy_obligation=True,
+                )
             patch = _EpisodePlanDiversityPatch.model_validate(patch_source)
             repaired = item.model_copy(update={
                 **patch.model_dump(exclude_none=True),
@@ -11798,6 +11847,25 @@ Previous Episode Plan batch:
             )
         if not plans:
             return
+
+        # A closing mode is a structural boundary, not merely a model-written
+        # label.  Reject an early finale while the accepted prefix is still
+        # being assembled; otherwise downstream generation would correctly
+        # skip its hook/question contract for the wrong episode.  The global
+        # project-end check is enforced again by LongStoryService when the
+        # complete workspace enters script generation.
+        final_episode = node.planned_end_episode
+        misplaced_finales = [
+            item.episode_number
+            for item in plans
+            if item.ending_mode != EndingMode.serial_hook
+            and item.episode_number != final_episode
+        ]
+        if misplaced_finales:
+            raise StoryPlanningInputError(
+                "season_finale/series_finale 只能出现在当前已批准剧情段的最后一集；"
+                f" misplaced episodes={misplaced_finales!r}"
+            )
 
         allowed_characters = set(story_bible.character_refs)
         if any(
@@ -11931,8 +11999,10 @@ Previous Episode Plan batch:
                 if item.episode_title not in {None, "本集待命名"}
             } and "episode_title" not in issues:
                 issues.append("episode_title")
-        if normalized(focused.cliffhanger) in {
-            normalized(item.cliffhanger) for item in earlier
+        if ending_mode_requires_hook(focused.ending_mode) and normalized(focused.cliffhanger) in {
+            normalized(item.cliffhanger)
+            for item in earlier
+            if ending_mode_requires_hook(item.ending_mode)
         }:
             issues.append("cliffhanger")
         if normalized(focused.episode_payoff) in {

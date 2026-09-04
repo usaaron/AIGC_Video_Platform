@@ -1,6 +1,186 @@
 from __future__ import annotations
 
+import re
+import unicodedata
+from enum import Enum
 from typing import Any
+
+
+_ENDING_MODE_ALIASES: dict[str, str] = {
+    # Continuing/serial episodes.
+    "serial": "serial_hook",
+    "serialhook": "serial_hook",
+    "continuing": "serial_hook",
+    "continuingepisode": "serial_hook",
+    "ongoing": "serial_hook",
+    "regular": "serial_hook",
+    "regularepisode": "serial_hook",
+    "连载": "serial_hook",
+    "连载集": "serial_hook",
+    "连载钩子": "serial_hook",
+    "普通集": "serial_hook",
+    "常规集": "serial_hook",
+    "非最终集": "serial_hook",
+    "非终局集": "serial_hook",
+    # Season finales.
+    "seasonfinale": "season_finale",
+    "seasonfinal": "season_finale",
+    "seasonfinaleclosing": "season_finale",
+    "seasonfinaleend": "season_finale",
+    "seasonend": "season_finale",
+    "seasonending": "season_finale",
+    "seasonclosing": "season_finale",
+    "季终": "season_finale",
+    "季终集": "season_finale",
+    "季终收束": "season_finale",
+    "本季终": "season_finale",
+    "本季收束": "season_finale",
+    "季末": "season_finale",
+    "季末集": "season_finale",
+    # Series finales.
+    "seriesfinale": "series_finale",
+    "seriesfinal": "series_finale",
+    "seriesfinaleclosing": "series_finale",
+    "seriesfinaleend": "series_finale",
+    "seriesend": "series_finale",
+    "seriesending": "series_finale",
+    "seriesclosing": "series_finale",
+    "剧终": "series_finale",
+    "剧终集": "series_finale",
+    "全剧终": "series_finale",
+    "全剧收束": "series_finale",
+    "全剧最终集": "series_finale",
+    "大结局": "series_finale",
+    "全剧大结局": "series_finale",
+    "最终集": "series_finale",
+    "完结篇": "series_finale",
+    "收官": "series_finale",
+}
+
+
+def _ending_mode_token(value: str) -> str:
+    """Normalize presentation-only spelling around a closing-mode label."""
+
+    token = unicodedata.normalize("NFKC", value).strip().casefold()
+    # Providers sometimes append a bilingual explanation in parentheses. It
+    # is metadata, not part of the mode; remove it before alias lookup.
+    token = re.sub(r"[\[(\u3010\uff08].*?[\])\u3011\uff09]", "", token)
+    return re.sub(r"[\s_\-—–/\\|:：，,。;；]+", "", token)
+
+
+class EndingMode(str, Enum):
+    """How an episode is allowed to close.
+
+    ``serial_hook`` is the legacy/default behaviour.  The two finale modes are
+    deliberately additive so old payloads keep the existing cliffhanger
+    contract while a series can opt into an honest resolution.
+    """
+
+    serial_hook = "serial_hook"
+    season_finale = "season_finale"
+    series_finale = "series_finale"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "EndingMode | None":
+        """Accept common bilingual labels emitted by unconstrained LLMs.
+
+        The persisted/API representation remains one of the three canonical
+        enum values. Unknown prose still returns ``None`` so callers retain
+        the legacy serial-hook fallback instead of guessing a finale.
+        """
+
+        if not isinstance(value, str):
+            return None
+        alias = _ENDING_MODE_ALIASES.get(_ending_mode_token(value))
+        return cls(alias) if alias is not None else None
+
+
+DEFAULT_ENDING_MODE = EndingMode.serial_hook
+
+
+def ending_mode_requires_hook(mode: EndingMode | str | None) -> bool:
+    """Return whether the final scene must carry a serial continuation hook.
+
+    Missing/unknown values intentionally preserve the legacy contract.  This
+    helper is shared by validation and prompt/export layers so they cannot
+    silently disagree about finale behaviour.
+    """
+
+    try:
+        normalized = EndingMode(mode or DEFAULT_ENDING_MODE)
+    except (TypeError, ValueError):
+        normalized = DEFAULT_ENDING_MODE
+    return normalized == EndingMode.serial_hook
+
+
+def ending_mode_requires_next_question(mode: EndingMode | str | None) -> bool:
+    """Return whether ``next_episode_question`` is required for this ending."""
+
+    return ending_mode_requires_hook(mode)
+
+
+def normalize_finale_legacy_fields(
+    value: Any,
+    *,
+    require_legacy_obligation: bool = False,
+    include_legacy_hook_type: bool = True,
+) -> Any:
+    """Keep legacy roadmap fields usable when a finale omits hook prose.
+
+    The first versions of the roadmap contract made ``cliffhanger`` mandatory
+    even for a closing episode.  A model is now allowed to omit that obsolete
+    field, but downstream v1 consumers still expect a string slot.  Populate
+    it from the approved resolution/exit evidence before Pydantic validates
+    the old shape.  This is a transport compatibility shim, not a new story
+    decision: the three-layer contract still checks the real resolution fields.
+    """
+
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    raw_mode = normalized.get("ending_mode")
+    try:
+        mode = EndingMode(raw_mode or DEFAULT_ENDING_MODE)
+    except (TypeError, ValueError):
+        mode = DEFAULT_ENDING_MODE
+    # Normalize aliases and explicit null/unknown legacy values before the
+    # strict Pydantic enum field sees them. Unknown values deliberately keep
+    # the safe historical serial contract rather than guessing a finale.
+    if raw_mode is None or not isinstance(raw_mode, EndingMode) or raw_mode != mode.value:
+        normalized["ending_mode"] = mode.value
+    if ending_mode_requires_hook(mode):
+        return normalized
+
+    def _text(candidate: Any) -> str:
+        return candidate.strip() if isinstance(candidate, str) else ""
+
+    if not _text(normalized.get("cliffhanger")):
+        closure = next(
+            (
+                _text(normalized.get(field_name))
+                for field_name in (
+                    "episode_payoff",
+                    "exit_state",
+                    "turning_point",
+                    "resolution",
+                    "unit_resolution",
+                )
+                if len(_text(normalized.get(field_name))) >= 5
+            ),
+            "本集完成正式收束。",
+        )
+        normalized["cliffhanger"] = closure
+
+    if include_legacy_hook_type and not _text(normalized.get("ending_hook_type")):
+        normalized["ending_hook_type"] = "正式收束"
+
+    if require_legacy_obligation and not _text(
+        normalized.get("next_episode_obligation")
+    ):
+        normalized["next_episode_obligation"] = (
+            "本集完成正式收束；后续内容仅按已批准方向承接。"
+        )
+    return normalized
 
 
 EPISODE_RUNTIME_MIN_SECONDS = 75

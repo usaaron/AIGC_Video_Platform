@@ -14,6 +14,7 @@ import {
 import { orderedScreenplayBody } from "./screenplay-body-order.ts";
 import { safeFilename } from "./filename.ts";
 import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
+import { episodeEndingLabel, episodeEndingText } from "./episode-ending.ts";
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import type JSZip from "jszip";
 
@@ -97,7 +98,7 @@ export function toEpisodeMarkdown(
     "FADE IN / 淡入：",
     scenes,
     "FADE OUT / 淡出。",
-    `（尾钩：${applyChineseCharacterNames(episodeEndingHook(draft), characterNames)}）`,
+    `（${episodeEndingLabel(draft)}：${applyChineseCharacterNames(episodeEndingText(draft), characterNames)}）`,
     "",
   ].filter(Boolean).join("\n\n");
 }
@@ -170,7 +171,7 @@ export function toEpisodePlainText(
     "FADE IN / 淡入：",
     scenes,
     "FADE OUT / 淡出。",
-    `（尾钩：${applyChineseCharacterNames(episodeEndingHook(draft), characterNames)}）`,
+    `（${episodeEndingLabel(draft)}：${applyChineseCharacterNames(episodeEndingText(draft), characterNames)}）`,
     "",
   ].filter(Boolean).join("\n\n") + "\n";
 }
@@ -295,12 +296,6 @@ function episodeDurationSeconds(draft: GeneratedDraft): number {
   return Number.isFinite(target) && target >= 75 && target <= 115
     ? Math.round(target)
     : 90;
-}
-
-function episodeEndingHook(draft: GeneratedDraft): string {
-  return draft.continuation_hook?.ending_hook_summary
-    ?? draft.next_episode_question
-    ?? draft.hook;
 }
 
 async function addArchiveAttachments(

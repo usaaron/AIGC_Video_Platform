@@ -27,6 +27,7 @@ import type {
   BilingualScriptView,
   CreativeDecisionRecord,
   CreativeDeepeningRun,
+  EndingMode,
   GeneratedDraft,
   ScriptDraftModificationResult,
   ScriptGenerationRun,
@@ -41,6 +42,7 @@ import {
   canonicalCharacterNameMap,
 } from "@/lib/canonical-character-names";
 import { clientDialogueSpeaker } from "@/lib/client-screenplay-format";
+import { episodeEndingText } from "@/lib/episode-ending";
 import type { StoryBibleSelectionContext } from "@/lib/story-planning-client";
 
 interface ApiList<T> { data: T[] }
@@ -119,6 +121,7 @@ export interface EpisodeGenerationContext {
   memoryLayer?: "provisional";
   episodeNumber: number;
   totalEpisodes: number;
+  endingMode?: EndingMode;
   agentRequestId?: string;
   targetScriptBodyCharacters?: number;
   targetDurationSeconds?: number;
@@ -417,6 +420,12 @@ export async function generateSingleEpisode(
         memory_layer: "provisional",
         episode_number: episode.episodeNumber,
         total_episodes: episode.totalEpisodes,
+        ending_mode: episode.endingMode
+          ?? episode.approvedEpisodePlan?.ending_mode
+          // Legacy callers may still pass the final episode without an
+          // explicit closing contract. Keep the wire default serial_hook;
+          // authors can opt into a finale through the approved roadmap.
+          ?? "serial_hook",
         previous_episode_summary: episode.previousEpisodeSummary?.trim()
           || (episode.previousEpisode
             ? buildEpisodeContinuitySummary(episode.previousEpisode)
@@ -714,6 +723,7 @@ function buildEpisodeContinuitySummary(draft: GeneratedDraft): string {
 
 export function buildEpisodeHandoff(draft: GeneratedDraft): string {
   const finalScene = draft.scenes[draft.scenes.length - 1];
+  const endingMode = draft.ending_mode ?? "serial_hook";
   const stateUpdates = (draft.character_state_updates ?? []).slice(-8).map((item) => (
     `${item.character_name}：${item.change_summary}（原因：${item.change_cause}）`
   ));
@@ -724,10 +734,16 @@ export function buildEpisodeHandoff(draft: GeneratedDraft): string {
   return [
     `上一集可见结果：${finalScene?.scene_causality?.outcome ?? draft.episode_goal}`,
     finalScene?.turning_point ? `结尾转折：${finalScene.turning_point}` : "",
-    finalScene?.cliffhanger ? `结尾钩子：${draft.hook}` : "",
+    endingMode === "serial_hook" && finalScene?.cliffhanger
+      ? `结尾钩子：${draft.hook}`
+      : endingMode !== "serial_hook"
+        ? `结尾收束：${episodeEndingText(draft)}`
+        : "",
     stateUpdates.length ? `人物状态变化：${stateUpdates.join("；")}` : "",
     openObligations.length ? `未完成义务：${openObligations.join("；")}` : "",
-    `下一集问题：${draft.next_episode_question}`,
+    endingMode === "serial_hook" && draft.next_episode_question?.trim()
+      ? `下一集问题：${draft.next_episode_question}`
+      : "",
   ].filter(Boolean).join("\n").slice(0, 3200);
 }
 

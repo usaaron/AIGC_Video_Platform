@@ -12,6 +12,7 @@ from app.modules.orchestrator.models import (
 )
 from app.modules.orchestrator.repository import OrchestrationPlanRepository
 from app.modules.platform_profile.repository import PlatformProfileRepository
+from app.script_delivery_contract import ending_mode_requires_hook
 
 
 class MissingContentSpecError(ValueError):
@@ -55,9 +56,14 @@ class OrchestratorService:
             episode_goal=content_spec.story_goal,
             target_duration_seconds=content_spec.platform_goal.target_duration_seconds,
             desired_scene_count=payload.desired_scene_count,
+            ending_mode=payload.ending_mode,
             asset_requests=self._build_asset_requests(content_spec),
             script_constraints=self._build_script_constraints(content_spec, platform_profile),
-            scene_blueprints=self._build_scene_blueprints(content_spec, payload.desired_scene_count),
+            scene_blueprints=self._build_scene_blueprints(
+                content_spec,
+                payload.desired_scene_count,
+                ending_mode=payload.ending_mode,
+            ),
             status=OrchestrationStatus.ready,
             blocking_issues=[],
         )
@@ -117,25 +123,35 @@ class OrchestratorService:
         return constraints
 
     def _build_scene_blueprints(
-        self, content_spec: ContentSpec, desired_scene_count: int
+        self,
+        content_spec: ContentSpec,
+        desired_scene_count: int,
+        *,
+        ending_mode=None,
     ) -> list[SceneBlueprint]:
         blueprints: list[SceneBlueprint] = []
+        requires_hook = ending_mode_requires_hook(ending_mode)
         for index in range(1, desired_scene_count + 1):
             if desired_scene_count == 1:
                 purpose = (
                     "Establish the hook, execute the central conflict, and land the "
-                    "cliffhanger in one continuous scene."
+                    + ("cliffhanger in one continuous scene." if requires_hook else
+                       "approved resolution in one continuous scene.")
                 )
-                focus = "hook, conflict, and cliffhanger"
+                focus = "hook, conflict, and cliffhanger" if requires_hook else "hook, conflict, and resolution"
                 emotion = content_spec.creative_brief.target_emotion
             elif index == 1:
                 purpose = "Establish the hook and the public-facing conflict immediately."
                 focus = "hook"
                 emotion = content_spec.creative_brief.target_emotion
             elif index == desired_scene_count:
-                purpose = "Escalate the conflict and land the cliffhanger ending."
-                focus = "cliffhanger"
-                emotion = "suspense"
+                purpose = (
+                    "Escalate the conflict and land the cliffhanger ending."
+                    if requires_hook
+                    else "Resolve the approved conflict and land the visible closing consequence."
+                )
+                focus = "cliffhanger" if requires_hook else "resolution"
+                emotion = "suspense" if requires_hook else "resolution"
             else:
                 purpose = "Increase pressure on the protagonist and sharpen the episode goal."
                 focus = "conflict"

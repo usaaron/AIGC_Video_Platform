@@ -132,6 +132,13 @@ class TemplatePromptBuilder(PromptBuilder):
             ("RetrievedAssets", rendered_variables.get("retrieved_assets_json", "[]")),
             ("GenerationStrategy", rendered_variables.get("generation_strategy_json", "{}")),
             ("OutputLanguage", rendered_variables.get("output_language", "")),
+            (
+                "EndingModeContract",
+                rendered_variables.get(
+                    "ending_mode_contract",
+                    "ending_mode=serial_hook；非最终集必须由本集因果产生下一集承接义务。",
+                ),
+            ),
             ("SceneCountReference", rendered_variables.get("desired_scene_count", "")),
             (
                 "SceneCountPolicy",
@@ -198,14 +205,15 @@ class TemplatePromptBuilder(PromptBuilder):
             ),
             (
                 "ContinuationHookOutputContract",
-                "For serialized episodes, populate continuation_hook as a causal receipt. "
+                "For serial_hook episodes, populate continuation_hook as a causal receipt. "
                 "When a previous_episode_question exists, state how this episode visibly "
                 "responds, set responds_to_episode to the exact source episode, and cite "
-                "response_evidence_scene_numbers. For a non-final episode, "
+                "response_evidence_scene_numbers. For a continuing episode, "
                 "record ending_hook_type, the exact final pressure, the next episode's "
                 "obligation, and an optional realistic target payoff episode. The hook must "
-                "match the final visible event and next_episode_question. A true series "
-                "finale may omit continuation_hook after completing the approved ending.",
+                "match the final visible event and next_episode_question. A season_finale may carry "
+                "only an explicitly approved next-season handoff; a series_finale may omit "
+                "continuation_hook after completing the approved ending.",
             ),
             (
                 "SetupPayoffOutputContract",
@@ -239,13 +247,15 @@ class TemplatePromptBuilder(PromptBuilder):
             (
                 "SerialEpisodeHookContract",
                 "If a previous question exists, answer or escalate it through action within the "
-                "first two scenes; this is previous_episode_question. For every non-final episode, "
+                "first two scenes; this is previous_episode_question. For every serial_hook episode, "
                 "the final visible event must causally "
                 "create a continuable consequence, question, forced choice, relationship shift or "
                 "reversal. continuation_hook must identify the source episode, response evidence, "
                 "ending pressure and next obligation, and must agree with next_episode_question. "
-                "Avoid unrelated fake surprises. For the series finale, resolve the approved ending "
-                "and allow continuation_hook to be omitted.",
+                "Avoid unrelated fake surprises. For season_finale, resolve the approved current "
+                "arc and retain only an explicitly approved next-season handoff; for series_finale, "
+                "resolve the approved ending and omit continuation_hook unless the plan explicitly "
+                "allows a non-binding epilogue.",
             ),
             ("OutputJsonSchema", rendered_variables.get("output_json_schema", "{}")),
         ]
@@ -284,8 +294,8 @@ class TemplatePromptBuilder(PromptBuilder):
                     "每场character_actions数量贴合shot_target。不得重新设计场景结构，"
                     "只把该执行蓝图扩写成正式可拍正文。"
                     "若approved_episode_plan.layer_contracts存在，它是系统从同一份路线图"
-                    "本地编译出的节奏层、钩子层和剧情层审计合同：必须保持其中的时长、"
-                    "场景、台词、镜头密度，落实标准化钩子类别与结尾义务，并完整执行"
+                    "本地编译出的节奏层、结尾层和剧情层审计合同：必须保持其中的时长、"
+                    "场景、台词、镜头密度，并按EndingModeContract执行连载钩子或终局收束，完整执行"
                     "冲突-决定-局部回报-压力升级-退出状态因果链；不得把它另写成说明文字。"
                     "每场setting必须直接写成场景标题：INT.或EXT. + 具体地点 + 日/夜/黄昏/黎明，"
                     "需要时在末尾加 - CONTINUOUS、- LATER、- SAME TIME或（FLASHBACK）。"
@@ -312,9 +322,9 @@ class TemplatePromptBuilder(PromptBuilder):
                     "每句对白必须出现在触发它的动作或上一句对白之后，人物反应动作必须出现在"
                     "它所回应的台词之后；最后一个引用必须真正落到本场退出状态或结尾钩子。"
                     "允许FADE IN、FADE OUT、SMASH CUT TO、DISSOLVE TO和MONTAGE语义，"
-                    "但只在时空跳转确有必要时使用。每场必须发生冲突并改变状态；每个非大结局"
-                    "的最后可见动作或最后一句对白必须形成悬念和钩子，并与continuation_hook及"
-                    "next_episode_question一致。完成后先自行检查时长和短剧节奏；若内容不足"
+                    "但只在时空跳转确有必要时使用。每场必须发生冲突并改变状态；按照"
+                    "EndingModeContract处理结尾：连载集形成可承接的因果钩子，季终/剧终完成"
+                    "批准的收束，不得为了补钩子制造无关悬念。完成后先自行检查时长和短剧节奏；若内容不足"
                     f"{EPISODE_RUNTIME_MIN_SECONDS}秒，只丰富原有场景中的动作、反应、对白交锋和后果，"
                     "不新增无关剧情。"
                     "短剧节奏必须持续执行压力-行动-回报-升级循环：本集先兑现至少一个看得见的"
@@ -558,7 +568,8 @@ class TemplatePromptBuilder(PromptBuilder):
                     "continuity state take precedence over the instruction; never change their required "
                     "outcome, route obligations, or locked facts. Preserve the series premise, character "
                     "identity and locked facts, maintain valid Scene Goal/Conflict/Outcome "
-                    "causality, and keep the final scene as a cliffhanger or payoff. Do not "
+                    "causality, and keep the final scene aligned with EndingModeContract: a "
+                    "serial hook or an approved finale payoff. Do not "
                     "return a patch, commentary, or alternative options.",
                 ),
             )
@@ -631,11 +642,13 @@ class TemplatePromptBuilder(PromptBuilder):
         return (
             "Enhance only dialogue quality, emotional expression, visible character "
             "actions, scene intensity, and character expression. Preserve title, "
-            "premise, hook, synopsis, episode goal, ending question, character names "
-            "and roles, scene count and order, scene purpose, setting, turning point, "
-            "all scene_causality fields, and cliffhanger purpose exactly. Do not add a "
-            "major conflict, replace the ending, remove causal links, or alter locked "
-            "character facts. Return the complete enhanced Draft schema, not a patch."
+            "premise, hook, synopsis, episode goal, ending mode and approved ending purpose, "
+            "character names and roles, scene count and order, scene purpose, setting, turning "
+            "point, all scene_causality fields exactly. For serial_hook preserve the cliffhanger "
+            "and next question; for season_finale or series_finale preserve the approved payoff "
+            "and do not invent a continuation hook. Do not add a major conflict, replace the "
+            "ending, remove causal links, or alter locked character facts. Return the complete "
+            "enhanced Draft schema, not a patch."
         )
 
     def _extract_knowledge_refs(self, rendered_variables: dict[str, str]) -> list[str]:

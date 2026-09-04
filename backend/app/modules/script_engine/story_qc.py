@@ -14,6 +14,14 @@ from app.modules.script_engine.models import (
     StoryQCReport,
     StoryQCStatus,
 )
+from app.script_delivery_contract import ending_mode_requires_hook
+
+
+_FINALE_CLOSING_CATEGORIES = {
+    "cliffhanger strength",
+    "conflict escalation",
+    "commercial potential",
+}
 
 
 class StoryQC(ABC):
@@ -38,9 +46,28 @@ class PlaceholderStoryQC(StoryQC):
         strategy: GenerationStrategy,
     ) -> StoryQCReport:
         rubric_result = self._rubric_evaluator.evaluate(draft_script, stage="draft")
+        requires_hook = ending_mode_requires_hook(draft_script.get("ending_mode"))
+        rubric_categories = (
+            rubric_result.categories
+            if requires_hook
+            else self._adapt_finale_rubric_categories(
+                rubric_result.categories,
+                draft_script,
+            )
+        )
+        rubric_overall_score = (
+            rubric_result.overall_score
+            if requires_hook
+            else self._aggregate_rubric_categories(rubric_categories)
+        )
+        rubric_passed = (
+            rubric_result.passed
+            if requires_hook
+            else rubric_overall_score >= 0.65
+        )
         dimension_evaluations = self._build_dimension_evaluations(
             draft_script,
-            rubric_result.categories,
+            rubric_categories,
         )
         checks = [
             StoryQCCheck(
@@ -63,9 +90,13 @@ class PlaceholderStoryQC(StoryQC):
             ),
             StoryQCCheck(
                 check_name="rubric_score",
-                passed=rubric_result.passed,
-                score=rubric_result.overall_score,
-                note="Story quality rubric aggregate score.",
+                passed=rubric_passed,
+                score=rubric_overall_score,
+                note=(
+                    "Story quality rubric aggregate score."
+                    if requires_hook
+                    else "Mode-aware finale rubric aggregate; formal closure replaces continuation-pressure scoring."
+                ),
             ),
         ]
         overall_score = round(sum(check.score for check in checks) / len(checks), 3)
@@ -76,7 +107,7 @@ class PlaceholderStoryQC(StoryQC):
             recommended_actions=[
                 "Use the story rubric deductions and suggestions to build a revision plan."
             ],
-            rubric_overall_score=rubric_result.overall_score,
+            rubric_overall_score=rubric_overall_score,
             rubric_categories=[
                 StoryQCRubricCategory(
                     category_name=category.category_name,
@@ -85,14 +116,170 @@ class PlaceholderStoryQC(StoryQC):
                     deduction_reasons=category.deduction_reasons,
                     revision_suggestions=category.revision_suggestions,
                 )
-                for category in rubric_result.categories
+                for category in rubric_categories
             ],
             report_version="story_qc_report.v1",
             explainability_status="partial",
             dimension_evaluations=dimension_evaluations,
             evidence_summary=self._build_evidence_summary(dimension_evaluations),
-            knowledge_refs=self._build_knowledge_refs(dimension_evaluations),
+            knowledge_refs=self._build_knowledge_refs(
+                dimension_evaluations,
+                ending_mode=draft_script.get("ending_mode"),
+            ),
         )
+
+    def _adapt_finale_rubric_categories(
+        self,
+        categories: list[Any],
+        draft_script: Mapping[str, Any],
+    ) -> list[Any]:
+        """Reframe continuation-only rubric categories for a legal finale.
+
+        The shared legacy evaluator still scores ``Cliffhanger Strength`` as
+        if every episode must create unresolved continuation pressure. Its
+        ``Conflict Escalation`` and ``Commercial Potential`` proxies also use
+        the same cliffhanger bit. Keep that evaluator unchanged and translate
+        only these three categories to an evidence-based finale contract. All
+        other categories remain untouched.
+        """
+
+        resolution_score = self._finale_resolution_score(draft_script)
+        if resolution_score is None:
+            return categories
+
+        adapted: list[Any] = []
+        for category in categories:
+            category_name = str(category.category_name).strip().casefold()
+            if category_name not in _FINALE_CLOSING_CATEGORIES:
+                adapted.append(category)
+                continue
+
+            score = self._finale_category_score(
+                category_name,
+                original_score=float(category.score),
+                resolution_score=resolution_score,
+                draft_script=draft_script,
+            )
+            if score < 4.0:
+                deduction_reasons = [
+                    "Formal finale resolution is not yet concrete enough."
+                ]
+                revision_suggestions = [
+                    "Make the final causal and emotional resolution observable."
+                ]
+            elif category_name == "cliffhanger strength":
+                deduction_reasons = []
+                revision_suggestions = [
+                    "Protect the formal resolution and avoid adding a manufactured continuation hook."
+                ]
+            else:
+                deduction_reasons = []
+                revision_suggestions = [
+                    "Judge the finale on visible stakes, payoff, and audience satisfaction rather than sequel bait."
+                ]
+
+            adapted.append(
+                category.model_copy(
+                    update={
+                        "score": round(min(max(score, 0.0), category.max_score), 3),
+                        "deduction_reasons": self._unique_strings(deduction_reasons),
+                        "revision_suggestions": self._unique_strings(
+                            revision_suggestions
+                        ),
+                    }
+                )
+            )
+        return adapted
+
+    def _finale_category_score(
+        self,
+        category_name: str,
+        *,
+        original_score: float,
+        resolution_score: float,
+        draft_script: Mapping[str, Any],
+    ) -> float:
+        """Map legacy cliffhanger proxies onto finale-appropriate evidence."""
+
+        if category_name == "cliffhanger strength":
+            # A season finale may still leave a tasteful next-season doorway,
+            # so never downgrade an already-strong ending merely because the
+            # closure-aware rubric uses a different axis.
+            return max(original_score, resolution_score)
+
+        if category_name == "conflict escalation":
+            scenes = self._normalized_scenes(draft_script)
+            has_scene_progression = len(scenes) >= 2 and any(
+                str(scene.get("purpose", "")).strip()
+                != str(scenes[0].get("purpose", "")).strip()
+                for scene in scenes[1:]
+            )
+            if resolution_score >= 4.0 and has_scene_progression:
+                return max(original_score, 4.0)
+            return max(original_score, min(resolution_score, 3.5))
+
+        # A finite finale can be commercially satisfying without promising a
+        # sequel. A hook still helps, but the score is capped below the
+        # serial-episode maximum unless closure and the opening hook both hold.
+        has_opening_hook = bool(str(draft_script.get("hook", "")).strip())
+        if resolution_score >= 4.0 and has_opening_hook:
+            return max(original_score, 4.0)
+        if resolution_score >= 3.0:
+            return max(original_score, 3.5 if has_opening_hook else 3.0)
+        return original_score
+
+    def _aggregate_rubric_categories(self, categories: list[Any]) -> float:
+        total_max = sum(float(category.max_score) for category in categories)
+        if total_max <= 0:
+            return 0.0
+        return round(
+            sum(float(category.score) for category in categories) / total_max,
+            3,
+        )
+
+    def _finale_resolution_score(self, draft_script: Mapping[str, Any]) -> float | None:
+        """Score observable closure evidence on the final scene.
+
+        The score is deliberately conservative: a single generic beat is not
+        enough to waive a quality concern, while a turning point plus a causal
+        outcome (and, when present, an episode/series payoff field) is enough
+        to replace the legacy cliffhanger penalty.
+        """
+
+        scenes = self._normalized_scenes(draft_script)
+        if not scenes:
+            return None
+        final_scene = scenes[-1]
+        causality = final_scene.get("scene_causality")
+        causality_outcome = (
+            causality.get("outcome", "")
+            if isinstance(causality, Mapping)
+            else ""
+        )
+        evidence_values = [
+            final_scene.get("turning_point"),
+            causality_outcome,
+            final_scene.get("resolution"),
+            final_scene.get("episode_payoff"),
+            final_scene.get("exit_state"),
+            final_scene.get("unit_resolution"),
+            draft_script.get("episode_payoff"),
+            draft_script.get("exit_state"),
+            draft_script.get("unit_resolution"),
+        ]
+        normalized_values = {
+            " ".join(str(value).strip().casefold().split())
+            for value in evidence_values
+            if isinstance(value, str) and value.strip()
+        }
+        evidence_count = len(normalized_values)
+        if evidence_count >= 3:
+            return 4.5
+        if evidence_count >= 2:
+            return 4.0
+        if evidence_count == 1:
+            return 3.0
+        return 2.0
 
     def _build_dimension_evaluations(
         self,
@@ -333,6 +520,37 @@ class PlaceholderStoryQC(StoryQC):
     ) -> StoryQCDimensionEvaluation:
         category = rubric_map["cliffhanger strength"]
         final_scene = scenes[-1] if scenes else {}
+        ending_mode = draft_script.get("ending_mode")
+        if not ending_mode_requires_hook(ending_mode):
+            scene_refs = self._scene_refs(final_scene)
+            resolution_text = str(
+                final_scene.get("turning_point")
+                or final_scene.get("beat_summary")
+                or ""
+            ).strip()
+            evidence = self._unique_strings(
+                [
+                    self._truncate(
+                        f"Final scene resolution: {resolution_text}",
+                        160,
+                    )
+                    if resolution_text
+                    else "",
+                ]
+            )
+            return self._dimension_evaluation(
+                dimension=StoryQCDimension.cliffhanger_strength,
+                category=category,
+                summary=(
+                    "Finale resolution is evaluated for emotional and causal closure rather than continuation pressure."
+                ),
+                score_reason=(
+                    "A season or series finale is not required to create an unresolved cliffhanger."
+                ),
+                scene_refs=scene_refs,
+                evidence=evidence,
+                revision_signals=[],
+            )
         next_episode_question = str(draft_script.get("next_episode_question", "")).strip()
         scene_refs = self._scene_refs(final_scene)
         evidence = self._unique_strings(
@@ -426,10 +644,20 @@ class PlaceholderStoryQC(StoryQC):
     def _build_knowledge_refs(
         self,
         dimension_evaluations: list[StoryQCDimensionEvaluation],
+        *,
+        ending_mode: object = None,
     ) -> list[StoryQCKnowledgeRef]:
         knowledge_refs: list[StoryQCKnowledgeRef] = []
         for evaluation in dimension_evaluations:
             if not evaluation.deduction_reasons or not evaluation.evidence:
+                continue
+            # The legacy cliffhanger knowledge card describes unresolved
+            # continuation pressure. It is not an actionable reference for a
+            # season/series finale, whose contract is observable closure.
+            if (
+                evaluation.dimension == StoryQCDimension.cliffhanger_strength
+                and not ending_mode_requires_hook(ending_mode)
+            ):
                 continue
             knowledge_id = self._placeholder_knowledge_id(evaluation.dimension)
             if knowledge_id is None:

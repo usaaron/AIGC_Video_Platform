@@ -1745,6 +1745,8 @@ select:focus-visible {
 .story-plan-stage-actions svg { flex: 0 0 auto; }
 .story-plan-episode-plans { margin: 12px 0 0 18px; padding: 14px; border-left: 2px solid var(--gold); background: var(--paper-bright); }
 .story-plan-episode-plans h3 { margin: 0 0 8px; font-size: 13px; }
+.story-plan-roadmap-review-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.story-plan-roadmap-review-actions small { color: var(--ink-faint); }
 .story-plan-episode-plans article { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .story-plan-episode-plans article p { margin: 0; }
 .story-plan-episode-plans article small { grid-column: 2; color: var(--ink-soft); }

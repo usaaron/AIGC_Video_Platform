@@ -1,6 +1,7 @@
 import type {
   ScriptProject,
 } from "./types.ts";
+import { isApprovedEpisodeRoadmap } from "./planning-coverage.ts";
 
 export interface EpisodePlanningMemory {
   last_confirmed_episode: number | null;
@@ -64,6 +65,9 @@ export function buildEpisodePlanningMemory(
   if (!activeNodeVersions) {
     for (const item of project.episodeRoadmaps ?? []) {
       if (item.story_bible_version !== node.story_bible_version) continue;
+      // Compute lineage from every saved revision, including drafts. If a
+      // newer draft exists, an older approved revision is stale and must not
+      // be promoted into canonical memory while the new revision is pending.
       const latest = latestSourceVersions.get(item.source_node_id) ?? 0;
       if (item.source_node_version > latest) {
         latestSourceVersions.set(item.source_node_id, item.source_node_version);
@@ -74,7 +78,9 @@ export function buildEpisodePlanningMemory(
     .filter((item) => (
       item.story_bible_version === node.story_bible_version
       && item.episode_number < (node.planned_start_episode ?? 1)
-      && item.status === "approved"
+      // Missing status is the legacy approved shape; explicit drafts (and
+      // unknown future statuses) must never enter canonical planning memory.
+      && isApprovedEpisodeRoadmap(item)
       && (!activeNodeVersions
         ? item.source_node_version === latestSourceVersions.get(item.source_node_id)
         : (() => {

@@ -1,5 +1,6 @@
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
+import { episodeEndingLabel, episodeEndingText } from "./episode-ending.ts";
 import {
   applyChineseCharacterNames,
   mergeOverseasCharacterNames,
@@ -294,7 +295,7 @@ function episodeParagraphs(
   paragraphs.push(new docx.Paragraph({
     spacing: { before: 100 },
     children: [new docx.TextRun({
-      text: `（尾钩：${applyChineseCharacterNames(episodeEndingHook(draft), characterNames)}）`,
+      text: `（${episodeEndingLabel(draft)}：${applyChineseCharacterNames(episodeEndingText(draft), characterNames)}）`,
       italics: true,
       color: COLORS.burgundy,
       size: 19,
@@ -346,10 +347,4 @@ function episodeDurationSeconds(draft: GeneratedDraft): number {
   return Number.isFinite(target) && target >= 75 && target <= 115
     ? Math.round(target)
     : 90;
-}
-
-function episodeEndingHook(draft: GeneratedDraft): string {
-  return draft.continuation_hook?.ending_hook_summary
-    ?? draft.next_episode_question
-    ?? draft.hook;
 }

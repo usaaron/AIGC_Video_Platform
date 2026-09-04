@@ -6,7 +6,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.script_delivery_contract import EPISODE_SCENE_MAX, EPISODE_SCENE_MIN
+from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
+    EndingMode,
+    EPISODE_SCENE_MAX,
+    EPISODE_SCENE_MIN,
+)
 
 
 class OrchestrationStatus(str, Enum):
@@ -51,6 +56,7 @@ class OrchestrationPlanCreate(BaseModel):
         ge=EPISODE_SCENE_MIN,
         le=EPISODE_SCENE_MAX,
     )
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
 
 
 class OrchestrationPlan(BaseModel):
@@ -67,6 +73,7 @@ class OrchestrationPlan(BaseModel):
         ge=EPISODE_SCENE_MIN,
         le=EPISODE_SCENE_MAX,
     )
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     asset_requests: list[AssetRequest] = Field(min_length=1, max_length=20)
     script_constraints: list[ScriptConstraint] = Field(min_length=1, max_length=20)
     scene_blueprints: list[SceneBlueprint] = Field(

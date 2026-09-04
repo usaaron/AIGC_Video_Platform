@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.script_delivery_contract import (
+    ending_mode_requires_hook,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -121,23 +122,35 @@ def compile_episode_three_layer_contract(item: Any) -> EpisodeThreeLayerContract
         meets_contract=pacing_meets_contract,
     )
 
-    hook_values = [
-        item.reveal,
-        item.pressure_escalation,
-        *(scene.turn_or_reveal for scene in scenes),
-        item.cliffhanger,
-    ]
+    requires_hook = ending_mode_requires_hook(getattr(item, "ending_mode", None))
+    hook_values = (
+        [
+            item.reveal,
+            item.pressure_escalation,
+            *(scene.turn_or_reveal for scene in scenes),
+            item.cliffhanger,
+        ]
+        if requires_hook
+        else []
+    )
     hook_beat_count = len(_distinct_narrative_values(hook_values))
     has_cliffhanger = bool(str(item.cliffhanger or "").strip())
     has_obligation = bool(str(item.next_episode_obligation or "").strip())
+    has_resolution = bool(str(item.episode_payoff or "").strip()) and bool(
+        str(item.exit_state or "").strip()
+    )
     hook = EpisodeHookLayerContract(
         category=classify_episode_hook(item.ending_hook_type, item.cliffhanger),
-        ending_hook_count=1 if has_cliffhanger else 0,
+        ending_hook_count=1 if requires_hook and has_cliffhanger else 0,
         planned_hook_beat_count=hook_beat_count,
         planned_hook_beats_per_minute=round(hook_beat_count * 60 / duration, 2),
         has_next_episode_obligation=has_obligation,
         payoff_target_episode=item.hook_payoff_target_episode,
-        meets_contract=has_cliffhanger and has_obligation and hook_beat_count >= 1,
+        meets_contract=(
+            has_cliffhanger and has_obligation and hook_beat_count >= 1
+            if requires_hook
+            else has_resolution
+        ),
     )
 
     causal_values = [

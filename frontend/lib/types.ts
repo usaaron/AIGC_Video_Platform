@@ -1,5 +1,8 @@
 export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "deepened" | "final";
 
+/** Episode closing contract. Missing legacy values are treated as serial_hook. */
+export type EndingMode = "serial_hook" | "season_finale" | "series_finale";
+
 export type MemoryLayer = "canonical" | "derived" | "provisional";
 
 export type ProjectTitleSource = "derived" | "user" | "generated";
@@ -543,6 +546,7 @@ export interface EpisodeRoadmapItem {
   source_node_version: number;
   story_bible_version: number;
   status: "draft" | "approved";
+  ending_mode?: EndingMode;
   episode_number: number;
   episode_title?: string | null;
   synopsis?: string | null;
@@ -785,6 +789,7 @@ export interface GeneratedDraft {
   continuation_hook?: GeneratedContinuationHookState | null;
   scenes: GeneratedScene[];
   next_episode_question: string | null;
+  ending_mode?: EndingMode;
   [key: string]: unknown;
 }
 
@@ -903,6 +908,7 @@ export interface ScriptGenerationRun {
 export interface GeneratedEpisodeGenerationContext {
   episode_number: number;
   relevant_character_refs?: string[];
+  ending_mode?: EndingMode;
   planned_story_line_refs?: string[];
   storyline_duties?: StorylineDuty[];
   creative_decisions?: CreativeDecisionRecord[];

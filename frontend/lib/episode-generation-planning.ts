@@ -9,6 +9,7 @@ import type {
   ScriptProject,
   StorylineDuty,
   StorylineDutyRole,
+  EndingMode,
 } from "@/lib/types";
 import type { EpisodeThreeLayerContract } from "@/lib/types";
 import type { MemoryRecall } from "@/lib/memory-recall";
@@ -17,7 +18,20 @@ import {
   normalizeEpisodeDurationSeconds,
 } from "./generation-planning.ts";
 
-export { episodeRoadmapCoverageThrough } from "./planning-coverage.ts";
+export {
+  episodeRoadmapCoverageThrough,
+  approveEpisodeRoadmapItem,
+  draftEpisodeRoadmapItem,
+  isApprovedEpisodeRoadmap,
+  normalizeEpisodeRoadmapItem,
+  normalizeEpisodeRoadmaps,
+} from "./planning-coverage.ts";
+import {
+  approveEpisodeRoadmapItem,
+  draftEpisodeRoadmapItem,
+  isApprovedEpisodeRoadmap,
+  normalizeEpisodeRoadmapItem,
+} from "./planning-coverage.ts";
 
 export interface EpisodeGenerationConstraint {
   episodeNumber: number;
@@ -28,6 +42,7 @@ export interface EpisodeGenerationConstraint {
 
 export interface EpisodeInstructionOptions {
   isSeriesFinale?: boolean;
+  endingMode?: EndingMode;
 }
 
 export interface EpisodeGenerationLedgerPlan {
@@ -42,6 +57,7 @@ const STORYLINE_DUTY_LIMIT = 20;
 
 export interface EpisodeExecutionPlan {
   episode_number: number;
+  ending_mode?: EndingMode;
   target_duration_seconds: number;
   planned_scene_count: number;
   planned_shot_count: number;
@@ -93,7 +109,7 @@ export interface StoryNodeExecutionContext {
 export function episodeGenerationCharacterRefs(
   constraint: EpisodeGenerationConstraint | undefined,
 ): string[] {
-  const plan = constraint?.episodeRoadmap ?? constraint?.episodePlan;
+  const plan = planningContract(constraint);
   return [...new Set(
     plan?.character_refs?.length
       ? plan.character_refs
@@ -106,6 +122,9 @@ export function episodeGenerationExecutionPlan(
 ): EpisodeExecutionPlan | undefined {
   const plan = planningContract(constraint);
   if (!plan) return undefined;
+  const endingMode = "ending_mode" in plan && isEndingMode(plan.ending_mode)
+    ? plan.ending_mode
+    : undefined;
   const storyLineRefs = "story_line_refs" in plan ? plan.story_line_refs : [];
   const plannedDialogueLineCount = normalizeEpisodeDialogueLines(
     "planned_dialogue_line_count" in plan ? plan.planned_dialogue_line_count : undefined,
@@ -116,6 +135,7 @@ export function episodeGenerationExecutionPlan(
     : [];
   return {
     episode_number: plan.episode_number,
+    ...(endingMode ? { ending_mode: endingMode } : {}),
     target_duration_seconds: "target_duration_seconds" in plan
       ? normalizeEpisodeDurationSeconds(plan.target_duration_seconds)
       : 90,
@@ -156,6 +176,12 @@ export function episodeGenerationExecutionPlan(
       ? { layer_contracts: plan.layer_contracts }
       : {}),
   };
+}
+
+function isEndingMode(value: unknown): value is EndingMode {
+  return value === "serial_hook"
+    || value === "season_finale"
+    || value === "series_finale";
 }
 
 function rebalanceSceneDialogueTargets(
@@ -223,7 +249,7 @@ export function storyNodeExecutionContext(
 export function adaptiveEpisodeSceneCount(
   constraint: EpisodeGenerationConstraint | undefined,
 ): number {
-  const plan = constraint?.episodeRoadmap ?? constraint?.episodePlan;
+  const plan = planningContract(constraint);
   if (!plan) return 3;
   if (
     "planned_scene_count" in plan
@@ -254,8 +280,10 @@ export function adaptiveEpisodeSceneCount(
 export function plannedEpisodeDurationSeconds(
   constraint: EpisodeGenerationConstraint | undefined,
 ): number {
-  const plan = constraint?.episodeRoadmap;
-  const value = plan?.target_duration_seconds;
+  const plan = planningContract(constraint);
+  const value = plan && "target_duration_seconds" in plan
+    ? plan.target_duration_seconds
+    : undefined;
   return typeof value === "number" && Number.isFinite(value)
     ? normalizeEpisodeDurationSeconds(value)
     : 90;
@@ -264,8 +292,10 @@ export function plannedEpisodeDurationSeconds(
 export function plannedEpisodeShotCount(
   constraint: EpisodeGenerationConstraint | undefined,
 ): number {
-  const plan = constraint?.episodeRoadmap;
-  const value = plan?.planned_shot_count;
+  const plan = planningContract(constraint);
+  const value = plan && "planned_shot_count" in plan
+    ? plan.planned_shot_count
+    : undefined;
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(20, Math.max(15, Math.round(value)))
     : 16;
@@ -306,7 +336,11 @@ type EpisodePlanningContract = EpisodePlan | EpisodeRoadmapItem;
 function planningContract(
   constraint: EpisodeGenerationConstraint | undefined,
 ): EpisodePlanningContract | undefined {
-  return constraint?.episodeRoadmap ?? constraint?.episodePlan;
+  if (constraint?.episodeRoadmap && isApprovedEpisodeRoadmap(constraint.episodeRoadmap)) {
+    return constraint.episodeRoadmap;
+  }
+  if (constraint?.episodePlan?.status === "approved") return constraint.episodePlan;
+  return undefined;
 }
 
 export function buildEpisodeGenerationWindows(
@@ -321,9 +355,10 @@ export function mergeEpisodeRoadmaps(
 ): EpisodeRoadmapItem[] {
   const byIdentity = new Map<string, EpisodeRoadmapItem>();
   for (const item of [...current, ...replacements]) {
+    const normalized = normalizeEpisodeRoadmapItem(item);
     byIdentity.set(
-      `${item.source_node_id}:${item.source_node_version}:${item.story_bible_version}:${item.episode_number}`,
-      item,
+      `${normalized.source_node_id}:${normalized.source_node_version}:${normalized.story_bible_version}:${normalized.episode_number}`,
+      normalized,
     );
   }
   return [...byIdentity.values()].sort((left, right) => (
@@ -404,7 +439,8 @@ export function hasCompleteEpisodeRoadmap(
   const startEpisode = node.planned_start_episode as number;
   const endEpisode = node.planned_end_episode as number;
   const matchingItems = episodeRoadmaps.filter((item) => (
-    item.source_node_id === node.node_id
+    isApprovedEpisodeRoadmap(item)
+    && item.source_node_id === node.node_id
     && item.source_node_version === node.version
     && item.story_bible_version === node.story_bible_version
   ));
@@ -523,7 +559,9 @@ export function resolveEpisodeGenerationConstraints(
   );
   const directNodes = new Map<number, StoryPlanNode>();
   const savedRoadmaps = new Map(
-    episodeRoadmaps.map((item) => [
+    episodeRoadmaps
+      .filter(isApprovedEpisodeRoadmap)
+      .map((item) => [
         `${item.source_node_id}:${item.source_node_version}:${item.story_bible_version}:${item.episode_number}`,
         item,
       ]),
@@ -575,7 +613,7 @@ export function episodeGenerationInstruction(
   userInstruction = "",
   options: EpisodeInstructionOptions = {},
 ): string | undefined {
-  const plan = constraint?.episodeRoadmap ?? constraint?.episodePlan;
+  const plan = planningContract(constraint);
   const node = constraint?.storyPlanNode;
   const leafEpisodeFunction = node && constraint
     ? directScriptEpisodeFunction(
@@ -594,9 +632,15 @@ export function episodeGenerationInstruction(
   const openingContinuation = constraint && constraint.episodeNumber > 1
     ? "开场承接义务：必须在前两个场景内通过可见行动回应上一集遗留问题；可以升级或转化问题，但不能忽略、跳过或用旁白敷衍解决"
     : "";
-  const endingContinuation = options.isSeriesFinale
+  const endingMode = options.endingMode
+    ?? (options.isSeriesFinale ? "series_finale" : undefined)
+    ?? (plan && "ending_mode" in plan ? plan.ending_mode : undefined)
+    ?? "serial_hook";
+  const endingContinuation = endingMode === "series_finale"
     ? "本集是全剧最终集：优先兑现总纲结局、主要人物弧和核心伏笔，形成完整情绪收束；除非总纲明确预留下一季，否则不要强行制造未解决危机"
-    : plan
+    : endingMode === "season_finale"
+      ? "本集是本季收束集：完成本季主要因果与情绪结算，可留下下一季入口，但不得用无关突发事件制造尾钩"
+      : plan
       ? `结尾追看契约：落实“${plan.cliffhanger}”，让最后一个可见事件自然产生下一集必须处理的后果、问题或选择；next_episode_question必须具体指向该后果`
       : node && constraint
         ? `结尾追看点类型：${directScriptEndingHook(
@@ -605,7 +649,7 @@ export function episodeGenerationInstruction(
           )}；最后一个可见事件必须由本集因果自然产生，并形成下一集必须承接的具体后果、问题或选择；不得使用与本集无关的突然来电、突然开门或身份空降制造虚假悬念`
         : "非最终集必须以本集因果产生的未解决压力、具体问题或艰难选择结束，并由下一集实际承接";
   const planningText = plan
-    ? (options.isSeriesFinale ? endingContinuation : "")
+    ? (endingMode === "series_finale" || endingMode === "season_finale" ? endingContinuation : "")
     : node ? [
     `本集剧情节点：${node.title}`,
     ...nodeProgress,
@@ -639,7 +683,7 @@ export function episodeGenerationInstruction(
 export function episodeGenerationLedgerPlan(
   constraint: EpisodeGenerationConstraint | undefined,
 ): EpisodeGenerationLedgerPlan {
-  const plan = constraint?.episodeRoadmap ?? constraint?.episodePlan;
+  const plan = planningContract(constraint);
   const node = constraint?.storyPlanNode;
   const planStoryLineRefs = plan && "story_line_refs" in plan
     ? plan.story_line_refs
@@ -820,7 +864,7 @@ export function storyBibleEpisodeContext(
   constraint: EpisodeGenerationConstraint | undefined,
 ): string {
   const node = constraint?.storyPlanNode;
-  const plan = constraint?.episodeRoadmap ?? constraint?.episodePlan;
+  const plan = planningContract(constraint);
   const characterRefs = new Set(
     plan?.character_refs?.length
       ? plan.character_refs

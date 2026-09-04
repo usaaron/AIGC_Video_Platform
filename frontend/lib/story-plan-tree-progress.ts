@@ -1,5 +1,6 @@
 import { MAX_EPISODE_READY_SPAN, MIN_EPISODE_READY_SPAN } from "./episode-generation-planning.ts";
 import { hasCompleteStoryPlanChildCoverage } from "./story-plan-coverage.ts";
+import { isApprovedEpisodeRoadmap } from "./planning-coverage.ts";
 import type { StoryPlanNode } from "./story-planning-client.ts";
 import type { EpisodeRoadmapItem } from "./types.ts";
 
@@ -80,7 +81,7 @@ export function summarizeStoryPlanTreeProgress(
 
   const generatedEpisodeKeys = new Set<string>();
   for (const item of episodeRoadmaps) {
-    if (item.status !== "approved") continue;
+    if (!isApprovedEpisodeRoadmap(item)) continue;
     const key = roadmapKey(item.source_node_id, item.source_node_version, item.episode_number);
     if (!expectedEpisodeKeys.has(key)) continue;
     generatedEpisodeKeys.add(key);

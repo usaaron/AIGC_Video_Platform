@@ -27,6 +27,9 @@ import { WorkspaceSectionDirectory } from "@/components/workspace-section-direct
 import { isRequestAborted, userFacingError } from "@/lib/api-error";
 import {
   approvedDirectScriptCoverageThrough,
+  approveEpisodeRoadmapItem,
+  draftEpisodeRoadmapItem,
+  isApprovedEpisodeRoadmap,
   isDirectScriptNode,
   mergeEpisodeRoadmaps,
   replaceEpisodeRoadmapItem,
@@ -788,6 +791,19 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   );
   const roadmapGenerationComplete = treeProgress.plannedEpisodeCount > 0
     && treeProgress.generatedRoadmapCount === treeProgress.plannedEpisodeCount;
+  const activeRoadmapSources = new Set(
+    activeTreeNodes.map((node) => (
+      `${node.node_id}:${node.version}:${node.story_bible_version}`
+    )),
+  );
+  const pendingRoadmapReviewCount = treeProgress.expansionComplete
+    ? (project.episodeRoadmaps ?? []).filter((item) => (
+      activeRoadmapSources.has(
+        `${item.source_node_id}:${item.source_node_version}:${item.story_bible_version}`,
+      )
+      && !isApprovedEpisodeRoadmap(item)
+    )).length
+    : 0;
   const pendingReviewNodes = activeTreeNodes.filter((node) => (
     node.status === "draft" && node.decomposition_reason !== STORY_PLAN_ROOT_MARKER
   ));
@@ -800,6 +816,8 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       ? t("storyPlanNode.startInteractive")
       : !treeProgress.expansionComplete
         ? t("storyPlanNode.continueExpandAll")
+        : pendingRoadmapReviewCount > 0
+          ? "请先审核并批准已生成路线图"
         : treeProgress.generatedRoadmapCount > 0
           ? t("storyPlanNode.continueAllRoadmaps")
           : t("storyPlanNode.generateAllRoadmaps");
@@ -808,6 +826,8 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
         : <GitBranch aria-hidden="true" size={15} />;
   const planningProgressDetail = pendingReviewCount > 0
     ? t("storyPlanNode.layerReviewPending").replace("{count}", String(pendingReviewCount))
+    : pendingRoadmapReviewCount > 0
+      ? `已有${pendingRoadmapReviewCount}集路线图待审核，请逐集批准后继续`
     : !topLevelNodes.length
     ? t("storyPlanNode.waitingFirstLayer")
     : treeProgress.expansionComplete
@@ -923,6 +943,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
 
   function runNextPlanningStage() {
     if (planningLocked || planningComplete) return;
+    if (treeProgress.expansionComplete && pendingRoadmapReviewCount > 0) {
+      setMessage("请先审核并批准已生成的路线图；草稿不会自动进入正文。");
+      return;
+    }
     if (!topLevelNodes.length) {
       void generateInteractiveTopLevel();
     } else if (!treeProgress.expansionComplete) {
@@ -1073,7 +1097,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
                   ) : (
                     <button
                       className="primary-action"
-                      disabled={Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
+                      disabled={(treeProgress.expansionComplete && pendingRoadmapReviewCount > 0) || Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
                       onClick={runNextPlanningStage}
                       type="button"
                     >
@@ -1533,7 +1557,9 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
   ) {
     if (treeInteractionLocked || generatedRangeLocked) return;
     const currentStoryPlanNodes = storyPlanNodesRef.current;
-    let appliedCandidate = { ...candidate, status: "approved" as const };
+    // AI and manual edits are reviewable drafts.  Approval is a separate,
+    // explicit author action so readiness can never advance implicitly.
+    let appliedCandidate = draftEpisodeRoadmapItem(candidate);
     let snapshot = previousItem ?? candidate;
     let revisionApplied = false;
     await persistProjectUpdate(onProjectUpdate, (current) => {
@@ -1543,8 +1569,7 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
       )) ?? previousItem ?? candidate;
       snapshot = latestItem;
       appliedCandidate = {
-        ...(mergeWithLatest ? mergeWithLatest(latestItem) : candidate),
-        status: "approved" as const,
+        ...draftEpisodeRoadmapItem(mergeWithLatest ? mergeWithLatest(latestItem) : candidate),
       };
       const episodeRoadmaps = replaceEpisodeRoadmapItem(
         currentRoadmap,
@@ -1563,6 +1588,30 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
       onRegisterRevision?.(async () => {
         await applyRoadmapRevision(snapshot, appliedCandidate, false);
       });
+    }
+  }
+
+  async function confirmEpisodeRoadmapItem(item: EpisodeRoadmapItem) {
+    if (planningLocked || treeInteractionLocked || generatedRangeLocked || isApprovedEpisodeRoadmap(item)) return;
+    const approved = approveEpisodeRoadmapItem(item);
+    const currentStoryPlanNodes = storyPlanNodesRef.current;
+    setBusy("save");
+    try {
+      await persistProjectUpdate(onProjectUpdate, (current) => {
+        const episodeRoadmaps = mergeEpisodeRoadmaps(current.episodeRoadmaps ?? [], [approved]);
+        return {
+          episodeRoadmaps,
+          episodePlansReadyThrough: approvedDirectScriptCoverageThrough(currentStoryPlanNodes, {
+            episodeRoadmaps,
+            roadmapRequired: true,
+          }) || undefined,
+        };
+      });
+      setMessage(`第${item.episode_number}集路线图已批准。`);
+    } catch (error) {
+      setMessage(userFacingError(error, t("storyPlanNode.saveFailed")));
+    } finally {
+      setBusy((current) => current === "save" ? null : current);
     }
   }
 
@@ -1894,6 +1943,19 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
                   <small>
                     {item.target_duration_seconds ?? 90} 秒 · {item.planned_scene_count ?? 3} 场 · {normalizeEpisodeDialogueLines(item.planned_dialogue_line_count)} 句台词 · {item.planned_shot_count ?? 16} 镜头
                   </small>
+                  <div className="story-plan-roadmap-review-actions">
+                    <small>{isApprovedEpisodeRoadmap(item) ? "已批准" : "待审核"}</small>
+                    {!planningLocked && !isApprovedEpisodeRoadmap(item) ? (
+                      <button
+                        className="outline-action"
+                        disabled={roadmapRevisionLocked || Boolean(busy)}
+                        onClick={() => void confirmEpisodeRoadmapItem(item)}
+                        type="button"
+                      >
+                        批准本集路线图
+                      </button>
+                    ) : null}
+                  </div>
                   <small>
                     <InlinePlanningText
                       label={`第${item.episode_number}集结尾钩子类型`}

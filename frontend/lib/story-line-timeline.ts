@@ -6,6 +6,7 @@ import type {
   StoryLineEpisodeBeat,
 } from "@/lib/types";
 import type { StoryPlanNode } from "@/lib/story-planning-client";
+import { isApprovedEpisodeRoadmap } from "@/lib/planning-coverage";
 
 export type StoryLineTimelineEventStatus =
   | "planned"
@@ -54,7 +55,33 @@ export function buildStoryLineTimeline(
 ): StoryLineTimelineModel {
   const roadmapByLine = new Map<string, Set<number>>();
   const roadmapSummaryByLineEpisode = new Map<string, string>();
+  // The timeline is a canonical continuity projection. Keep reviewable
+  // roadmap drafts visible in the planning panel, but do not let them create
+  // planned beats or intersections here until the author approves them.
+  const latestRoadmapVersionByNode = new Map<string, number>();
   for (const roadmap of project.episodeRoadmaps ?? []) {
+    if (
+      typeof roadmap.source_node_id !== "string"
+      || typeof roadmap.source_node_version !== "number"
+      || typeof roadmap.story_bible_version !== "number"
+    ) continue;
+    const key = `${roadmap.source_node_id}:${roadmap.story_bible_version}`;
+    latestRoadmapVersionByNode.set(
+      key,
+      Math.max(latestRoadmapVersionByNode.get(key) ?? 0, roadmap.source_node_version),
+    );
+  }
+  for (const roadmap of (project.episodeRoadmaps ?? []).filter((item) => (
+    isApprovedEpisodeRoadmap(item)
+    && (
+      typeof item.source_node_id !== "string"
+      || typeof item.source_node_version !== "number"
+      || typeof item.story_bible_version !== "number"
+      || item.source_node_version === latestRoadmapVersionByNode.get(
+        `${item.source_node_id}:${item.story_bible_version}`,
+      )
+    )
+  ))) {
     for (const lineId of roadmap.story_line_refs) {
       const key = `${lineId}::${roadmap.episode_number}`;
       const episodes = roadmapByLine.get(lineId) ?? new Set<number>();

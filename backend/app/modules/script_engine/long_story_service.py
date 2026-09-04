@@ -57,6 +57,10 @@ from app.modules.script_engine.long_story_repository import (
     LongStoryPersistenceConflictError,
     LongStoryRepository,
 )
+from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
+    EndingMode,
+)
 
 
 ResultT = TypeVar("ResultT")
@@ -403,9 +407,21 @@ class LongStoryService:
             else []
         )
         approved_roadmap_keys: set[tuple[str, int, int]] = set()
+        leaf_end_by_key = {
+            (leaf.node_id, leaf.version): leaf.planned_end_episode
+            for leaf in leaves
+            if leaf.planned_end_episode is not None
+        }
         if isinstance(roadmap_payload, list):
             for item in roadmap_payload:
-                if not isinstance(item, dict) or item.get("status") != "approved":
+                # Roadmaps created before the explicit review gate omitted
+                # ``status``. Treat only that missing value as the legacy
+                # approved state; an explicit draft/unknown status must still
+                # block entry into script generation.
+                if (
+                    not isinstance(item, dict)
+                    or item.get("status") not in {None, "approved"}
+                ):
                     continue
                 if item.get("story_bible_version") != story_bible_version:
                     continue
@@ -417,6 +433,29 @@ class LongStoryService:
                     and isinstance(node_version, int)
                     and isinstance(episode_number, int)
                 ):
+                    raw_mode = item.get("ending_mode")
+                    try:
+                        ending_mode = EndingMode(raw_mode or DEFAULT_ENDING_MODE)
+                    except (TypeError, ValueError):
+                        ending_mode = DEFAULT_ENDING_MODE
+                    leaf_end = leaf_end_by_key.get((node_id, node_version))
+                    if (
+                        ending_mode != EndingMode.serial_hook
+                        and leaf_end is not None
+                        and episode_number != leaf_end
+                    ):
+                        raise LongStoryReferenceError(
+                            "A season_finale/series_finale roadmap item may only "
+                            "close the final episode of its approved story segment."
+                        )
+                    if (
+                        ending_mode == EndingMode.series_finale
+                        and episode_number != project.planned_episode_count
+                    ):
+                        raise LongStoryReferenceError(
+                            "A series_finale roadmap item may only close the "
+                            "project's final planned episode."
+                        )
                     approved_roadmap_keys.add(
                         (node_id, node_version, episode_number)
                     )

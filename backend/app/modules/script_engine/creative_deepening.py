@@ -177,6 +177,11 @@ class CreativeDeepeningService:
         validation_payload = {
             key: value for key, value in raw_output.items() if key != "_meta"
         }
+        # The source draft owns the ending contract.  Older deepening prompts
+        # do not include this field, and validating those payloads with the
+        # serial default would incorrectly reject a season/series finale for
+        # omitting a continuation hook.
+        validation_payload["ending_mode"] = source.ending_mode.value
         generated = LLMGeneratedDraftMasterScript.model_validate(validation_payload)
         source_scenes = {scene.scene_number: scene for scene in source.scenes}
         llm_metadata = dict(metadata) if isinstance(metadata, dict) else {}
@@ -194,6 +199,7 @@ class CreativeDeepeningService:
             hook=generated.hook,
             synopsis=generated.synopsis,
             episode_goal=generated.episode_goal,
+            ending_mode=source.ending_mode,
             # Runtime is a project/roadmap constraint, not an editable creative field.
             target_duration_seconds=source.target_duration_seconds,
             characters=[
@@ -288,6 +294,7 @@ class CreativeDeepeningService:
             "episode_goal",
             "target_duration_seconds",
             "next_episode_question",
+            "ending_mode",
         ]
         for field_name in protected_top_level:
             if getattr(source, field_name) != getattr(candidate, field_name):

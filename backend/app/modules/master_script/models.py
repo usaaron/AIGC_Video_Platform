@@ -10,6 +10,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
+    EndingMode,
+    ending_mode_requires_hook,
+    ending_mode_requires_next_question,
+)
+
 if TYPE_CHECKING:
     from app.modules.script_engine.models import ScriptGenerationDraftRun, ScriptRevisionRun
 
@@ -548,6 +555,7 @@ class MasterScriptBase(BaseModel):
     synopsis: str = Field(min_length=10, max_length=500)
     episode_goal: str = Field(min_length=5, max_length=240)
     target_duration_seconds: int = Field(ge=5, le=600)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     characters: list[CharacterProfile] = Field(default_factory=list, max_length=20)
     character_state_updates: list[CharacterStateUpdate] = Field(
         default_factory=list,
@@ -586,7 +594,7 @@ class MasterScriptBase(BaseModel):
 
     @model_validator(mode="after")
     def ensure_final_scene_has_cliffhanger(self) -> "MasterScriptBase":
-        if not self.scenes[-1].cliffhanger:
+        if ending_mode_requires_hook(self.ending_mode) and not self.scenes[-1].cliffhanger:
             raise ValueError("The final scene must end with a cliffhanger in MVP mode.")
         _validate_scene_causal_chain(self.scenes, require_contract=False)
         return self
@@ -607,6 +615,7 @@ class DraftMasterScriptBase(BaseModel):
     synopsis: str = Field(min_length=10, max_length=500)
     episode_goal: str = Field(min_length=5, max_length=240)
     target_duration_seconds: int = Field(ge=5, le=600)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     characters: list[CharacterProfile] = Field(default_factory=list, max_length=20)
     character_state_updates: list[CharacterStateUpdate] = Field(
         default_factory=list,
@@ -648,7 +657,7 @@ class DraftMasterScriptBase(BaseModel):
 
     @model_validator(mode="after")
     def ensure_final_draft_scene_has_cliffhanger(self) -> "DraftMasterScriptBase":
-        if not self.scenes[-1].cliffhanger:
+        if ending_mode_requires_hook(self.ending_mode) and not self.scenes[-1].cliffhanger:
             raise ValueError("The final draft scene must end with a cliffhanger in MVP mode.")
         _validate_scene_causal_chain(self.scenes, require_contract=False)
         return self
@@ -697,6 +706,7 @@ class FinalMasterScriptLineage(BaseModel):
     llm_provider: str = Field(min_length=2, max_length=80)
     llm_model_name: str = Field(min_length=2, max_length=120)
     original_draft_master_script_id: str = Field(min_length=3, max_length=120)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     original_story_qc_score: float = Field(ge=0.0, le=1.0)
     original_story_qc_status: str = Field(min_length=3, max_length=80)
     revision_plan_created_at: datetime
@@ -894,6 +904,7 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     tone: ScriptTone
     episode_goal: str = Field(min_length=5, max_length=240)
     target_duration_seconds: int = Field(ge=5, le=600)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     characters: list[CharacterProfile] = Field(min_length=1, max_length=20)
     character_state_updates: list[CharacterStateUpdate] = Field(min_length=1, max_length=20)
     relationship_state_updates: list[RelationshipStateUpdate] = Field(
@@ -905,7 +916,7 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     setup_payoff_updates: list[SetupPayoffStateUpdate] = Field(default_factory=list, max_length=30)
     continuation_hook: ContinuationHookState | None = None
     scenes: list[LLMGeneratedSceneCard] = Field(min_length=1, max_length=20)
-    next_episode_question: str = Field(min_length=5, max_length=240)
+    next_episode_question: str | None = Field(default=None, min_length=5, max_length=240)
 
     @field_validator("title", mode="before")
     @classmethod
@@ -932,8 +943,12 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     @model_validator(mode="after")
     def ensure_scene_causal_chain(self) -> "LLMGeneratedDraftMasterScript":
         _validate_scene_causal_chain(self.scenes, require_contract=True)
-        if not self.scenes[-1].cliffhanger:
+        if ending_mode_requires_hook(self.ending_mode) and not self.scenes[-1].cliffhanger:
             raise ValueError("The final generated scene must deliver the cliffhanger or payoff.")
+        if ending_mode_requires_next_question(self.ending_mode) and not self.next_episode_question:
+            raise ValueError(
+                "Serial episodes must provide a concrete next_episode_question."
+            )
         character_names = {
             character.name.strip().casefold() for character in self.characters
         }
@@ -1060,9 +1075,21 @@ class MasterScriptFinalizeRequest(BaseModel):
 
     script_generation_draft_run: "ScriptGenerationDraftRun"
     script_revision_run: "ScriptRevisionRun"
+    # None means "inherit from the revised draft" for legacy clients. New
+    # clients may send it explicitly and are checked for consistency below.
+    ending_mode: EndingMode | None = None
     dialogue_line_count_per_scene: int = Field(ge=1, le=6)
     speaker_name_cycle: list[str] = Field(min_length=1, max_length=6)
     minimum_re_qc_score_override: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def inherit_and_validate_ending_mode(self) -> "MasterScriptFinalizeRequest":
+        revised_mode = self.script_revision_run.revised_draft_master_script.ending_mode
+        if self.ending_mode is None:
+            self.ending_mode = revised_mode
+        elif self.ending_mode != revised_mode:
+            raise ValueError("Finalize ending_mode must match the revised draft.")
+        return self
 
     @field_validator("speaker_name_cycle")
     @classmethod

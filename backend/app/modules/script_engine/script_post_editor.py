@@ -28,6 +28,7 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MIN,
     OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
     PARTNER_SCREENPLAY_FORMAT_VERSION,
+    ending_mode_requires_next_question,
 )
 from app.modules.script_engine.llm_adapter import (
     LLMAdapter,
@@ -1808,11 +1809,20 @@ class ScriptPostEditor:
         editable_context = {
             "title": draft.title,
             "episode_goal": draft.episode_goal,
+            "ending_mode": draft.ending_mode.value,
             "next_episode_question": draft.next_episode_question,
             "approved_speakers": approved_speakers,
             "editable_scene_numbers": editable_scene_numbers,
             "scenes": scene_context,
         }
+        ending_contract_rule = (
+            "本集是连载集：不得削弱原稿的结尾义务；最后可见动作或最后一句对白必须真正执行"
+            "原稿的cliffhanger和next_episode_question，并让观众明确感到下一集必须发生什么。"
+            if ending_mode_requires_next_question(draft.ending_mode)
+            else "本集是收束集：不得为了制造公式化悬念新增cliffhanger或next_episode_question；"
+            "最后可见动作或最后一句对白必须完成原稿已批准的结算、主要冲突回收和可见后果。"
+            "如原稿的next_episode_question为空，保持为空。"
+        )
         market_path = "overseas_tiktok" if overseas_release else "cn_mainland"
         return f"""Market path: {market_path}
 你是剧本大师工作流中的终审编剧。DeepSeek已经完成一集完整初稿。
@@ -1826,7 +1836,7 @@ class ScriptPostEditor:
 5. 全集所有场景的dialogues合计必须为{EPISODE_DIALOGUE_LINE_MIN}–{EPISODE_DIALOGUE_LINE_MAX}条，每项必须是演员实际说出的一句台词；{dialogue_style_rule}intent只放可表演提示，例如低声、头也不抬或beat。
 6. 保留原稿已有的（O.S.）、（V.O.）、（continued）和（pre-lap）语义；如确有表演必要，可把这些标记附在已批准人物名后，但不得借此新增人物。
 7. 保持短剧持续执行压力-行动-回报-升级循环，在原有剧情范围内强化动作、反应、交锋和事件后果，不能整集只等待、调查、解释或为最终对手做准备。
-8. 不得修改场景标题、场景顺序、转场语义或结尾钩子义务；最后可见动作或最后一句对白必须真正执行原稿的cliffhanger和next_episode_question。
+8. 不得修改场景标题、场景顺序、转场语义或结尾义务；{ending_contract_rule}
 9. 不得新增人物；说话人只能来自原稿已经存在的人物。
 10. 必须且只能返回editable_scene_numbers指定的场景，每场只返回scene_number、character_actions、body_order、dialogues；未指定场景由系统原样保留，不得返回。
 11. 执行合作方正文格式合同{PARTNER_SCREENPLAY_FORMAT_VERSION}：body_order用action:0、dialogue:0

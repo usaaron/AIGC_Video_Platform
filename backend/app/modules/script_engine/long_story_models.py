@@ -8,6 +8,8 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
+    EndingMode,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -17,6 +19,7 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
     clamp_legacy_numeric,
+    normalize_finale_legacy_fields,
     normalize_episode_dialogue_plan_payload,
 )
 from app.modules.script_engine.episode_layer_contracts import EpisodeThreeLayerContract
@@ -1465,9 +1468,16 @@ class EpisodePlanGenerationItem(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_dialogue_plan(cls, value: Any) -> Any:
-        return normalize_episode_dialogue_plan_payload(value)
+        normalized = normalize_episode_dialogue_plan_payload(value)
+        return normalize_finale_legacy_fields(
+            normalized,
+            require_legacy_obligation=True,
+        )
 
     episode_number: int = Field(ge=1, le=2_000)
+    # Optional in the wire payload so v1 roadmaps continue to deserialize;
+    # absent values retain the historical serial-hook behaviour.
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     episode_title: str | None = Field(default=None, min_length=2, max_length=120)
     synopsis: str | None = Field(default=None, min_length=5, max_length=1_200)
     locations: list[str] = Field(default_factory=list, max_length=12)
@@ -1667,6 +1677,7 @@ class EpisodePlan(BaseModel):
     stage_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
     stage_version: int = Field(default=1, ge=1)
     episode_number: int = Field(ge=1, le=2_000)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     episode_title: str | None = Field(default=None, min_length=2, max_length=120)
     synopsis: str | None = Field(default=None, min_length=5, max_length=1_200)
     locations: list[str] = Field(default_factory=list, max_length=12)
@@ -1686,6 +1697,14 @@ class EpisodePlan(BaseModel):
     source_unit_story_beats: list[str] = Field(default_factory=list, max_length=12)
     status: PlanningApprovalStatus = PlanningApprovalStatus.draft
     approved_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_finale_legacy_contract(cls, value: Any) -> Any:
+        return normalize_finale_legacy_fields(
+            value,
+            include_legacy_hook_type=False,
+        )
 
     @field_validator(
         "setup_refs",

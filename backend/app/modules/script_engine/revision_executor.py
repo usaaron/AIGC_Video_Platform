@@ -22,6 +22,7 @@ from app.modules.script_engine.models import (
     RevisionTargetType,
     StoryQCDimension,
 )
+from app.script_delivery_contract import ending_mode_requires_hook
 
 
 class RevisionExecutor(ABC):
@@ -78,6 +79,18 @@ class RuleBasedRevisionExecutor(RevisionExecutor):
 
         for action in plan.actions:
             strategy = self._strategy_for_action(action, strategies) if controlled else None
+            if (
+                action.target_type == RevisionTargetType.cliffhanger
+                and not ending_mode_requires_hook(revised.ending_mode)
+            ):
+                skipped_actions.append(
+                    self._skipped_action(
+                        action,
+                        strategy,
+                        "ending_mode_disallows_cliffhanger",
+                    )
+                )
+                continue
             if mainland_chinese_script:
                 skipped_actions.append(
                     self._skipped_action(

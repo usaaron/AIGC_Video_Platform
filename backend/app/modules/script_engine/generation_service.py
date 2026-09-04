@@ -49,6 +49,8 @@ from app.modules.script_engine.creative_deepening import (
     build_deepening_qc_comparison,
 )
 from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
+    EndingMode,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -61,6 +63,7 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MIN,
     OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
     PARTNER_SCREENPLAY_FORMAT_VERSION,
+    ending_mode_requires_hook,
 )
 from app.modules.script_engine.continuity_qc import (
     BlockingContinuityConflictError,
@@ -457,6 +460,11 @@ class ScriptGenerationService:
 
         if payload.episode_context is not None:
             self._validate_author_decisions_for_script(payload.episode_context)
+        ending_mode = (
+            payload.episode_context.ending_mode
+            if payload.episode_context is not None
+            else DEFAULT_ENDING_MODE
+        )
 
         generation_strategy = self._generation_strategy_repository.get(
             payload.generation_strategy_id
@@ -489,6 +497,7 @@ class ScriptGenerationService:
             OrchestrationPlanCreate(
                 content_spec_id=content_spec.id,
                 desired_scene_count=payload.desired_scene_count,
+                ending_mode=ending_mode,
             )
         )
         retrieval_result = self._retrieval_service.resolve(
@@ -563,6 +572,10 @@ class ScriptGenerationService:
             progress_callback=track_initial_progress,
             cancel_event=cancel_event,
         )
+        # Ending semantics come from the approved episode context.  Keep the
+        # value on every intermediate payload so bounded repair passes cannot
+        # accidentally fall back to the legacy cliffhanger contract.
+        draft_output = self._with_authoritative_ending_mode(draft_output, ending_mode)
         if cancel_event is not None and cancel_event.is_set():
             raise LLMRequestCancelledError()
         initial_model_elapsed_ms = round(
@@ -612,6 +625,7 @@ class ScriptGenerationService:
                 output=draft_output,
                 strategy=generation_strategy,
                 original_prompt=prompt_build_result.prompt_text,
+                ending_mode=ending_mode,
                 progress_callback=progress_callback,
             )
             if draft_output is not previous_output:
@@ -708,6 +722,7 @@ class ScriptGenerationService:
             selected_prompt_versions=[
                 prompt.version for prompt in prompt_retrieval_result.prompts
             ],
+            ending_mode=ending_mode,
         )
         draft_master_script = draft_master_script.model_copy(
             update={"target_duration_seconds": effective_target_duration_seconds}
@@ -750,6 +765,7 @@ class ScriptGenerationService:
                 output=draft_output,
                 strategy=generation_strategy,
                 original_prompt=prompt_build_result.prompt_text,
+                ending_mode=ending_mode,
                 progress_callback=progress_callback,
             )
             if draft_output is not previous_output:
@@ -803,6 +819,7 @@ class ScriptGenerationService:
                 selected_prompt_versions=[
                     prompt.version for prompt in prompt_retrieval_result.prompts
                 ],
+                ending_mode=ending_mode,
             )
             draft_master_script = draft_master_script.model_copy(
                 update={"target_duration_seconds": effective_target_duration_seconds}
@@ -844,6 +861,7 @@ class ScriptGenerationService:
                 selected_prompt_versions=[
                     prompt.version for prompt in prompt_retrieval_result.prompts
                 ],
+                ending_mode=ending_mode,
             ).model_copy(
                 update={"target_duration_seconds": effective_target_duration_seconds}
             )
@@ -1637,6 +1655,11 @@ class ScriptGenerationService:
             selected_prompt_versions=[
                 prompt.version for prompt in source_run.prompt_retrieval_result.prompts
             ],
+            ending_mode=(
+                source_run.episode_context.ending_mode
+                if source_run.episode_context is not None
+                else DEFAULT_ENDING_MODE
+            ),
         )
         if self._script_editor_enabled and not self._is_mock_output(raw_output):
             editor_kwargs = {}
@@ -2302,6 +2325,15 @@ class ScriptGenerationService:
             raise InvalidDraftMasterScriptOutputError(
                 "Draft generation_strategy_id does not match the source generation run."
             )
+        expected_ending_mode = (
+            source_run.episode_context.ending_mode
+            if source_run.episode_context is not None
+            else DEFAULT_ENDING_MODE
+        )
+        if draft.ending_mode != expected_ending_mode:
+            raise InvalidDraftMasterScriptOutputError(
+                "Draft ending_mode does not match the approved episode context."
+            )
         strategy = self._generation_strategy_repository.get(
             source_run.generation_strategy_id
         )
@@ -2362,7 +2394,7 @@ class ScriptGenerationService:
         output_schema = (
             "Return one JSON object with these top-level fields in this order when possible: "
             "title, logline, synopsis, hook, target_audience, target_platform, language, tone, "
-            "episode_goal, target_duration_seconds, characters, scenes, character_state_updates, "
+            "episode_goal, target_duration_seconds, ending_mode, characters, scenes, character_state_updates, "
             "relationship_state_updates, continuity_state_updates, story_line_updates, "
             "setup_payoff_updates, continuation_hook, next_episode_question. "
             "The API response_format supplies the exact field types and enum constraints. "
@@ -2439,6 +2471,19 @@ class ScriptGenerationService:
                 ensure_ascii=True,
             ),
             "output_language": output_language,
+            "ending_mode_contract": (
+                "ending_mode=series_finale；完成主要因果与情绪收束；"
+                "最后场景可以没有cliffhanger，next_episode_question可以为null。"
+                if episode_context is not None
+                and episode_context.ending_mode.value == "series_finale"
+                else (
+                    "ending_mode=season_finale；完成本季主要结算，可保留下一季入口；"
+                    "不得用无关突发事件制造尾钩。"
+                    if episode_context is not None
+                    and episode_context.ending_mode.value == "season_finale"
+                    else "ending_mode=serial_hook；非最终集必须由本集因果产生下一集承接义务。"
+                )
+            ),
             "desired_scene_count": str(desired_scene_count),
             "target_duration_seconds": str(
                 self._delivery_target_duration_seconds(
@@ -2447,7 +2492,15 @@ class ScriptGenerationService:
                 )
             ),
             "hook_requirement": content_spec.creative_brief.hook,
-            "cliffhanger_requirement": content_spec.story_goal,
+            "cliffhanger_requirement": (
+                content_spec.story_goal
+                if episode_context is None
+                or ending_mode_requires_hook(episode_context.ending_mode)
+                else (
+                    "完成批准的本集正式收束和可见后果；不要为了满足通用钩子要求"
+                    "制造无关悬念。"
+                )
+            ),
             "character_agency_requirement": (
                 "The protagonist must make a visible choice, refusal, or public move."
             ),
@@ -2732,6 +2785,16 @@ class ScriptGenerationService:
         """
 
         assert payload.episode_context is not None
+        ending_mode = payload.episode_context.ending_mode
+        ending_instruction = (
+            "完成批准的全剧结局、人物弧和主要因果收束；不要新增悬念或下一集义务。"
+            if ending_mode == EndingMode.series_finale
+            else (
+                "完成批准的本季结算，可保留明确批准的下一季入口；不要制造无关尾钩。"
+                if ending_mode == EndingMode.season_finale
+                else "完成由本集因果产生的结尾钩子和下一集承接义务。"
+            )
+        )
         execution_context = self._episode_execution_context_payload(
             payload.episode_context,
             model_context_tokens=self._llm_adapter.get_model_info().max_context_tokens,
@@ -2760,6 +2823,7 @@ class ScriptGenerationService:
                 "target_emotion": content_spec.creative_brief.target_emotion,
             },
             "episode_execution": execution_context,
+            "ending_mode": ending_mode.value,
             "characters": character_contexts,
             "delivery": {
                 "language_contract": language_contract,
@@ -2786,7 +2850,7 @@ class ScriptGenerationService:
 
 执行要求：
 1. approved_episode_plan、scene_execution_plan、layer_contracts和continuity_checkpoint是硬合同。
-2. 严格执行冲突-决定-局部回报-压力升级-退出状态因果链，并完成结尾钩子与下一集义务。
+2. 严格执行冲突-决定-局部回报-压力升级-退出状态因果链；{ending_instruction}
 3. 每场按body_order自然交错可拍动作与对白；不得写镜头语言、心理活动或小说叙述。
 4. 全集场景1–5个、对白25–35条、镜头执行单元15–20个、成片75–115秒。
 5. characters和所有状态更新必须来自写作包中的人物与已确认事实；状态更新保持简短并标注场次证据。
@@ -2876,6 +2940,28 @@ class ScriptGenerationService:
             max(EPISODE_RUNTIME_MIN_SECONDS, requested or fallback),
         )
 
+    @staticmethod
+    def _coerce_ending_mode(value: object) -> EndingMode:
+        """Resolve a payload value while retaining the legacy default."""
+
+        if isinstance(value, EndingMode):
+            return value
+        try:
+            return EndingMode(value or DEFAULT_ENDING_MODE.value)
+        except (TypeError, ValueError):
+            return DEFAULT_ENDING_MODE
+
+    @staticmethod
+    def _with_authoritative_ending_mode(
+        output: dict[str, object],
+        ending_mode: EndingMode,
+    ) -> dict[str, object]:
+        """Stamp the approved closing contract onto an intermediate payload."""
+
+        enriched = dict(output)
+        enriched["ending_mode"] = ending_mode.value
+        return enriched
+
     def _build_draft_master_script(
         self,
         *,
@@ -2886,6 +2972,7 @@ class ScriptGenerationService:
         llm_raw_output: dict[str, object],
         output_language: str,
         selected_prompt_versions: list[str],
+        ending_mode: EndingMode = DEFAULT_ENDING_MODE,
     ) -> DraftMasterScript:
         llm_metadata = (
             llm_raw_output.get("_meta", {})
@@ -2904,6 +2991,7 @@ class ScriptGenerationService:
                 llm_raw_output=llm_raw_output,
                 output_language=output_language,
                 llm_metadata=llm_metadata,
+                ending_mode=ending_mode,
             )
 
         scene_asset_ids = self._collect_asset_ids(
@@ -2931,6 +3019,7 @@ class ScriptGenerationService:
             fallback=content_spec.story_goal,
         )
         scenes: list[DraftSceneCard] = []
+        final_requires_hook = ending_mode_requires_hook(ending_mode)
         for blueprint in orchestration_plan.scene_blueprints:
             is_final_scene = blueprint.scene_number == orchestration_plan.scene_blueprints[-1].scene_number
             dialogue_prompts = [
@@ -2953,6 +3042,8 @@ class ScriptGenerationService:
                     ),
                     emotional_shift=(
                         f"{blueprint.target_emotion}_to_suspense"
+                        if is_final_scene and final_requires_hook
+                        else f"{blueprint.target_emotion}_to_resolution"
                         if is_final_scene
                         else f"{blueprint.target_emotion}_to_{blueprint.recommended_focus}"
                     ),
@@ -2960,7 +3051,11 @@ class ScriptGenerationService:
                         "The focal character's response changes the immediate situation "
                         "and creates the next scene's pressure."
                         if not is_final_scene
-                        else "The final choice creates an unresolved consequence."
+                        else (
+                            "The final choice resolves the approved episode conflict."
+                            if not final_requires_hook
+                            else "The final choice creates an unresolved consequence."
+                        )
                     ),
                     scene_causality={
                         "goal": blueprint.purpose,
@@ -2972,8 +3067,12 @@ class ScriptGenerationService:
                             "The focal character's response changes the situation and "
                             "triggers the next scene."
                             if not is_final_scene
-                            else "The final choice creates an unresolved consequence "
-                            "that drives continuation."
+                            else (
+                                "The final choice resolves the approved episode conflict."
+                                if not final_requires_hook
+                                else "The final choice creates an unresolved consequence "
+                                "that drives continuation."
+                            )
                         ),
                         "caused_by_scene_number": (
                             None if blueprint.scene_number == 1 else blueprint.scene_number - 1
@@ -2985,7 +3084,7 @@ class ScriptGenerationService:
                             "scene's new objective and pressure."
                         ),
                     },
-                    cliffhanger=is_final_scene,
+                    cliffhanger=is_final_scene and final_requires_hook,
                     dialogue_prompts=dialogue_prompts,
                     supporting_asset_ids=self._merge_asset_ids(
                         scene_asset_ids,
@@ -2998,6 +3097,11 @@ class ScriptGenerationService:
             "Draft generated from orchestration, retrieval and strategy constraints.",
             "Review dialogue prompts before promoting to final master script.",
         ]
+        next_episode_question = (
+            "本集结尾形成的因果压力将如何被回应？"
+            if final_requires_hook
+            else None
+        )
         return DraftMasterScript(
             content_spec_id=content_spec.id,
             generation_strategy_id=generation_strategy.id,
@@ -3011,9 +3115,10 @@ class ScriptGenerationService:
             synopsis=synopsis,
             episode_goal=orchestration_plan.episode_goal,
             target_duration_seconds=orchestration_plan.target_duration_seconds,
+            ending_mode=ending_mode,
             characters=[],
             scenes=scenes,
-            next_episode_question=None,
+            next_episode_question=next_episode_question,
             qa_notes=qa_notes,
             llm_metadata=llm_metadata,
         )
@@ -3026,11 +3131,17 @@ class ScriptGenerationService:
         llm_raw_output: dict[str, object],
         output_language: str,
         llm_metadata: dict[str, object],
+        ending_mode: EndingMode = DEFAULT_ENDING_MODE,
     ) -> DraftMasterScript:
         llm_raw_output = self._unwrap_draft_response_envelope(llm_raw_output)
         validation_payload = {
             key: value for key, value in llm_raw_output.items() if key != "_meta"
         }
+        # The approved episode context, not an untrusted model omission, is
+        # authoritative for finale semantics. Injecting the optional field
+        # before validation keeps legacy JSON valid while allowing a series
+        # finale to omit a cliffhanger/question.
+        validation_payload["ending_mode"] = ending_mode.value
         try:
             llm_script = LLMGeneratedDraftMasterScript.model_validate(validation_payload)
         except Exception as exc:
@@ -3054,6 +3165,7 @@ class ScriptGenerationService:
             synopsis=llm_script.synopsis,
             episode_goal=llm_script.episode_goal,
             target_duration_seconds=llm_script.target_duration_seconds,
+            ending_mode=ending_mode,
             characters=[
                 CharacterProfile.model_validate(character.model_dump())
                 for character in llm_script.characters
@@ -3120,6 +3232,9 @@ class ScriptGenerationService:
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
         """Enforce counts without regressing the already checked runtime."""
+
+        ending_mode = self._coerce_ending_mode(output.get("ending_mode"))
+        output = self._with_authoritative_ending_mode(output, ending_mode)
 
         validated = LLMGeneratedDraftMasterScript.model_validate(
             {key: value for key, value in output.items() if key != "_meta"}
@@ -3202,6 +3317,10 @@ class ScriptGenerationService:
                 and shot_count <= target_shot_count
             )
             else output
+        )
+        locally_rebalanced = self._with_authoritative_ending_mode(
+            locally_rebalanced,
+            ending_mode,
         )
         try:
             local_candidate = LLMGeneratedDraftMasterScript.model_validate(
@@ -3335,7 +3454,10 @@ class ScriptGenerationService:
                 break
             repair_outputs.append(raw_patch)
             try:
-                normalized_patch = self._normalize_draft_fragment_contract(raw_patch)
+                normalized_patch = self._normalize_draft_fragment_contract(
+                    raw_patch,
+                    ending_mode=ending_mode,
+                )
                 repair_patch = LLMMainlandBodyRepairPatch.model_validate(
                     {
                         key: value
@@ -3357,6 +3479,7 @@ class ScriptGenerationService:
                     output,
                     repair_patch,
                 )
+                repaired = self._with_authoritative_ending_mode(repaired, ending_mode)
                 repaired_output = LLMGeneratedDraftMasterScript.model_validate(
                     {key: value for key, value in repaired.items() if key != "_meta"}
                 )
@@ -3409,6 +3532,7 @@ class ScriptGenerationService:
                 target_dialogue_count=target_dialogue_count,
                 target_shot_count=target_shot_count,
             )
+            repaired = self._with_authoritative_ending_mode(repaired, ending_mode)
             try:
                 repaired_output = LLMGeneratedDraftMasterScript.model_validate(
                     {key: value for key, value in repaired.items() if key != "_meta"}
@@ -3924,7 +4048,10 @@ class ScriptGenerationService:
                     error=error,
                 )
             try:
-                normalized_patch = self._normalize_draft_fragment_contract(raw_patch)
+                normalized_patch = self._normalize_draft_fragment_contract(
+                    raw_patch,
+                    ending_mode=validated.ending_mode,
+                )
                 repair_patch = LLMMainlandBodyRepairPatch.model_validate(
                     {
                         key: value
@@ -3983,7 +4110,8 @@ class ScriptGenerationService:
                 )
         if not body_only_repair:
             repaired = self._normalize_mechanical_draft_contract(
-                self._unwrap_draft_response_envelope(repaired)
+                self._unwrap_draft_response_envelope(repaired),
+                ending_mode=validated.ending_mode,
             )
         repaired = self._normalize_mainland_scene_slugs(repaired)
         try:
@@ -4026,7 +4154,8 @@ class ScriptGenerationService:
                     error=fallback_failure,
                 )
             repaired = self._normalize_mechanical_draft_contract(
-                self._unwrap_draft_response_envelope(fallback_repaired)
+                self._unwrap_draft_response_envelope(fallback_repaired),
+                ending_mode=validated.ending_mode,
             )
             repaired = self._normalize_mainland_scene_slugs(repaired)
             try:
@@ -4416,7 +4545,10 @@ class ScriptGenerationService:
                 error=error,
             )
         try:
-            normalized_patch = self._normalize_draft_fragment_contract(patch_payload)
+            normalized_patch = self._normalize_draft_fragment_contract(
+                patch_payload,
+                ending_mode=self._coerce_ending_mode(output.get("ending_mode")),
+            )
             repair_patch = LLMContinuityRepairPatch.model_validate(
                 {
                     key: value
@@ -4543,7 +4675,8 @@ class ScriptGenerationService:
                 error=error,
             )
         repaired = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(repaired)
+            self._unwrap_draft_response_envelope(repaired),
+            ending_mode=validated.ending_mode,
         )
         try:
             repaired_output = LLMGeneratedDraftMasterScript.model_validate(
@@ -4568,11 +4701,26 @@ class ScriptGenerationService:
         output: dict[str, object],
         strategy: GenerationStrategy,
         original_prompt: str | None = None,
+        ending_mode: EndingMode | str | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
         self._emit_progress(progress_callback, "stage", stage="validating_structure")
+        resolved_ending_mode = self._coerce_ending_mode(ending_mode)
         normalized_output = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(output)
+            self._unwrap_draft_response_envelope(output),
+            ending_mode=(
+                resolved_ending_mode
+                if ending_mode is not None
+                else None
+            ),
+        )
+        if ending_mode is None:
+            resolved_ending_mode = self._coerce_ending_mode(
+                normalized_output.get("ending_mode")
+            )
+        normalized_output = self._with_authoritative_ending_mode(
+            normalized_output,
+            resolved_ending_mode,
         )
         normalized_payload = {
             key: value for key, value in normalized_output.items() if key != "_meta"
@@ -4586,7 +4734,12 @@ class ScriptGenerationService:
             # Re-run deterministic reconciliation once before spending a model
             # call on a complete episode rewrite.
             reconciled_output = self._normalize_mechanical_draft_contract(
-                normalized_output
+                normalized_output,
+                ending_mode=resolved_ending_mode,
+            )
+            reconciled_output = self._with_authoritative_ending_mode(
+                reconciled_output,
+                resolved_ending_mode,
             )
             reconciled_payload = {
                 key: value
@@ -4665,14 +4818,22 @@ class ScriptGenerationService:
                         if isinstance(adapter_pass_count, int) and adapter_pass_count > 1:
                             model_pass_count += adapter_pass_count - 1
                     repair_fragment = self._normalize_draft_fragment_contract(
-                        self._unwrap_draft_response_envelope(raw_repair)
+                        self._unwrap_draft_response_envelope(raw_repair),
+                        ending_mode=resolved_ending_mode,
                     )
                     recovered = self._merge_draft_contract_repair_fragment(
                         normalized_output,
                         repair_fragment,
                     )
                     candidate = recovered if recovered is not None else repair_fragment
-                    candidate = self._normalize_mechanical_draft_contract(candidate)
+                    candidate = self._normalize_mechanical_draft_contract(
+                        candidate,
+                        ending_mode=resolved_ending_mode,
+                    )
+                    candidate = self._with_authoritative_ending_mode(
+                        candidate,
+                        resolved_ending_mode,
+                    )
                     try:
                         LLMGeneratedDraftMasterScript.model_validate(
                             {
@@ -4764,7 +4925,8 @@ class ScriptGenerationService:
                     if isinstance(adapter_pass_count, int) and adapter_pass_count > 1:
                         model_pass_count += adapter_pass_count - 1
                 fallback_fragment = self._normalize_draft_fragment_contract(
-                    self._unwrap_draft_response_envelope(raw_fallback)
+                    self._unwrap_draft_response_envelope(raw_fallback),
+                    ending_mode=resolved_ending_mode,
                 )
                 fallback_candidates: list[tuple[dict[str, object], bool]] = [
                     (fallback_fragment, False)
@@ -4779,7 +4941,12 @@ class ScriptGenerationService:
                 fallback_error: ValidationError | None = None
                 for fallback_value, was_merged in fallback_candidates:
                     fallback_candidate = self._normalize_mechanical_draft_contract(
-                        fallback_value
+                        fallback_value,
+                        ending_mode=resolved_ending_mode,
+                    )
+                    fallback_candidate = self._with_authoritative_ending_mode(
+                        fallback_candidate,
+                        resolved_ending_mode,
                     )
                     try:
                         LLMGeneratedDraftMasterScript.model_validate(
@@ -5094,11 +5261,27 @@ class ScriptGenerationService:
     def _normalize_mechanical_draft_contract(
         cls,
         output: dict[str, object],
+        *,
+        ending_mode: EndingMode | str | None = None,
     ) -> dict[str, object]:
-        """Fix deterministic linkage flags before spending another model pass."""
+        """Fix deterministic linkage flags before spending another model pass.
+
+        ``ending_mode`` is authoritative whenever a caller already validated the
+        source episode.  Repair responses are often partial fragments and may
+        omit this field; inferring a finale contract from that fragment would
+        silently restore the legacy serial-hook behaviour.
+        """
 
         normalized = deepcopy(output)
-        cls._normalize_draft_scalar_contracts(normalized)
+        resolved_ending_mode = cls._coerce_ending_mode(
+            ending_mode if ending_mode is not None else normalized.get("ending_mode")
+        )
+        cls._normalize_draft_scalar_contracts(
+            normalized,
+            ending_mode=resolved_ending_mode,
+        )
+        if normalized.get("ending_mode") != resolved_ending_mode.value:
+            normalized["ending_mode"] = resolved_ending_mode.value
         if isinstance(normalized.get("scenes"), (dict, list)):
             root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
             for field_name in list(normalized):
@@ -5111,7 +5294,11 @@ class ScriptGenerationService:
         cls._deduplicate_mechanical_draft_values(normalized)
         scenes = normalized.get("scenes")
         if not isinstance(scenes, list) or not scenes:
-            return output
+            # Preserve deterministic scalar normalization (especially the
+            # authoritative ending mode) even when the provider omitted the
+            # scene array; the caller can then report the actual shape error or
+            # route a bounded repair without losing the closing contract.
+            return normalized
         changed = normalized != output
         scene_evidence: dict[int, str] = {}
         for raw_scene in scenes:
@@ -5454,7 +5641,11 @@ class ScriptGenerationService:
             if isinstance(scene_number, int):
                 prior_scene_numbers.append(scene_number)
         final_scene = scenes[-1]
-        if isinstance(final_scene, dict) and final_scene.get("cliffhanger") is not True:
+        if (
+            ending_mode_requires_hook(resolved_ending_mode)
+            and isinstance(final_scene, dict)
+            and final_scene.get("cliffhanger") is not True
+        ):
             final_scene["cliffhanger"] = True
             changed = True
         if not changed:
@@ -5468,15 +5659,30 @@ class ScriptGenerationService:
     def _normalize_draft_fragment_contract(
         cls,
         output: dict[str, object],
+        *,
+        ending_mode: EndingMode | str | None = None,
     ) -> dict[str, object]:
         """Normalize a repair patch without assuming its last scene is the episode end."""
         normalized = deepcopy(output)
-        cls._normalize_draft_scalar_contracts(normalized)
+        cls._normalize_draft_scalar_contracts(normalized, ending_mode=ending_mode)
         return normalized
 
     @staticmethod
-    def _normalize_draft_scalar_contracts(output: dict[str, object]) -> None:
+    def _normalize_draft_scalar_contracts(
+        output: dict[str, object],
+        *,
+        ending_mode: EndingMode | str | None = None,
+    ) -> None:
         """Normalize unambiguous scalar spellings used by screenplay providers."""
+
+        try:
+            resolved_ending_mode = EndingMode(
+                ending_mode
+                if ending_mode is not None
+                else output.get("ending_mode") or DEFAULT_ENDING_MODE.value
+            )
+        except (TypeError, ValueError):
+            resolved_ending_mode = DEFAULT_ENDING_MODE
 
         def parse_int(value: object) -> int | None:
             if isinstance(value, bool):
@@ -6362,16 +6568,29 @@ class ScriptGenerationService:
         if isinstance(hook, str) and hook.strip():
             summary = hook.strip()[:300]
             next_question = str(output.get("next_episode_question") or "").strip()
-            hook = {
-                "ending_hook_type": "信息悬念",
-                "ending_hook_summary": summary,
-                "next_episode_obligation": (
-                    next_question[:300]
-                    if next_question
-                    else "下一集必须回应本集结尾提出的未解问题。"
-                ),
-            }
-            output["continuation_hook"] = hook
+            if resolved_ending_mode == EndingMode.series_finale:
+                # A legacy string hook is usually a transport alias, not an
+                # author-approved epilogue. Do not let scalar normalization
+                # resurrect a continuation requirement at a series ending.
+                output["continuation_hook"] = None
+            else:
+                output["continuation_hook"] = {
+                    "ending_hook_type": (
+                        "信息悬念"
+                        if ending_mode_requires_hook(resolved_ending_mode)
+                        else "季终收束"
+                    ),
+                    "ending_hook_summary": summary,
+                    "next_episode_obligation": (
+                        next_question[:300]
+                        if next_question
+                        else (
+                            "下一集必须回应本集结尾提出的未解问题。"
+                            if ending_mode_requires_hook(resolved_ending_mode)
+                            else "下一季仅承接已批准的后续入口。"
+                        )
+                    ),
+                }
         if isinstance(hook, dict):
             def pop_first_hook_alias(*field_names: str) -> object | None:
                 selected: object | None = None
@@ -6543,7 +6762,8 @@ class ScriptGenerationService:
                 error=error,
             )
         repaired = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(repaired)
+            self._unwrap_draft_response_envelope(repaired),
+            ending_mode=validated.ending_mode,
         )
         try:
             repaired_output = LLMGeneratedDraftMasterScript.model_validate(
@@ -6676,7 +6896,8 @@ class ScriptGenerationService:
             )
             return preserved
         repaired = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(repaired)
+            self._unwrap_draft_response_envelope(repaired),
+            ending_mode=validated.ending_mode,
         )
         try:
             root_candidate = LLMGeneratedDraftMasterScript.model_validate(
@@ -7067,7 +7288,12 @@ include analysis, Markdown fences, status text, or an explanation."""
         if cancel_event is not None and cancel_event.is_set():
             raise LLMRequestCancelledError()
 
-        checkpoint = self._normalize_mechanical_draft_contract(deepcopy(output))
+        ending_mode = self._coerce_ending_mode(output.get("ending_mode"))
+        checkpoint = self._normalize_mechanical_draft_contract(
+            deepcopy(output),
+            ending_mode=ending_mode,
+        )
+        checkpoint = self._with_authoritative_ending_mode(checkpoint, ending_mode)
         LLMGeneratedDraftMasterScript.model_validate(
             {key: value for key, value in checkpoint.items() if key != "_meta"}
         )
@@ -7077,8 +7303,10 @@ include analysis, Markdown fences, status text, or an explanation."""
             if cancel_event is not None and cancel_event.is_set():
                 raise LLMRequestCancelledError()
             candidate = self._normalize_mechanical_draft_contract(
-                self._unwrap_draft_response_envelope(candidate)
+                self._unwrap_draft_response_envelope(candidate),
+                ending_mode=ending_mode,
             )
+            candidate = self._with_authoritative_ending_mode(candidate, ending_mode)
             LLMGeneratedDraftMasterScript.model_validate(
                 {key: value for key, value in candidate.items() if key != "_meta"}
             )
@@ -7632,6 +7860,7 @@ include analysis, Markdown fences, status text, or an explanation."""
             "tone",
             "episode_goal",
             "target_duration_seconds",
+            "ending_mode",
             "characters",
             "scenes",
             "character_state_updates",

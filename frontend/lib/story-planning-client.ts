@@ -38,9 +38,11 @@ import {
   importedPlanningInstruction,
   shouldApplyImportedPlanningConstraints,
 } from "@/lib/input-readiness-workflow";
+import { isApprovedEpisodeRoadmap } from "@/lib/planning-coverage";
 import {
   marketProfileForReleaseRegion,
   type CreativeDirectionCandidate,
+  type EndingMode,
   type EpisodeRoadmapItem,
   type PlanningSession,
   type PlanningTurn,
@@ -478,6 +480,7 @@ export interface EpisodePlan {
   stage_id: string;
   stage_version: number;
   episode_number: number;
+  ending_mode?: EndingMode;
   episode_title?: string | null;
   synopsis?: string | null;
   locations?: string[];
@@ -1459,6 +1462,10 @@ export async function generateEpisodePlanBatch(
     episodeNumber += 1) {
     const saved = existing.find((item) => item.episode_number === episodeNumber);
     if (!saved) break;
+    // A draft checkpoint is safe as transport context for resuming this same
+    // planning batch; it is still marked draft and remains excluded from
+    // readiness, execution, and predecessor lookups until the author approves
+    // it explicitly.
     accepted.push(saved);
   }
 
@@ -1516,7 +1523,7 @@ export async function generateEpisodePlanBatch(
         source_node_id: node.node_id,
         source_node_version: node.version,
         story_bible_version: node.story_bible_version,
-        status: "approved",
+        status: "draft",
       };
       accepted.push(checkpoint);
       await onCheckpoint?.(checkpoint);
@@ -1529,9 +1536,7 @@ type RoadmapApiItem = Omit<EpisodeRoadmapItem,
   | "source_node_id"
   | "source_node_version"
   | "story_bible_version"
-  | "status"
-  | "scene_execution_plan"
-  | "layer_contracts">;
+  | "status">;
 
 function roadmapItemForApi(item: EpisodeRoadmapItem): RoadmapApiItem {
   const {
@@ -1543,7 +1548,13 @@ function roadmapItemForApi(item: EpisodeRoadmapItem): RoadmapApiItem {
     layer_contracts: _layerContracts,
     ...apiItem
   } = item;
-  return apiItem;
+  return {
+    ...apiItem,
+    // Keep the complete execution contract in both chunk and revision
+    // requests. Undefined legacy fields are omitted by JSON.stringify.
+    scene_execution_plan: _sceneExecutionPlan,
+    layer_contracts: _layerContracts,
+  };
 }
 
 async function stableAgentRequestId(
@@ -1669,7 +1680,7 @@ export async function modifyEpisodePlanItem(
     source_node_id: node.node_id,
     source_node_version: node.version,
     story_bible_version: node.story_bible_version,
-    status: "approved",
+    status: "draft",
   };
 }
 
@@ -1682,6 +1693,8 @@ function episodeRoadmapPredecessor(
   }
   const predecessorEpisode = node.planned_start_episode - 1;
   const candidates = (project.episodeRoadmaps ?? []).filter((item) => (
+    isApprovedEpisodeRoadmap(item)
+    &&
     item.story_bible_version === node.story_bible_version
     && item.episode_number === predecessorEpisode
   ));

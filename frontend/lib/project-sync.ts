@@ -5,7 +5,10 @@ import { compactContinuityLedgerForGeneration } from "@/lib/continuity-checkpoin
 import { inferProjectMarketProfile } from "@/lib/project-store";
 import { normalizeGenerationSettings } from "@/lib/generation-planning";
 import { reconcileGenerationRecoveryTask } from "@/lib/generation-recovery";
-import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
+import {
+  episodeRoadmapCoverageThrough,
+  normalizeEpisodeRoadmaps,
+} from "@/lib/planning-coverage";
 import { migrateProjectScreenplayFormat } from "@/lib/canonical-character-names";
 import {
   enforceMarketDeliveryContract,
@@ -351,7 +354,7 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
         } catch (error) {
           if (!(error instanceof ApiError && error.status === 404)) throw error;
         }
-        const episodeRoadmaps = payload.episodeRoadmaps ?? [];
+        const episodeRoadmaps = normalizeEpisodeRoadmaps(payload.episodeRoadmaps ?? []);
         const recoveredPlanningCoverage = payload.episodeRoadmapRequired === true
           ? episodeRoadmapCoverageThrough(episodeRoadmaps)
           : payload.episodePlansReadyThrough ?? 0;

@@ -117,6 +117,7 @@ import {
   plannedEpisodeDurationSeconds,
   plannedEpisodeShotCount,
   resolveEpisodeGenerationConstraints,
+  isApprovedEpisodeRoadmap,
   storyBibleEpisodeContext,
   storyNodeExecutionContext,
   storySegmentBodyReference,
@@ -249,6 +250,7 @@ function normalizedEpisodeTitle(title: string | null | undefined, episodeNumber:
 function projectEpisodeTitle(project: ScriptProject, episodeNumber: number): string {
   const roadmapTitle = project.episodeRoadmaps?.find((item) => (
     item.episode_number === episodeNumber
+    && isApprovedEpisodeRoadmap(item)
   ))?.episode_title;
   const normalizedRoadmapTitle = normalizedEpisodeTitle(roadmapTitle, episodeNumber);
   if (normalizedRoadmapTitle) return normalizedRoadmapTitle;
@@ -1512,7 +1514,7 @@ export function ScriptWorkspace() {
             episodeGenerationInstruction(
               generationConstraint,
               episodeNumber === batchRange.startEpisode ? optionalInstruction : "",
-              { isSeriesFinale: episodeNumber === batchRange.totalEpisodes },
+              { endingMode: episodeGenerationExecutionPlan(generationConstraint)?.ending_mode },
             ),
           ),
           relevantCharacterRefs: episodeGenerationCharacterRefs(generationConstraint),
@@ -2752,7 +2754,7 @@ function InitialScriptBatchLauncher({
             episodeGenerationInstruction(
               generationConstraint,
               "",
-              { isSeriesFinale: episodeNumber === batchRange.totalEpisodes },
+              { endingMode: episodeGenerationExecutionPlan(generationConstraint)?.ending_mode },
             ),
           ),
           relevantCharacterRefs: episodeGenerationCharacterRefs(generationConstraint),

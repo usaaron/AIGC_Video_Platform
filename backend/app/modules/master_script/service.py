@@ -17,8 +17,10 @@ from app.modules.master_script.models import (
 from app.modules.master_script.repository import MasterScriptRepository
 from app.modules.script_engine.continuity_qc import evaluate_episode_continuity
 from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
     EPISODE_RUNTIME_MAX_SECONDS,
     EPISODE_RUNTIME_MIN_SECONDS,
+    ending_mode_requires_next_question,
 )
 from app.modules.script_engine.mainland_language import (
     blocking_draft_script_chinese_issues,
@@ -119,6 +121,7 @@ class MasterScriptService:
             synopsis=revised_draft_master_script.synopsis,
             episode_goal=revised_draft_master_script.episode_goal,
             target_duration_seconds=revised_draft_master_script.target_duration_seconds,
+            ending_mode=revised_draft_master_script.ending_mode,
             characters=revised_draft_master_script.characters,
             character_state_updates=revised_draft_master_script.character_state_updates,
             relationship_state_updates=revised_draft_master_script.relationship_state_updates,
@@ -174,6 +177,29 @@ class MasterScriptService:
         if revision_run.revised_draft_master_script.content_spec_id != draft_run.content_spec_id:
             raise InvalidFinalizationChainError(
                 "Revised DraftMasterScript content_spec_id does not match the draft generation run."
+            )
+        if (
+            revision_run.revised_draft_master_script.ending_mode
+            != draft_master_script.ending_mode
+        ):
+            raise InvalidFinalizationChainError(
+                "Revised DraftMasterScript ending_mode must preserve the approved closing contract."
+            )
+        expected_ending_mode = (
+            draft_run.episode_context.ending_mode
+            if draft_run.episode_context is not None
+            else DEFAULT_ENDING_MODE
+        )
+        if draft_master_script.ending_mode != expected_ending_mode:
+            raise InvalidFinalizationChainError(
+                "DraftMasterScript ending_mode does not match the episode context."
+            )
+        if (
+            ending_mode_requires_next_question(expected_ending_mode)
+            and not revision_run.revised_draft_master_script.next_episode_question
+        ):
+            raise InvalidFinalizationChainError(
+                "Serial episodes must provide next_episode_question before finalization."
             )
         if draft_run.generation_strategy_id != revision_run.revision_plan.generation_strategy_id:
             raise InvalidFinalizationChainError(
@@ -364,6 +390,7 @@ class MasterScriptService:
             llm_provider=llm_model_info.provider,
             llm_model_name=llm_model_info.model_name,
             original_draft_master_script_id=draft_run.draft_master_script.id,
+            ending_mode=revision_run.revised_draft_master_script.ending_mode,
             original_story_qc_score=draft_run.story_qc_report.overall_score,
             original_story_qc_status=draft_run.story_qc_report.status.value,
             revision_plan_created_at=revision_run.revision_plan.created_at,

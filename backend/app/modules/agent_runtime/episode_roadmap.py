@@ -17,6 +17,7 @@ from app.modules.script_engine.long_story_models import (
     PlanningRevisionMode,
 )
 from app.modules.script_engine.story_planning_service import StoryPlanningService
+from app.script_delivery_contract import ending_mode_requires_hook
 
 
 ROADMAP_AGENT_POLICY = AgentRunPolicy(
@@ -134,7 +135,10 @@ class EpisodeRoadmapAgent:
                     **payload.model_dump(mode="python"),
                     current_plan=item,
                     revision_mode=PlanningRevisionMode.targeted,
-                    instruction=_roadmap_repair_instruction(issues),
+                    instruction=_roadmap_repair_instruction(
+                        issues,
+                        ending_mode=item.ending_mode,
+                    ),
                 )
                 item = session.call_tool(
                     "repair_episode_roadmap",
@@ -262,8 +266,14 @@ def episode_roadmap_quality_issues(
         "central_conflict": item.central_conflict,
         "protagonist_decision": item.protagonist_decision,
         "episode_payoff": item.episode_payoff,
-        "cliffhanger": item.cliffhanger,
     }
+    if ending_mode_requires_hook(item.ending_mode):
+        dramatic_values["cliffhanger"] = item.cliffhanger
+    else:
+        # Finale roadmaps use the legacy cliffhanger field as a compatibility
+        # carrier for formal closure. Comparing it as a hook would create a
+        # false duplicate and send a valid finale through hook repair.
+        dramatic_values["resolution"] = item.exit_state
     seen: dict[str, str] = {}
     for field_name, value in dramatic_values.items():
         normalized = _normalize_narrative_value(value)
@@ -275,13 +285,23 @@ def episode_roadmap_quality_issues(
     return issues
 
 
-def _roadmap_repair_instruction(issue_codes: list[str]) -> str:
+def _roadmap_repair_instruction(
+    issue_codes: list[str],
+    *,
+    ending_mode=None,
+) -> str:
     issue_text = "、".join(issue_codes)
+    ending_requirement = (
+        "并确保进入状态、核心冲突、主角决定、阶段兑现、退出状态和悬念各自承担不同职责。"
+        if ending_mode_requires_hook(ending_mode)
+        else "并确保进入状态、核心冲突、主角决定、阶段兑现和收束后的退出状态各自承担不同职责；"
+        "不得为了补字段制造新的悬念或下一集义务。"
+    )
     return (
         "只修复当前单集路线图的以下硬问题："
         f"{issue_text}。保持集数、已分配的剧情事件、人物引用、剧情线引用、"
         "前序连续性和本集核心因果职责不变；补齐可执行场景计划，并确保进入状态、"
-        "核心冲突、主角决定、阶段兑现、退出状态和悬念各自承担不同职责。"
+        + ending_requirement
     )
 
 

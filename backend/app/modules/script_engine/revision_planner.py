@@ -15,6 +15,7 @@ from app.modules.script_engine.models import (
     StoryQCReport,
     StoryQCRubricCategory,
 )
+from app.script_delivery_contract import ending_mode_requires_hook
 
 
 class RubricRevisionPlanner:
@@ -30,7 +31,10 @@ class RubricRevisionPlanner:
     def build_plan(self, payload: ScriptRevisionPlanRequest) -> RevisionPlan:
         draft = payload.draft_master_script
         report = payload.story_qc_report
-        decision = self.build_decision(report)
+        decision = self.build_decision(
+            report,
+            ending_mode=draft.ending_mode,
+        )
         strategies = self.build_strategies(report, decision)
 
         if report.dimension_evaluations:
@@ -63,10 +67,18 @@ class RubricRevisionPlanner:
             notes=self._build_plan_notes(report, decision, strategies),
         )
 
-    def build_decision(self, report: StoryQCReport) -> RevisionDecision:
+    def build_decision(
+        self,
+        report: StoryQCReport,
+        *,
+        ending_mode=None,
+    ) -> RevisionDecision:
         if not report.dimension_evaluations:
             return RevisionDecision(
-                revision_required=self._legacy_revision_required(report),
+                revision_required=self._legacy_revision_required(
+                    report,
+                    ending_mode=ending_mode,
+                ),
                 decision_reason=(
                     "Story QC dimension evidence is unavailable; preserve the legacy rubric planning path."
                 ),
@@ -77,6 +89,10 @@ class RubricRevisionPlanner:
             evaluation
             for evaluation in report.dimension_evaluations
             if self._requires_revision(evaluation)
+            and not (
+                evaluation.dimension == StoryQCDimension.cliffhanger_strength
+                and not ending_mode_requires_hook(ending_mode)
+            )
         ]
         ranked_candidates = sorted(candidates, key=self._dimension_selection_key)
         selected = ranked_candidates[: self._MAX_SELECTED_DIMENSIONS]
@@ -193,6 +209,11 @@ class RubricRevisionPlanner:
             report.rubric_categories,
             key=lambda item: (item.score, item.category_name.lower()),
         ):
+            if (
+                category.category_name.casefold() == "cliffhanger strength"
+                and not ending_mode_requires_hook(draft.ending_mode)
+            ):
+                continue
             if category.score >= 4.0 and not category.deduction_reasons:
                 continue
             action = self._build_action_from_rubric(draft, category, report.checks)
@@ -324,11 +345,31 @@ class RubricRevisionPlanner:
             return f"Scene {scene_refs[0]}"
         return "Scenes " + ", ".join(str(scene_ref) for scene_ref in scene_refs)
 
-    def _legacy_revision_required(self, report: StoryQCReport) -> bool:
+    def _legacy_revision_required(
+        self,
+        report: StoryQCReport,
+        *,
+        ending_mode=None,
+    ) -> bool:
+        def check_requires_revision(check: StoryQCCheck) -> bool:
+            if check.passed:
+                return False
+            if not ending_mode_requires_hook(ending_mode):
+                check_text = f"{check.check_name} {check.note}".casefold()
+                if "cliffhanger" in check_text or "结尾钩" in check_text:
+                    return False
+            return True
+
         return any(
-            category.score < 4.0 or category.deduction_reasons
+            (
+                category.score < 4.0 or category.deduction_reasons
+            )
+            and not (
+                category.category_name.casefold() == "cliffhanger strength"
+                and not ending_mode_requires_hook(ending_mode)
+            )
             for category in report.rubric_categories
-        ) or any(not check.passed for check in report.checks)
+        ) or any(check_requires_revision(check) for check in report.checks)
 
     def _build_plan_notes(
         self,

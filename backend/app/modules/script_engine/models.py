@@ -11,6 +11,8 @@ from app.modules.master_script.models import DraftMasterScript
 from app.modules.orchestrator.models import OrchestrationPlan
 from app.modules.retrieval.models import RetrievalPlanResult
 from app.script_delivery_contract import (
+    DEFAULT_ENDING_MODE,
+    EndingMode,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -20,6 +22,7 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
     clamp_legacy_numeric,
+    normalize_finale_legacy_fields,
     normalize_episode_dialogue_plan_payload,
 )
 from app.modules.script_engine.long_story_models import (
@@ -1235,9 +1238,14 @@ class ApprovedEpisodePlanContext(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_dialogue_plan(cls, value: Any) -> Any:
-        return normalize_episode_dialogue_plan_payload(value)
+        normalized = normalize_episode_dialogue_plan_payload(value)
+        return normalize_finale_legacy_fields(
+            normalized,
+            include_legacy_hook_type=False,
+        )
 
     episode_number: int = Field(ge=1, le=2_000)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     target_duration_seconds: int = Field(
         default=90,
         ge=EPISODE_RUNTIME_MIN_SECONDS,
@@ -1410,9 +1418,42 @@ class ApprovedStoryNodeContext(BaseModel):
 class EpisodeGenerationContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_ending_mode(cls, value: Any) -> Any:
+        """Treat omitted/null/legacy closing labels as a safe wire default.
+
+        Some persisted v1 snapshots contain an explicit ``null`` rather than
+        omitting the field.  Pydantic would reject that value before the
+        after-validator can inherit the approved roadmap's mode, so normalize
+        it at the transport boundary.  Known aliases are canonicalized by the
+        enum; unknown prose deliberately falls back to the legacy serial mode.
+        """
+
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        raw_mode = normalized.get("ending_mode")
+        if raw_mode is None or (
+            isinstance(raw_mode, str) and not raw_mode.strip()
+        ):
+            approved_plan = normalized.get("approved_episode_plan")
+            plan_mode = (
+                approved_plan.get("ending_mode")
+                if isinstance(approved_plan, dict)
+                else getattr(approved_plan, "ending_mode", None)
+            )
+            raw_mode = plan_mode or DEFAULT_ENDING_MODE
+        try:
+            normalized["ending_mode"] = EndingMode(raw_mode).value
+        except (TypeError, ValueError):
+            normalized["ending_mode"] = DEFAULT_ENDING_MODE.value
+        return normalized
+
     generation_mode: EpisodeGenerationMode
     episode_number: int = Field(ge=1, le=2000)
     total_episodes: int = Field(ge=1, le=2000)
+    ending_mode: EndingMode = DEFAULT_ENDING_MODE
     previous_episode_summary: str | None = Field(default=None, max_length=2000)
     previous_episode_handoff: str | None = Field(default=None, max_length=3200)
     previous_episode_question: str | None = Field(default=None, max_length=240)
@@ -1466,6 +1507,26 @@ class EpisodeGenerationContext(BaseModel):
         if len(set(refs)) != len(refs):
             raise ValueError("Storyline duties must reference unique story lines.")
         return values
+
+    @model_validator(mode="after")
+    def align_ending_mode_with_approved_plan(self) -> "EpisodeGenerationContext":
+        """Keep the executable context and approved roadmap on one closing contract.
+
+        Older clients omit the top-level field, so they inherit the roadmap's
+        mode.  An explicitly supplied mismatch is rejected instead of allowing
+        a finale to be regenerated as a serial cliffhanger episode.
+        """
+
+        plan = self.approved_episode_plan
+        if plan is None:
+            return self
+        if "ending_mode" not in self.model_fields_set:
+            self.ending_mode = plan.ending_mode
+        elif self.ending_mode != plan.ending_mode:
+            raise ValueError(
+                "ending_mode must match approved_episode_plan.ending_mode."
+            )
+        return self
 
     @model_validator(mode="after")
     def ensure_episode_number_within_series(self) -> "EpisodeGenerationContext":
