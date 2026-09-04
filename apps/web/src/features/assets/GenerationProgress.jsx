@@ -22,7 +22,7 @@ export function GenerationProgress({ task, busy = false, compact = false }) {
         <AlertCircle size={compact ? 14 : 20} />
         <div>
           <strong>{task.status === 'cancelled' ? '生成已取消' : '生成失败'}</strong>
-          {!compact && <span>{task.error || '可返回资产卡片重新生成'}</span>}
+          {!compact && <span>{assetGenerationErrorMessage(task.error)}</span>}
         </div>
       </div>
     )
@@ -79,4 +79,12 @@ function phaseDetail(task, busy, phase) {
   if (task?.status === 'paused') return '任务已暂停，可在生成队列恢复'
   if (task?.status === 'queued') return '等待可用并发资源'
   return PHASES[phase].detail
+}
+
+export function assetGenerationErrorMessage(error) {
+  const message = String(error || '')
+  if (/safety system|safety_violations|violence/i.test(message)) {
+    return '内容触发图片模型安全审核，未生成图片。请弱化暴力、血腥或危险描述后重试。'
+  }
+  return message || '可返回资产卡片重新生成'
 }

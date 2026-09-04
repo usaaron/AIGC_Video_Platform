@@ -1,15 +1,26 @@
 const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 
 export function activeAssetImageTask(asset, tasks = []) {
+  const task = latestAssetImageTask(asset, tasks)
+  return task && ACTIVE_TASK_STATUSES.has(task.status) ? task : undefined
+}
+
+export function latestAssetImageTask(asset, tasks = []) {
   return tasks
     .filter(
       (task) =>
         task.metadata?.assetId === asset.id &&
         task.kind === 'image' &&
-        ACTIVE_TASK_STATUSES.has(task.status) &&
         task.metadata?.generationStage !== 'trusted-portrait',
     )
     .sort((left, right) => taskTimestamp(right) - taskTimestamp(left))[0]
+}
+
+export function assetTaskCardState(task, previewUrl) {
+  if (!task) return null
+  if (ACTIVE_TASK_STATUSES.has(task.status)) return task.status
+  if (!previewUrl && ['failed', 'cancelled'].includes(task.status)) return task.status
+  return null
 }
 
 export function characterAssetStatus(asset) {

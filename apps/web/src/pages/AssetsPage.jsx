@@ -21,7 +21,11 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { ASSET_TABS, IMAGE_MODEL_OPTIONS } from '../features/assets/assetOptions'
 import { GenerationProgress } from '../features/assets/GenerationProgress'
 import { getAssetPreviewUrl } from '../features/assets/assetPreview'
-import { activeAssetImageTask, characterAssetStatus } from '../features/assets/assetTaskState'
+import {
+  assetTaskCardState,
+  characterAssetStatus,
+  latestAssetImageTask,
+} from '../features/assets/assetTaskState'
 import { summarizeAsset } from '../features/assets/promptCompiler'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
@@ -168,7 +172,8 @@ export function AssetsPage({
                 : null
             }
             onEdit={() => setEditing(asset)}
-            task={activeAssetImageTask(asset, tasks)}
+            task={latestAssetImageTask(asset, tasks)}
+            tasks={tasks}
             onGenerate={async () => {
               setBusyAssetId(asset.id)
               try {
@@ -259,11 +264,12 @@ export function AssetsPage({
   )
 }
 
-function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
+function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
   const [emptyTitle, emptyDescription] = emptyAssetCopy[asset.kind] || ['资产待生成', '完成生成后在此预览']
   const tags = [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)]
-  const previewUrl = getAssetPreviewUrl(asset)
+  const previewUrl = getAssetPreviewUrl(asset, tasks)
+  const taskCardState = assetTaskCardState(task, previewUrl)
   return (
     <article className={`asset-card asset-${asset.kind}`}>
       <div className={`asset-image ${asset.kind === 'audio' ? 'sound-asset' : ''}`}>
@@ -287,19 +293,25 @@ function AssetCard({ asset, task, linkedCharacterName, onEdit, onGenerate, onPre
             <small>{emptyDescription}</small>
           </div>
         )}
-        {(busy || task) && (
+        {(busy || taskCardState) && (
           <div className="asset-generation-overlay" role="status" aria-live="polite">
-            <GenerationProgress task={task} busy={busy} />
+            <GenerationProgress task={!busy && taskCardState ? task : null} busy={busy} />
           </div>
         )}
         <span>
-          {asset.kind === 'character'
-            ? characterStatus(asset)
-            : asset.sourceMode === 'import'
-              ? '直接使用'
-              : asset.status === 'confirmed'
-                ? '已确认'
-                : 'AI 资产'}
+          {taskCardState === 'failed'
+            ? '生成失败'
+            : taskCardState === 'cancelled'
+              ? '已取消'
+              : ['queued', 'paused', 'running'].includes(taskCardState)
+                ? '生成中'
+                : asset.kind === 'character'
+                  ? characterStatus(asset)
+                  : asset.sourceMode === 'import'
+                    ? '直接使用'
+                    : asset.status === 'confirmed'
+                      ? '已确认'
+                      : 'AI 资产'}
         </span>
         <IconButton label="编辑资产" onClick={onEdit}>
           <Pencil size={17} />

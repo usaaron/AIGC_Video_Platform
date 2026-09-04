@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { activeAssetImageTask, characterAssetStatus, isTrustedPortraitTaskActive } from './assetTaskState'
+import {
+  activeAssetImageTask,
+  assetTaskCardState,
+  characterAssetStatus,
+  isTrustedPortraitTaskActive,
+  latestAssetImageTask,
+} from './assetTaskState'
 
 describe('asset task state', () => {
   it('does not show a trusted portrait task as image production progress', () => {
@@ -26,6 +32,28 @@ describe('asset task state', () => {
     }
 
     expect(activeAssetImageTask(asset, [task])).toBe(task)
+  })
+
+  it('keeps the latest failure visible only while an asset has no preview', () => {
+    const asset = { id: 'character-1', kind: 'character' }
+    const completed = {
+      id: 'older-task',
+      kind: 'image',
+      status: 'completed',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+      metadata: { assetId: asset.id },
+    }
+    const failed = {
+      id: 'latest-task',
+      kind: 'image',
+      status: 'failed',
+      updatedAt: '2026-09-01T10:01:00.000Z',
+      metadata: { assetId: asset.id },
+    }
+
+    expect(latestAssetImageTask(asset, [completed, failed])).toBe(failed)
+    expect(assetTaskCardState(failed, null)).toBe('failed')
+    expect(assetTaskCardState(failed, '/existing.png')).toBeNull()
   })
 
   it('uses the trusted portrait as the asset card status once it is active', () => {
