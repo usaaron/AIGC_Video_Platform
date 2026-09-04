@@ -1,5 +1,6 @@
 import type { CreateShot, GenerateShotsRequest, ScriptEpisode } from '@seqora/contracts'
 import { FORCE_EPISODE_BREAK_MARKER, FORCE_SHOT_BREAK_MARKER } from '@seqora/contracts'
+import { isNaturalScreenplayHeader, parseNaturalScreenplayFields } from './screenplayParsing.js'
 
 const COMPLETE_SCENE_FIELDS = [
   '场次',
@@ -126,7 +127,9 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
     }
 
     if (structuredScene) {
-      structuredScene.text = `${structuredScene.text} ${line}`
+      structuredScene.text = isNaturalScreenplayHeader(structuredScene.text)
+        ? `${structuredScene.text}\n${line}`
+        : `${structuredScene.text} ${line}`
       continue
     }
 
@@ -676,6 +679,12 @@ export function parseShotFields(
       fields[key] = match?.[2]?.replace(/^\*{1,2}|\*{1,2}$/gu, '').trim() || ''
     }
   }
+  const screenplayFields = parseNaturalScreenplayFields(paragraph)
+  for (const [key, value] of Object.entries(screenplayFields) as Array<
+    [(typeof SHOT_FIELD_NAMES)[number], string]
+  >) {
+    if (!fields[key] && value) fields[key] = value
+  }
   return fields
 }
 
@@ -691,6 +700,12 @@ export function parseSceneDirectionFields(paragraph: string): SceneDirectionFiel
     if (key && SCENE_DIRECTION_FIELD_NAMES.includes(key)) {
       fields[key] = match?.[2]?.replace(/^\*{1,2}|\*{1,2}$/gu, '').trim() || ''
     }
+  }
+  if (!Object.keys(fields).length) {
+    const action = parseNaturalScreenplayFields(paragraph).动作 || ''
+    const beats = splitFieldBeats(action)
+    if (beats[0]) fields.入场状态 = headExcerpt(beats[0], 240)
+    if (beats.at(-1)) fields.出场状态 = headExcerpt(beats.at(-1)!, 240)
   }
   return fields
 }

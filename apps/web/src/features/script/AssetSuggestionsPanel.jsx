@@ -365,6 +365,12 @@ function buildSuggestionFacts(asset) {
   const attributes = asset.attributes || {}
   const sourceFacts = asset.sourceFacts || {}
   const sourceFact = (...labels) => labels.map((label) => sourceFacts[label]).find(Boolean) || ''
+  const sourceFactList = (...labels) =>
+    labels
+      .map((label) => sourceFacts[label])
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join('、')
   if (asset.kind === 'character') {
     if (attributes.subjectType === 'animal') {
       return [
@@ -385,7 +391,9 @@ function buildSuggestionFacts(asset) {
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
       { label: '精确年龄', value: attributes.exactAge ? `${attributes.exactAge} 岁` : '未指定' },
       { label: '身份', value: sourceFact('身份', '角色身份', '人物背景') || asset.description || '未补充' },
-      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
+      { label: '固定外形', value: sourceFact('固定外形', '外形', '外貌', '基础造型') || '未补充' },
+      { label: '体貌', value: sourceFactList('体型', '脸型', '肤色') || '未补充' },
+      { label: '发型', value: sourceFactList('发型', '发色') || '未补充' },
     ]
   }
   if (asset.kind === 'scene') {
@@ -396,11 +404,13 @@ function buildSuggestionFacts(asset) {
         value: attributes.sceneType ? optionLabel('sceneType', attributes.sceneType) : '未指定',
       },
       { label: '氛围', value: attributes.mood ? optionLabel('mood', attributes.mood) : '未指定' },
+      { label: '时代', value: sourceFact('时代', '年代') || optionLabel('era', attributes.era) || '未指定' },
+      { label: '用途', value: sourceFact('场景用途', '用途') || '未补充' },
       {
-        label: '时间',
-        value: sourceFact('时间', '时段') || optionLabel('time', attributes.time) || '未指定',
+        label: '固定布局',
+        value: sourceFactList('固定布局', '空间布局', '布局', '入口出口', '固定陈设') || '未补充',
       },
-      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
+      { label: '材质色彩', value: sourceFactList('材质', '基础色彩', '基础氛围') || '未补充' },
     ]
   }
   if (asset.kind === 'prop') {
@@ -410,12 +420,16 @@ function buildSuggestionFacts(asset) {
         value: attributes.category ? optionLabel('propCategory', attributes.category) : '未指定',
       },
       { label: '材质', value: attributes.material ? optionLabel('material', attributes.material) : '未指定' },
-      { label: '视角', value: attributes.view ? optionLabel('view', attributes.view) : '未指定' },
+      { label: '颜色', value: sourceFact('颜色', '配色') || '未指定' },
       {
         label: '状态',
-        value: attributes.condition ? optionLabel('condition', attributes.condition) : '未指定',
+        value:
+          sourceFact('基础状态', '基准状态') ||
+          (attributes.condition ? optionLabel('condition', attributes.condition) : '未指定'),
       },
-      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
+      { label: '固定结构', value: sourceFactList('尺度', '形状', '固定结构', '结构') || '未补充' },
+      { label: '归属', value: sourceFact('归属', '持有人', '所有者') || '未指定' },
+      { label: '准确文字', value: sourceFact('准确文字', '文字') || '无' },
     ]
   }
   if (asset.kind === 'costume') {
@@ -428,7 +442,9 @@ function buildSuggestionFacts(asset) {
       { label: '季节', value: attributes.season ? optionLabel('season', attributes.season) : '未指定' },
       { label: '风格', value: attributes.design ? optionLabel('design', attributes.design) : '未指定' },
       { label: '归属', value: sourceFact('归属', '角色', '穿着者') || '未指定' },
-      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
+      { label: '剪裁层次', value: sourceFactList('剪裁', '层次', '款式') || '未补充' },
+      { label: '颜色材质', value: sourceFactList('颜色', '配色', '材质') || '未补充' },
+      { label: '配件', value: sourceFact('配件', '饰品') || '无' },
     ]
   }
   if (asset.kind === 'brand') {
@@ -439,11 +455,14 @@ function buildSuggestionFacts(asset) {
       },
       { label: '用途', value: attributes.usage ? optionLabel('usage', attributes.usage) : '未指定' },
       { label: '文字', value: attributes.exactText || asset.name },
+      { label: '标准色', value: sourceFact('标准色', '配色', '颜色') || attributes.palette || '未指定' },
       {
         label: '背景',
-        value: attributes.background ? optionLabel('background', attributes.background) : '透明',
+        value:
+          sourceFact('版式背景', '背景') ||
+          (attributes.background ? optionLabel('background', attributes.background) : '透明'),
       },
-      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
+      { label: '图形结构', value: sourceFactList('图形结构', '版式', '字体方向') || '未补充' },
     ]
   }
   if (asset.kind === 'audio') {

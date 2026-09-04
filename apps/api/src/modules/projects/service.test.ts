@@ -824,10 +824,10 @@ describe('ProjectService asset suggestions', () => {
         expect.objectContaining({
           kind: 'character',
           name: '林晚',
-          sourceFacts: expect.objectContaining({ 身份: '急诊护士', 故事作用: '救下程野并组织防守' }),
+          sourceFacts: expect.objectContaining({ 身份: '急诊护士' }),
           attributes: expect.objectContaining({ gender: 'female', exactAge: 28, ageGroup: 'young' }),
           description: expect.stringContaining('急诊护士'),
-          prompt: expect.stringContaining('故事作用：救下程野并组织防守'),
+          prompt: expect.not.stringContaining('故事作用'),
         }),
         expect.objectContaining({
           kind: 'scene',
@@ -845,6 +845,7 @@ describe('ProjectService asset suggestions', () => {
     )
     expect(splitScriptParagraphs(script)).toHaveLength(1)
     expect(splitScriptParagraphs(script)[0]?.text).toContain('场次：S01')
+    expect(result.assets.find((asset) => asset.name === '林晚')?.sourceFacts).not.toHaveProperty('故事作用')
   })
 
   it('stops asset fields before director details and ignores temporary shot state', () => {

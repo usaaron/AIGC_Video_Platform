@@ -150,8 +150,21 @@ export function manifestFact(item: ScriptAssetManifestItem | undefined, labels: 
   return ''
 }
 
+const NON_VISUAL_ASSET_FACT_LABELS = new Set(['故事作用', '剧情作用', '作用', '故事', '剧情', '目的', '目标'])
+
+export function reusableAssetFacts(facts: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(facts || {}).filter(
+      ([label, value]) => !NON_VISUAL_ASSET_FACT_LABELS.has(label.trim()) && Boolean(value.trim()),
+    ),
+  )
+}
+
 export function manifestDetails(item: ScriptAssetManifestItem | undefined): string {
-  return item?.details ? `剧本资产设定：${item.details}`.slice(0, 360) : ''
+  const details = Object.entries(reusableAssetFacts(item?.facts))
+    .map(([label, value]) => `${label}：${value}`)
+    .join('；')
+  return details ? `剧本资产设定：${details}`.slice(0, 360) : ''
 }
 
 export function namesFromManifestOrFields(
@@ -352,6 +365,15 @@ function isPlausibleAssetName(value: string, kind: ScriptAssetKind): boolean {
       return false
     if (/^(?:清晨|黎明|上午|中午|下午|傍晚|黄昏|夜晚|深夜|午夜|阴天|晴天|冷雾|晨雾|黑雾|金光)$/u.test(value))
       return false
+  }
+  if (kind === 'prop') {
+    if (
+      /(?:盒盖|瓶盖|门盖|暗扣|卡扣).*(?:打开|关闭|闭合|合上|敞开|扣紧|锁死)|(?:已|正|正在)?(?:露出|拿起|握住|放下|打开|关闭|敞开|扣紧|锁死|破碎|碎裂|燃烧|滚动|掉落)/u.test(
+        value,
+      )
+    )
+      return false
+    if (/^(?:已露出半截|盒盖敞开|盒盖暗扣扣紧|打开状态|关闭状态)$/u.test(value)) return false
   }
   return true
 }

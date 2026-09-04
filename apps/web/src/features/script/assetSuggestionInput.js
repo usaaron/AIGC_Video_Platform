@@ -1,5 +1,7 @@
 import { createDefaultAttributes } from '../assets/assetOptions'
 
+const NON_VISUAL_FACT_LABELS = new Set(['故事作用', '剧情作用', '作用', '故事', '剧情', '目的', '目标'])
+
 export function suggestionToAssetInput(suggestion) {
   const kind = suggestion.kind
   const attributes = {
@@ -9,7 +11,7 @@ export function suggestionToAssetInput(suggestion) {
   }
   const prompt = String(suggestion.prompt || '').trim()
   const sourceFacts = Object.entries(suggestion.sourceFacts || {})
-    .filter(([, value]) => String(value || '').trim())
+    .filter(([label, value]) => !NON_VISUAL_FACT_LABELS.has(label.trim()) && String(value || '').trim())
     .map(([label, value]) => `${label}：${String(value).trim()}`)
     .join('；')
   const description = [String(suggestion.description || '').trim(), sourceFacts]

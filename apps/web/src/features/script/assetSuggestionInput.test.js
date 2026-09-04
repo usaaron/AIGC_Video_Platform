@@ -30,6 +30,7 @@ describe('suggestionToAssetInput', () => {
       },
     })
     expect(input.description).toContain('身份：急诊护士')
-    expect(input.description).toContain('故事作用：救下伤员')
+    expect(input.description).not.toContain('故事作用')
+    expect(input.customPrompt).not.toContain('故事作用')
   })
 })

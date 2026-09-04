@@ -15,7 +15,7 @@ export const SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT = `你是中文 AI 视频项
 8. name 只能写稳定、可复用的资产实体名称，长度建议 2 到 16 个中文字符；动作、情绪、时间、天气、对白、镜头描述和完整句子只能写进 description 或 visualNotes，绝不能写进 name。
 9. 人物 name 只能使用剧本中的明确姓名或稳定身份称呼，例如“林川”“青云宗长老”“女剑客”“老船夫”；禁止使用“先神情紧张”“低头缩肩”“随后强装镇定”“站在”“走向”“看向”“等待”“说道”等动作或状态，也不要把一次性群众写成人物资产。
 10. 场景 name 只能使用稳定地点，例如“青云宗山门广场”“边城药铺”“旧火车站三号站台”；禁止使用“清晨冷雾未散”“四周站满等待试炼的弟子”“石阶尽头立着测灵石”等时间、天气、人物活动或陈设描述。地点的空间、陈设、氛围和光线写进 description 或 visualNotes。
-11. visualNotes 只写剧本能够证明的身份、外形、材质、颜色、年代、空间或品牌文字等关键视觉事实，保持一句到两句中文，不要重复固定生成规范。角色要区分人类和动物，动物不得使用人类年龄和性别词；服装只描述服装本身。
+11. description 和 visualNotes 只写剧本能够证明且跨镜可复用的身份、年龄、外形、材质、颜色、固定结构、空间布局或品牌准确文字等事实，保持一句到两句中文，不要重复固定生成规范。不得把故事作用、剧情目的、当场动作、伤势、表情、天气或物件开合状态写进这两个字段；这些信息只能影响内部 reason 和 priority。角色要区分人类和动物，动物不得使用人类年龄和性别词；服装只描述服装本身。
 12. attributes 只返回剧本能够明确判断的字段，无法判断的字段不要猜测、不要返回。允许字段及枚举：
 character.subjectType human/animal；gender male/female/unspecified；ageGroup child/teen/young/middle/senior；exactAge 数字或 null；ethnicity unspecified/east-asian/south-asian/southeast-asian/white/black/latino/middle-eastern/mixed/other；skinTone unspecified/fair/light/medium/tan/deep/dark；eyeColor unspecified/black/dark-brown/brown/hazel/green/blue/gray/amber；hairColor unspecified/black/dark-brown/brown/blonde/red/gray/white/other；species；anthropomorphic。
 scene.space interior/exterior；sceneType city/street/residential/commercial/nature/ancient/industrial/fantasy；era ancient/recent/modern/future；time dawn/day/sunset/night；weather clear/cloudy/rain/snow/fog；mood warm/tense/mystery/romantic/epic/desolate。
@@ -149,10 +149,11 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
 function normalizeSourceFacts(value: unknown): Record<string, string> {
   const source = asRecord(value)
   if (!source) return {}
+  const nonVisualLabels = new Set(['故事作用', '剧情作用', '作用', '故事', '剧情', '目的', '目标'])
   return Object.fromEntries(
     Object.entries(source)
       .map(([key, entry]) => [key.trim().slice(0, 20), textValue(entry, '', 200).trim()] as const)
-      .filter(([key, entry]) => Boolean(key && entry))
+      .filter(([key, entry]) => Boolean(key && entry) && !nonVisualLabels.has(key))
       .slice(0, 12),
   )
 }

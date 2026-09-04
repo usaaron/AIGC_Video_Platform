@@ -5,6 +5,7 @@ import {
   manifestDetails,
   manifestFact,
   namesFromManifestOrFields,
+  reusableAssetFacts,
   resolveAssetSuggestionName,
 } from './assetSuggestionExtraction.js'
 import type { ScriptAssetManifestItem, ScriptAssetNameIndex } from './assetSuggestionExtraction.js'
@@ -63,10 +64,12 @@ export function normalizeScriptAssetSuggestion(
   const manifestItem = manifest[namedSuggestionBase.kind].find((item) => item.name === name)
   const namedSuggestion: ScriptAssetSuggestion = {
     ...namedSuggestionBase,
-    sourceFacts: {
+    description: stripNarrativeAssetFacts(namedSuggestionBase.description),
+    prompt: stripNarrativeAssetFacts(namedSuggestionBase.prompt),
+    sourceFacts: reusableAssetFacts({
       ...manifestItem?.facts,
       ...namedSuggestionBase.sourceFacts,
-    },
+    }),
   }
   const stylePrompt = `项目统一视觉风格：${projectVisualStyleLabel(projectVisualStyle)}，后续资产和视频必须保持这一风格，不要自行切换风格`
 
@@ -149,10 +152,10 @@ export function normalizeScriptAssetSuggestion(
 
   if (namedSuggestion.kind === 'scene') {
     const sceneContext = [
-      sourceContext,
       namedSuggestion.name,
       namedSuggestion.description,
       namedSuggestion.prompt,
+      manifestDetails(manifestItem),
     ].join('，')
     return {
       ...namedSuggestion,
@@ -179,7 +182,7 @@ export function normalizeScriptAssetSuggestion(
       namedSuggestion.name,
       namedSuggestion.description,
       namedSuggestion.prompt,
-      sourceContext,
+      manifestDetails(manifestItem),
     ].join('，')
     return {
       ...namedSuggestion,
@@ -187,7 +190,7 @@ export function normalizeScriptAssetSuggestion(
         stylePrompt,
         namedSuggestion.name,
         namedSuggestion.prompt,
-        '统一项目视觉风格的物品资产，单个物品独立展示，完整轮廓，正面主视图，结构和尺寸关系准确，材质、颜色、磨损与剧情状态明确，透明背景，Alpha 通道，无背景色，无投影，均匀平光，主体边缘清晰，适合跨镜头保持一致',
+        '统一项目视觉风格的物品资产，单个物品独立展示，完整轮廓，正面主视图，结构和尺寸关系准确，材质、颜色与基础状态明确，不表现手持、开合、破碎、燃烧或其他当场剧情状态，透明背景，Alpha 通道，无背景色，无投影，均匀平光，主体边缘清晰，适合跨镜头保持一致',
       ]),
       negativePrompt: composeAssetNegativePrompt(namedSuggestion.negativePrompt, PROP_ASSET_NEGATIVE_PROMPT),
       attributes: {
@@ -235,6 +238,16 @@ export function normalizeScriptAssetSuggestion(
       presentation: 'flat',
     },
   }
+}
+
+function stripNarrativeAssetFacts(value: string): string {
+  return value
+    .replace(
+      /(?:^|[；;，,。\n])\s*(?:故事作用|剧情作用|作用|故事|剧情目的|目标)\s*[：:]\s*[^；;，,。\n]*/gu,
+      '',
+    )
+    .replace(/^[；;，,。\s]+|[；;，,。\s]+$/gu, '')
+    .trim()
 }
 
 function replaceAssetName(value: string, originalName: string, replacementName: string): string {
@@ -307,10 +320,8 @@ export function fallbackAssetSuggestions(
         : inferManifestAgeGroup(manifestItem, inferScriptCharacterAge(evidence))
       const identityTags = inferScriptCharacterIdentityTags(evidence)
       const identity = manifestFact(manifestItem, ['身份', '角色身份', '人物背景'])
-      const storyRole = manifestFact(manifestItem, ['故事作用', '作用', '剧情作用', '故事'])
       const explicitProfile = [
         identity ? `身份：${identity}` : '',
-        storyRole ? `故事作用：${storyRole}` : '',
         manifestFact(manifestItem, ['外形', '外貌'])
           ? `外形：${manifestFact(manifestItem, ['外形', '外貌'])}`
           : '',
@@ -345,7 +356,7 @@ export function fallbackAssetSuggestions(
         negativePrompt: '',
         reason: '角色在剧本中出现，需要先建立可复用的人物资产。',
         priority: 5,
-        sourceFacts: manifestItem?.facts || {},
+        sourceFacts: reusableAssetFacts(manifestItem?.facts),
         attributes: {
           type: 'character',
           subjectType,
@@ -395,14 +406,14 @@ export function fallbackAssetSuggestions(
         negativePrompt: '',
         reason: '场景会承载多个镜头，需要先统一空间和美术设定。',
         priority: 4,
-        sourceFacts: manifestItem?.facts || {},
+        sourceFacts: reusableAssetFacts(manifestItem?.facts),
         attributes: {
           type: 'scene',
           space: inferSceneSpace(sceneEvidence),
           sceneType: inferSceneType(sceneEvidence),
           era: inferEra(sceneEvidence),
           time: inferSceneTime(sceneEvidence),
-          weather: inferWeather([script, sceneEvidence].join('，')),
+          weather: inferWeather(sceneEvidence),
           mood: inferSceneMood(sceneEvidence),
           camera: inferSceneCamera(sceneEvidence),
           visualStyle,
@@ -430,7 +441,7 @@ export function fallbackAssetSuggestions(
         negativePrompt: '',
         reason: '该物件承载剧情信息或多次出现，需要保持外观连续。',
         priority: 4,
-        sourceFacts: manifestItem?.facts || {},
+        sourceFacts: reusableAssetFacts(manifestItem?.facts),
         attributes: {
           type: 'prop',
           category: inferPropCategory(propEvidence),
@@ -461,7 +472,7 @@ export function fallbackAssetSuggestions(
         negativePrompt: '',
         reason: '服装影响角色跨镜头一致性，需要作为独立资产确认。',
         priority: 4,
-        sourceFacts: manifestItem?.facts || {},
+        sourceFacts: reusableAssetFacts(manifestItem?.facts),
         attributes: {
           type: 'costume',
           characterAssetId: null,
@@ -495,7 +506,7 @@ export function fallbackAssetSuggestions(
         negativePrompt: '',
         reason: '品牌标识需要在广告、片尾或场景中保持一致，建议独立建立资产。',
         priority: 5,
-        sourceFacts: manifestItem?.facts || {},
+        sourceFacts: reusableAssetFacts(manifestItem?.facts),
         attributes: {
           type: 'brand',
           brandType: inferBrandType(brandEvidence),
