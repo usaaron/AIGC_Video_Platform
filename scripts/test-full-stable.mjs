@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { platform } from 'node:os'
 
 const isWindows = platform() === 'win32'
@@ -29,6 +29,7 @@ const phases = [
 let testDbStarted = false
 
 try {
+  assertDockerAvailable()
   for (const [name, args] of phases) {
     await runPnpm(name, args)
   }
@@ -49,6 +50,29 @@ try {
       allowFailure: true,
     })
   }
+}
+
+function assertDockerAvailable() {
+  const configuredTimeout = Number(process.env.SEQORA_DOCKER_PREFLIGHT_TIMEOUT_MS)
+  const timeout = Number.isFinite(configuredTimeout)
+    ? Math.max(1_000, Math.min(60_000, configuredTimeout))
+    : 10_000
+  process.stdout.write(`\n[test:full:stable] docker preflight (timeout ${timeout}ms)\n`)
+  const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout,
+    windowsHide: true,
+  })
+  if (result.status === 0) return
+
+  if (result.error?.code === 'ETIMEDOUT' || result.signal) {
+    throw new Error(
+      `Docker daemon did not respond within ${timeout}ms. Start Docker Desktop or set SEQORA_DOCKER_PREFLIGHT_TIMEOUT_MS.`,
+    )
+  }
+  const detail = String(result.stderr || result.error?.message || `exit ${result.status}`).trim()
+  throw new Error(`Docker daemon is unavailable: ${detail}`)
 }
 
 function runPnpm(name, args, { env = process.env, allowFailure = false } = {}) {

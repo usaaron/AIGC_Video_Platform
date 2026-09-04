@@ -52,7 +52,7 @@ apps/api/       Fastify 5 API、Worker、migration 和 Provider
 packages/contracts/  前后端共享 Zod 契约、角色和权限
 packages/prompting/  图片/视频提示词与质量规则
 docs/           当前状态、架构、专项设计与运维
-deploy/         Docker、Caddy、GCE、发布和回滚脚本
+deploy/         Docker、Caddy、单机发布和回滚脚本
 scripts/        开发、监控、压测和安全工具
 ```
 
@@ -137,10 +137,10 @@ git diff --check
 
 ## 生产规则
 
-当前生产域名是 `https://xumutv.com`；现有生产仍运行在 GCE 单机 Docker Compose，迁移到阿里云前不得假设架构已经切换。安全的实例、路径、发布和故障处理命令见 `docs/OPERATIONS_RUNBOOK.md`。
+当前生产域名是 `https://xumutv.com`；生产运行在阿里云 ECS 单机 Docker Compose。安全的实例、路径、发布和故障处理命令见 `docs/OPERATIONS_RUNBOOK.md`。
 
 - `/opt/seqora` 当前是源码包部署目录，不包含 `.git`；不要在服务器执行 `git pull`。
-- 优先使用验证后的 CI/CD 镜像发布；人工回退使用 `deploy/package.ps1`、GCloud SCP 和 `deploy/update-source.sh`。
+- 优先使用验证后的 CI/CD 镜像发布；人工回退使用 `deploy/package.ps1`、SSH/SCP 和 `deploy/update-source.sh`。
 - 更新 API 前必须先执行 migration。生产进程只检查 migration，不自动改库。
 - 更新前备份；健康检查失败必须回滚，不允许带病继续。
 - 不打印 `deploy/demo.env`，不把真实密钥写进文档、Git、镜像或前端变量。

@@ -19,6 +19,7 @@ const AUXILIARY_REFRESH_MS = 60_000
 
 export function useWorkspacePolling({
   projectId,
+  includeTaskDetails = false,
   workspaceCacheRef,
   replaceTasks,
   setWorkspace,
@@ -42,6 +43,19 @@ export function useWorkspacePolling({
     let workspaceVersionEtag = null
     let initialized = false
 
+    const loadInitialTasks = async () => {
+      if (includeTaskDetails) return api.tasks(projectId)
+      try {
+        const result = await api.pollTasks(projectId)
+        taskPollingEtag = result.etag || null
+        return result.tasks || []
+      } catch (error) {
+        // Older API instances may not expose the compact polling endpoint yet.
+        if (error?.status !== 404) throw error
+        return api.tasks(projectId)
+      }
+    }
+
     const schedule = (delay) => {
       if (cancelled) return
       window.clearTimeout(timer)
@@ -57,9 +71,9 @@ export function useWorkspacePolling({
         let taskFinished = false
         if (!initialized) {
           if (workspaceCacheRef.current.has(projectId)) {
-            nextTasks = await api.tasks(projectId)
+            nextTasks = await loadInitialTasks()
           } else {
-            const initialData = await Promise.all([api.tasks(projectId), api.project(projectId)])
+            const initialData = await Promise.all([loadInitialTasks(), api.project(projectId)])
             nextTasks = initialData[0]
             nextWorkspace = initialData[1]
           }
@@ -87,9 +101,10 @@ export function useWorkspacePolling({
                   !previousById.has(summary.id) ||
                   (taskFinished && ['completed', 'failed', 'cancelled'].includes(summary.status)),
               )
-              nextTasks = needsFullRefresh
-                ? await api.tasks(projectId)
-                : mergeTaskPolling(currentTasks, summaries)
+              nextTasks =
+                includeTaskDetails && needsFullRefresh
+                  ? await api.tasks(projectId)
+                  : mergeTaskPolling(currentTasks, summaries)
             }
           }
         }
@@ -170,6 +185,7 @@ export function useWorkspacePolling({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [
+    includeTaskDetails,
     projectId,
     replaceTasks,
     setBilling,

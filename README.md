@@ -68,9 +68,9 @@ deploy/      API/Web 容器、Caddy 配置和外测环境变量模板
 
 ## 外部测试部署
 
-仓库包含 Google Compute Engine 单机 Demo 所需的 `compose.demo.yml`、API/Web Dockerfile、Caddy 自动 HTTPS 配置和无密钥环境变量模板。完整步骤、上线门槛、备份和回滚见 [外部测试部署](docs/DEPLOYMENT.md) 与 [备份与恢复流程](docs/BACKUP_RESTORE.md)。
+仓库包含阿里云 ECS 单机部署所需的 `compose.demo.yml`、API/Web Dockerfile、Caddy 自动 HTTPS 配置和无密钥环境变量模板。当前生产实例、发布、备份和回滚以 [生产运维手册](docs/OPERATIONS_RUNBOOK.md) 为准。
 
-该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本和项目域数据，Redis/BullMQ 承载生成任务触发队列，媒体使用私有 GCS。Stripe test mode 支付沙箱已接入；正式商用前还必须完成正式价格/webhook endpoint、税务发票、邮件退信与投递失败告警、监控告警、数据导出/删除和备份恢复演练。
+该部署模式面向封闭外测：API 和 Web 同域，Postgres 承载账号/auth/账单账本和项目域数据，Redis/BullMQ 承载生成任务触发队列，媒体当前使用服务器私有存储，规模化前应迁移到私有 OSS。Stripe test mode 支付沙箱已接入；正式商用前还必须完成正式价格/webhook endpoint、税务发票、邮件退信与投递失败告警、监控告警、数据导出/删除和备份恢复演练。
 
 封闭外测默认开放账号密码登录和邀请码注册，不支持无邀请码自助注册。生产初始化按 `db:migrate -> accounts:init -> start` 创建 member、owner、super_admin 和 admin 账号，不写入演示项目；前端登录前只加载登录页，工作台页面按需下载，Compose 默认资源边界适配 2 vCPU / 4 GB 起步机器。
 

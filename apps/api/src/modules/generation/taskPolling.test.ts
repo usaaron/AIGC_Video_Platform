@@ -34,6 +34,7 @@ describe('generation task polling projection', () => {
         tier: null,
         metadata: {
           generationStage: 'script-generate',
+          shotId: 'shot-1',
           textPreview: '预览内容',
           textResult: { script: '完整结果' },
           sourcePromptSnapshot: '不应进入轮询摘要',
@@ -63,7 +64,7 @@ describe('generation task polling projection', () => {
       id: 'polling-task',
       status: 'running',
       progress: 40,
-      metadata: { generationStage: 'script-generate', textPreview: '预览内容' },
+      metadata: { generationStage: 'script-generate', shotId: 'shot-1', textPreview: '预览内容' },
     })
     expect(tasks[0]?.metadata).not.toHaveProperty('textResult')
     expect(tasks[0]?.metadata).not.toHaveProperty('sourcePromptSnapshot')
@@ -101,6 +102,8 @@ describe('generation task polling projection', () => {
       ['project-midnight-film', memberPrincipal.tenantId, false, memberPrincipal.userId],
     )
     expect(query.mock.calls[0]?.[0]).not.toContain('negative_prompt')
+    expect(query.mock.calls[0]?.[0]).toContain('jsonb_strip_nulls(jsonb_build_object(')
+    expect(query.mock.calls[0]?.[0]).not.toMatch(/^\s*metadata,\s*$/m)
   })
 
   it('builds a stable version from queue-facing state only', async () => {

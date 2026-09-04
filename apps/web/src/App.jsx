@@ -50,6 +50,7 @@ import {
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
+import { shouldLoadTaskDetails, workspacePollingProjectId } from './features/workspace/workspaceLoadingPolicy'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
@@ -141,7 +142,8 @@ function App() {
   }, [adminOnly, loadAttempt, replaceTasks])
 
   useWorkspacePolling({
-    projectId: workspace?.project.id,
+    projectId: workspacePollingProjectId(activeStep, workspace),
+    includeTaskDetails: shouldLoadTaskDetails(activeStep),
     workspaceCacheRef,
     replaceTasks,
     setWorkspace,

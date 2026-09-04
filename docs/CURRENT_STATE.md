@@ -1,6 +1,6 @@
 # 序幕TV 当前状态
 
-> 核对日期：2026-08-27。本文描述 `main` 和 `https://xumutv.com` 当前产品状态。若与历史开发记忆冲突，以 contracts、Service、Repository、实际 UI 和本文为准。
+> 核对日期：2026-09-04。本文描述当前发布分支和 `https://xumutv.com` 的产品状态。若与历史开发记忆冲突，以 contracts、Service、Repository、实际 UI 和本文为准。
 
 ## 产品定位
 
@@ -57,6 +57,7 @@
 - 网剧自动使用 `web-series` 剧本模式；单集剧本每次只生成 1 集、6～8 个场次，目标约 700～1100 个中文字符。项目保留的单集秒数字段只供后续分镜时长和自动分集使用，不参与单集剧本文字预算。
 - 剧本默认模型是 `deepseek-v4-flash`。模型下拉框依次展示 DeepSeek V4 Flash、DeepSeek V4 Pro、GLM 5.2、序幕-5.6；当前 GLM Key 未获得模型授权，因此 UI 保留位置但禁用选择。配置 `DASHSCOPE_API_KEY` 后 DeepSeek V4 优先路由到阿里云百炼（Flash 使用 `deepseek-v4-flash-0731`），未配置时保留旧 `DEEPSEEK_V4_*` 中转回滚路径。序幕-5.6 实际路由到 `gpt-5.6-sol`，旧 `seqora-5.6` 任务也映射到 Sol。
 - 剧本生成、续写和资产建议创建 `generation_tasks.kind=text` 后台任务；用户离开页面不会中断，完成后 Worker 写回项目或任务结果。
+- 项目库停留期间不预加载首个项目的完整工作区。进入项目概览先加载裁剪后的任务摘要，进入剧本、资产、分镜、成片或图片工作台时再加载完整任务详情，避免历史任务拖慢项目首屏。
 - 剧本输出强制使用简体中文；大量英文句子会触发同任务自动校正，连续异常时阻止覆盖。已有多场结构化原稿改写时保持场次数量、编号和顺序。
 - 网剧单集初稿只保留剧情、角色、场景、动作、对白和衔接，导演级构图/光影/运镜交给后续分镜层；每场要求一个核心事件、两个可见动作拍点、连续状态和对白/声音，结尾保留钩子。分镜仍要人工抽检，不应宣称模型必然满足。
 
@@ -118,15 +119,14 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 ## 生产快照
 
 - 域名：`https://xumutv.com`
-- GCE 项目：`project-b3b9bf9e-3c8b-4fbc-9cc`
-- 实例：`instance-20260726-112218`
-- 区域：`asia-east2-b`
+- 云平台：阿里云 ECS
+- 公网地址：`123.57.14.233`
 - 部署目录：`/opt/seqora`
 - 当前形态：单机 Docker Compose，Postgres、Redis、API、Worker、Web/Caddy 五个服务。
-- 数据盘：约 250 GB 系统盘；2026-08-03 核对使用率约 4%。
+- 数据盘：约 99 GB 系统盘；2026-09-04 核对使用率约 3%。
 - API `8787` 不对公网开放；公网只开放 80/443，HTTPS 由 Caddy 处理。
 - 管理端随 Web 镜像构建到 `/admin/`，未授权访问由 Caddy 和 API 双层拒绝。
-- 2026-08-03 核对：健康接口 `status=ok`、readiness 为 true，文本、Img2、Seedance 和 MaaS 均显示 configured。
+- 2026-09-04 核对：健康接口 `status=ok`、readiness 为 true，Postgres、Redis、API、Worker 和 Web 均正常运行。
 
 生产凭据、邀请码和用户信息不得写进本文。具体巡检和发布见 `OPERATIONS_RUNBOOK.md`。
 

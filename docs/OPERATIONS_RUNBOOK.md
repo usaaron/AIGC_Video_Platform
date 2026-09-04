@@ -1,6 +1,6 @@
 # SEQORA 生产运维手册
 
-> 核对日期：2026-08-27。本手册只记录安全的基础设施标识和操作步骤，不记录密码、邀请码、API Key、Cookie 或用户数据。
+> 核对日期：2026-09-04。本手册只记录安全的基础设施标识和操作步骤，不记录密码、邀请码、API Key、Cookie 或用户数据。
 
 ## 生产清单
 
@@ -9,9 +9,8 @@
 | 站点            | `https://xumutv.com`                         |
 | 健康检查        | `https://xumutv.com/api/v1/health`           |
 | Readiness       | `https://xumutv.com/api/v1/health/readiness` |
-| GCP Project     | `project-b3b9bf9e-3c8b-4fbc-9cc`             |
-| GCE Instance    | `instance-20260726-112218`                   |
-| Zone            | `asia-east2-b`                               |
+| 云平台          | 阿里云 ECS                                   |
+| 公网地址        | `123.57.14.233`                              |
 | 部署根目录      | `/opt/seqora`                                |
 | Compose Project | `seqora-demo`                                |
 | 服务            | `postgres`、`redis`、`api`、`worker`、`web`  |
@@ -41,10 +40,7 @@ Invoke-WebRequest -UseBasicParsing https://xumutv.com/api/v1/health/readiness
 SSH：
 
 ```powershell
-gcloud compute ssh instance-20260726-112218 `
-  --project=project-b3b9bf9e-3c8b-4fbc-9cc `
-  --zone=asia-east2-b `
-  --tunnel-through-iap
+ssh root@123.57.14.233
 ```
 
 容器和磁盘：
@@ -96,11 +92,7 @@ git status --short
 在服务器备份：
 
 ```powershell
-gcloud compute ssh instance-20260726-112218 `
-  --project=project-b3b9bf9e-3c8b-4fbc-9cc `
-  --zone=asia-east2-b `
-  --tunnel-through-iap `
-  --command="sudo bash /opt/seqora/deploy/backup-demo.sh"
+ssh root@123.57.14.233 "bash /opt/seqora/deploy/backup-demo.sh"
 ```
 
 生成不含运行数据的源码包：
@@ -110,22 +102,14 @@ $releaseRoot = Join-Path $env:TEMP 'seqora-release'
 .\deploy\package.ps1 -OutputRoot $releaseRoot
 ```
 
-该脚本要求本地存在被 Git 忽略的 `deploy/demo.env`，归档会临时包含它；只能通过受控 SSH/SCP 传输，不能上传公开网盘。服务器更新脚本会保留并覆盖回生产自己的 `demo.env`。
+源码包只包含 Git 已跟踪文件，不包含被忽略的 `deploy/demo.env`、`release.env` 或运行数据。服务器更新脚本会保留生产自己的环境文件并覆盖回新目录。
 
 上传并更新：
 
 ```powershell
-gcloud compute scp "$releaseRoot\seqora-source.tgz" `
-  instance-20260726-112218:/tmp/seqora-source.tgz `
-  --project=project-b3b9bf9e-3c8b-4fbc-9cc `
-  --zone=asia-east2-b `
-  --tunnel-through-iap
+scp "$releaseRoot\seqora-source.tgz" root@123.57.14.233:/tmp/seqora-source.tgz
 
-gcloud compute ssh instance-20260726-112218 `
-  --project=project-b3b9bf9e-3c8b-4fbc-9cc `
-  --zone=asia-east2-b `
-  --tunnel-through-iap `
-  --command="sudo bash /opt/seqora/deploy/update-source.sh /tmp/seqora-source.tgz"
+ssh root@123.57.14.233 "bash /opt/seqora/deploy/update-source.sh /tmp/seqora-source.tgz"
 ```
 
 必须使用 `bash` 调用，因为 Windows 打包后的脚本执行位可能不会保留。`update-source.sh` 会保留生产 `demo.env` 与 `release.env`、根据 `DEPLOY_BUILD.txt` 的提交 SHA 把不可变 API/Web 镜像标签写入独立的 `release.env`、替换源码、构建、执行 migration、只重建应用容器并检查健康；Postgres/Redis 不会因应用发布而重建，失败时也只恢复上一源码目录和应用镜像。
