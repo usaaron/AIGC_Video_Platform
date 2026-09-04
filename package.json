@@ -53,6 +53,6 @@
     "check": "pnpm format:check && pnpm check:architecture && pnpm check:deployment-security && pnpm lint && pnpm test:full:stable && pnpm build"
   },
   "devDependencies": {
-    "prettier": "3.9.5"
+    "prettier": "3.9.6"
   }
 }
