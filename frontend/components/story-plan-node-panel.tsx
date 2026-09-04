@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Download,
+  FileSearch,
   GitBranch,
   ListTree,
   LockKeyhole,
@@ -80,6 +81,11 @@ import {
 import {
   normalizeEpisodeDialogueLines,
 } from "@/lib/generation-planning";
+import {
+  buildEpisodePlanImportDraft,
+  type EpisodePlanImportDraft,
+} from "@/lib/episode-plan-import-adapter";
+import { buildImportedSourceSnapshot } from "@/lib/input-import-adapter";
 import {
   loadWorkspaceChatMessages,
   saveWorkspaceChatMessages,
@@ -257,6 +263,11 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const [activeBranchInteractions, setActiveBranchInteractions] = useState<Set<string>>(
     () => new Set(),
   );
+  const [episodePlanImportBusy, setEpisodePlanImportBusy] = useState(false);
+  const [episodePlanImportMessage, setEpisodePlanImportMessage] = useState<string | null>(null);
+  const [episodePlanImportDraft, setEpisodePlanImportDraft] = useState<EpisodePlanImportDraft | null>(
+    () => project.episodePlanImportDraft ?? null,
+  );
   const planningActionInFlightRef = useRef(false);
   const latestProjectRef = useRef(project);
   const planningLocked = project.planningSession?.phase === "script"
@@ -272,6 +283,14 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const [treeAuthorInstruction, setTreeAuthorInstruction] = useState("");
   const [treeInstructionOpen, setTreeInstructionOpen] = useState(false);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
+  const importedPlanningSnapshot = useMemo(
+    () => buildImportedSourceSnapshot(project),
+    [project.creativePrompt, project.referenceMaterials],
+  );
+  const episodePlanImportAvailable = importedPlanningSnapshot.episodeNumbers.length > 0
+    && project.inputReadiness?.selectedPath === "recommended"
+    && (project.inputReadiness.detectedLevel === "episode_plan"
+      || project.inputReadiness.detectedLevel === "script");
   const outlineEntries = useMemo(
     () => buildStoryPlanOutline(
       activeTreeNodes,
@@ -287,6 +306,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   useEffect(() => {
     latestProjectRef.current = project;
   }, [project]);
+  useEffect(() => {
+    setEpisodePlanImportDraft(project.episodePlanImportDraft ?? null);
+    setEpisodePlanImportMessage(null);
+  }, [project.id, project.episodePlanImportDraft]);
   useEffect(() => {
     setRevisionHistory([]);
   }, [project.id, storyBible.story_bible_id, storyBible.version]);
@@ -834,6 +857,59 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       ? roadmapProgressLabel
       : t("storyPlanNode.readyLeafProgress")
         .replace("{count}", String(treeProgress.readyLeafCount));
+  const episodePlanImportWarnings = (episodePlanImportDraft?.warnings ?? [])
+    .map((warning) => typeof warning === "string" ? warning : warning.message)
+    .filter(Boolean);
+  const episodePlanImportMissing = episodePlanImportDraft?.missingEpisodeNumbers ?? [];
+  const episodePlanImportDuplicates = episodePlanImportDraft?.duplicateEpisodeNumbers ?? [];
+  const episodePlanImportDraftMatchesSource = Boolean(
+    episodePlanImportDraft
+    && episodePlanImportDraft.sourceDocument === importedPlanningSnapshot.document,
+  );
+  const episodePlanImportDraftMatchesLineage = Boolean(
+    episodePlanImportDraft
+    && (episodePlanImportDraft.storyBibleId == null
+      || episodePlanImportDraft.storyBibleId === storyBible.story_bible_id)
+    && (episodePlanImportDraft.storyBibleVersion == null
+      || episodePlanImportDraft.storyBibleVersion === storyBible.version),
+  );
+  const episodePlanImportDraftIsCurrent = episodePlanImportDraftMatchesSource
+    && episodePlanImportDraftMatchesLineage;
+
+  async function inspectEpisodePlanSource() {
+    if (
+      !episodePlanImportAvailable
+      || planningLocked
+      || episodePlanImportBusy
+      || busy
+      || topLevelTaskActive
+      || roadmapBatchTaskActive
+      || activeBranchInteractions.size > 0
+    ) return;
+    setEpisodePlanImportBusy(true);
+    setEpisodePlanImportMessage(null);
+    try {
+      const draft = {
+        ...(await buildEpisodePlanImportDraft(importedPlanningSnapshot.document)),
+        storyBibleId: storyBible.story_bible_id,
+        storyBibleVersion: storyBible.version,
+      } satisfies EpisodePlanImportDraft;
+      // This is the only project mutation in this action. The parser result is
+      // a source-audit artifact; it must not touch nodes, roadmaps, readiness,
+      // planning phase, or approval state.
+      await persistProjectUpdate(onProjectUpdate, {
+        episodePlanImportDraft: draft,
+      });
+      setEpisodePlanImportDraft(draft);
+      setEpisodePlanImportMessage(
+        `已识别 ${draft.rows.length} 个来源分集；请先核对原文与警告。`,
+      );
+    } catch (error) {
+      setEpisodePlanImportMessage(userFacingError(error, "分集原文检查失败，请稍后重试。"));
+    } finally {
+      setEpisodePlanImportBusy(false);
+    }
+  }
   async function undoLatestRevision() {
     const last = revisionHistory[revisionHistory.length - 1];
     if (planningLocked || !last || busy || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0) return;
@@ -1116,6 +1192,83 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
               )}
             </div>
           </div>
+          {episodePlanImportAvailable ? (
+            <section className="story-plan-import-review" aria-labelledby="episode-plan-import-title">
+              <div className="story-plan-import-review-header">
+                <div>
+                  <span className="section-kicker">来源审计</span>
+                  <h3 id="episode-plan-import-title">分集规划原文</h3>
+                </div>
+                <button
+                  className="outline-action"
+                  disabled={planningLocked || episodePlanImportBusy || Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
+                  onClick={() => void inspectEpisodePlanSource()}
+                  type="button"
+                >
+                  <FileSearch aria-hidden="true" size={15} />
+                  {episodePlanImportBusy ? "检查中" : episodePlanImportDraft ? "重新检查原文" : "检查分集原文"}
+                </button>
+              </div>
+              <p className="story-plan-import-review-help">
+                先把作者原文按集号分段并标出缺口，再决定是否进入后续人工映射。这里只保存可追溯的来源草稿。
+              </p>
+          {episodePlanImportDraft && episodePlanImportDraftIsCurrent ? (
+                <>
+                  <div className="story-plan-import-review-stats" aria-label="分集原文检查结果">
+                    <span>识别 {episodePlanImportDraft.rows.length} 集</span>
+                    <span>集号 {episodePlanImportDraft.episodeNumbers.length ? `${episodePlanImportDraft.episodeNumbers[0]}–${episodePlanImportDraft.episodeNumbers.at(-1)}` : "—"}</span>
+                    {episodePlanImportMissing.length ? <span>缺号 {episodePlanImportDraft.missingEpisodeCount} 个</span> : <span>无缺号</span>}
+                    {episodePlanImportDuplicates.length ? <span>重复 {episodePlanImportDuplicates.length} 个</span> : <span>无重复</span>}
+                  </div>
+                  {episodePlanImportWarnings.length ? (
+                    <details className="story-plan-import-review-warnings">
+                      <summary>查看 {episodePlanImportWarnings.length} 条解析提示</summary>
+                      <ul>
+                        {episodePlanImportWarnings.slice(0, 8).map((warning, index) => (
+                          <li key={`${index}-${warning}`}>{warning}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : <small className="story-plan-import-review-ok">未发现需要提示的结构问题。</small>}
+                  <details className="story-plan-import-review-rows">
+                    <summary>
+                      查看来源分集（显示前 {Math.min(12, episodePlanImportDraft.rows.length)} 集）
+                    </summary>
+                    <ol>
+                      {episodePlanImportDraft.rows.slice(0, 12).map((row) => (
+                        <li key={`${row.ordinal}-${row.episodeNumber}-${row.sourceStart}`}>
+                          <div className="story-plan-import-row-heading">
+                            <strong>第{row.episodeNumber}集{row.headingTitle ? ` · ${row.headingTitle}` : ""}</strong>
+                            <span className={`story-plan-import-row-status is-${row.completeness}`}>
+                              {row.completeness === "complete" ? "字段齐全" : row.completeness === "partial" ? "待补字段" : "仅原文"}
+                            </span>
+                          </div>
+                          <small>
+                            {row.recognizedFields.length ? `已识别：${row.recognizedFields.slice(0, 6).join("、")}` : "未识别结构化字段"}
+                            {row.missingCoreFields.length ? `；缺少：${row.missingCoreFields.join("、")}` : ""}
+                          </small>
+                          <pre>{row.bodyText.trim().slice(0, 220)}{row.bodyText.trim().length > 220 ? "…" : ""}</pre>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                  <small className="story-plan-import-review-fingerprint">
+                    来源指纹：{episodePlanImportDraft.sourceFingerprint.slice(0, 28)}…
+                  </small>
+                </>
+              ) : (
+                <small className="story-plan-import-review-preview">
+                  {episodePlanImportDraft
+                    ? "输入资料或故事总纲版本已变化，之前的审计草稿暂不作为当前来源结果；请重新检查。"
+                    : `已从输入资料中发现 ${importedPlanningSnapshot.episodeNumbers.length} 个规范集号；点击检查后生成可保存的来源审计草稿。`}
+                </small>
+              )}
+              {episodePlanImportMessage ? <div className="inline-notice" role="status">{episodePlanImportMessage}</div> : null}
+              <div className="inline-notice story-plan-import-review-guardrail">
+                此操作不会创建或修改剧情树、路线图或正文，也不会批准规划；只有这份来源审计草稿会写入项目检查点。
+              </div>
+            </section>
+          ) : null}
           {busy === "load" ? <p>{t("storyPlanNode.loading")}</p> : null}
           {busy === "generate" ? <div className="inline-notice">{expansionProgress?.level && expansionProgress.totalNodes !== undefined ? t("storyPlanNode.expandLayerProgress").replace("{level}", String(expansionProgress.level)).replace("{completed}", String(expansionProgress.completedNodes ?? 0)).replace("{total}", String(expansionProgress.totalNodes)) : expansionProgress?.nodeTitle ? t("storyPlanNode.expandAllProgress").replace("{title}", expansionProgress.nodeTitle).replace("{count}", String(expansionProgress.completedLeaves)) : t(topLevelNodes.length ? "storyPlanNode.expandAllHelp" : "storyPlanNode.generatingHelp")}</div> : null}
           {busy === "roadmap" || roadmapBatchTaskActive ? <div className="inline-notice">{roadmapGenerationProgress?.currentEpisode ? t("storyPlanNode.roadmapAllProgress").replace("{episode}", String(roadmapGenerationProgress.currentEpisode)).replace("{completed}", String(roadmapGenerationProgress.completedEpisodes)).replace("{total}", String(roadmapGenerationProgress.totalEpisodes)) : t("storyPlanNode.roadmapAllHelp")}</div> : null}

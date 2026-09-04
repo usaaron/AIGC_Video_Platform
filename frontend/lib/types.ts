@@ -1,3 +1,5 @@
+import type { EpisodePlanImportDraft } from "./episode-plan-import-adapter";
+
 export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "deepened" | "final";
 
 /** Episode closing contract. Missing legacy values are treated as serial_hook. */
@@ -200,6 +202,8 @@ export interface ScriptProject {
   canonicalCharacterNames?: Record<string, string>;
   /** Advisory input diagnosis for a future import adapter; never grants stage access. */
   inputReadiness?: InputReadinessAnalysis;
+  /** Source-grounded episode-plan import remains a reviewable staging draft. */
+  episodePlanImportDraft?: EpisodePlanImportDraft;
   generationSettings: GenerationSettings;
   episodes: EpisodeWorkspace[];
   generationBatches: GenerationBatchRecord[];

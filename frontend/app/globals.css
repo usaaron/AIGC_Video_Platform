@@ -1743,6 +1743,37 @@ select:focus-visible {
 .story-plan-stage-summary small { overflow: hidden; max-width: 240px; color: var(--ink-faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .story-plan-stage-actions .primary-action { min-height: 34px; padding: 0 11px; white-space: nowrap; }
 .story-plan-stage-actions svg { flex: 0 0 auto; }
+.story-plan-import-review {
+  margin: 14px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--paper-bright) 84%, var(--gold) 16%);
+}
+.story-plan-import-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.story-plan-import-review-header h3 { margin: 3px 0 0; font-size: 14px; }
+.story-plan-import-review-help { max-width: 720px; margin: 8px 0 10px; color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
+.story-plan-import-review-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ink); font-size: 11px; font-weight: 650; }
+.story-plan-import-review-stats span + span { padding-left: 14px; border-left: 1px solid var(--line-strong); }
+.story-plan-import-review-warnings { margin-top: 9px; color: var(--ink-soft); font-size: 10px; }
+.story-plan-import-review-warnings summary { cursor: pointer; color: var(--vermillion-dark); font-weight: 700; }
+.story-plan-import-review-warnings ul { display: grid; gap: 3px; margin: 6px 0 0; padding-left: 18px; }
+.story-plan-import-review-rows { margin-top: 9px; color: var(--ink-soft); font-size: 10px; }
+.story-plan-import-review-rows summary { cursor: pointer; color: var(--ink); font-weight: 700; }
+.story-plan-import-review-rows ol { display: grid; gap: 8px; max-height: 360px; margin: 8px 0 0; padding: 0 0 0 20px; overflow: auto; }
+.story-plan-import-review-rows li { padding: 7px 8px; border: 1px solid var(--line); background: var(--paper-bright); }
+.story-plan-import-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); }
+.story-plan-import-row-status { flex: 0 0 auto; color: var(--ink-faint); font-size: 9px; font-weight: 650; }
+.story-plan-import-row-status.is-complete { color: var(--sage); }
+.story-plan-import-row-status.is-partial { color: var(--gold); }
+.story-plan-import-row-status.is-unstructured { color: var(--vermillion-dark); }
+.story-plan-import-review-rows small { display: block; margin-top: 4px; line-height: 1.45; }
+.story-plan-import-review-rows pre { max-height: 92px; margin: 5px 0 0; padding: 6px; overflow: auto; white-space: pre-wrap; color: var(--ink-faint); font: inherit; font-size: 10px; line-height: 1.45; }
+.story-plan-import-review-ok,
+.story-plan-import-review-preview { display: block; margin-top: 8px; color: var(--sage); font-size: 10px; }
+.story-plan-import-review-preview { color: var(--ink-faint); }
+.story-plan-import-review-fingerprint { display: block; margin-top: 8px; color: var(--ink-faint); font-size: 9px; font-family: var(--font-mono, monospace); }
+.story-plan-import-review .inline-notice { margin-top: 9px; }
+.story-plan-import-review-guardrail { color: var(--ink-faint); font-size: 10px; }
 .story-plan-episode-plans { margin: 12px 0 0 18px; padding: 14px; border-left: 2px solid var(--gold); background: var(--paper-bright); }
 .story-plan-episode-plans h3 { margin: 0 0 8px; font-size: 13px; }
 .story-plan-roadmap-review-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
