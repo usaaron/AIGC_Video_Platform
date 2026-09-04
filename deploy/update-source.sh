@@ -14,6 +14,8 @@ NEW_ROOT="/opt/seqora.new-${STAMP}"
 PRESERVE_DIR="/var/tmp/seqora-preserve-${STAMP}"
 APP_DOMAIN=""
 SOURCE_COMMIT=""
+PREVIOUS_API_IMAGE="$(docker inspect --format '{{.Config.Image}}' seqora-demo-api-1 2>/dev/null || true)"
+PREVIOUS_WEB_IMAGE="$(docker inspect --format '{{.Config.Image}}' seqora-demo-web-1 2>/dev/null || true)"
 SWAPPED=0
 ROLLED_BACK=0
 
@@ -31,14 +33,23 @@ rollback() {
   if [[ "$exit_code" -ne 0 && "$SWAPPED" -eq 1 && "$ROLLED_BACK" -eq 0 ]]; then
     ROLLED_BACK=1
     echo "源码更新失败，恢复上一版本目录。" >&2
-    docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml" down || true
     if [[ -d "$ROOT" ]]; then
       mv "$ROOT" "${ROOT}.failed-${STAMP}" || true
     fi
     if [[ -d "$BACKUP_ROOT" ]]; then
       mv "$BACKUP_ROOT" "$ROOT" || true
-      # The previous images are the rollback target; do not re-enter a network-dependent build.
-      docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml" up -d --no-build || true
+      if [[ -n "$PREVIOUS_API_IMAGE" && -n "$PREVIOUS_WEB_IMAGE" ]]; then
+        printf 'API_IMAGE=%s\nWEB_IMAGE=%s\n' "$PREVIOUS_API_IMAGE" "$PREVIOUS_WEB_IMAGE" \
+          > "$ROOT/deploy/release.env"
+        chmod 600 "$ROOT/deploy/release.env"
+      fi
+      rollback_compose=(docker compose --env-file "$ROOT/deploy/demo.env")
+      if [[ -f "$ROOT/deploy/release.env" ]]; then
+        rollback_compose+=(--env-file "$ROOT/deploy/release.env")
+      fi
+      rollback_compose+=(-f "$ROOT/compose.demo.yml")
+      # Keep Postgres and Redis running while the application returns to the previous images.
+      "${rollback_compose[@]}" up -d --no-build --no-deps --force-recreate api worker web || true
     fi
   fi
   rm -rf "$NEW_ROOT" "$PRESERVE_DIR"
@@ -74,27 +85,37 @@ if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
   exit 65
 fi
 
-set_env_value() {
+set_release_value() {
   local key="$1"
   local value="$2"
-  local file="$ROOT/deploy/demo.env"
+  local file="$ROOT/deploy/release.env"
+  touch "$file"
+  chmod 600 "$file"
   if grep -q "^${key}=" "$file"; then
     sed -i "s|^${key}=.*$|${key}=${value}|" "$file"
   else
-    printf '\n%s=%s\n' "$key" "$value" >> "$file"
+    printf '%s=%s\n' "$key" "$value" >> "$file"
   fi
 }
 
 release_tag="${SOURCE_COMMIT:0:12}"
-set_env_value API_IMAGE "seqora-api:${release_tag}"
-set_env_value WEB_IMAGE "seqora-web:${release_tag}"
+set_release_value API_IMAGE "seqora-api:${release_tag}"
+set_release_value WEB_IMAGE "seqora-web:${release_tag}"
+# Image selection belongs to release.env. Remove legacy copies so they are not
+# injected into every service through the application environment file.
+sed -i '/^API_IMAGE=/d; /^WEB_IMAGE=/d' "$ROOT/deploy/demo.env"
 
-compose=(docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml")
+compose=(
+  docker compose
+  --env-file "$ROOT/deploy/demo.env"
+  --env-file "$ROOT/deploy/release.env"
+  -f "$ROOT/compose.demo.yml"
+)
 "${compose[@]}" config --quiet
 "${compose[@]}" build api web
-"${compose[@]}" up -d postgres redis
+"${compose[@]}" up -d --no-recreate postgres redis
 "${compose[@]}" run --rm --no-deps api node dist/scripts/dbMigrate.js
-"${compose[@]}" up -d --remove-orphans --force-recreate api worker web
+"${compose[@]}" up -d --remove-orphans --no-deps --force-recreate api worker web
 
 healthy=0
 for _ in $(seq 1 60); do

@@ -128,7 +128,7 @@ gcloud compute ssh instance-20260726-112218 `
   --command="sudo bash /opt/seqora/deploy/update-source.sh /tmp/seqora-source.tgz"
 ```
 
-必须使用 `bash` 调用，因为 Windows 打包后的脚本执行位可能不会保留。`update-source.sh` 会保留生产 env、根据 `DEPLOY_BUILD.txt` 的提交 SHA 写入不可变 API/Web 镜像标签、替换源码、构建、执行 migration、重启并检查健康；失败会恢复上一源码目录及其镜像标签。
+必须使用 `bash` 调用，因为 Windows 打包后的脚本执行位可能不会保留。`update-source.sh` 会保留生产 `demo.env` 与 `release.env`、根据 `DEPLOY_BUILD.txt` 的提交 SHA 把不可变 API/Web 镜像标签写入独立的 `release.env`、替换源码、构建、执行 migration、只重建应用容器并检查健康；Postgres/Redis 不会因应用发布而重建，失败时也只恢复上一源码目录和应用镜像。
 
 `/opt/seqora` 是源码包目录，不含 `.git`，禁止使用 `git pull` 作为当前服务器更新方案。
 
