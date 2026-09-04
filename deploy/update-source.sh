@@ -13,6 +13,7 @@ BACKUP_ROOT="/opt/seqora-backups/source-${STAMP}"
 NEW_ROOT="/opt/seqora.new-${STAMP}"
 PRESERVE_DIR="/var/tmp/seqora-preserve-${STAMP}"
 APP_DOMAIN=""
+SOURCE_COMMIT=""
 SWAPPED=0
 ROLLED_BACK=0
 
@@ -67,6 +68,26 @@ if [[ -z "$APP_DOMAIN" ]]; then
   echo 'APP_ADDRESS is missing from deploy/demo.env.' >&2
   exit 65
 fi
+SOURCE_COMMIT="$(sed -n 's/^SourceCommit=//p' "$ROOT/DEPLOY_BUILD.txt" | tail -n 1)"
+if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo 'DEPLOY_BUILD.txt does not contain a valid SourceCommit.' >&2
+  exit 65
+fi
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local file="$ROOT/deploy/demo.env"
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*$|${key}=${value}|" "$file"
+  else
+    printf '\n%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
+release_tag="${SOURCE_COMMIT:0:12}"
+set_env_value API_IMAGE "seqora-api:${release_tag}"
+set_env_value WEB_IMAGE "seqora-web:${release_tag}"
 
 compose=(docker compose --env-file "$ROOT/deploy/demo.env" -f "$ROOT/compose.demo.yml")
 "${compose[@]}" config --quiet

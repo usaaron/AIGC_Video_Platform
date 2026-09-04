@@ -151,6 +151,7 @@ const refreshQueueRuntimeCache = database
       return queueRuntimeSyncPromise
     }
   : null
+const refreshRunnerRuntimeCache = config.TASK_QUEUE_DRIVER === 'bullmq' ? null : refreshQueueRuntimeCache
 const filmPreviewComposer =
   videoProvider && objectStorage
     ? new FilmPreviewComposer(
@@ -199,7 +200,7 @@ const taskRunner = new GenerationTaskRunner(store, {
   providerStallTimeoutMs: config.VIDEO_PROCESSING_STALL_TIMEOUT_MS,
   providerStatusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
   providerPollConcurrency: config.VIDEO_POLL_CONCURRENCY,
-  ...(refreshQueueRuntimeCache ? { beforeLockTick: refreshQueueRuntimeCache } : {}),
+  ...(refreshRunnerRuntimeCache ? { beforeLockTick: refreshRunnerRuntimeCache } : {}),
   ...(database
     ? {
         persistTickTasks: (taskIds: readonly string[]) =>
@@ -223,7 +224,7 @@ const taskRunner = new GenerationTaskRunner(store, {
 })
 const aiJobRunner = new AiJobRunner(aiJobRepository, {
   concurrency: config.TASK_QUEUE_WORKER_CONCURRENCY,
-  ...(refreshQueueRuntimeCache ? { beforeLockTick: refreshQueueRuntimeCache } : {}),
+  ...(refreshRunnerRuntimeCache ? { beforeLockTick: refreshRunnerRuntimeCache } : {}),
   ...(database
     ? { taskRunnerLock: new PostgresAdvisoryTaskRunnerLock(database, 'seqora:ai-job-runner') }
     : {}),
@@ -258,6 +259,7 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
   }
   queueWorker = createBullMqGenerationWorker(config, {
     async tick(context?: TaskDispatchContext & { reason?: string }) {
+      await refreshQueueRuntimeCache?.()
       const failures: unknown[] = []
       for (const tick of [
         () => taskRunner.tick(context),
