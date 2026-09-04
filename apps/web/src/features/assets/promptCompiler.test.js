@@ -81,6 +81,30 @@ describe('asset prompt compiler', () => {
     expect(compileCharacterStagePrompt(asset, '9:16', 'turnaround')).toBe('自定义三视图完整提示词')
   })
 
+  it('keeps asset identity facts when appending a script suggestion prompt', () => {
+    const attributes = createDefaultAttributes('character')
+    Object.assign(attributes, { gender: 'female', ageGroup: 'young', exactAge: 28 })
+    const prompt = compileCharacterStagePrompt(
+      {
+        name: '林夏',
+        description: '身份：急诊护士；故事作用：救下伤员',
+        sourceMode: 'generate',
+        promptMode: 'advanced',
+        customPromptMode: 'append',
+        customPrompt: '黑色短发，灰色防风服，正面头像',
+        attributes,
+      },
+      '1:1',
+      'face',
+    )
+
+    expect(prompt).toContain('林夏')
+    expect(prompt).toContain('女')
+    expect(prompt).toContain('28岁')
+    expect(prompt).toContain('急诊护士')
+    expect(prompt).toContain('黑色短发')
+  })
+
   it('does not reuse a legacy face prompt for full-body generation', () => {
     const asset = {
       name: '岚星',

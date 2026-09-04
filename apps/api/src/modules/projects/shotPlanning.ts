@@ -72,7 +72,7 @@ export type ScriptParagraph = {
 }
 
 export function splitScriptParagraphs(script: string): ScriptParagraph[] {
-  const lines = script
+  const lines = scriptBodyWithoutAssetManifest(script)
     .replaceAll(FORCE_EPISODE_BREAK_MARKER, `\n${FORCE_EPISODE_BREAK_MARKER}\n`)
     .replaceAll(FORCE_SHOT_BREAK_MARKER, `\n${FORCE_SHOT_BREAK_MARKER}\n`)
     .replace(/(?:｜|\|)\s*(?=(?:#{1,6}\s*|\*{1,2})?场次\s*[：:])/gu, '\n')
@@ -145,6 +145,24 @@ export function splitScriptParagraphs(script: string): ScriptParagraph[] {
   return paragraphs
 }
 
+export function scriptBodyWithoutAssetManifest(script: string): string {
+  if (!/(?:^|\n)\s*资产\s*[：:]/u.test(script)) return script
+  return script
+    .replace(
+      /(?:^|\n)\s*资产\s*[：:][\s\S]*?(?=(?:^|\n)\s*(?:(?:正文|剧本正文|正文内容)\s*[：:]|场次\s*[：:]))/gmu,
+      '\n',
+    )
+    .replace(/(?:^|\n)\s*(?:正文|剧本正文|正文内容)\s*[：:]\s*/gmu, '\n')
+    .trim()
+}
+
+function scriptAssetManifestPrefix(script: string): string {
+  const body = scriptBodyWithoutAssetManifest(script)
+  if (body === script) return ''
+  const bodyIndex = script.indexOf(body)
+  return bodyIndex > 0 ? script.slice(0, bodyIndex).trim() : ''
+}
+
 function normalizeScriptLine(line: string): string {
   return line
     .trim()
@@ -193,6 +211,7 @@ function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[
   if (paragraph.text.replace(/\s/gu, '').length < LONG_SCRIPT_PARAGRAPH_THRESHOLD) return [paragraph]
 
   const fields = parseShotFields(paragraph.text)
+  if (fields.场次 && (fields.镜头1 || fields.镜头2 || fields.镜头3)) return [paragraph]
   const direction = parseSceneDirectionFields(paragraph.text)
   const narrativeField = (['动作', '剧情', '对白'] as const)
     .map((field) => ({ field, value: fields[field]?.trim() || '' }))
@@ -318,7 +337,7 @@ export function alignEnrichedSceneRows(source: string, candidate: string): strin
       .filter(([key]) => key),
   )
 
-  return sourceParagraphs
+  const alignedBody = sourceParagraphs
     .map((paragraph, index) => {
       const original = sourceFields[index] || {}
       const generated =
@@ -352,6 +371,8 @@ export function alignEnrichedSceneRows(source: string, candidate: string): strin
         .join('\n')
     })
     .join('\n')
+  const manifestPrefix = scriptAssetManifestPrefix(candidate)
+  return manifestPrefix ? `${manifestPrefix}\n${alignedBody}` : alignedBody
 }
 
 function sceneNumberKey(value: string | undefined, index: number): string {
@@ -371,20 +392,27 @@ export function countStructuredScenes(script: string): number {
 
 const SHOT_FIELD_NAMES = [
   '场次',
+  '时长',
   '剧情',
   '场景',
   '角色',
+  '服装',
+  '关键物件',
   '动作',
   '对白',
+  '声音',
   '风格',
   '构图',
   '光影',
   '运镜',
+  '镜头1',
+  '镜头2',
+  '镜头3',
   '衔接',
 ] as const
 
 const SCENE_DIRECTION_FIELD_NAMES = ['目标', '阻力', '变化', '入场状态', '出场状态'] as const
-type SceneDirectionFields = Partial<Record<(typeof SCENE_DIRECTION_FIELD_NAMES)[number], string>>
+export type SceneDirectionFields = Partial<Record<(typeof SCENE_DIRECTION_FIELD_NAMES)[number], string>>
 
 export type ShotDraft = Omit<
   CreateShot,
@@ -452,7 +480,7 @@ export function splitScriptIntoBeatShots(
   return shots
 }
 
-function splitScriptIntoSceneShots(
+export function splitScriptIntoSceneShots(
   paragraphs: ScriptParagraph[],
   maxShots: number,
   isWebSeries = false,
@@ -501,24 +529,12 @@ function splitScriptIntoSceneShots(
   })
 }
 
-export function splitScriptIntoSmartSceneShots(
-  paragraphs: ScriptParagraph[],
-  maxShots: number,
-  isWebSeries = false,
-): ShotDraft[] {
-  const sceneShots = splitScriptIntoSceneShots(paragraphs, maxShots, isWebSeries)
-  if (paragraphs.length !== 1 || sceneShots.length !== 1) return sceneShots
-
-  const actionShots = splitScriptIntoBeatShots(paragraphs, maxShots, isWebSeries)
-  return actionShots.length > 1 ? actionShots : sceneShots
-}
-
-function isHookParagraph(paragraph: string): boolean {
+export function isHookParagraph(paragraph: string): boolean {
   const fields = parseShotFields(paragraph)
   return /剧情钩子|悬念钩子|结尾钩子/u.test(fields.场次 || '') || /^【?剧情钩子】?/u.test(paragraph)
 }
 
-function continuityNoteFor(
+export function continuityNoteFor(
   previous: string,
   previousLabel: '上一场' | '上一镜',
   sceneState: {
@@ -580,7 +596,7 @@ function continuitySource(
     .join('｜')
 }
 
-function scenesShareVisualContinuity(previous: string, current: string): boolean {
+export function scenesShareVisualContinuity(previous: string, current: string): boolean {
   if (!previous.trim() || !current.trim()) return false
   const previousScene = parseShotFields(previous).场景 || ''
   const currentScene = parseShotFields(current).场景 || ''
@@ -663,7 +679,7 @@ export function parseShotFields(
   return fields
 }
 
-function parseSceneDirectionFields(paragraph: string): SceneDirectionFields {
+export function parseSceneDirectionFields(paragraph: string): SceneDirectionFields {
   const fields: SceneDirectionFields = {}
   for (const segment of paragraph.split('｜')) {
     const match = segment
@@ -679,7 +695,7 @@ function parseSceneDirectionFields(paragraph: string): SceneDirectionFields {
   return fields
 }
 
-function splitFieldBeats(value: string, splitCommas = false): string[] {
+export function splitFieldBeats(value: string, splitCommas = false): string[] {
   const text = value.trim()
   if (!text) return []
   const explicitActionBeats = text
@@ -704,7 +720,7 @@ function splitFieldBeats(value: string, splitCommas = false): string[] {
     .filter(Boolean)
 }
 
-function spokenDialogueCues(value: string | undefined): string[] {
+export function spokenDialogueCues(value: string | undefined): string[] {
   const text = String(value || '').trim()
   if (!text) return []
   const tagged = splitTaggedAudioCues(text).filter((cue) => /^\[(?:对白|台词|画外音|内心独白)\]/u.test(cue))
@@ -714,7 +730,7 @@ function spokenDialogueCues(value: string | undefined): string[] {
   )
 }
 
-function nonSpokenSoundCues(value: string | undefined): string[] {
+export function nonSpokenSoundCues(value: string | undefined): string[] {
   return splitTaggedAudioCues(String(value || '')).filter((cue) =>
     /^\[(?:音效|环境声|音乐|音乐\/环境声)\]/u.test(cue),
   )
@@ -851,7 +867,7 @@ function namedRolesForDirector(roleField: string | undefined): string[] {
     .filter(Boolean)
 }
 
-function fieldPart(label: string, value: string | undefined, limit: number): string {
+export function fieldPart(label: string, value: string | undefined, limit: number): string {
   const text = String(value || '').trim()
   return text ? `${label}：${text.slice(0, limit)}` : ''
 }

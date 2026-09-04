@@ -1,34 +1,27 @@
 import type { Asset, ScriptAssetSuggestion, ScriptCreativeDirection } from '@seqora/contracts'
+import {
+  escapeRegExp,
+  extractScriptAssetManifest,
+  manifestDetails,
+  manifestFact,
+  namesFromManifestOrFields,
+  resolveAssetSuggestionName,
+} from './assetSuggestionExtraction.js'
+import type { ScriptAssetManifestItem, ScriptAssetNameIndex } from './assetSuggestionExtraction.js'
+
+export {
+  extractAssetNames,
+  extractScriptAssetManifest,
+  extractScriptAssetNameIndex,
+} from './assetSuggestionExtraction.js'
+export type {
+  ScriptAssetKind,
+  ScriptAssetManifest,
+  ScriptAssetManifestItem,
+  ScriptAssetNameIndex,
+} from './assetSuggestionExtraction.js'
 
 type ProjectVisualStyle = Exclude<ScriptCreativeDirection['style'], 'auto'>
-
-export const SCRIPT_ASSET_FIELD_BOUNDARIES = [
-  '场次',
-  '剧情',
-  '场景',
-  '角色',
-  '人物',
-  '主角',
-  '动作',
-  '对白',
-  '风格',
-  '构图',
-  '光影',
-  '运镜',
-  '衔接',
-  '关键物件',
-  '关键道具',
-  '物件',
-  '道具',
-  '服装',
-  '衣装',
-  '外观',
-  '品牌',
-  '品牌标识',
-  'Logo',
-  'logo',
-]
-export const SCRIPT_ASSET_STOP_WORDS = new Set(SCRIPT_ASSET_FIELD_BOUNDARIES)
 
 const HUMAN_PORTRAIT_REQUIREMENTS =
   '影视 CG 风格，透明背景，Alpha 通道，无背景色，无光影效果，无投影，无高光，无环境反射，均匀平光，主体边缘清晰，人物面部大头照，头部和肩部完整入镜，五官清晰可调整，正面平视镜头，自然中性表情，不出现手部、文字和饰边，画面比例 1:1'
@@ -47,9 +40,6 @@ const COSTUME_ASSET_NEGATIVE_PROMPT =
 const BRAND_ASSET_NEGATIVE_PROMPT =
   '不要人物、人体、手部、产品乱码、错别字、额外文字、水印、二维码、重复 Logo、变形图形、缺失字母、投影、环境反射、低分辨率和模糊'
 
-export type ScriptAssetKind = ScriptAssetSuggestion['kind']
-export type ScriptAssetNameIndex = Record<ScriptAssetKind, string[]>
-
 export function normalizeScriptAssetSuggestion(
   suggestion: ScriptAssetSuggestion,
   sourceNames: ScriptAssetNameIndex,
@@ -59,7 +49,7 @@ export function normalizeScriptAssetSuggestion(
   const name = resolveAssetSuggestionName(suggestion, sourceNames)
   if (!name) return null
 
-  const namedSuggestion: ScriptAssetSuggestion =
+  const namedSuggestionBase: ScriptAssetSuggestion =
     name === suggestion.name.trim()
       ? suggestion
       : {
@@ -69,6 +59,15 @@ export function normalizeScriptAssetSuggestion(
           prompt: replaceAssetName(suggestion.prompt, suggestion.name, name),
           reason: replaceAssetName(suggestion.reason, suggestion.name, name),
         }
+  const manifest = extractScriptAssetManifest(sourceContext)
+  const manifestItem = manifest[namedSuggestionBase.kind].find((item) => item.name === name)
+  const namedSuggestion: ScriptAssetSuggestion = {
+    ...namedSuggestionBase,
+    sourceFacts: {
+      ...manifestItem?.facts,
+      ...namedSuggestionBase.sourceFacts,
+    },
+  }
   const stylePrompt = `项目统一视觉风格：${projectVisualStyleLabel(projectVisualStyle)}，后续资产和视频必须保持这一风格，不要自行切换风格`
 
   if (namedSuggestion.kind === 'character') {
@@ -118,14 +117,8 @@ export function normalizeScriptAssetSuggestion(
         ]
       : [
           '人物角色',
-          namedSuggestion.attributes.gender === 'male'
-            ? '男性'
-            : namedSuggestion.attributes.gender === 'female'
-              ? '女性'
-              : '性别未指定',
-          namedSuggestion.attributes.exactAge
-            ? `${namedSuggestion.attributes.exactAge}岁`
-            : scriptAgeLabel(namedSuggestion.attributes.ageGroup),
+          gender === 'male' ? '男性' : gender === 'female' ? '女性' : '性别未指定',
+          exactAge ? `${exactAge}岁` : scriptAgeLabel(ageGroup),
         ]
     return {
       ...namedSuggestion,
@@ -282,18 +275,46 @@ export function fallbackAssetSuggestions(
   projectVisualStyle: ProjectVisualStyle = 'cinematic-cg',
 ): { summary: string; assets: ScriptAssetSuggestion[] } {
   const visualStyle = projectVisualStyle || suggestionVisualStyle(direction)
-  const characters = extractAssetNames(script, ['角色', '人物', '主角'], [], 4, 'character')
-  const scenes = extractAssetNames(script, ['场景', '地点'], [], 4, 'scene')
-  const props = extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 5, 'prop')
-  const costumes = extractAssetNames(script, ['服装', '衣装', '外观'], [], 4, 'costume')
-  const brands = extractAssetNames(script, ['品牌', '品牌标识', 'Logo', 'logo'], [], 2, 'brand')
+  const manifest = extractScriptAssetManifest(script)
+  const characters = namesFromManifestOrFields(script, manifest, 'character', ['角色', '人物', '主角'], [], 4)
+  const scenes = namesFromManifestOrFields(script, manifest, 'scene', ['场景', '地点'], [], 4)
+  const props = namesFromManifestOrFields(
+    script,
+    manifest,
+    'prop',
+    ['关键物件', '关键道具', '物件', '道具', '产品'],
+    [],
+    5,
+  )
+  const costumes = namesFromManifestOrFields(script, manifest, 'costume', ['服装', '衣装', '外观'], [], 4)
+  const brands = namesFromManifestOrFields(
+    script,
+    manifest,
+    'brand',
+    ['品牌', '品牌标识', 'Logo', 'logo'],
+    [],
+    2,
+  )
   const assets: ScriptAssetSuggestion[] = [
     ...characters.map((name): ScriptAssetSuggestion => {
-      const subjectType = inferScriptCharacterSubjectType(name)
-      const gender = subjectType === 'animal' ? 'unspecified' : inferScriptCharacterGender(name)
-      const ageGroup = inferScriptCharacterAge(name)
-      const exactAge = inferScriptCharacterExactAge(name, script)
-      const identityTags = inferScriptCharacterIdentityTags(name)
+      const manifestItem = manifest.character.find((item) => item.name === name)
+      const evidence = [name, manifestDetails(manifestItem), characterEvidenceWindow(name, script)].join('，')
+      const subjectType = inferScriptCharacterSubjectType(evidence)
+      const gender = subjectType === 'animal' ? 'unspecified' : inferManifestGender(manifestItem, evidence)
+      const exactAge = inferManifestExactAge(manifestItem) || inferScriptCharacterExactAge(name, script)
+      const ageGroup = exactAge
+        ? ageGroupFromExactAge(exactAge)
+        : inferManifestAgeGroup(manifestItem, inferScriptCharacterAge(evidence))
+      const identityTags = inferScriptCharacterIdentityTags(evidence)
+      const identity = manifestFact(manifestItem, ['身份', '角色身份', '人物背景'])
+      const storyRole = manifestFact(manifestItem, ['故事作用', '作用', '剧情作用', '故事'])
+      const explicitProfile = [
+        identity ? `身份：${identity}` : '',
+        storyRole ? `故事作用：${storyRole}` : '',
+        manifestFact(manifestItem, ['外形', '外貌'])
+          ? `外形：${manifestFact(manifestItem, ['外形', '外貌'])}`
+          : '',
+      ].filter(Boolean)
       const profile = [
         gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
         scriptAgeLabel(ageGroup),
@@ -304,11 +325,27 @@ export function fallbackAssetSuggestions(
       return {
         kind: 'character',
         name,
-        description: `从剧本中提取的主要角色：${name}${profile.length ? `（${profileText}）` : ''}`,
-        prompt: `${name}，${profileText}，中文 AI 视频人物设定，面部清晰，造型统一，符合剧本风格，适合后续保持角色一致性。`,
+        description: [
+          `从剧本资产清单提取的主要角色：${name}`,
+          profile.length ? `人物画像：${profileText}` : '',
+          ...explicitProfile,
+          manifestDetails(manifestItem),
+        ]
+          .filter(Boolean)
+          .join('；'),
+        prompt: [
+          name,
+          profileText,
+          ...explicitProfile,
+          manifestDetails(manifestItem),
+          '中文 AI 视频人物设定，面部清晰，造型统一，符合剧本风格，适合后续保持角色一致性。',
+        ]
+          .filter(Boolean)
+          .join('，'),
         negativePrompt: '',
         reason: '角色在剧本中出现，需要先建立可复用的人物资产。',
         priority: 5,
+        sourceFacts: manifestItem?.facts || {},
         attributes: {
           type: 'character',
           subjectType,
@@ -339,297 +376,143 @@ export function fallbackAssetSuggestions(
         },
       }
     }),
-    ...scenes.map((name): ScriptAssetSuggestion => ({
-      kind: 'scene',
-      name,
-      description: `从剧本中提取的核心场景：${name}`,
-      prompt: `${name}，空场景，中文 AI 视频美术设定，空间层次清晰，预留人物表演和运镜空间，不出现人物。`,
-      negativePrompt: '',
-      reason: '场景会承载多个镜头，需要先统一空间和美术设定。',
-      priority: 4,
-      attributes: {
-        type: 'scene',
-        space: inferSceneSpace(name),
-        sceneType: inferSceneType(name),
-        era: inferEra(name),
-        time: inferSceneTime(name),
-        weather: inferWeather(script),
-        mood: 'mystery',
-        camera: 'wide',
-        visualStyle,
-        emptyScene: true,
-        activitySpace: true,
-      },
-    })),
-    ...props.map((name): ScriptAssetSuggestion => ({
-      kind: 'prop',
-      name,
-      description: `从剧本中提取的关键道具：${name}`,
-      prompt: `${name}，关键道具单品展示，材质细节清晰，形状稳定，纯色背景，适合后续多镜头复用。`,
-      negativePrompt: '',
-      reason: '该物件承载剧情信息或多次出现，需要保持外观连续。',
-      priority: 4,
-      attributes: {
-        type: 'prop',
-        category: inferPropCategory(name),
-        material: inferPropMaterial(name),
-        condition: 'used',
-        view: 'front',
-        background: 'solid',
-        visualStyle,
-      },
-    })),
-    ...costumes.map((name): ScriptAssetSuggestion => ({
-      kind: 'costume',
-      name,
-      description: `从剧本中提取的核心服装：${name}`,
-      prompt: `${name}，服装平铺展示，完整轮廓，材质和配色清晰，不出现人物脸部，适合保持角色造型一致。`,
-      negativePrompt: '',
-      reason: '服装影响角色跨镜头一致性，需要作为独立资产确认。',
-      priority: 4,
-      attributes: {
-        type: 'costume',
-        characterAssetId: null,
-        audience: 'unisex',
-        category: inferCostumeCategory(name),
-        season: inferCostumeSeason(name),
-        design: inferCostumeDesign(name),
-        presentation: 'flat',
-        visualStyle,
-        turnaround: false,
-      },
-    })),
-    ...brands.map((name): ScriptAssetSuggestion => ({
-      kind: 'brand',
-      name,
-      description: `从剧本中提取的品牌或 Logo 资产：${name}`,
-      prompt: `${name}，品牌 Logo 设计，图形结构完整，文字准确，透明背景，Alpha 通道，居中构图，适合广告片尾落版和场景复用。`,
-      negativePrompt: '',
-      reason: '品牌标识需要在广告、片尾或场景中保持一致，建议独立建立资产。',
-      priority: 5,
-      attributes: {
-        type: 'brand',
-        brandType: 'logo',
-        usage: 'end-card',
-        background: 'transparent',
-        layout: 'centered',
-        exactText: name,
-        palette: '',
-        visualStyle,
-      },
-    })),
+    ...scenes.map((name): ScriptAssetSuggestion => {
+      const manifestItem = manifest.scene.find((item) => item.name === name)
+      const sceneEvidence = [name, manifestDetails(manifestItem)].filter(Boolean).join('，')
+      return {
+        kind: 'scene',
+        name,
+        description: [`从剧本资产清单提取的核心场景：${name}`, manifestDetails(manifestItem)]
+          .filter(Boolean)
+          .join('；'),
+        prompt: [
+          name,
+          manifestDetails(manifestItem),
+          '空场景，中文 AI 视频美术设定，空间层次清晰，预留人物表演和运镜空间，不出现人物。',
+        ]
+          .filter(Boolean)
+          .join('，'),
+        negativePrompt: '',
+        reason: '场景会承载多个镜头，需要先统一空间和美术设定。',
+        priority: 4,
+        sourceFacts: manifestItem?.facts || {},
+        attributes: {
+          type: 'scene',
+          space: inferSceneSpace(sceneEvidence),
+          sceneType: inferSceneType(sceneEvidence),
+          era: inferEra(sceneEvidence),
+          time: inferSceneTime(sceneEvidence),
+          weather: inferWeather([script, sceneEvidence].join('，')),
+          mood: inferSceneMood(sceneEvidence),
+          camera: inferSceneCamera(sceneEvidence),
+          visualStyle,
+          emptyScene: true,
+          activitySpace: true,
+        },
+      }
+    }),
+    ...props.map((name): ScriptAssetSuggestion => {
+      const manifestItem = manifest.prop.find((item) => item.name === name)
+      const propEvidence = [name, manifestDetails(manifestItem)].filter(Boolean).join('，')
+      return {
+        kind: 'prop',
+        name,
+        description: [`从剧本资产清单提取的关键物件：${name}`, manifestDetails(manifestItem)]
+          .filter(Boolean)
+          .join('；'),
+        prompt: [
+          name,
+          manifestDetails(manifestItem),
+          '关键道具单品展示，材质细节清晰，形状稳定，纯色背景，适合后续多镜头复用。',
+        ]
+          .filter(Boolean)
+          .join('，'),
+        negativePrompt: '',
+        reason: '该物件承载剧情信息或多次出现，需要保持外观连续。',
+        priority: 4,
+        sourceFacts: manifestItem?.facts || {},
+        attributes: {
+          type: 'prop',
+          category: inferPropCategory(propEvidence),
+          material: inferPropMaterial(propEvidence),
+          condition: inferPropCondition(propEvidence, 'used'),
+          view: 'front',
+          background: 'solid',
+          visualStyle,
+        },
+      }
+    }),
+    ...costumes.map((name): ScriptAssetSuggestion => {
+      const manifestItem = manifest.costume.find((item) => item.name === name)
+      const costumeEvidence = [name, manifestDetails(manifestItem)].filter(Boolean).join('，')
+      return {
+        kind: 'costume',
+        name,
+        description: [`从剧本资产清单提取的核心服装：${name}`, manifestDetails(manifestItem)]
+          .filter(Boolean)
+          .join('；'),
+        prompt: [
+          name,
+          manifestDetails(manifestItem),
+          '服装平铺展示，完整轮廓，材质和配色清晰，不出现人物脸部，适合保持角色造型一致。',
+        ]
+          .filter(Boolean)
+          .join('，'),
+        negativePrompt: '',
+        reason: '服装影响角色跨镜头一致性，需要作为独立资产确认。',
+        priority: 4,
+        sourceFacts: manifestItem?.facts || {},
+        attributes: {
+          type: 'costume',
+          characterAssetId: null,
+          audience: inferCostumeAudience(costumeEvidence),
+          category: inferCostumeCategory(costumeEvidence),
+          season: inferCostumeSeason(costumeEvidence),
+          design: inferCostumeDesign(costumeEvidence),
+          presentation: 'flat',
+          visualStyle,
+          turnaround: false,
+        },
+      }
+    }),
+    ...brands.map((name): ScriptAssetSuggestion => {
+      const manifestItem = manifest.brand.find((item) => item.name === name)
+      const exactText = manifestFact(manifestItem, ['文字', '准确文字', '品牌文字']) || name
+      const brandEvidence = [name, manifestDetails(manifestItem)].filter(Boolean).join('，')
+      return {
+        kind: 'brand',
+        name,
+        description: [`从剧本资产清单提取的品牌或 Logo 资产：${name}`, manifestDetails(manifestItem)]
+          .filter(Boolean)
+          .join('；'),
+        prompt: [
+          name,
+          manifestDetails(manifestItem),
+          '品牌 Logo 设计，图形结构完整，文字准确，透明背景，Alpha 通道，居中构图，适合广告片尾落版和场景复用。',
+        ]
+          .filter(Boolean)
+          .join('，'),
+        negativePrompt: '',
+        reason: '品牌标识需要在广告、片尾或场景中保持一致，建议独立建立资产。',
+        priority: 5,
+        sourceFacts: manifestItem?.facts || {},
+        attributes: {
+          type: 'brand',
+          brandType: inferBrandType(brandEvidence),
+          usage: inferBrandUsage(brandEvidence),
+          background: 'transparent',
+          layout: inferBrandLayout(brandEvidence),
+          exactText,
+          palette: manifestFact(manifestItem, ['配色', '颜色', '色彩']),
+          visualStyle,
+        },
+      }
+    }),
   ]
   return {
     summary: '已根据剧本文本提取角色、场景、关键道具、核心服装和品牌标识建议，建议先确认高优先级资产。',
     assets,
   }
-}
-
-export function extractScriptAssetNameIndex(script: string): ScriptAssetNameIndex {
-  return {
-    character: extractAssetNames(script, ['角色', '人物', '主角'], [], 8, 'character'),
-    scene: extractAssetNames(script, ['场景', '地点'], [], 8, 'scene'),
-    prop: extractAssetNames(script, ['关键物件', '关键道具', '物件', '道具'], [], 10, 'prop'),
-    costume: extractAssetNames(script, ['服装', '衣装', '外观'], [], 8, 'costume'),
-    brand: extractAssetNames(script, ['品牌', '品牌标识', 'Logo', 'logo'], [], 4, 'brand'),
-  }
-}
-
-function resolveAssetSuggestionName(
-  suggestion: ScriptAssetSuggestion,
-  sourceNames: ScriptAssetNameIndex,
-): string | null {
-  const direct = cleanAssetName(suggestion.name, suggestion.kind)
-  if (isPlausibleAssetName(direct, suggestion.kind)) return direct
-
-  const evidence = [suggestion.description, suggestion.prompt, suggestion.reason].join('\n')
-  const evidenceMatch = [...sourceNames[suggestion.kind]]
-    .sort((left, right) => right.length - left.length)
-    .find((candidate) => evidence.includes(candidate))
-  if (evidenceMatch) return evidenceMatch
-
-  return sourceNames[suggestion.kind].length === 1 ? sourceNames[suggestion.kind][0]! : null
-}
-
-export function extractAssetNames(
-  script: string,
-  fields: string[],
-  fallback: string[],
-  limit: number,
-  kind: ScriptAssetKind,
-): string[] {
-  const values = extractScriptFieldValues(script, fields).flatMap((value) => splitAssetNameList(value, kind))
-  const cleanedValues = values
-    .map((value) => cleanAssetName(value, kind))
-    .filter((value) => isPlausibleAssetName(value, kind))
-    .filter((value) => !SCRIPT_ASSET_STOP_WORDS.has(value))
-  const uniqueValues = deduplicateExtractedAssetNames(cleanedValues, kind)
-  return (uniqueValues.length ? uniqueValues : fallback).slice(0, limit)
-}
-
-function extractScriptFieldValues(script: string, fields: string[]): string[] {
-  const normalized = script
-    .replace(/\*\*/gu, '')
-    .replace(/\r/gu, '')
-    .replace(/(^|\n)\s*(?:[-*]\s+|#{1,6}\s*)/gu, '$1')
-  const targets = fields.map(escapeRegExp).join('|')
-  const boundaries = SCRIPT_ASSET_FIELD_BOUNDARIES.map(escapeRegExp).join('|')
-  const pattern = new RegExp(
-    `(?:^|[\\n|｜])\\s*(?:${targets})\\s*[：:]\\s*([\\s\\S]*?)(?=(?:[\\n|｜])\\s*(?:${boundaries})\\s*[：:]|$)`,
-    'gu',
-  )
-  return [...normalized.matchAll(pattern)].map((match) => (match[1] || '').trim()).filter(Boolean)
-}
-
-function splitAssetNameList(value: string, kind: ScriptAssetKind): string[] {
-  if (kind === 'character') return splitCharacterNameList(value)
-  if (kind === 'scene') return splitSceneNameList(value)
-  return value
-    .split(/[、，,；;]|(?:和|与)/u)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function splitCharacterNameList(value: string): string[] {
-  const names: string[] = []
-  for (const rawSection of value.replace(/\s+/gu, ' ').split(/[；;]/u)) {
-    const section = rawSection.trim()
-    if (
-      !section ||
-      /^(?:无)?背景角色/u.test(section) ||
-      /^(?:无配角|无人物|无角色|无主角)(?:[，,]|$)/u.test(section)
-    )
-      continue
-
-    const hasRoleLabel = /^(?:(?:主要|核心)?角色|主角|人物|配角)(?:为|是|包括|包含)?\s*/u.test(section)
-    const withoutRoleLabel = section.replace(
-      /^(?:(?:主要|核心)?角色|主角|人物|配角)(?:为|是|包括|包含)?\s*/u,
-      '',
-    )
-    if (!withoutRoleLabel || /^(?:无配角|无人物|无人)$/u.test(withoutRoleLabel)) continue
-
-    const identityClause = withoutRoleLabel.split(/[，,]/u)[0] || ''
-    const candidates = identityClause
-      .split(/[、]|(?:和|与)/u)
-      .map((item) => item.trim())
-      .filter(Boolean)
-    names.push(
-      ...(!hasRoleLabel &&
-      /身穿|穿着|佩戴|戴着|跟随|跟在|穿(?:黑|白|红|橙|黄|绿|蓝|紫|灰|旧|新|深|浅|褪色)/u.test(identityClause)
-        ? candidates.slice(0, 1)
-        : candidates),
-    )
-  }
-  return names
-}
-
-function splitSceneNameList(value: string): string[] {
-  for (const segment of value.replace(/\s+/gu, ' ').split(/[，,；;]/u)) {
-    const candidate = cleanSceneName(segment)
-    if (isPlausibleAssetName(candidate, 'scene')) return [candidate]
-  }
-  return []
-}
-
-function cleanAssetName(value: string, kind: ScriptAssetKind): string {
-  if (kind === 'character') return cleanCharacterName(value)
-  if (kind === 'scene') return cleanSceneName(value)
-  return cleanAssetNameBase(value)
-}
-
-function cleanAssetNameBase(value: string): string {
-  const cleaned = value
-    .replace(/^[\s·\-—]+/u, '')
-    .replace(/^(?:资产|名称|物品|物件|道具|服装|衣装)[：:]\s*/u, '')
-    .replace(
-      /^(?:一位|一名|一个|这位|那位|该|某)?(?:[零〇一二三四五六七八九十百两\d]+岁(?:的)?|年迈的|年老的|老年的|少年的|少女的|年轻的|中年的|儿童的)/u,
-      '',
-    )
-    .split(/[（(。.!！?？]/u)[0]!
-    .split(/——|--|：|:/u)[0]!
-    .trim()
-  if (cleaned.length < 2) return ''
-  return cleaned.length > 32 ? cleaned.slice(0, 32) : cleaned
-}
-
-function cleanCharacterName(value: string): string {
-  return cleanAssetNameBase(value)
-    .replace(/^(?:(?:主要|核心)?角色|主角|人物|配角)(?:为|是|包括|包含)?\s*/u, '')
-    .split(
-      /(?:身穿|穿着|佩戴|戴着|跟随|跟在|站在|位于|坐在|躲在|手持|拿着|抱着|先神情|随后|然后|低头|抬头|缩肩|强装)/u,
-    )[0]!
-    .split(/穿(?=(?:黑|白|红|橙|黄|绿|蓝|紫|灰|旧|新|深|浅|褪色))/u)[0]!
-    .trim()
-}
-
-function cleanSceneName(value: string): string {
-  return cleanAssetNameBase(value)
-    .replace(/^(?:内景|外景|室内|室外)[：:]?\s*/u, '')
-    .replace(
-      /^(?:次日|当天|清晨|黎明|上午|中午|下午|傍晚|黄昏|夜晚|深夜|午夜|雨夜|雪夜)(?:前|后|时)?(?:的)?\s*/u,
-      '',
-    )
-    .replace(/[，,；;].*$/u, '')
-    .replace(/(?:内景|外景)$/u, '')
-    .trim()
-}
-
-function isPlausibleAssetName(value: string, kind: ScriptAssetKind): boolean {
-  if (!value || value.length < 2 || value.length > (kind === 'scene' ? 28 : 24)) return false
-  if (kind === 'character') {
-    if (
-      /神情|表情|情绪|眼神|视线|瞳孔|紧张|镇定|惊慌|错愕|赔笑|皱眉|低头|抬头|缩肩|随后|然后|开始|继续|正在|站在|走向|看向|等待|说道|抬手|伸手|转身|位于|强装|抱臂|探头|交头接耳|寻找|声音/u.test(
-        value,
-      )
-    )
-      return false
-    if (
-      /^(?:无|未指定|主角|主要角色|配角|无配角|背景角色|角色|人物|众人|人群)$/u.test(value) ||
-      /^(?:数名|多名|若干|一群|众多|所有|其余|围观|等待)?(?:弟子|群众|路人|村民|工作人员|士兵|侍卫|学生|乘客|客人|观众|人群|众人|人们)(?:们|[甲乙丙丁一二三四\d])?$/u.test(
-        value,
-      ) ||
-      /^(?:数名|多名|若干|一群|众多|所有|其余|围观|等待).{0,8}(?:弟子|群众|路人|村民|工作人员|士兵|侍卫|学生|乘客|客人|观众|人群|众人|人们)(?:们)?$/u.test(
-        value,
-      )
-    )
-      return false
-  }
-  if (kind === 'scene') {
-    if (
-      /神情|表情|冷雾未散|晨雾未散|雾气未散|站满|立着|等待|位于|穿着|身穿|挂着|抱着|拿着|出现|翻涌|笼罩|散去|亮起|裂开|覆盖|坐着|站着|走向|看向|弟子|人物|角色/u.test(
-        value,
-      )
-    )
-      return false
-    if (/^(?:清晨|黎明|上午|中午|下午|傍晚|黄昏|夜晚|深夜|午夜|阴天|晴天|冷雾|晨雾|黑雾|金光)$/u.test(value))
-      return false
-  }
-  return true
-}
-
-function deduplicateExtractedAssetNames(values: string[], kind: ScriptAssetKind): string[] {
-  const result: string[] = []
-  for (const value of values) {
-    const exactIndex = result.findIndex((existing) => existing === value)
-    if (exactIndex >= 0) continue
-    if (kind === 'scene') {
-      const containingIndex = result.findIndex(
-        (existing) =>
-          Math.abs(existing.length - value.length) <= 8 &&
-          (existing.startsWith(value) || value.startsWith(existing)),
-      )
-      if (containingIndex >= 0) {
-        if (value.length < result[containingIndex]!.length) result[containingIndex] = value
-        continue
-      }
-    }
-    result.push(value)
-  }
-  return result
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function inferScriptCharacterSubjectType(text: string): 'human' | 'animal' {
@@ -640,6 +523,28 @@ function inferScriptCharacterGender(text: string): 'male' | 'female' | 'unspecif
   if (/老船夫|船夫|祖父|爷爷|爷|父亲|男人|男性|哥哥|弟弟|少爷|他\b/u.test(text)) return 'male'
   if (/翠翠|孙女|外孙女|女性|少女|姑娘|女孩|母亲|娘|妻|小姐|她\b/u.test(text)) return 'female'
   return 'unspecified'
+}
+
+function inferManifestGender(
+  item: ScriptAssetManifestItem | undefined,
+  fallbackEvidence: string,
+): 'male' | 'female' | 'unspecified' {
+  const gender = manifestFact(item, ['性别', '人物性别'])
+  if (/^(?:女|女性|女孩|少女|女人|female)$/iu.test(gender)) return 'female'
+  if (/^(?:男|男性|男孩|少年|男人|male)$/iu.test(gender)) return 'male'
+  return inferScriptCharacterGender([gender, fallbackEvidence].join('，'))
+}
+
+function inferManifestExactAge(item: ScriptAssetManifestItem | undefined): number | null {
+  return exactAgeFromText(manifestFact(item, ['年龄', '精确年龄']))
+}
+
+function inferManifestAgeGroup(
+  item: ScriptAssetManifestItem | undefined,
+  fallback: 'child' | 'teen' | 'young' | 'middle' | 'senior',
+): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
+  const age = manifestFact(item, ['年龄段', '年龄'])
+  return inferScriptCharacterAgeSignal(age) || fallback
 }
 
 function inferScriptCharacterAge(text: string): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
@@ -878,6 +783,23 @@ function inferWeather(script: string): 'clear' | 'cloudy' | 'rain' | 'snow' | 'f
   return 'clear'
 }
 
+function inferSceneMood(text: string): 'warm' | 'tense' | 'mystery' | 'romantic' | 'epic' | 'desolate' {
+  if (/温暖|温馨|明快|治愈/u.test(text)) return 'warm'
+  if (/紧张|危险|压迫|惊险|对峙/u.test(text)) return 'tense'
+  if (/浪漫|甜蜜|柔情/u.test(text)) return 'romantic'
+  if (/史诗|磅礴|宏大|壮阔/u.test(text)) return 'epic'
+  if (/破败|阴森|末日|荒凉|废弃|萧瑟/u.test(text)) return 'desolate'
+  return 'mystery'
+}
+
+function inferSceneCamera(text: string): 'eye-level' | 'overhead' | 'low-angle' | 'aerial' | 'wide' {
+  if (/航拍|鸟瞰/u.test(text)) return 'aerial'
+  if (/俯拍|俯视/u.test(text)) return 'overhead'
+  if (/低机位|仰拍/u.test(text)) return 'low-angle'
+  if (/平视|视线高度/u.test(text)) return 'eye-level'
+  return 'wide'
+}
+
 function inferPropCategory(
   name: string,
 ): 'weapon' | 'vehicle' | 'furniture' | 'electronics' | 'jewelry' | 'food' | 'daily' | 'other' {
@@ -924,6 +846,12 @@ function inferCostumeCategory(
   return 'daily'
 }
 
+function inferCostumeAudience(text: string): 'male' | 'female' | 'unisex' {
+  if (/女性|女士|少女|女式|女装/u.test(text)) return 'female'
+  if (/男性|男士|少年|男式|男装/u.test(text)) return 'male'
+  return 'unisex'
+}
+
 function inferCostumeSeason(name: string): 'spring-summer' | 'autumn-winter' | 'all-season' {
   if (/雪|冬|厚|披风|风衣/u.test(name)) return 'autumn-winter'
   if (/夏|薄|短袖/u.test(name)) return 'spring-summer'
@@ -936,6 +864,27 @@ function inferCostumeDesign(name: string): 'minimal' | 'luxury' | 'retro' | 'fut
   if (/旧|复古|民国/u.test(name)) return 'retro'
   if (/华丽|礼服|宫廷/u.test(name)) return 'luxury'
   return 'minimal'
+}
+
+function inferBrandType(text: string): 'logo' | 'wordmark' | 'combination' | 'product-mark' {
+  if (/产品标识|产品印记/u.test(text)) return 'product-mark'
+  if (/文字标|字标|纯文字/u.test(text)) return 'wordmark'
+  if (/组合标|图文组合/u.test(text)) return 'combination'
+  return 'logo'
+}
+
+function inferBrandUsage(text: string): 'end-card' | 'packaging' | 'signage' | 'interface' | 'general' {
+  if (/包装/u.test(text)) return 'packaging'
+  if (/招牌|门头|标牌/u.test(text)) return 'signage'
+  if (/界面|应用|网页|UI/iu.test(text)) return 'interface'
+  if (/片尾|落版/u.test(text)) return 'end-card'
+  return 'general'
+}
+
+function inferBrandLayout(text: string): 'centered' | 'horizontal' | 'vertical' {
+  if (/横向|横版/u.test(text)) return 'horizontal'
+  if (/纵向|竖向|竖版/u.test(text)) return 'vertical'
+  return 'centered'
 }
 
 export function deduplicateAssetSuggestions(

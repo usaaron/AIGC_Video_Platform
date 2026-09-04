@@ -139,6 +139,9 @@ describe('script content modes', () => {
     expect(glmIndex).toBeLessThan(seqoraIndex)
     expect(html).toContain('<option value="glm-5.2" disabled="">')
     expect(html).toContain('<option value="deepseek-v4-flash" selected="">')
+    expect(html).toContain('辅助资产建议')
+    expect(html).toContain('随剧本自动识别人物、场景、物品、服装和品牌')
+    expect(html).toContain('不会占用生成队列')
   })
 
   it('uses server capabilities instead of hard-coded model availability', () => {

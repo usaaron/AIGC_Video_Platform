@@ -48,6 +48,72 @@ export function planVideoBatch(shots, mode = 'parallel', concurrency = 3) {
   }
 }
 
+export function planSelectedVideoRegeneration(
+  allShots,
+  selectedShotIds,
+  mode = 'continuity',
+  concurrency = 3,
+) {
+  const selectedIds = selectedShotIds instanceof Set ? selectedShotIds : new Set(selectedShotIds)
+  const orderedShots = [...allShots].sort((left, right) => left.order - right.order)
+  const shotIndexes = new Map(orderedShots.map((shot, index) => [shot.id, index]))
+  const selectedShots = orderedShots.filter((shot) => selectedIds.has(shot.id))
+  if (!selectedShots.length) {
+    return { lanes: [], immediateLaneCount: 0, continuityUpdates: [] }
+  }
+
+  const limit = Math.max(1, Math.min(selectedShots.length, Math.floor(concurrency) || 1))
+  if (mode === 'independent') {
+    return {
+      lanes: selectedShots.map((shot) => [{ ...shot, continuityMode: 'independent' }]),
+      immediateLaneCount: Math.min(limit, selectedShots.length),
+      continuityUpdates: [],
+    }
+  }
+
+  const lanes = []
+  let previousSelectedShot = null
+  let previousSelectedIndex = -2
+  for (const shot of selectedShots) {
+    const fullIndex = shotIndexes.get(shot.id)
+    const followsSelectedShot = fullIndex === previousSelectedIndex + 1
+    const continuesSelectedShot =
+      followsSelectedShot && shot.continuityMode === 'continue' && !startsEpisode(shot, previousSelectedShot)
+    if (!continuesSelectedShot) lanes.push([])
+    lanes.at(-1).push(shot)
+    previousSelectedShot = shot
+    previousSelectedIndex = fullIndex
+  }
+
+  return {
+    lanes,
+    immediateLaneCount: Math.min(limit, lanes.length),
+    continuityUpdates: [],
+  }
+}
+
+export function unselectedContinuityDependents(allShots, selectedShotIds) {
+  const selectedIds = selectedShotIds instanceof Set ? selectedShotIds : new Set(selectedShotIds)
+  const orderedShots = [...allShots].sort((left, right) => left.order - right.order)
+  const affected = []
+  let followsRegeneratedVersion = false
+
+  for (const [index, shot] of orderedShots.entries()) {
+    const previousShot = orderedShots[index - 1]
+    if (selectedIds.has(shot.id)) {
+      followsRegeneratedVersion = true
+      continue
+    }
+    if (startsEpisode(shot, previousShot) || shot.continuityMode !== 'continue') {
+      followsRegeneratedVersion = false
+      continue
+    }
+    if (followsRegeneratedVersion) affected.push(shot)
+  }
+
+  return affected
+}
+
 export function activeVideoTasksForShots(tasks, shots) {
   const shotIds = new Set(shots.map((shot) => shot.id))
   return tasks.filter(

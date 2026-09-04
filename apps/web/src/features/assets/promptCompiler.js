@@ -100,7 +100,8 @@ function applyCustomPrompt(asset, automatic, stage = null) {
     if (stagePrompt) return stagePrompt
     const legacyPrompt = asset.customPrompt?.trim() || ''
     const legacyStage = inferCharacterPromptStage(legacyPrompt)
-    if (legacyStage === stage) return legacyPrompt
+    if (legacyStage === stage && asset.customPromptMode === 'replace') return legacyPrompt
+    if (asset.customPromptMode === 'append' && legacyPrompt) return [automatic, legacyPrompt].join('，')
     if (!legacyStage && legacyPrompt) return [automatic, legacyPrompt].join('，')
     return automatic
   }

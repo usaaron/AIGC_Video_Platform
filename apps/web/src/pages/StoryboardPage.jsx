@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import {
   ArrowRight,
   BookOpenText,
+  CheckSquare2,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
@@ -15,6 +16,7 @@ import {
   RefreshCw,
   Scissors,
   Video,
+  X,
   Zap,
 } from 'lucide-react'
 import { IconButton, PageHeader } from '../components/ui'
@@ -36,7 +38,11 @@ import {
   taskOutputUrl,
   videoResolutionForTask,
 } from '../features/storyboard/storyboardState'
-import { activeVideoTasksForShots, planVideoBatch } from '../features/storyboard/videoBatchPlanner'
+import {
+  activeVideoTasksForShots,
+  planVideoBatch,
+  unselectedContinuityDependents,
+} from '../features/storyboard/videoBatchPlanner'
 import { normalizedVideoDuration } from '@seqora/prompting'
 
 export function StoryboardPage({
@@ -69,6 +75,8 @@ export function StoryboardPage({
   const [splitting, setSplitting] = useState('')
   const [splittingEpisodes, setSplittingEpisodes] = useState(false)
   const [generatingAll, setGeneratingAll] = useState(false)
+  const [generatingSelected, setGeneratingSelected] = useState(false)
+  const [rerollShotIds, setRerollShotIds] = useState(() => new Set())
   const [operationError, setOperationError] = useState('')
   const [operationNotice, setOperationNotice] = useState('')
   const [downloadingVideos, setDownloadingVideos] = useState(false)
@@ -122,6 +130,21 @@ export function StoryboardPage({
     () => planVideoBatch(rangeShots, batchMode, concurrency),
     [rangeShots, batchMode, concurrency],
   )
+  const selectableRangeShots = useMemo(
+    () => rangeShots.filter((shot) => !isActive(taskFor(tasks, shot, 'video'))),
+    [rangeShots, tasks],
+  )
+  const selectedRerollShots = useMemo(
+    () => rangeShots.filter((shot) => rerollShotIds.has(shot.id)),
+    [rangeShots, rerollShotIds],
+  )
+  const allRangeShotsSelected =
+    selectableRangeShots.length > 0 && selectableRangeShots.every((shot) => rerollShotIds.has(shot.id))
+  const selectedRerollCost = selectedRerollShots.length * 18
+  const downstreamContinuityShots = useMemo(
+    () => unselectedContinuityDependents(shots, rerollShotIds),
+    [rerollShotIds, shots],
+  )
   const continuityPointCount = useMemo(
     () => visibleEpisodes.reduce((count, episode) => count + Math.max(0, episode.shots.length - 1), 0),
     [visibleEpisodes],
@@ -141,6 +164,10 @@ export function StoryboardPage({
   useEffect(() => {
     setEpisodeDuration(projectEpisodeDurationSeconds)
   }, [project?.id, projectEpisodeDurationSeconds])
+
+  useEffect(() => {
+    setRerollShotIds(new Set())
+  }, [project?.id, selectedEpisode])
 
   useEffect(() => {
     if (selectedEpisode === 'all') return
@@ -207,6 +234,59 @@ export function StoryboardPage({
       setOperationError(error.message)
     } finally {
       setGeneratingAll(false)
+    }
+  }
+
+  const toggleRerollShot = (shotId) => {
+    setRerollShotIds((current) => {
+      const next = new Set(current)
+      if (next.has(shotId)) next.delete(shotId)
+      else next.add(shotId)
+      return next
+    })
+  }
+
+  const toggleAllRangeShots = () => {
+    setRerollShotIds(allRangeShotsSelected ? new Set() : new Set(selectableRangeShots.map((shot) => shot.id)))
+  }
+
+  const regenerateSelected = async (selectionMode = 'continuity') => {
+    if (!selectedRerollShots.length || generatingSelected) return
+    const activeTasks = activeVideoTasksForShots(tasks, selectedRerollShots)
+    if (activeTasks.length) {
+      setOperationError('选中的镜头中仍有视频正在生成，请等待完成或先从选择中移除。')
+      return
+    }
+
+    const continuityWarning =
+      selectionMode === 'continuity' && downstreamContinuityShots.length
+        ? `\n\n注意：后续还有 ${downstreamContinuityShots.length} 个未选镜头沿用旧尾帧。若要整段严格连续，建议将它们一并选中。`
+        : ''
+    const confirmed = window.confirm(
+      selectionMode === 'independent'
+        ? `确认独立重做 ${selectedRerollShots.length} 个镜头吗？本次不使用上一镜尾帧，也不会修改原有承接设置；预计消耗 ${selectedRerollCost} 积分。`
+        : `确认重做 ${selectedRerollShots.length} 个镜头吗？将沿用当前承接关系，旧版本会保留；预计消耗 ${selectedRerollCost} 积分。${continuityWarning}`,
+    )
+    if (!confirmed) return
+
+    setGeneratingSelected(true)
+    setOperationError('')
+    setOperationNotice('')
+    try {
+      const result = await onGenerateAllVideos(selectedRerollShots, batchResolution, 'parallel', {
+        forceNewVersion: true,
+        selectionMode,
+      })
+      if (result?.created) {
+        setOperationNotice(`已为 ${result.created} 个镜头创建新视频版本，旧版本仍可在历史记录中切换。`)
+        setRerollShotIds(new Set())
+      } else {
+        setOperationError('没有创建新任务。请检查承接镜头是否已有可用尾帧，或改用独立重做。')
+      }
+    } catch (error) {
+      setOperationError(error.message)
+    } finally {
+      setGeneratingSelected(false)
     }
   }
 
@@ -307,20 +387,8 @@ export function StoryboardPage({
               ? `正在生成第 ${currentEpisode.number} 集`
               : '正在批量拆分全部剧集'
             : currentEpisode
-              ? `生成第 ${currentEpisode.number} 集分镜`
-              : '生成全部剧集分镜'}
-        </button>
-        <button
-          className="button secondary"
-          onClick={() => void splitFromScript('beat')}
-          disabled={controlsLocked}
-        >
-          {splitting === 'beat' ? <LoaderCircle size={16} className="spin" /> : <Scissors size={16} />}
-          {splitting === 'beat'
-            ? '正在按动作拆分'
-            : currentEpisode
-              ? `细拆第 ${currentEpisode.number} 集动作`
-              : '细拆全部剧集动作'}
+              ? `生成第 ${currentEpisode.number} 集导演分镜`
+              : '生成全部剧集导演分镜'}
         </button>
         <button
           type="button"
@@ -483,6 +551,24 @@ export function StoryboardPage({
           </span>
         </div>
       </div>
+      <div className="storyboard-reroll-toolbar">
+        <div>
+          <RefreshCw size={16} />
+          <span>
+            <strong>批量重做</strong>
+            <small>勾选镜头后只生成所选内容，当前版本不会被覆盖</small>
+          </span>
+        </div>
+        <button
+          type="button"
+          className={allRangeShotsSelected ? 'active' : ''}
+          disabled={!selectableRangeShots.length}
+          onClick={toggleAllRangeShots}
+        >
+          <CheckSquare2 size={15} />
+          {allRangeShotsSelected ? '取消全选' : `选择当前 ${selectableRangeShots.length} 镜`}
+        </button>
+      </div>
       {operationError && (
         <p className="operation-error" role="alert">
           {operationError}
@@ -583,6 +669,7 @@ export function StoryboardPage({
                     minDuration={shotMinDuration}
                     previousShot={previousShot}
                     selected={selected === shot.id}
+                    selectedForBatch={rerollShotIds.has(shot.id)}
                     assets={assets}
                     assetIndex={assetIndex}
                     references={shotReferences.get(shot.id) || []}
@@ -594,6 +681,7 @@ export function StoryboardPage({
                       batchResolution
                     }
                     onSelect={() => setSelected(shot.id)}
+                    onToggleBatch={toggleRerollShot}
                     onResolutionChange={(value) =>
                       setShotResolutions((current) => ({ ...current, [shot.id]: value }))
                     }
@@ -610,12 +698,63 @@ export function StoryboardPage({
           </section>
         ))}
       </div>
-      <div className="sticky-actions">
-        <span>视频 18 积分；直接使用项目资产与上一镜真实尾帧，不预生成静态分镜图。</span>
-        <button className="button primary" onClick={onNext}>
-          查看生成队列 <ArrowRight size={16} />
-        </button>
-      </div>
+      {selectedRerollShots.length ? (
+        <div className="sticky-actions storyboard-reroll-dock" role="region" aria-label="批量重做镜头">
+          <div className="storyboard-reroll-selection">
+            <strong>已选择 {selectedRerollShots.length} 镜</strong>
+            <span>预计 {selectedRerollCost} 积分 · 旧版本保留</span>
+            {downstreamContinuityShots.length > 0 && (
+              <small>有 {downstreamContinuityShots.length} 个后续镜头仍承接旧尾帧</small>
+            )}
+          </div>
+          <label className="storyboard-reroll-resolution">
+            <span>清晰度</span>
+            <select
+              value={batchResolution}
+              disabled={generatingSelected}
+              onChange={(event) => setBatchResolution(event.target.value)}
+            >
+              {VIDEO_RESOLUTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={generatingSelected}
+            onClick={() => void regenerateSelected('independent')}
+            title="不使用上一镜尾帧，只重做选中的单镜；原有承接设置保持不变"
+          >
+            <Zap size={16} /> 独立重做
+          </button>
+          <button
+            type="button"
+            className="button primary reroll-primary"
+            disabled={generatingSelected}
+            onClick={() => void regenerateSelected('continuity')}
+          >
+            {generatingSelected ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+            {generatingSelected ? '正在提交' : '按承接重做'}
+          </button>
+          <IconButton
+            label="清空选择"
+            disabled={generatingSelected}
+            onClick={() => setRerollShotIds(new Set())}
+          >
+            <X size={17} />
+          </IconButton>
+        </div>
+      ) : (
+        <div className="sticky-actions">
+          <span>视频 18 积分；直接使用项目资产与上一镜真实尾帧，不预生成静态分镜图。</span>
+          <button className="button primary" onClick={onNext}>
+            查看生成队列 <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
       {editing && (
         <ShotEditor
           shot={editing}

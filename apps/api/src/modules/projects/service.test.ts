@@ -6,6 +6,8 @@ import type { CreditLedger } from '../billing/creditLedger.js'
 import { projectGenerationSummary, projectPreviewUrl } from './repository.js'
 import { ProjectRepository } from './repository.js'
 import { assignShotEpisodes, ProjectService, splitScriptParagraphs } from './service.js'
+import { extractScriptAssetManifest, extractScriptAssetNameIndex } from './assetSuggestions.js'
+import { expandLongScriptParagraphs } from './shotPlanning.js'
 
 describe('ProjectService script billing', () => {
   it('does not reserve credits again for a queue-prepaid script task', async () => {
@@ -382,7 +384,7 @@ describe('ProjectService script billing', () => {
     expect(result.script.match(/\[画外音\]/gu)).toHaveLength(3)
     expect(result.script).toContain('[对白]林砚：我会查清。')
     expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain(
-      '整集中至少 3 场包含[画外音]',
+      '每场写 4 到 6 句短而有意义的对白',
     )
     expect(repository.update).toHaveBeenCalledOnce()
   })
@@ -532,9 +534,9 @@ describe('ProjectService script billing', () => {
       principal,
     )
     const firstRequest = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
-    expect(firstRequest?.maxOutputTokens).toBe(1_500)
+    expect(firstRequest?.maxOutputTokens).toBe(6_000)
     expect(firstRequest?.userPrompt).toContain('本次只生成 1 集')
-    expect(firstRequest?.userPrompt).toContain('约 700 到 1100 个中文字符')
+    expect(firstRequest?.userPrompt).toContain('优先恰好输出 3 个可识别长场次')
     expect(splitScriptParagraphs(repository.update.mock.calls[0]?.[1]?.script || '')).toHaveLength(7)
 
     const previous = generated
@@ -550,9 +552,9 @@ describe('ProjectService script billing', () => {
       principal,
     )
     const nextRequest = vi.mocked(textProvider.generate).mock.calls[1]?.[0]
-    expect(nextRequest?.maxOutputTokens).toBe(1_500)
+    expect(nextRequest?.maxOutputTokens).toBe(6_000)
     expect(nextRequest?.userPrompt).toContain('1 个下一集生产单元')
-    expect(nextRequest?.userPrompt).toContain('约 700 到 1100 个中文字符')
+    expect(nextRequest?.userPrompt).toContain('优先恰好输出 3 个长场次')
     expect(splitScriptParagraphs(repository.update.mock.calls[1]?.[1]?.script || '')).toHaveLength(14)
   })
 
@@ -778,6 +780,85 @@ describe('ProjectService asset suggestions', () => {
     )
     expect(result.warnings).toEqual([expect.stringContaining('快速提取基础资产')])
   })
+
+  it('imports precise asset facts from the visible script asset block', async () => {
+    const repository = {
+      workspace: vi.fn(async () => ({
+        project: {
+          name: '末日药店',
+          contentType: 'short-drama',
+          visualStyle: 'cinematic-cg',
+          aspectRatio: '9:16',
+        },
+        assets: [],
+      })),
+    } as unknown as ProjectRepository
+    const textProvider: TextGenerationProvider = { generate: vi.fn() }
+    const service = new ProjectService(repository, textProvider)
+    const script = `资产：
+人物：林晚｜性别：女｜年龄：28岁｜身份：急诊护士｜外形：黑色短发，冷静利落｜故事作用：救下程野并组织防守
+人物：程野｜性别：男｜年龄：31岁｜身份：救援队员｜故事作用：提供尸群路线信息
+场景：废弃药店｜空间：室内｜时间：黄昏｜天气：阴天｜氛围：破败阴森｜故事作用：两人暂时防守
+物品：铁棍｜材质：金属｜状态：磨损｜持有人：林晚｜故事作用：顶住卷帘门
+服装：林晚灰色防风服｜归属：林晚｜颜色：灰色｜款式：短款防风外套｜故事作用：保持跨镜连续
+正文：
+场次：S01｜场景：废弃药店｜角色：林晚、程野｜服装：林晚灰色防风服｜关键物件：铁棍｜对白：[对白]林晚：先守住门。`
+
+    const manifest = extractScriptAssetManifest(script)
+    const result = await service.suggestScriptAssets(
+      'project-1',
+      script,
+      DEFAULT_SCRIPT_DIRECTION,
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      undefined,
+      undefined,
+      'fast',
+    )
+
+    expect(manifest.character[0]).toMatchObject({
+      name: '林晚',
+      facts: { 性别: '女', 年龄: '28岁', 身份: '急诊护士', 故事作用: '救下程野并组织防守' },
+    })
+    expect(result.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'character',
+          name: '林晚',
+          sourceFacts: expect.objectContaining({ 身份: '急诊护士', 故事作用: '救下程野并组织防守' }),
+          attributes: expect.objectContaining({ gender: 'female', exactAge: 28, ageGroup: 'young' }),
+          description: expect.stringContaining('急诊护士'),
+          prompt: expect.stringContaining('故事作用：救下程野并组织防守'),
+        }),
+        expect.objectContaining({
+          kind: 'scene',
+          name: '废弃药店',
+          sourceFacts: expect.objectContaining({ 氛围: '破败阴森' }),
+          attributes: expect.objectContaining({ space: 'interior', time: 'sunset', mood: 'desolate' }),
+        }),
+        expect.objectContaining({
+          kind: 'prop',
+          name: '铁棍',
+          attributes: expect.objectContaining({ material: 'metal', condition: 'used' }),
+        }),
+        expect.objectContaining({ kind: 'costume', name: '林晚灰色防风服' }),
+      ]),
+    )
+    expect(splitScriptParagraphs(script)).toHaveLength(1)
+    expect(splitScriptParagraphs(script)[0]?.text).toContain('场次：S01')
+  })
+
+  it('stops asset fields before director details and ignores temporary shot state', () => {
+    const script =
+      '场次：S01｜时长：20秒｜场景：废弃药店｜角色：林晚、程野｜服装：灰色防风服、黑色夹克｜关键物件：铁棍、消炎药｜入场状态：程野腹部受伤并沾有血迹｜镜头1：时长：10秒；任务：建立空间；景别：俯拍大全景；机位：南门上方；内容：林晚右手握铁棍；首帧：林晚表情紧张；尾帧：镜头推近程野伤口｜镜头2：时长：10秒；任务：验证后门；景别：中景跟拍。'
+
+    const names = extractScriptAssetNameIndex(script)
+
+    expect(names.character).toEqual(['林晚', '程野'])
+    expect(names.scene).toEqual(['废弃药店'])
+    expect(names.costume).toEqual(['灰色防风服', '黑色夹克'])
+    expect(names.prop).toEqual(['铁棍', '消炎药'])
+    expect(Object.values(names).flat().join('、')).not.toMatch(/俯拍|中景|机位|伤口|血迹|表情/u)
+  })
 })
 
 describe('ProjectService director beat splitting', () => {
@@ -810,7 +891,7 @@ describe('ProjectService director beat splitting', () => {
     expect(shots[1]?.prompt).not.toContain('坐标为什么在我身上')
   })
 
-  it('falls back to executable actions when scene mode only receives one scene', async () => {
+  it('keeps legacy scenes as one director shot instead of splitting every action', async () => {
     const script =
       '场次：S01｜剧情：岚星确认异常坐标。｜场景：天穹环城观景桥。｜角色：岚星；巡逻守卫。｜动作：动作1：岚星抬眼看向光点；动作2：她收紧导航环；动作3：守卫停步转头。｜对白：[内心独白]岚星：坐标为什么在我身上？｜风格：影视CG。｜构图：中景。｜光影：银蓝晨光。｜运镜：稳定推进。｜衔接：导航环保持发光。'
     const repository = {
@@ -825,11 +906,57 @@ describe('ProjectService director beat splitting', () => {
       { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
     )
 
-    expect(shots).toHaveLength(3)
-    expect(shots[0]?.prompt).toContain('镜头边界：本镜只表现当前动作')
+    expect(shots).toHaveLength(1)
     expect(shots[0]?.prompt).toContain('动作1：岚星抬眼看向光点')
-    expect(shots[0]?.prompt).not.toContain('动作3：守卫停步转头')
-    expect(shots[2]?.prompt).toContain('动作3：守卫停步转头')
+    expect(shots[0]?.prompt).toContain('动作3：守卫停步转头')
+  })
+
+  it('turns one explicit 20-second scene into two director-purpose shots', async () => {
+    const script =
+      '场次：S01｜时长：20秒｜剧情：林晚带程野进入药店并确认后门锁死。｜目标：活过今晚。｜阻力：二十余只丧尸从十字路口东侧逼近。｜变化：两人发现药店只能从卷帘门防守。｜场景：废弃药店一层，卷帘门朝南，后门位于北墙。｜角色：林晚、程野｜服装：林晚灰色防风服；程野黑色夹克｜关键物件：铁棍、消炎药｜入场状态：林晚在南门内侧，程野靠西侧药柜。｜动作：林晚先从门缝观察尸群，再沿中央过道检查北侧后门，拉动门把确认锁死后返回程野身边。｜对白：[对白]程野：后门能走吗？；[对白]林晚：锁死了。；[对白]程野：那就守这里。；[对白]林晚：先把血止住。｜声音：卷帘门撞击声、程野急促呼吸。｜镜头1：时长：10秒；任务：建立空间与威胁；景别：俯拍大全景；机位：药店南门上方；运镜：从门外尸群缓慢下降至门内；内容：二十余只丧尸从十字路口东侧逼近，林晚在门内用右手握住铁棍顶住卷帘门；对白：[对白]程野：后门能走吗？；表演：程野压住腹部伤口望向林晚；声音：卷帘门撞击声；光影：黄昏冷光从门缝射入；首帧：尸群位于东侧路口；尾帧：林晚转身看向北侧后门；资产引用：林晚、程野、废弃药店、铁棍｜镜头2：时长：10秒；任务：验证退路并改变决定；景别：中景跟拍转门锁特写；机位：中央过道人物视线高度；运镜：跟随林晚向北移动后推近门锁；内容：林晚沿中央过道跑到北墙，左手拉动门把两次确认后门锁死，再退回西侧药柜；对白：[对白]林晚：锁死了。；[对白]程野：那就守这里。；[对白]林晚：先把血止住。；表演：林晚确认门锁后短暂停顿，程野听见结论后改变决定；声音：门锁金属声与急促呼吸；光影：应急灯忽明忽暗；首帧：林晚面向北侧后门起跑；尾帧：林晚半蹲在程野右侧取出消炎药；资产引用：林晚、程野、废弃药店、消炎药｜出场状态：林晚在西侧药柜前半蹲，程野仍按住腹部伤口。｜衔接：卷帘门继续受撞击，后门保持锁死。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(2)
+    expect(shots.map((shot) => shot.duration)).toEqual([10, 10])
+    expect(shots[0]).toMatchObject({ framing: '俯拍大全景' })
+    expect(shots[0]?.prompt).toContain('镜头任务：建立空间与威胁')
+    expect(shots[0]?.prompt).toContain('尸群位于东侧路口')
+    expect(shots[0]?.prompt).not.toContain('锁死了')
+    expect(shots[1]?.prompt).toContain('镜头任务：验证退路并改变决定')
+    expect(shots[1]?.prompt).toContain('林晚：锁死了')
+    expect(shots[1]?.prompt).toContain('出场状态：林晚在西侧药柜前半蹲')
+    expect(shots[1]?.continuityMode).toBe('continue')
+  })
+
+  it('groups a 20-second scene into two director shots when explicit plans are absent', async () => {
+    const script =
+      '场次：S01｜时长：20秒｜剧情：林晚确认药店后门锁死。｜场景：废弃药店。｜角色：林晚、程野｜动作：林晚从南门观察尸群；她沿中央过道跑向北门；她拉动门把确认锁死；她回到程野身边。｜对白：[对白]程野：能出去吗？；[对白]林晚：门锁死了。'
+    const repository = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama', script }, assets: [] })),
+      replaceShots: vi.fn(async (_projectId, shots) => shots),
+    } as unknown as ProjectRepository
+    const service = new ProjectService(repository)
+
+    const shots = await service.generateShots(
+      'project-1',
+      { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+    )
+
+    expect(shots).toHaveLength(2)
+    expect(shots.map((shot) => shot.duration)).toEqual([10, 10])
+    expect(shots[0]?.prompt).toContain('林晚从南门观察尸群')
+    expect(shots[1]?.prompt).toContain('她拉动门把确认锁死')
   })
 
   it('automatically batches one oversized script block instead of returning one shot', async () => {
@@ -1192,6 +1319,18 @@ describe('assignShotEpisodes', () => {
 })
 
 describe('splitScriptParagraphs', () => {
+  it('does not break a long structured director scene into narrative chunks', () => {
+    const detail = '林晚从南门内侧沿中央过道向北移动，右手始终握住铁棍，程野留在西侧药柜旁观察她。'
+    const script =
+      `场次：S01｜时长：20秒｜剧情：林晚检查药店退路。｜场景：废弃药店。｜角色：林晚、程野｜动作：${detail.repeat(14)}` +
+      `｜镜头1：时长：10秒；任务：建立空间；内容：${detail.repeat(5)}｜镜头2：时长：10秒；任务：验证后门；内容：${detail.repeat(5)}`
+
+    const paragraphs = splitScriptParagraphs(script)
+
+    expect(script.replace(/\s/gu, '').length).toBeGreaterThan(900)
+    expect(expandLongScriptParagraphs(paragraphs)).toEqual(paragraphs)
+  })
+
   it('removes manual markers and flags the next script paragraph', () => {
     expect(splitScriptParagraphs('第一场\n【强制下一集】\n第二场')).toEqual([
       { text: '第一场', forceEpisodeBreakBefore: false },

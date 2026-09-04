@@ -13,6 +13,12 @@ import {
   selectShotAssetReferencesFromIndex,
   selectVideoReferenceImages,
 } from '../storyboard/referenceSelector'
+import {
+  activeVideoTasksForShots,
+  isCompatibleCompletedVideoTask,
+  planSelectedVideoRegeneration,
+  planVideoBatch,
+} from '../storyboard/videoBatchPlanner'
 import { api } from '../../services/apiClient'
 
 const TASK_KIND_BY_LABEL = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
@@ -37,6 +43,7 @@ export function createWorkspaceCommands({
   setNewProjectOpen,
   setToast,
   assetReferenceIndex,
+  generationConcurrency = 1,
 }) {
   const resolvedAssetReferenceIndex = assetReferenceIndex || createShotAssetReferenceIndex(workspace?.assets)
 
@@ -265,6 +272,7 @@ export function createWorkspaceCommands({
       continuityMode = shot.continuityMode || 'independent',
       batchId = null,
       batchMode = null,
+      allowCreateContinuitySource = true,
     } = {},
   ) => {
     const references = selectShotAssetReferencesFromIndex(
@@ -286,12 +294,13 @@ export function createWorkspaceCommands({
     let sourceTask = actualContinuityMode === 'continue' ? continuitySourceTask : null
     if (actualContinuityMode === 'continue' && previousShot && !sourceTask) {
       sourceTask = latestVideoTaskFor(tasks, previousShot, true)
-      if (!sourceTask && !chain.includes(previousShot.id)) {
+      if (!sourceTask && allowCreateContinuitySource && !chain.includes(previousShot.id)) {
         sourceTask = await createStoryboardVideo(previousShot, {
           resolution,
           chain: [...chain, shot.id],
           batchId,
           batchMode,
+          allowCreateContinuitySource,
         })
       }
       if (!sourceTask) {
@@ -357,6 +366,107 @@ export function createWorkspaceCommands({
     })
   }
 
+  const createStoryboardVideoBatch = async (
+    shotsToGenerate,
+    resolution,
+    mode = 'parallel',
+    { forceNewVersion = false, selectionMode = 'continuity' } = {},
+  ) => {
+    const activeTasks = activeVideoTasksForShots(tasks, shotsToGenerate)
+    if (activeTasks.length) {
+      const shotCount = new Set(activeTasks.map((task) => task.metadata?.shotId)).size
+      throw new Error(`当前有 ${shotCount} 个分镜视频任务仍在队列中，请先在生成队列暂停或删除后再切换策略。`)
+    }
+
+    const batchId = crypto.randomUUID()
+    const plan = forceNewVersion
+      ? planSelectedVideoRegeneration(
+          workspace.shots,
+          shotsToGenerate.map((shot) => shot.id),
+          selectionMode,
+          generationConcurrency,
+        )
+      : planVideoBatch(shotsToGenerate, mode, generationConcurrency)
+    if (plan.continuityUpdates.length) {
+      await Promise.all(
+        plan.continuityUpdates.map((update) =>
+          api.updateShot(project.id, update.shotId, { continuityMode: update.continuityMode }),
+        ),
+      )
+    }
+
+    const completedVideoTasksByShot = new Map()
+    for (const task of tasks) {
+      if (task.kind !== 'video' || task.status !== 'completed') continue
+      const shotId = task.metadata?.shotId
+      if (!shotId) continue
+      const candidates = completedVideoTasksByShot.get(shotId) || []
+      candidates.push(task)
+      completedVideoTasksByShot.set(shotId, candidates)
+    }
+    const laneResults = await Promise.all(
+      plan.lanes.map(async (lane) => {
+        let created = 0
+        let previousVideoTask = null
+        for (const [shotIndex, shot] of lane.entries()) {
+          const references = selectShotAssetReferencesFromIndex(
+            resolvedAssetReferenceIndex,
+            shot,
+            6,
+            workspace.assets,
+          )
+          const mustProvideLastFrame = lane[shotIndex + 1]?.continuityMode === 'continue'
+          const existingVideo = forceNewVersion
+            ? null
+            : (completedVideoTasksByShot.get(shot.id) || []).find(
+                (task) =>
+                  isCompatibleCompletedVideoTask(task, {
+                    shotId: shot.id,
+                    referenceAssetIds: references.map((reference) => reference.id),
+                    resolution,
+                    continuityMode: shot.continuityMode,
+                    previousTaskId: previousVideoTask?.id ?? null,
+                    sourcePromptSnapshot: shot.prompt,
+                  }) &&
+                  (!mustProvideLastFrame || hasLastFrame(task)),
+              )
+          if (existingVideo) {
+            previousVideoTask = existingVideo
+            continue
+          }
+          const createdTask = await createStoryboardVideo(shot, {
+            resolution,
+            continuityMode: shot.continuityMode,
+            continuitySourceTask: shot.continuityMode === 'continue' ? previousVideoTask : null,
+            batchId,
+            batchMode: forceNewVersion ? `reroll-${selectionMode}` : mode,
+            allowCreateContinuitySource: !forceNewVersion,
+          })
+          if (!createdTask) break
+          previousVideoTask = createdTask
+          created += 1
+        }
+        return created
+      }),
+    )
+    const created = laneResults.reduce((total, count) => total + count, 0)
+    await refreshWorkspace()
+    replaceTasks(project.id, await api.tasks(project.id))
+    const laneCount = Math.min(plan.immediateLaneCount, created)
+    if (created) {
+      setToast(
+        forceNewVersion
+          ? `已创建 ${created} 个重做任务，旧版本仍可切换`
+          : mode === 'parallel'
+            ? `已创建 ${created} 个视频任务，${laneCount} 路安全并发执行`
+            : mode === 'independent'
+              ? `已创建 ${created} 个独立视频任务，全部并发提交`
+              : `已按尾帧承接关系创建 ${created} 个视频任务`,
+      )
+    }
+    return { created, laneCount }
+  }
+
   return {
     refreshWorkspace,
     mergeWorkspaceAsset,
@@ -372,5 +482,6 @@ export function createWorkspaceCommands({
     retryNotification,
     createProject,
     createStoryboardVideo,
+    createStoryboardVideoBatch,
   }
 }

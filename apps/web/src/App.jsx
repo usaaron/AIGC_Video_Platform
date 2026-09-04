@@ -21,15 +21,7 @@ import { useAuth } from './components/AuthProvider'
 import { canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/access'
 import { useAccountScope } from './features/account/useAccountScope'
 import { api } from './services/apiClient'
-import {
-  createShotAssetReferenceIndex,
-  selectShotAssetReferencesFromIndex,
-} from './features/storyboard/referenceSelector'
-import {
-  activeVideoTasksForShots,
-  isCompatibleCompletedVideoTask,
-  planVideoBatch,
-} from './features/storyboard/videoBatchPlanner'
+import { createShotAssetReferenceIndex } from './features/storyboard/referenceSelector'
 import { ASSET_SUGGESTION_MODEL } from '@seqora/contracts'
 import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { assetGenerationReferences } from './features/assets/assetGenerationReferences'
@@ -230,6 +222,7 @@ function App() {
     retryNotification,
     createProject,
     createStoryboardVideo,
+    createStoryboardVideoBatch,
   } = createWorkspaceCommands({
     project,
     projects,
@@ -249,6 +242,7 @@ function App() {
     setNewProjectOpen,
     setToast,
     assetReferenceIndex: workspaceAssetReferenceIndex,
+    generationConcurrency: billing?.concurrency || 1,
   })
 
   const renderContent = () => {
@@ -703,90 +697,7 @@ function App() {
           }}
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerateVideo={createStoryboardVideo}
-          onGenerateAllVideos={async (shotsToGenerate, resolution, mode = 'parallel') => {
-            const activeTasks = activeVideoTasksForShots(tasks, shotsToGenerate)
-            if (activeTasks.length) {
-              const shotCount = new Set(activeTasks.map((task) => task.metadata?.shotId)).size
-              throw new Error(
-                `当前有 ${shotCount} 个分镜视频任务仍在队列中，请先在生成队列暂停或删除后再切换策略。`,
-              )
-            }
-
-            const batchId = crypto.randomUUID()
-            const plan = planVideoBatch(shotsToGenerate, mode, billing.concurrency)
-            if (plan.continuityUpdates.length) {
-              await Promise.all(
-                plan.continuityUpdates.map((update) =>
-                  api.updateShot(project.id, update.shotId, { continuityMode: update.continuityMode }),
-                ),
-              )
-            }
-
-            const completedVideoTasksByShot = new Map()
-            for (const task of tasks) {
-              if (task.kind !== 'video' || task.status !== 'completed') continue
-              const shotId = task.metadata?.shotId
-              if (!shotId) continue
-              const candidates = completedVideoTasksByShot.get(shotId) || []
-              candidates.push(task)
-              completedVideoTasksByShot.set(shotId, candidates)
-            }
-            const laneResults = await Promise.all(
-              plan.lanes.map(async (lane) => {
-                let created = 0
-                let previousVideoTask = null
-                for (const [shotIndex, shot] of lane.entries()) {
-                  const references = selectShotAssetReferencesFromIndex(
-                    workspaceAssetReferenceIndex,
-                    shot,
-                    6,
-                    workspace.assets,
-                  )
-                  const mustProvideLastFrame = lane[shotIndex + 1]?.continuityMode === 'continue'
-                  const existingVideo = (completedVideoTasksByShot.get(shot.id) || []).find(
-                    (task) =>
-                      isCompatibleCompletedVideoTask(task, {
-                        shotId: shot.id,
-                        referenceAssetIds: references.map((reference) => reference.id),
-                        resolution,
-                        continuityMode: shot.continuityMode,
-                        previousTaskId: previousVideoTask?.id ?? null,
-                        sourcePromptSnapshot: shot.prompt,
-                      }) &&
-                      (!mustProvideLastFrame || hasLastFrame(task)),
-                  )
-                  if (existingVideo) {
-                    previousVideoTask = existingVideo
-                    continue
-                  }
-                  const createdTask = await createStoryboardVideo(shot, {
-                    resolution,
-                    continuityMode: shot.continuityMode,
-                    continuitySourceTask: shot.continuityMode === 'continue' ? previousVideoTask : null,
-                    batchId,
-                    batchMode: mode,
-                  })
-                  if (!createdTask) break
-                  previousVideoTask = createdTask
-                  created += 1
-                }
-                return created
-              }),
-            )
-            const created = laneResults.reduce((total, count) => total + count, 0)
-            await refreshWorkspace()
-            replaceTasks(project.id, await api.tasks(project.id))
-            if (created) {
-              const laneCount = Math.min(plan.immediateLaneCount, created)
-              setToast(
-                mode === 'parallel'
-                  ? `已创建 ${created} 个视频任务，${laneCount} 路安全并发执行`
-                  : mode === 'independent'
-                    ? `已创建 ${created} 个独立视频任务，全部并发提交`
-                    : `已按尾帧承接关系创建 ${created} 个视频任务`,
-              )
-            }
-          }}
+          onGenerateAllVideos={createStoryboardVideoBatch}
           onNext={() => navigateTo('generate')}
         />
       ),

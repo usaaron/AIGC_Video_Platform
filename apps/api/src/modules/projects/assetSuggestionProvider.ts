@@ -141,8 +141,20 @@ function normalizeProviderAssetSuggestion(value: unknown): Record<string, unknow
     ),
     reason: textValue(source.reason ?? source.why ?? source['原因'], '根据剧本核心实体建立可复用资产。', 500),
     priority: normalizePriority(source.priority ?? source.importance ?? source['优先级']),
+    sourceFacts: normalizeSourceFacts(source.sourceFacts ?? source.facts ?? source['事实'] ?? {}),
     attributes: normalizeScriptAssetAttributes(kind, read),
   }
+}
+
+function normalizeSourceFacts(value: unknown): Record<string, string> {
+  const source = asRecord(value)
+  if (!source) return {}
+  return Object.fromEntries(
+    Object.entries(source)
+      .map(([key, entry]) => [key.trim().slice(0, 20), textValue(entry, '', 200).trim()] as const)
+      .filter(([key, entry]) => Boolean(key && entry))
+      .slice(0, 12),
+  )
 }
 
 export function scriptAssetSuggestionMaxTokens(candidateCount: number): number {

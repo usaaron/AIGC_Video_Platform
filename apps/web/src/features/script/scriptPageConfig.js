@@ -1,4 +1,5 @@
 import { BookOpenText, Clapperboard } from 'lucide-react'
+import { SCRIPT_MODEL_CATALOG } from '@seqora/contracts'
 
 export const SCRIPT_CONTENT_CONFIGS = {
   'short-drama': {
@@ -99,6 +100,41 @@ export const SCRIPT_SECTIONS = [
     icon: BookOpenText,
   },
 ]
+
+export const SCRIPT_ASSET_SUGGESTION_COPY = {
+  eyebrow: '辅助资产建议',
+  title: '随剧本自动识别人物、场景、物品、服装和品牌',
+  refresh: '扫描当前剧本',
+  refreshAgain: '重新扫描当前剧本',
+  empty: '剧本生成完成后会自动快速识别，不调用模型，也不会占用生成队列。',
+}
+
+export function availableScriptModelOptions(capabilities) {
+  const availability = new Map(capabilities.map((capability) => [capability.id, capability.available]))
+  return SCRIPT_MODEL_CATALOG.map((model) => ({
+    ...model,
+    // Preserve the conservative GLM fallback until rolling API deployments expose capabilities.
+    available: availability.get(model.id) ?? model.id !== 'glm-5.2',
+  }))
+}
+
+export function scriptGenerationStatusMessage(status) {
+  return status === 'unavailable'
+    ? '当前预发环境未配置可用的文本模型，已暂停无效提交；配置完成后刷新页面即可生成。'
+    : '暂时无法确认文本模型状态，已暂停无效提交；请刷新页面后重试。'
+}
+
+export function orderScriptEpisodes(episodes) {
+  return [...episodes].sort((left, right) => left.episodeNumber - right.episodeNumber)
+}
+
+export function initialScriptValue(initialDraftEpisode, isSeries, hasEpisodes, projectScript) {
+  return (
+    initialDraftEpisode?.draftContent ||
+    initialDraftEpisode?.content ||
+    (isSeries && hasEpisodes ? '' : projectScript)
+  )
+}
 
 export function looksLikeDevelopedScript(value) {
   const source = value.trim()

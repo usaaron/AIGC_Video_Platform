@@ -20,9 +20,14 @@ import { AssetEditor } from '../features/assets/AssetEditor'
 import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
 import { AssetSuggestionsPanel } from '../features/script/AssetSuggestionsPanel'
 import {
+  availableScriptModelOptions,
+  initialScriptValue,
   looksLikeDevelopedScript,
+  orderScriptEpisodes,
+  SCRIPT_ASSET_SUGGESTION_COPY,
   SCRIPT_CONTENT_CONFIGS,
   SCRIPT_SECTIONS,
+  scriptGenerationStatusMessage,
 } from '../features/script/scriptPageConfig'
 import { ScriptHelp, TextTimingSummary } from '../features/script/ScriptPageSupport'
 import {
@@ -36,12 +41,7 @@ import {
 import { useScriptTaskPreview } from '../features/script/useScriptTaskPreview'
 import { useAssetSuggestions } from '../features/script/useAssetSuggestions'
 import { useScriptGeneration } from '../features/script/useScriptGeneration'
-import {
-  DEFAULT_SCRIPT_MODEL,
-  DEFAULT_SCRIPT_DIRECTION,
-  SCRIPT_MODEL_CATALOG,
-  SCRIPT_OPERATION_CREDITS,
-} from '@seqora/contracts'
+import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 export function ScriptPage({
   project,
@@ -70,25 +70,16 @@ export function ScriptPage({
 }) {
   const contentConfig = SCRIPT_CONTENT_CONFIGS[project.contentType] || SCRIPT_CONTENT_CONFIGS.animation
   const isSeries = project.contentType === 'short-drama'
-  const orderedEpisodes = useMemo(
-    () => [...scriptEpisodes].sort((left, right) => left.episodeNumber - right.episodeNumber),
-    [scriptEpisodes],
-  )
+  const orderedEpisodes = useMemo(() => orderScriptEpisodes(scriptEpisodes), [scriptEpisodes])
   const initialDraftEpisode = orderedEpisodes.find((episode) => episode.status === 'draft')
   const productionMode = contentConfig.productionMode
   const usesDuration = contentConfig.usesDuration !== false
-  // Fail closed when the health check did not confirm a usable text provider.
   const textGenerationUnavailable = textProviderStatus !== 'configured'
-  const textGenerationStatusMessage =
-    textProviderStatus === 'unavailable'
-      ? '当前预发环境未配置可用的文本模型，已暂停无效提交；配置完成后刷新页面即可生成。'
-      : '暂时无法确认文本模型状态，已暂停无效提交；请刷新页面后重试。'
+  const textGenerationStatusMessage = scriptGenerationStatusMessage(textProviderStatus)
   const defaultEpisodeSeconds = project.episodeDurationSeconds || contentConfig.defaultDuration
   const [activeEpisodeId, setActiveEpisodeId] = useState(initialDraftEpisode?.id || null)
   const [script, setScript] = useState(
-    initialDraftEpisode?.draftContent ||
-      initialDraftEpisode?.content ||
-      (isSeries && orderedEpisodes.length ? '' : project.script),
+    initialScriptValue(initialDraftEpisode, isSeries, orderedEpisodes.length > 0, project.script),
   )
   const [direction] = useState(DEFAULT_SCRIPT_DIRECTION)
   const [scriptModel, setScriptModel] = useState(DEFAULT_SCRIPT_MODEL)
@@ -107,17 +98,10 @@ export function ScriptPage({
   )
   const [error, setError] = useState('')
   const [stoppingTaskId, setStoppingTaskId] = useState(null)
-  const scriptModelOptions = useMemo(() => {
-    const scriptModelAvailability = new Map(
-      scriptModelCapabilities.map((capability) => [capability.id, capability.available]),
-    )
-    return SCRIPT_MODEL_CATALOG.map((model) => ({
-      ...model,
-      // During a rolling API/Web deployment, preserve the old conservative GLM fallback until the
-      // health response includes per-model capabilities.
-      available: scriptModelAvailability.get(model.id) ?? model.id !== 'glm-5.2',
-    }))
-  }, [scriptModelCapabilities])
+  const scriptModelOptions = useMemo(
+    () => availableScriptModelOptions(scriptModelCapabilities),
+    [scriptModelCapabilities],
+  )
   const scriptModelCapabilityKey = scriptModelCapabilities
     .map((capability) => `${capability.id}:${capability.available ? '1' : '0'}`)
     .join('|')
@@ -180,9 +164,16 @@ export function ScriptPage({
     activePreviewValidation,
     latestTextTiming,
   } = scriptTaskState
+  const autoAssetSuggestionSource =
+    activeTaskDraftText ||
+    (completedScriptText && scriptSuggestionFingerprint(completedScriptText) === assetSuggestionFingerprint
+      ? completedScriptText
+      : '') ||
+    (saved && looksLikeDevelopedScript(script) ? script : '')
   const assetSuggestions = useAssetSuggestions({
     projectId: project.id,
     script,
+    autoSource: autoAssetSuggestionSource,
     direction,
     latestTask: latestAssetSuggestionTask,
     activeTask: activeAssetSuggestionTask,
@@ -305,7 +296,6 @@ export function ScriptPage({
     setRevisionNote('')
     setError('')
     setHasGeneratedScript(orderedEpisodes.length > 0 || looksLikeDevelopedScript(project.script))
-    assetSuggestions.reset()
   }, [project.id, project.script, defaultEpisodeSeconds, episodeSnapshotKey, isSeries])
 
   useEffect(() => {
@@ -326,6 +316,7 @@ export function ScriptPage({
 
   const openEpisode = (episode) => {
     if (!saved && script.trim() && !window.confirm('当前修改尚未保存，切换后会丢失。继续吗？')) return
+    assetSuggestions.reset()
     setActiveEpisodeId(episode.id)
     setScript(episode.draftContent || episode.content)
     setSaved(episode.status === 'saved')
@@ -341,6 +332,7 @@ export function ScriptPage({
     setError('')
     try {
       await onDeleteEpisode(episode.id)
+      assetSuggestions.reset()
       setActiveEpisodeId(null)
       setScript('')
       setSaved(true)
@@ -361,6 +353,7 @@ export function ScriptPage({
     setError('')
     try {
       await onClearEpisodes()
+      assetSuggestions.reset()
       setActiveEpisodeId(null)
       setScript('')
       setSaved(true)
@@ -962,7 +955,7 @@ export function ScriptPage({
           error={assetSuggestions.error}
           creatingKeys={assetSuggestions.creatingKeys}
           createdKeys={assetSuggestions.createdKeys}
-          onRefresh={() => void assetSuggestions.suggest(script)}
+          onRefresh={() => void assetSuggestions.extractFast()}
           onCancel={() => void assetSuggestions.stop()}
           onFastExtract={() => void assetSuggestions.extractFast()}
           onSkip={() => void skipAssetSuggestions()}
@@ -970,6 +963,12 @@ export function ScriptPage({
           onInspect={assetSuggestions.openEditor}
           onCreateAndGenerate={assetSuggestions.createAndGenerate}
           onImportSelected={assetSuggestions.importSelected}
+          copy={{
+            ...SCRIPT_ASSET_SUGGESTION_COPY,
+            refresh: assetSuggestions.result
+              ? SCRIPT_ASSET_SUGGESTION_COPY.refreshAgain
+              : SCRIPT_ASSET_SUGGESTION_COPY.refresh,
+          }}
         />
 
         {error && (

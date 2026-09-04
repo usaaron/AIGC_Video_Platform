@@ -4,11 +4,13 @@ import {
   ArrowDown,
   Check,
   Clock3,
+  FolderOpen,
   History,
   ImagePlus,
   Link2,
   LoaderCircle,
   Pencil,
+  RefreshCw,
   RotateCcw,
   Scissors,
   Trash2,
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react'
 import { IconButton } from '../../components/ui'
 import { AssetAwareTextarea, AssetShortcutBar } from '../assets/AssetShortcutBar'
+import { getAssetPreviewUrl } from '../assets/assetPreview'
 import { selectShotAssetReferencesFromIndex, taskUsesAssetReferences } from './referenceSelector'
 import { VIDEO_RESOLUTIONS } from './storyboardConstants'
 import {
@@ -39,6 +42,7 @@ export function ShotRow({
   minDuration = 4,
   previousShot,
   selected,
+  selectedForBatch = false,
   assets,
   assetIndex,
   references: providedReferences,
@@ -46,6 +50,7 @@ export function ShotRow({
   batchLocked,
   resolution,
   onSelect,
+  onToggleBatch,
   onResolutionChange,
   onUpdate,
   onEdit,
@@ -61,6 +66,9 @@ export function ShotRow({
   const references = providedReferences || selectShotAssetReferencesFromIndex(assetIndex, shot, 6, assets)
   const videoMatchesAssets = taskUsesAssetReferences(videoTask, references)
   const videoActionLabel = generationActionLabel(videoTask, videoMatchesAssets, '视频')
+  const canReroll =
+    Boolean(previewVideoUrl) || ['completed', 'failed', 'cancelled'].includes(videoTask?.status)
+  const primaryVideoActionLabel = !isActive(videoTask) && canReroll ? '重新生成本镜' : videoActionLabel
 
   return (
     <Fragment>
@@ -73,8 +81,27 @@ export function ShotRow({
           disabled={batchLocked}
         />
       )}
-      <article className={`shot-row ${selected ? 'selected' : ''}`} onClick={onSelect}>
-        <div className="shot-number">{String(shot.order).padStart(2, '0')}</div>
+      <article
+        className={`shot-row ${selected ? 'selected' : ''} ${selectedForBatch ? 'batch-selected' : ''}`}
+        onClick={onSelect}
+      >
+        <div className="shot-number">
+          <label
+            className="shot-select-control"
+            title={selectedForBatch ? '取消选择此镜头' : '选择此镜头进行批量重生成'}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selectedForBatch}
+              disabled={isActive(videoTask)}
+              aria-label={`${shot.title}加入批量重生成`}
+              onChange={() => onToggleBatch?.(shot.id)}
+            />
+            <span aria-hidden="true">{selectedForBatch ? <Check size={11} /> : null}</span>
+          </label>
+          <strong>{String(shot.order).padStart(2, '0')}</strong>
+        </div>
         <div className={`shot-thumb ${previewVideoUrl ? 'has-video' : ''}`}>
           {previewVideoUrl ? (
             <video
@@ -152,7 +179,7 @@ export function ShotRow({
           </select>
           <button
             type="button"
-            className="shot-action-button video"
+            className={`shot-action-button video ${canReroll ? 'reroll' : ''}`}
             title={videoActionLabel}
             aria-label={videoActionLabel}
             disabled={isActive(videoTask)}
@@ -169,9 +196,18 @@ export function ShotRow({
               void onGenerateVideo(shot, { resolution })
             }}
           >
-            {isActive(videoTask) ? <LoaderCircle size={16} className="spin" /> : <Video size={16} />}
-            <span>{videoActionLabel}</span>
+            {isActive(videoTask) ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : canReroll ? (
+              <RefreshCw size={16} />
+            ) : (
+              <Video size={16} />
+            )}
+            <span>{primaryVideoActionLabel}</span>
           </button>
+          <small className="shot-reroll-note">
+            {canReroll ? '生成新版本 · 旧版本保留' : '生成当前镜头 · 18 积分'}
+          </small>
           <div className="shot-utility-actions">
             <IconButton
               label="版本历史"
@@ -420,13 +456,13 @@ export function ShotEditor({
 }) {
   const orderedShots = [...shots].sort((left, right) => left.order - right.order)
   const [insertionIndex, setInsertionIndex] = useState(orderedShots.length)
-  const [title, setTitle] = useState(shot.title || '')
-  const [framing, setFraming] = useState(shot.framing || '中景')
+  const title = shot.title || `镜头 ${orderedShots.length + 1}`
+  const framing = shot.framing || '中景'
   const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration, minDuration))
   const [prompt, setPrompt] = useState(shot.prompt || '')
   const promptArea = useRef(null)
-  const [negativePrompt, setNegativePrompt] = useState(shot.negativePrompt || '')
-  const [continuityNote, setContinuityNote] = useState(shot.continuityNote || '')
+  const negativePrompt = shot.negativePrompt || ''
+  const continuityNote = shot.continuityNote || ''
   const [imageUrl, setImageUrl] = useState(shot.imageUrl || '')
   const [scriptEpisodeId, setScriptEpisodeId] = useState(shot.scriptEpisodeId || null)
   const [episodeNumber, setEpisodeNumber] = useState(shot.episodeNumber || 1)
@@ -434,6 +470,10 @@ export function ShotEditor({
   const [episodeKind, setEpisodeKind] = useState(shot.episodeKind || 'standard')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false)
+  const referenceAssets = assets
+    .map((asset) => ({ asset, url: getAssetPreviewUrl(asset, tasks) }))
+    .filter((item) => Boolean(item.url))
 
   const insertionLabel =
     insertionIndex === 0
@@ -505,84 +545,135 @@ export function ShotEditor({
         }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="modal-head">
+        <div className="modal-head storyboard-shot-editor-head">
           <div>
             <span className="eyebrow">分镜</span>
             <h2>{shot.id ? '编辑镜头' : '添加镜头'}</h2>
           </div>
-          <IconButton label="关闭" type="button" onClick={onClose}>
-            <X size={20} />
-          </IconButton>
+          <div className="storyboard-shot-editor-head-actions">
+            <label className="shot-duration-control">
+              <span>时长</span>
+              <span>
+                <input
+                  type="number"
+                  min={minDuration}
+                  max="15"
+                  value={duration}
+                  aria-label="镜头时长（秒）"
+                  onChange={(event) => setDuration(event.target.value)}
+                />
+                <em>秒</em>
+              </span>
+            </label>
+            <IconButton label="关闭" type="button" onClick={onClose}>
+              <X size={20} />
+            </IconButton>
+          </div>
         </div>
-        <div className="field-grid">
-          <label>
-            <span>镜头标题</span>
-            <input
-              className="text-input"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
+        <div className="shot-editor-workspace">
+          <section className="shot-editor-reference-panel">
+            <div className={`shot-editor-reference-stage ${imageUrl ? 'has-image' : ''}`}>
+              {imageUrl ? (
+                <img src={imageUrl} alt="镜头参考" />
+              ) : (
+                <div className="shot-editor-reference-empty">
+                  <ImagePlus size={30} />
+                  <strong>暂无参考图</strong>
+                </div>
+              )}
+              {imageUrl && (
+                <IconButton label="移除参考图" type="button" onClick={() => setImageUrl('')}>
+                  <X size={16} />
+                </IconButton>
+              )}
+            </div>
+            <div className="shot-reference-source-actions">
+              <label className="button secondary">
+                {uploading ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
+                {uploading ? '上传中' : '本地上传'}
+                <input
+                  className="hidden-input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={uploading}
+                  onChange={(event) => void uploadReference(event)}
+                />
+              </label>
+              <button
+                className={`button secondary ${assetPickerOpen ? 'active' : ''}`}
+                type="button"
+                aria-expanded={assetPickerOpen}
+                onClick={() => setAssetPickerOpen((current) => !current)}
+              >
+                <FolderOpen size={15} /> 从资产库选择
+              </button>
+            </div>
+            {uploadError && (
+              <p className="operation-error" role="alert">
+                {uploadError}
+              </p>
+            )}
+            {assetPickerOpen && (
+              <div className="shot-asset-picker">
+                <div className="shot-asset-picker-head">
+                  <strong>资产库</strong>
+                  <span>{referenceAssets.length} 张可用</span>
+                </div>
+                {referenceAssets.length ? (
+                  <div className="shot-asset-picker-grid">
+                    {referenceAssets.map(({ asset, url }) => (
+                      <button
+                        className={imageUrl === url ? 'selected' : ''}
+                        type="button"
+                        key={asset.id}
+                        aria-label={`使用资产 ${asset.name}`}
+                        aria-pressed={imageUrl === url}
+                        onClick={() => {
+                          setImageUrl(url)
+                          setAssetPickerOpen(false)
+                        }}
+                      >
+                        <img src={url} alt="" />
+                        <span>{asset.name}</span>
+                        {imageUrl === url && <Check size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="shot-asset-picker-empty">
+                    <ImagePlus size={20} />
+                    <span>资产库暂无可用图片</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+          <section className="shot-editor-prompt-panel">
+            <label className="field-label" htmlFor="shot-visual-prompt">
+              画面提示词
+            </label>
+            <AssetAwareTextarea
+              className="shot-editor-prompt-input"
+              inputRef={promptArea}
+              assets={assets}
+              tasks={tasks}
+              value={prompt}
+              id="shot-visual-prompt"
+              onChange={(event) => setPrompt(event.target.value)}
+              aria-label="画面提示词"
             />
-          </label>
-          <label>
-            <span>景别</span>
-            <select value={framing} onChange={(event) => setFraming(event.target.value)}>
-              <option>大全景</option>
-              <option>广角</option>
-              <option>中景</option>
-              <option>中近景</option>
-              <option>特写</option>
-              <option>俯拍</option>
-            </select>
-          </label>
-          <label>
-            <span>时长（秒）</span>
-            <input
-              className="text-input"
-              type="number"
-              min={minDuration}
-              max="15"
-              value={duration}
-              onChange={(event) => setDuration(event.target.value)}
+            <AssetShortcutBar
+              assets={assets}
+              tasks={tasks}
+              value={prompt}
+              onChange={setPrompt}
+              inputRef={promptArea}
+              label="插入资产名称"
             />
-          </label>
-          <label>
-            <span>所属集数</span>
-            <input
-              className="text-input"
-              type="number"
-              min="1"
-              value={episodeNumber}
-              onChange={(event) => setEpisodeNumber(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>剧集标题</span>
-            <input
-              className="text-input"
-              value={episodeTitle}
-              maxLength={120}
-              onChange={(event) => setEpisodeTitle(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>剧集类型</span>
-            <select value={episodeKind} onChange={(event) => setEpisodeKind(event.target.value)}>
-              <option value="standard">常规剧集</option>
-              <option value="hook">剧情钩子</option>
-            </select>
-          </label>
-          <label>
-            <span>参考图片 URL</span>
-            <input
-              className="text-input"
-              value={imageUrl}
-              onChange={(event) => setImageUrl(event.target.value)}
-            />
-          </label>
+          </section>
         </div>
         {!shot.id && (
-          <label className="shot-insertion-control">
+          <label className="shot-insertion-control compact">
             <span>
               <strong>插入位置</strong>
               <em>{insertionLabel}</em>
@@ -596,68 +687,8 @@ export function ShotEditor({
               aria-label="新分镜插入位置"
               onChange={(event) => changeInsertionIndex(event.target.value)}
             />
-            <small>拖动滑块选择放在第几镜之后；末尾为追加</small>
           </label>
         )}
-        <div className="shot-reference-editor">
-          <div className="shot-reference-preview">
-            {imageUrl ? <img src={imageUrl} alt="镜头参考" /> : <ImagePlus size={24} />}
-          </div>
-          <div>
-            <strong>镜头参考图</strong>
-            <span>生成分镜图和视频时作为本镜头画面参考。</span>
-          </div>
-          <label className="button secondary">
-            {uploading ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
-            {uploading ? '上传中' : '本地上传'}
-            <input
-              className="hidden-input"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              disabled={uploading}
-              onChange={(event) => void uploadReference(event)}
-            />
-          </label>
-          {imageUrl && (
-            <IconButton label="移除参考图" type="button" onClick={() => setImageUrl('')}>
-              <X size={15} />
-            </IconButton>
-          )}
-        </div>
-        {uploadError && (
-          <p className="operation-error" role="alert">
-            {uploadError}
-          </p>
-        )}
-        <label className="field-label">画面提示词</label>
-        <AssetAwareTextarea
-          inputRef={promptArea}
-          assets={assets}
-          tasks={tasks}
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          aria-label="画面提示词"
-        />
-        <AssetShortcutBar
-          assets={assets}
-          tasks={tasks}
-          value={prompt}
-          onChange={setPrompt}
-          inputRef={promptArea}
-          label="本镜头资产快捷键"
-        />
-        <label className="field-label">衔接上下文</label>
-        <textarea
-          value={continuityNote}
-          placeholder="记录上一场结束时的人物位置、动作、物品、光线和最后一句对白"
-          onChange={(event) => setContinuityNote(event.target.value)}
-        />
-        <label className="field-label">补充负面提示词</label>
-        <textarea
-          value={negativePrompt}
-          placeholder="例如：不要水印、不要多余人物、不要面部漂移"
-          onChange={(event) => setNegativePrompt(event.target.value)}
-        />
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             取消

@@ -9,6 +9,7 @@ describe('suggestionToAssetInput', () => {
       description: '年轻导演',
       prompt: ' 短发，正面头像 ',
       negativePrompt: '手部',
+      sourceFacts: { 身份: '急诊护士', 故事作用: '救下伤员' },
       attributes: { gender: 'female', exactAge: 28 },
     })
 
@@ -17,7 +18,7 @@ describe('suggestionToAssetInput', () => {
       sourceMode: 'generate',
       name: '林夏',
       promptMode: 'advanced',
-      customPromptMode: 'replace',
+      customPromptMode: 'append',
       customPrompt: '短发，正面头像',
       references: [],
       imageUrl: null,
@@ -28,5 +29,7 @@ describe('suggestionToAssetInput', () => {
         faceStatus: 'pending',
       },
     })
+    expect(input.description).toContain('身份：急诊护士')
+    expect(input.description).toContain('故事作用：救下伤员')
   })
 })

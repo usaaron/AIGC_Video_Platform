@@ -363,6 +363,8 @@ export function assetSuggestionKey(asset) {
 
 function buildSuggestionFacts(asset) {
   const attributes = asset.attributes || {}
+  const sourceFacts = asset.sourceFacts || {}
+  const sourceFact = (...labels) => labels.map((label) => sourceFacts[label]).find(Boolean) || ''
   if (asset.kind === 'character') {
     if (attributes.subjectType === 'animal') {
       return [
@@ -381,8 +383,9 @@ function buildSuggestionFacts(asset) {
             : optionLabel('gender', attributes.gender || 'unspecified'),
       },
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
-      { label: '精确年龄', value: attributes.exactAge ? String(attributes.exactAge) : '未指定' },
-      { label: '身份', value: asset.description || asset.reason || '未补充' },
+      { label: '精确年龄', value: attributes.exactAge ? `${attributes.exactAge} 岁` : '未指定' },
+      { label: '身份', value: sourceFact('身份', '角色身份', '人物背景') || asset.description || '未补充' },
+      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
     ]
   }
   if (asset.kind === 'scene') {
@@ -393,7 +396,11 @@ function buildSuggestionFacts(asset) {
         value: attributes.sceneType ? optionLabel('sceneType', attributes.sceneType) : '未指定',
       },
       { label: '氛围', value: attributes.mood ? optionLabel('mood', attributes.mood) : '未指定' },
-      { label: '运镜', value: attributes.camera ? optionLabel('camera', attributes.camera) : '未指定' },
+      {
+        label: '时间',
+        value: sourceFact('时间', '时段') || optionLabel('time', attributes.time) || '未指定',
+      },
+      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
     ]
   }
   if (asset.kind === 'prop') {
@@ -408,6 +415,7 @@ function buildSuggestionFacts(asset) {
         label: '状态',
         value: attributes.condition ? optionLabel('condition', attributes.condition) : '未指定',
       },
+      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
     ]
   }
   if (asset.kind === 'costume') {
@@ -419,6 +427,8 @@ function buildSuggestionFacts(asset) {
       },
       { label: '季节', value: attributes.season ? optionLabel('season', attributes.season) : '未指定' },
       { label: '风格', value: attributes.design ? optionLabel('design', attributes.design) : '未指定' },
+      { label: '归属', value: sourceFact('归属', '角色', '穿着者') || '未指定' },
+      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
     ]
   }
   if (asset.kind === 'brand') {
@@ -433,6 +443,7 @@ function buildSuggestionFacts(asset) {
         label: '背景',
         value: attributes.background ? optionLabel('background', attributes.background) : '透明',
       },
+      { label: '故事作用', value: sourceFact('故事作用', '剧情作用', '作用', '故事') || '未补充' },
     ]
   }
   if (asset.kind === 'audio') {

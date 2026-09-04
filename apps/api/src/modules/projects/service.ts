@@ -53,10 +53,11 @@ import {
   expandLongScriptParagraphs,
   hasStructuredSceneRows,
   preserveScriptBreakMarkers,
+  scriptBodyWithoutAssetManifest,
   splitScriptIntoBeatShots,
-  splitScriptIntoSmartSceneShots,
   splitScriptParagraphs,
 } from './shotPlanning.js'
+import { splitScriptIntoSmartSceneShots } from './directorShotPlanning.js'
 
 export { assignShotEpisodes, splitScriptParagraphs } from './shotPlanning.js'
 import {
@@ -490,8 +491,11 @@ export class ProjectService {
           const missingMaximum = Math.max(missingTarget, sceneBudget.maximum - existingSceneCount)
           const continuation = await this.textProvider!.generate({
             systemPrompt: withChineseScriptRules(WEB_SERIES_SCRIPT_SYSTEM_PROMPT),
-            userPrompt: `${projectContext}\n\n首轮已经生成 ${existingSceneCount} 个可识别场次，低于单集最低 ${sceneBudget.minimum} 场。保留首轮内容，不要重复或改写；请从其动作终点继续，只输出后续 ${missingMinimum} 到 ${missingMaximum} 个新场次，建议 ${missingTarget} 个，使本集达到 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 场并在最后形成明确钩子。新场次逐行完整包含场次、剧情、场景、角色、动作、对白、风格、构图、光影、运镜、衔接字段。\n\n用户原始素材：\n${source}\n\n已经生成的首轮内容：\n${existingCandidate}`,
-            maxOutputTokens: Math.min(webSeriesMaxOutputTokens(), Math.max(600, missingTarget * 220)),
+            userPrompt: `${projectContext}\n\n首轮已经生成 ${existingSceneCount} 个可识别场次，低于单集最低 ${sceneBudget.minimum} 场。保留首轮内容，不要重复或改写；请从其出场状态继续，只输出后续 ${missingMinimum} 到 ${missingMaximum} 个新场次，建议 ${missingTarget} 个，使本集达到 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 场并在最后形成明确钩子。新场次逐行完整包含场次、时长、剧情、目标、阻力、变化、场景、角色、服装、关键物件、入场状态、动作、对白、声音、镜头1、镜头2、出场状态、衔接字段；每场 4 到 6 句有效短对白，镜头按导演目的而非动作拆分。\n\n用户原始素材：\n${source}\n\n已经生成的首轮内容：\n${existingCandidate}`,
+            maxOutputTokens: Math.min(
+              webSeriesMaxOutputTokens(episodeSeconds),
+              Math.max(1_800, missingTarget * 1_800),
+            ),
             model,
             usageContext: usageContextForPrincipal(principal),
             ...(onTextProgress
@@ -512,7 +516,10 @@ export class ProjectService {
                   onTextProgress(appendScriptSegment(existingCandidate, text), 'language-repair')
               : undefined,
           )
-          candidate = appendScriptSegment(existingCandidate, normalizedContinuation)
+          candidate = appendScriptSegment(
+            existingCandidate,
+            scriptBodyWithoutAssetManifest(normalizedContinuation),
+          )
         }
         const contentSceneBudget = scriptContentSceneBudget(scriptMode, episodeSeconds)
         const shouldRepairContentStructure =

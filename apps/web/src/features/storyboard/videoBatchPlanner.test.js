@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { activeVideoTasksForShots, isCompatibleCompletedVideoTask, planVideoBatch } from './videoBatchPlanner'
+import {
+  activeVideoTasksForShots,
+  isCompatibleCompletedVideoTask,
+  planSelectedVideoRegeneration,
+  planVideoBatch,
+  unselectedContinuityDependents,
+} from './videoBatchPlanner'
 
 describe('planVideoBatch', () => {
   it('never splits one continuation chain just to fill concurrency', () => {
@@ -160,6 +166,37 @@ describe('planVideoBatch', () => {
         sourcePromptSnapshot: 'edited prompt',
       }),
     ).toBe(false)
+  })
+})
+
+describe('planSelectedVideoRegeneration', () => {
+  it('preserves contiguous selected continuity while separating gaps', () => {
+    const source = shots(6)
+    const plan = planSelectedVideoRegeneration(source, ['shot-1', 'shot-2', 'shot-4'], 'continuity', 3)
+
+    expect(plan.lanes.map((lane) => lane.map((shot) => shot.id))).toEqual([['shot-1', 'shot-2'], ['shot-4']])
+    expect(plan.immediateLaneCount).toBe(2)
+    expect(plan.continuityUpdates).toEqual([])
+  })
+
+  it('makes only the generated task independent without changing saved shot continuity', () => {
+    const source = shots(3)
+    const plan = planSelectedVideoRegeneration(source, ['shot-2', 'shot-3'], 'independent', 3)
+
+    expect(plan.lanes).toHaveLength(2)
+    expect(plan.lanes.flat().map((shot) => shot.continuityMode)).toEqual(['independent', 'independent'])
+    expect(plan.continuityUpdates).toEqual([])
+    expect(source[1].continuityMode).toBe('continue')
+  })
+
+  it('reports unselected downstream shots that still point at the old continuity chain', () => {
+    const source = shots(6)
+    source[4].continuityMode = 'independent'
+
+    expect(unselectedContinuityDependents(source, ['shot-2']).map((shot) => shot.id)).toEqual([
+      'shot-3',
+      'shot-4',
+    ])
   })
 })
 

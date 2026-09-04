@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { assetSuggestionKey } from './AssetSuggestionsPanel'
 import { suggestionToAssetInput } from './assetSuggestionInput'
 import { isAssetSuggestionResult, isQueuedTextTask, scriptSuggestionFingerprint } from './scriptTaskState'
@@ -6,6 +6,7 @@ import { isAssetSuggestionResult, isQueuedTextTask, scriptSuggestionFingerprint 
 export function useAssetSuggestions({
   projectId,
   script,
+  autoSource = '',
   direction,
   latestTask,
   activeTask,
@@ -24,14 +25,18 @@ export function useAssetSuggestions({
   const [creatingKeys, setCreatingKeys] = useState(() => new Set())
   const [createdKeys, setCreatedKeys] = useState(() => new Set())
   const [editor, setEditor] = useState(null)
+  const fastRequestRef = useRef(0)
+  const automaticFingerprintRef = useRef('')
 
   const reset = () => {
+    fastRequestRef.current += 1
     setStatus('idle')
     setResult(null)
     setError('')
   }
 
   useEffect(() => {
+    automaticFingerprintRef.current = ''
     reset()
     setCreatingKeys(new Set())
     setCreatedKeys(new Set())
@@ -105,29 +110,44 @@ export function useAssetSuggestions({
     }
   }
 
-  const extractFast = async () => {
-    const source = script.trim()
+  const runFastExtraction = async (value, cancelActiveTask = false) => {
+    const source = value.trim()
     if (!source || !onSuggestAssetsFast || stoppingTaskId) return
+    const requestId = fastRequestRef.current + 1
+    fastRequestRef.current = requestId
     setStatus('extracting')
     setResult(null)
     setError('')
     try {
-      if (activeTask && onCancelTask) {
+      if (cancelActiveTask && activeTask && onCancelTask) {
         setStoppingTaskId(activeTask.id)
         await onCancelTask(activeTask.id, '已切换为剧本快速提取')
       }
       const nextResult = await onSuggestAssetsFast(source, direction)
       if (!isAssetSuggestionResult(nextResult)) throw new Error('快速提取没有返回有效资产，请重试')
+      if (fastRequestRef.current !== requestId) return
       setResult(nextResult)
       setStatus('ready')
       setCreatedKeys(new Set())
     } catch (extractError) {
+      if (fastRequestRef.current !== requestId) return
       setError(extractError.message)
       setStatus('ready')
     } finally {
-      setStoppingTaskId(null)
+      if (cancelActiveTask) setStoppingTaskId(null)
     }
   }
+
+  const extractFast = () => runFastExtraction(script, true)
+
+  useEffect(() => {
+    const source = autoSource.trim()
+    if (!source || !onSuggestAssetsFast || activeTask) return
+    const fingerprint = scriptSuggestionFingerprint(source)
+    if (automaticFingerprintRef.current === fingerprint) return
+    automaticFingerprintRef.current = fingerprint
+    void runFastExtraction(source)
+  }, [autoSource, activeTask?.id, onSuggestAssetsFast])
 
   const openEditor = (asset) => {
     const key = assetSuggestionKey(asset)
