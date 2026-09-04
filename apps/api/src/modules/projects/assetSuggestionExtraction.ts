@@ -152,10 +152,18 @@ export function manifestFact(item: ScriptAssetManifestItem | undefined, labels: 
 
 const NON_VISUAL_ASSET_FACT_LABELS = new Set(['故事作用', '剧情作用', '作用', '故事', '剧情', '目的', '目标'])
 
+export function isReusableAssetFactLabel(label: string): boolean {
+  const normalized = label.trim()
+  return !(
+    NON_VISUAL_ASSET_FACT_LABELS.has(normalized) ||
+    /^(?:故事|剧情|本集|本场|叙事)(?:作用|目的|目标)$/u.test(normalized)
+  )
+}
+
 export function reusableAssetFacts(facts: Record<string, string> | undefined): Record<string, string> {
   return Object.fromEntries(
     Object.entries(facts || {}).filter(
-      ([label, value]) => !NON_VISUAL_ASSET_FACT_LABELS.has(label.trim()) && Boolean(value.trim()),
+      ([label, value]) => isReusableAssetFactLabel(label) && Boolean(value.trim()),
     ),
   )
 }

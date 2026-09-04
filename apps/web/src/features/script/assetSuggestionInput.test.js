@@ -9,7 +9,7 @@ describe('suggestionToAssetInput', () => {
       description: '年轻导演',
       prompt: ' 短发，正面头像 ',
       negativePrompt: '手部',
-      sourceFacts: { 身份: '急诊护士', 故事作用: '救下伤员' },
+      sourceFacts: { 身份: '急诊护士', 故事作用: '救下伤员', 本集作用: '组织防守' },
       attributes: { gender: 'female', exactAge: 28 },
     })
 
@@ -31,6 +31,7 @@ describe('suggestionToAssetInput', () => {
     })
     expect(input.description).toContain('身份：急诊护士')
     expect(input.description).not.toContain('故事作用')
+    expect(input.description).not.toContain('本集作用')
     expect(input.customPrompt).not.toContain('故事作用')
   })
 })

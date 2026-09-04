@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { extractScriptAssetNameIndex } from './assetSuggestions.js'
 import { splitScriptIntoSmartSceneShots } from './directorShotPlanning.js'
+import { completeWebSeriesSpokenContent } from './scriptWriting.js'
 import { parseShotFields, splitScriptParagraphs } from './shotPlanning.js'
 
 const READABLE_SCRIPT = `资产：
@@ -59,5 +60,18 @@ describe('readable screenplay workflow', () => {
       '场次：S01｜场景：废弃药店｜角色：林晚｜关键物件：旧铁盒、盒盖暗扣扣紧、已露出半截、盒盖敞开｜动作：林晚打开旧铁盒。'
 
     expect(extractScriptAssetNameIndex(script).prop).toEqual(['旧铁盒'])
+  })
+
+  it('adds a voiceover without duplicating existing natural dialogue', () => {
+    const scene = `场次：S01｜废弃药店｜深夜｜内景｜20秒
+林晚站在南侧门内，右手握紧铁棍。
+程野：“后门能走吗？”
+林晚：“我先去确认。”`
+
+    const completed = completeWebSeriesSpokenContent(scene, 'web-series')
+
+    expect(completed).toContain('画外音：“')
+    expect(completed.match(/程野：“后门能走吗？”/gu)).toHaveLength(1)
+    expect(completed.match(/林晚：“我先去确认。”/gu)).toHaveLength(1)
   })
 })

@@ -11,6 +11,7 @@ import {
   scriptBodyWithoutAssetManifest,
   splitScriptParagraphs,
 } from './shotPlanning.js'
+import { isNaturalScreenplayHeader } from './screenplayParsing.js'
 
 export type ScriptContentMode = 'web-series' | 'advertisement' | 'short-film' | 'short-video'
 
@@ -702,9 +703,10 @@ export function completeWebSeriesSpokenContent(script: string, mode: ScriptConte
     const availableCharacters = Math.max(6, 24 - dialogueTextForTiming(dialogue).length)
     const voiceover = shortVoiceoverContext(scene.剧情 || scene.动作, Math.min(16, availableCharacters))
     if (!voiceover) continue
+    const sceneText = paragraphs[index]!.text
     paragraphs[index]!.text = appendSpokenContent(
-      paragraphs[index]!.text,
-      `[画外音]${voiceover}；${dialogue}`,
+      sceneText,
+      isNaturalScreenplayHeader(sceneText) ? `[画外音]${voiceover}` : `[画外音]${voiceover}；${dialogue}`,
     )
     selected.add(index)
   }

@@ -2,6 +2,14 @@ import { createDefaultAttributes } from '../assets/assetOptions'
 
 const NON_VISUAL_FACT_LABELS = new Set(['故事作用', '剧情作用', '作用', '故事', '剧情', '目的', '目标'])
 
+function isVisualFactLabel(label) {
+  const normalized = label.trim()
+  return (
+    !NON_VISUAL_FACT_LABELS.has(normalized) &&
+    !/^(?:故事|剧情|本集|本场|叙事)(?:作用|目的|目标)$/u.test(normalized)
+  )
+}
+
 export function suggestionToAssetInput(suggestion) {
   const kind = suggestion.kind
   const attributes = {
@@ -11,7 +19,7 @@ export function suggestionToAssetInput(suggestion) {
   }
   const prompt = String(suggestion.prompt || '').trim()
   const sourceFacts = Object.entries(suggestion.sourceFacts || {})
-    .filter(([label, value]) => !NON_VISUAL_FACT_LABELS.has(label.trim()) && String(value || '').trim())
+    .filter(([label, value]) => isVisualFactLabel(label) && String(value || '').trim())
     .map(([label, value]) => `${label}：${String(value).trim()}`)
     .join('；')
   const description = [String(suggestion.description || '').trim(), sourceFacts]
