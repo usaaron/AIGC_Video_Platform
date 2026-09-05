@@ -4,8 +4,9 @@
 > 交接快照：2026-09-05（Asia/Shanghai）
 > 工作目录：`/Users/simonriley/Downloads/docs`
 > 当前分支：`test1`
-> 当前提交：`c0b168d`
-> 远程：`origin/test1`（与本地 `HEAD` 同步）
+> 功能代码基线：`c0b168d`
+> 交接文档提交起点：`b058cdd`
+> 远程：`origin/test1`（接手时请用 Git 命令复核最新 `HEAD`）
 
 本文是交给下一位工程师、编导产品负责人或审查者的独立交接资料。它描述的是当前代码真实具备的能力、当前安全边界、最近变更、验证记录和下一步实施条件。它不替代以下权威文档：
 
@@ -34,14 +35,15 @@
 
 ### 2.1 分支和提交
 
-当前状态：
+功能代码基线和文档提交链：
 
 ```text
 branch: test1
-HEAD:   c0b168d
-remote: origin/test1 -> c0b168d
-status: clean
+feature baseline: c0b168d
+handoff docs: 194efed -> b058cdd
 ```
+
+接手时以 `git status --short --branch`、`git rev-parse HEAD origin/test1` 为准；文档后续修订会自然产生新的文档提交，不应把本节的快照 hash 当成永久分支头。
 
 `test1` 从 `creative-sovereignty-v1`（`f6696c1`）继续演进，最近提交按功能顺序如下：
 
@@ -782,7 +784,7 @@ if [ -d frontend/.next ]; then find frontend/.next -depth -delete; fi
 | 后端全量测试 | 未执行 | 不在本轮范围 |
 | 15 分钟以上真实长任务 | 未执行 | 需要真实模型和独立验收方案 |
 
-新增的测试文件（尚不能仅凭“文件存在”宣称全量通过）：
+相关测试文件（尚不能仅凭“文件存在”宣称全量通过）：
 
 - `frontend/tests/episode-plan-import-adapter.test.mjs`
 - `frontend/tests/state-machine-gates.test.mjs`

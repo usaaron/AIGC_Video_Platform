@@ -37,7 +37,7 @@
 
 - 职责：承载作者主权、输入完成度识别、来源保留导入、规划审批门禁和正文自动恢复安全收口的交接分支。
 - 基于：`creative-sovereignty-v1`（`f6696c1`）。
-- 当前 HEAD：`c0b168d`；已推送并跟踪 `origin/test1`。
+- 功能代码基线：`c0b168d`；交接文档从 `b058cdd` 开始记录，分支已推送并跟踪 `origin/test1`。
 - 主要增量：Story Bible 来源保留导入草稿、分集原文 `episode_plan_import.v1` 来源审计草稿、规划版本变化失效、确认规划后才允许自动续写/恢复、旧项目省略规划状态的兼容，以及全剧交付确认门禁。
 - 明确边界：分集原文审计尚未物料化为 `StoryPlanNode` 或 `EpisodeRoadmapItem`；没有后台 durable Story Planning Job、自动批准或权威 Continuity Ledger 自动更新。
 - 验证状态：前端 TypeScript 与差异检查通过；生成恢复定向测试记录为 `12/12`；浏览器、Playwright、后端全量和真实长任务尚未在本交接轮执行。
