@@ -106,6 +106,8 @@ Episode Roadmap / 分集路线图
 导出
 ```
 
+当前“连续性与故事线证据”主要由前端的有界、本地/临时摘要和生成上下文承担；权威 Continuity Ledger 自动更新、跨批次 Context Mapper 和后台任务尚未完成。因此不能把当前摘要描述成已经具备无人值守的全剧连续性保证。
+
 它不是“输入一段话后自动替作者写完整部剧”的黑盒。结构、节奏、篇幅、场景和对白数量是平台可以提供的骨架约束；故事方向、人物选择、价值判断、关键秘密、关系结果和结局必须由作者确认。
 
 ### 3.2 权威层级
@@ -135,6 +137,8 @@ Episode Roadmap / 分集路线图
 - 对白数量是下限/目标的辅助指标，不替代戏剧价值；
 - 不要通过统一套话填满数量；
 - 需要增加数量时，应先增加因果和人物选择，再增加格式行数。
+
+当前生产合同的主要范围来自 `backend/app/script_delivery_contract.py`：单集成片时长硬范围为 75–115 秒，偏好安全区为 90–105 秒；单集场景数为 1–5，镜头数为 15–20，对白行数为 25–35；系列运行时最低目标为 100 分钟。正文生成服务另有 45–135 秒的 hard fallback，用于异常/兼容输入的边界归一化，不能把它当作常规创作目标。
 
 ---
 
@@ -171,6 +175,8 @@ Episode Roadmap / 分集路线图
 - `frontend/lib/generation-recovery.ts`：正文任务恢复和自动续写守卫。
 - `frontend/lib/episode-delivery-confirmation.ts`：全剧交付确认快照和内容指纹。
 - `frontend/lib/project-store.ts`、`project-sync.ts`：本地持久化、同步、冲突和旧 payload 兼容。
+
+IndexedDB 数据按浏览器 profile 和 origin 隔离。清除站点数据、使用隐私窗口或更换 host/port 都可能得到一个新的本地工作区。服务端重启后，已保存的本地草稿仍可读取和导出；但如果临时 ContentSpec lineage 不再存在，新的 AI 修改、Deepening 或 Finalization 可能无法继续，需先恢复相应服务端资源。
 
 核心后端模块：
 
@@ -273,7 +279,9 @@ Story Bible 确认后：
 - 保存规划检查点；
 - 确认规划。
 
-进入页面不会自动生成、自动展开或自动生成路线图。
+进入页面不会自动生成、自动展开或自动生成路线图。客户端的“一键继续展开”是有界、按钮触发的递归队列，不是后台无人值守 Job。
+
+注意：前端 `EpisodeRoadmapItem`、后端 durable `EpisodePlan` 和后端 `EpisodePlanGenerationItem` 是三个不同层次的合同；不能把它们混用，也不能把来源审计行直接发给旧的 `/episode-plans` 写入接口。
 
 ### 5.4 规划保存和确认
 
@@ -559,9 +567,9 @@ UI 显示识别集数、缺号/重复、警告、前 12 个来源行、字段完
 
 ### 8.1 主要 API 家族
 
-后端路由集中在 `backend/app/api/routes/story_projects.py`：
+长篇项目相关路由主要集中在 `backend/app/api/routes/story_projects.py`；输入识别单独位于 `backend/app/api/routes/input_readiness.py`：
 
-- `POST /input-readiness/analyze`：只读输入识别。
+- `POST /input-readiness/analyze`：只读输入识别（`input_readiness.py`）。
 - `POST /story-projects/{id}/story-bibles/draft`：普通总纲草稿。
 - `POST /story-projects/{id}/story-bibles/import-draft`：原文保留导入草稿。
 - Story Bible 的 modify、save version、confirm/get。
@@ -588,7 +596,7 @@ UI 显示识别集数、缺号/重复、警告、前 12 个来源行、字段完
 以下项目不要在交接时写成“已完成”：
 
 - 分集原文 → 已批准 `episode_ready` 叶节点 → 可审阅路线图草稿的安全 materializer。
-- 后台 durable Story Planning Job、自动递归、跨叶调度和自动批准。
+- 后台/无人值守 durable Story Planning Job、跨叶调度和自动批准（客户端按钮触发的有界递归展开已经实现）。
 - 权威 Continuity Ledger 的自动提取、更新、冲突检查和 Context Mapper。
 - Episode Artifact 的细粒度审计/恢复 UI。
 - 故事线/人物关系的完整后端 authoring contract、future-only 影响分析和分支再生成。
@@ -738,9 +746,9 @@ cd ..
 
 启动脚本会执行 Alembic migration、初始化前端开发资源并启动 uvicorn 与 Next。生产环境必须显式使用 PostgreSQL；SQLite 只适用于本地/测试。
 
-### 11.4 当前默认验证规则
+### 11.4 当前交接轮验证范围
 
-在没有用户额外放宽测试范围前，执行：
+本次交接轮为保持验证范围可控，除非用户明确放宽，不额外运行下列命令。它是当前任务的验证范围约束，不是永久禁止项目维护者运行测试。当前建议执行：
 
 ```bash
 cd frontend
