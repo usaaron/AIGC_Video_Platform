@@ -224,6 +224,7 @@ AI_Comic_Content_OS_Docs/Research/ 研究和实验记录
 | `19_DECISIONS.md` | 已接受架构决策 |
 | `20_Benchmark_Evaluation.md` | Benchmark 与评估方法 |
 | `21_Current_Status_Checklist.md` | 当前实现状态与限制 |
+| `22_TEST1_HANDOFF.md` | `test1` 分支交接、门禁、验证和后续实施边界 |
 | `Frontend_MVP_Architecture.md` | 前端产品与技术边界 |
 | `Research/` | 尚未自动进入 Runtime 的研究证据 |
 
