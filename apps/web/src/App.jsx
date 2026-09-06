@@ -3,7 +3,12 @@ import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
 import { IconButton } from './components/ui'
-import { ProjectMenu, WorkspaceLoading } from './components/WorkspaceOverlays'
+import {
+  ProjectMenu,
+  WorkspaceErrorBoundary,
+  WorkspaceLoadError,
+  WorkspaceLoading,
+} from './components/WorkspaceOverlays'
 import {
   AssetLibraryPage,
   AssetsPage,
@@ -42,13 +47,15 @@ import {
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
-import { shouldLoadTaskDetails, workspacePollingProjectId } from './features/workspace/workspaceLoadingPolicy'
+import { shouldLoadTaskDetails } from './features/workspace/workspaceLoadingPolicy'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
   const [activeStep, setActiveStep] = useState('home')
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
+  const [activeProjectId, setActiveProjectId] = useState(null)
+  const [workspaceLoadError, setWorkspaceLoadError] = useState(null)
   const [tasks, setTasks] = useState([])
   const [billing, setBilling] = useState(null)
   const [providerHealth, setProviderHealth] = useState(null)
@@ -85,6 +92,27 @@ function App() {
     }
   }, [])
 
+  const selectActiveProject = useCallback((projectId) => {
+    activeProjectIdRef.current = projectId
+    setActiveProjectId(projectId)
+    setWorkspaceLoadError(null)
+  }, [])
+
+  const handleWorkspaceError = useCallback((projectId, error) => {
+    if (activeProjectIdRef.current !== projectId) return
+    setWorkspaceLoadError({
+      projectId,
+      message:
+        error?.name === 'AbortError'
+          ? '项目数据响应超时，请重试。'
+          : error?.message || '项目数据同步失败，请重试。',
+    })
+  }, [])
+
+  const handleWorkspaceReady = useCallback((projectId) => {
+    if (activeProjectIdRef.current === projectId) setWorkspaceLoadError(null)
+  }, [])
+
   const adminOnly = session.account.roles.includes('admin') && !session.permissions.includes('project.write')
   const canOpenAdminAccounts = canOpenAccountAdmin(session)
   const adminConsoleUrl = getAdminConsoleUrl()
@@ -101,6 +129,7 @@ function App() {
     setTasks,
     setActiveStep,
     setLoadAttempt,
+    setActiveProject: selectActiveProject,
   })
 
   useEffect(() => {
@@ -112,9 +141,9 @@ function App() {
         setProjects(projectList)
         setBilling(billingSummary)
         setProviderHealth(health)
-        if (projectList[0]) {
+        if (projectList[0] && activeProjectIdRef.current === null) {
           const initialProjectId = projectList[0].id
-          activeProjectIdRef.current = initialProjectId
+          selectActiveProject(initialProjectId)
           setWorkspace(
             workspaceCacheRef.current.get(initialProjectId) || {
               project: projectList[0],
@@ -124,6 +153,10 @@ function App() {
             },
           )
           replaceTasks(initialProjectId, readProjectTaskCache(initialProjectId))
+        } else if (!projectList.length) {
+          selectActiveProject(null)
+          setWorkspace(null)
+          replaceTasks(null, [])
         }
       })
       .catch((error) => {
@@ -131,10 +164,10 @@ function App() {
         setToast(error.message)
       })
       .finally(() => setLoading(false))
-  }, [adminOnly, loadAttempt, replaceTasks])
+  }, [adminOnly, loadAttempt, replaceTasks, selectActiveProject])
 
   useWorkspacePolling({
-    projectId: workspacePollingProjectId(activeStep, workspace),
+    projectId: activeStep === 'home' ? null : activeProjectId,
     includeTaskDetails: shouldLoadTaskDetails(activeStep),
     workspaceCacheRef,
     activeProjectIdRef,
@@ -144,6 +177,8 @@ function App() {
     setProjects,
     setRecentTasks,
     setRecentTasksLoaded,
+    onWorkspaceError: handleWorkspaceError,
+    onWorkspaceReady: handleWorkspaceReady,
   })
 
   useEffect(() => {
@@ -153,7 +188,7 @@ function App() {
   }, [workspace?.assets])
 
   useTrustedPortraitSynchronization({
-    projectId: workspace?.project.id,
+    projectId: activeProjectId,
     assets: workspace?.assets,
     setWorkspace,
   })
@@ -230,6 +265,7 @@ function App() {
     workspace,
     tasks,
     workspaceCacheRef,
+    setActiveProject: selectActiveProject,
     activeProjectIdRef,
     replaceTasks,
     refreshSession,
@@ -245,6 +281,22 @@ function App() {
     assetReferenceIndex: workspaceAssetReferenceIndex,
     generationConcurrency: billing?.concurrency || 1,
   })
+
+  const workspaceRequired = new Set(['overview', 'script', 'assets', 'storyboard', 'generate', 'film']).has(
+    activeStep,
+  )
+  const selectedWorkspaceError = workspaceLoadError?.projectId === activeProjectId ? workspaceLoadError : null
+  if (workspaceRequired && activeProjectId && selectedWorkspaceError) {
+    return (
+      <WorkspaceLoadError
+        message={selectedWorkspaceError.message}
+        onRetry={() => void openProject(activeProjectId)}
+      />
+    )
+  }
+  if (workspaceRequired && activeProjectId && workspace?.project?.id !== activeProjectId) {
+    return <WorkspaceLoading />
+  }
 
   const renderContent = () => {
     if (activeStep === 'home') {
@@ -265,10 +317,11 @@ function App() {
             const nextProjects = await api.projects()
             setProjects(nextProjects)
             if (project?.id === projectId) {
-              const nextWorkspace = nextProjects[0] ? await api.project(nextProjects[0].id) : null
+              const nextProjectId = nextProjects[0]?.id || null
+              selectActiveProject(nextProjectId)
+              const nextWorkspace = nextProjectId ? await api.project(nextProjectId) : null
               setWorkspace(nextWorkspace)
-              if (nextProjects[0]) {
-                const nextProjectId = nextProjects[0].id
+              if (nextProjectId) {
                 replaceTasks(nextProjectId, readProjectTaskCache(nextProjectId))
                 replaceTasks(nextProjectId, await api.tasks(nextProjectId))
               } else {
@@ -856,7 +909,14 @@ function App() {
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
       <main className="workspace">
-        <Suspense fallback={<WorkspaceLoading />}>{renderContent()}</Suspense>
+        <Suspense fallback={<WorkspaceLoading />}>
+          <WorkspaceErrorBoundary
+            projectId={activeProjectId}
+            onRetry={() => void openProject(activeProjectId)}
+          >
+            {renderContent()}
+          </WorkspaceErrorBoundary>
+        </Suspense>
       </main>
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />

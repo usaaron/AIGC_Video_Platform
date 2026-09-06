@@ -151,7 +151,7 @@ export const api = {
   resumeAgentRun: (runId) => request(`/agent/runs/${runId}/resume`, { method: 'POST' }),
   retryAgentRun: (runId) => request(`/agent/runs/${runId}/retry`, { method: 'POST' }),
   skipAgentStage: (runId, stage) => request(`/agent/runs/${runId}/stages/${stage}/skip`, { method: 'POST' }),
-  project: (id) => request(`/projects/${id}`),
+  project: (id) => request(`/projects/${id}`, { timeoutMs: 20_000 }),
   createProject: (input) => request('/projects', json('POST', input)),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
@@ -299,7 +299,7 @@ export const api = {
     request(`/projects/${projectId}/shots/generate`, json('POST', input)),
   autoSplitShotEpisodes: (projectId, input) =>
     request(`/projects/${projectId}/shots/auto-episodes`, json('POST', input)),
-  tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
+  tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`, { timeoutMs: 20_000 }),
   pollTasks: (projectId, etag = null) =>
     conditionalRequest(`/projects/${projectId}/generation/tasks/poll`, etag),
   pollWorkspaceVersion: (projectId, etag = null) =>

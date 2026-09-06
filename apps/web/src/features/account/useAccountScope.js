@@ -1,7 +1,14 @@
 import { useCallback, useState } from 'react'
 import { api } from '../../services/apiClient'
 
-export function useAccountScope({ refreshSession, setWorkspace, setTasks, setActiveStep, setLoadAttempt }) {
+export function useAccountScope({
+  refreshSession,
+  setWorkspace,
+  setTasks,
+  setActiveStep,
+  setLoadAttempt,
+  setActiveProject,
+}) {
   const [organizations, setOrganizations] = useState([])
   const [sessions, setSessions] = useState([])
 
@@ -29,12 +36,13 @@ export function useAccountScope({ refreshSession, setWorkspace, setTasks, setAct
     async (organizationId) => {
       await api.switchOrganization(organizationId)
       await refreshSession()
+      setActiveProject?.(null)
       setWorkspace(null)
       setTasks([])
       setActiveStep('home')
       setLoadAttempt((attempt) => attempt + 1)
     },
-    [refreshSession, setActiveStep, setLoadAttempt, setTasks, setWorkspace],
+    [refreshSession, setActiveProject, setActiveStep, setLoadAttempt, setTasks, setWorkspace],
   )
 
   const revokeSession = useCallback(async (sessionId) => {

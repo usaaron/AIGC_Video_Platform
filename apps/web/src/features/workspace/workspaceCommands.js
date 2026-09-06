@@ -38,6 +38,7 @@ export function createWorkspaceCommands({
   setActiveStep,
   setMobileNav,
   setWorkspace,
+  setActiveProject,
   setTasks,
   setBilling,
   setProjects,
@@ -213,7 +214,10 @@ export function createWorkspaceCommands({
   const navigateTo = (id) => {
     setActiveStep(id)
     setMobileNav(false)
-    if (id === 'home') activeProjectIdRef.current = null
+    if (id === 'home') {
+      activeProjectIdRef.current = null
+      setActiveProject?.(null)
+    }
     if (id === 'home') {
       void api
         .projects()
@@ -224,6 +228,7 @@ export function createWorkspaceCommands({
 
   const openProject = async (projectId) => {
     activeProjectIdRef.current = projectId
+    setActiveProject?.(projectId)
     let projectSummary = projects.find((item) => item.id === projectId)
     if (!projectSummary) {
       try {
@@ -283,6 +288,7 @@ export function createWorkspaceCommands({
     try {
       const created = await api.createProject(input)
       activeProjectIdRef.current = created.id
+      setActiveProject?.(created.id)
       await refreshWorkspace(created.id)
       replaceTasks(created.id, readProjectTaskCache(created.id))
       setNewProjectOpen(false)

@@ -29,6 +29,8 @@ export function useWorkspacePolling({
   setProjects,
   setRecentTasks,
   setRecentTasksLoaded,
+  onWorkspaceError,
+  onWorkspaceReady,
 }) {
   useEffect(() => {
     if (!projectId) return undefined
@@ -82,7 +84,10 @@ export function useWorkspacePolling({
               loadInitialTasks(),
               api.project(projectId),
             ])
-            if (workspaceResult.status === 'rejected') throw workspaceResult.reason
+            if (workspaceResult.status === 'rejected') {
+              onWorkspaceError?.(projectId, workspaceResult.reason)
+              throw workspaceResult.reason
+            }
             nextTasks = tasksResult.status === 'fulfilled' ? tasksResult.value : []
             nextWorkspace = workspaceResult.value
           }
@@ -143,7 +148,12 @@ export function useWorkspacePolling({
         }
         const refreshWorkspace = !workspaceCacheRef.current.has(projectId) || taskFinished || workspaceChanged
         if (refreshWorkspace) {
-          nextWorkspace = await api.project(projectId)
+          try {
+            nextWorkspace = await api.project(projectId)
+          } catch (error) {
+            onWorkspaceError?.(projectId, error)
+            throw error
+          }
           if (cancelled || !isCurrentProject()) return
         }
         const nextTaskKey = taskSnapshotKey(nextTasks)
@@ -159,6 +169,7 @@ export function useWorkspacePolling({
             setWorkspace(nextWorkspace)
             previousWorkspaceKey = nextWorkspaceKey
           }
+          onWorkspaceReady?.(projectId)
         }
         previousTaskStatuses = taskStatusMap(nextTasks)
         nextDelay = hasActiveTasks ? ACTIVE_TASK_POLL_MS : IDLE_TASK_POLL_MS
@@ -206,5 +217,7 @@ export function useWorkspacePolling({
     setRecentTasksLoaded,
     setWorkspace,
     workspaceCacheRef,
+    onWorkspaceError,
+    onWorkspaceReady,
   ])
 }
