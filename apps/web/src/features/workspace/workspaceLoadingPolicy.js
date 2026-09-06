@@ -4,6 +4,10 @@ export function workspacePollingProjectId(activeStep, workspace) {
   return activeStep === 'home' ? null : workspace?.project?.id || null
 }
 
+export function isActiveWorkspaceProject(activeProjectId, projectId) {
+  return Boolean(projectId) && activeProjectId === projectId
+}
+
 export function shouldLoadTaskDetails(activeStep) {
   return TASK_DETAIL_STEPS.has(activeStep)
 }

@@ -20,6 +20,7 @@ import {
   planVideoBatch,
 } from '../storyboard/videoBatchPlanner'
 import { api } from '../../services/apiClient'
+import { isActiveWorkspaceProject } from './workspaceLoadingPolicy'
 
 const TASK_KIND_BY_LABEL = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const VIDEO_RESOLUTIONS = new Set(['480p', '720p', '1080p', '4k'])
@@ -46,16 +47,21 @@ export function createWorkspaceCommands({
   generationConcurrency = 1,
 }) {
   const resolvedAssetReferenceIndex = assetReferenceIndex || createShotAssetReferenceIndex(workspace?.assets)
+  const isCurrentProject = (projectId) => isActiveWorkspaceProject(activeProjectIdRef?.current, projectId)
 
   const refreshWorkspace = async (projectId = project?.id) => {
     if (!projectId) return
     const next = await api.project(projectId)
     workspaceCacheRef.current.set(projectId, next)
-    setWorkspace(next)
+    if (isCurrentProject(projectId)) setWorkspace(next)
     void api
       .projects()
-      .then(setProjects)
-      .catch((error) => setToast(error.message || '项目列表暂时无法同步。'))
+      .then((nextProjects) => {
+        if (isCurrentProject(projectId)) setProjects(nextProjects)
+      })
+      .catch((error) => {
+        if (isCurrentProject(projectId)) setToast(error.message || '项目列表暂时无法同步。')
+      })
     return next
   }
 
@@ -84,6 +90,8 @@ export function createWorkspaceCommands({
       api.billing(),
       api.projects(),
     ])
+    if (!isCurrentProject(project.id)) return
+    workspaceCacheRef.current.set(project.id, nextWorkspace)
     setWorkspace(nextWorkspace)
     setTasks(nextTasks)
     setBilling(nextBilling)
@@ -205,6 +213,7 @@ export function createWorkspaceCommands({
   const navigateTo = (id) => {
     setActiveStep(id)
     setMobileNav(false)
+    if (id === 'home') activeProjectIdRef.current = null
     if (id === 'home') {
       void api
         .projects()
@@ -213,10 +222,28 @@ export function createWorkspaceCommands({
     }
   }
 
-  const openProject = (projectId) => {
-    const projectSummary = projects.find((item) => item.id === projectId)
-    const cachedWorkspace = workspaceCacheRef.current.get(projectId)
+  const openProject = async (projectId) => {
     activeProjectIdRef.current = projectId
+    let projectSummary = projects.find((item) => item.id === projectId)
+    if (!projectSummary) {
+      try {
+        const next = await api.project(projectId)
+        projectSummary = next?.project
+        if (projectSummary) workspaceCacheRef.current.set(projectId, next)
+      } catch (error) {
+        if (!isCurrentProject(projectId)) return null
+        if (isCurrentProject(projectId)) setWorkspace(null)
+        setToast(error.message || '项目暂时无法打开，请稍后重试。')
+        return null
+      }
+    }
+    if (!isCurrentProject(projectId)) return null
+    if (!projectSummary) {
+      setWorkspace(null)
+      setToast('项目不存在或暂时无法访问。')
+      return null
+    }
+    const cachedWorkspace = workspaceCacheRef.current.get(projectId)
     setWorkspace(
       cachedWorkspace ||
         (projectSummary
@@ -230,6 +257,7 @@ export function createWorkspaceCommands({
     )
     replaceTasks(projectId, readProjectTaskCache(projectId))
     navigateTo('overview')
+    return projectSummary
   }
 
   const openNotification = async (notification) => {
@@ -254,6 +282,7 @@ export function createWorkspaceCommands({
   const createProject = async (input) => {
     try {
       const created = await api.createProject(input)
+      activeProjectIdRef.current = created.id
       await refreshWorkspace(created.id)
       replaceTasks(created.id, readProjectTaskCache(created.id))
       setNewProjectOpen(false)

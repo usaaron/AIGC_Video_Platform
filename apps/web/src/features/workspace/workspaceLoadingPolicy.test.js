@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { shouldLoadTaskDetails, workspacePollingProjectId } from './workspaceLoadingPolicy'
+import {
+  isActiveWorkspaceProject,
+  shouldLoadTaskDetails,
+  workspacePollingProjectId,
+} from './workspaceLoadingPolicy'
 
 describe('workspace loading policy', () => {
   const workspace = { project: { id: 'project-1' } }
@@ -11,6 +15,12 @@ describe('workspace loading policy', () => {
   it('opens the overview with compact task summaries', () => {
     expect(workspacePollingProjectId('overview', workspace)).toBe('project-1')
     expect(shouldLoadTaskDetails('overview')).toBe(false)
+  })
+
+  it('only accepts async results for the currently selected project', () => {
+    expect(isActiveWorkspaceProject('project-2', 'project-2')).toBe(true)
+    expect(isActiveWorkspaceProject('project-1', 'project-2')).toBe(false)
+    expect(isActiveWorkspaceProject(null, 'project-2')).toBe(false)
   })
 
   it.each(['script', 'assets', 'storyboard', 'film', 'image-studio'])(

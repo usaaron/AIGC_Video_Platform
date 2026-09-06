@@ -8,6 +8,7 @@ import {
   workspaceSnapshotKey,
   workspaceVersionKey,
 } from './workspaceRefreshState'
+import { isActiveWorkspaceProject } from './workspaceLoadingPolicy'
 
 const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 const ACTIVE_TASK_POLL_MS = 2_500
@@ -21,6 +22,7 @@ export function useWorkspacePolling({
   projectId,
   includeTaskDetails = false,
   workspaceCacheRef,
+  activeProjectIdRef,
   replaceTasks,
   setWorkspace,
   setBilling,
@@ -43,6 +45,8 @@ export function useWorkspacePolling({
     let workspaceVersionEtag = null
     let initialized = false
 
+    const isCurrentProject = () => isActiveWorkspaceProject(activeProjectIdRef?.current, projectId)
+
     const loadInitialTasks = async () => {
       if (includeTaskDetails) return api.tasks(projectId)
       try {
@@ -62,7 +66,7 @@ export function useWorkspacePolling({
       timer = window.setTimeout(() => void loadWorkspace(), delay)
     }
     const loadWorkspace = async () => {
-      if (requestInFlight || cancelled) return
+      if (requestInFlight || cancelled || !isCurrentProject()) return
       requestInFlight = true
       let nextDelay = IDLE_TASK_POLL_MS
       try {
@@ -73,9 +77,14 @@ export function useWorkspacePolling({
           if (workspaceCacheRef.current.has(projectId)) {
             nextTasks = await loadInitialTasks()
           } else {
-            const initialData = await Promise.all([loadInitialTasks(), api.project(projectId)])
-            nextTasks = initialData[0]
-            nextWorkspace = initialData[1]
+            // A stuck task poll must not prevent the project itself from opening.
+            const [tasksResult, workspaceResult] = await Promise.allSettled([
+              loadInitialTasks(),
+              api.project(projectId),
+            ])
+            if (workspaceResult.status === 'rejected') throw workspaceResult.reason
+            nextTasks = tasksResult.status === 'fulfilled' ? tasksResult.value : []
+            nextWorkspace = workspaceResult.value
           }
           initialized = true
         } else {
@@ -108,7 +117,7 @@ export function useWorkspacePolling({
             }
           }
         }
-        if (cancelled) return
+        if (cancelled || !isCurrentProject()) return
         const now = Date.now()
         const hasActiveTasks = nextTasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))
         taskFinished ||= hasTaskTerminalTransition(previousTaskStatuses, nextTasks)
@@ -133,7 +142,10 @@ export function useWorkspacePolling({
           }
         }
         const refreshWorkspace = !workspaceCacheRef.current.has(projectId) || taskFinished || workspaceChanged
-        nextWorkspace ||= refreshWorkspace ? await api.project(projectId) : null
+        if (refreshWorkspace) {
+          nextWorkspace = await api.project(projectId)
+          if (cancelled || !isCurrentProject()) return
+        }
         const nextTaskKey = taskSnapshotKey(nextTasks)
         if (nextTaskKey !== previousTaskKey) {
           replaceTasks(projectId, nextTasks)
@@ -154,7 +166,7 @@ export function useWorkspacePolling({
           lastAuxiliaryRefreshAt = now
           void Promise.allSettled([api.billing(), api.projects(), api.recentTasks()]).then(
             ([billingResult, projectsResult, recentTasksResult]) => {
-              if (cancelled) return
+              if (cancelled || !isCurrentProject()) return
               if (billingResult.status === 'fulfilled') setBilling(billingResult.value)
               if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value)
               if (recentTasksResult.status === 'fulfilled') {

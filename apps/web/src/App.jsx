@@ -137,6 +137,7 @@ function App() {
     projectId: workspacePollingProjectId(activeStep, workspace),
     includeTaskDetails: shouldLoadTaskDetails(activeStep),
     workspaceCacheRef,
+    activeProjectIdRef,
     replaceTasks,
     setWorkspace,
     setBilling,
