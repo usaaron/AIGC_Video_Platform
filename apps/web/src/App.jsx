@@ -101,6 +101,14 @@ function App() {
 
   const handleWorkspaceError = useCallback((projectId, error) => {
     if (activeProjectIdRef.current !== projectId) return
+    // A transient refresh failure must not hide the last valid workspace while a
+    // long-running generation task is still being reconciled.
+    const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(projectId))
+    if (cachedWorkspace) {
+      workspaceCacheRef.current.set(projectId, cachedWorkspace)
+      setWorkspaceLoadError((current) => (current?.projectId === projectId ? null : current))
+      return
+    }
     setWorkspaceLoadError({
       projectId,
       message:
