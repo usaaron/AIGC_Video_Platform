@@ -47,7 +47,7 @@ import {
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
-import { normalizeWorkspace, shouldLoadTaskDetails } from './features/workspace/workspaceLoadingPolicy'
+import { normalizeTasks, normalizeWorkspace, shouldLoadTaskDetails } from './features/workspace/workspaceLoadingPolicy'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
@@ -81,13 +81,14 @@ function App() {
   } = useTaskNotifications({ projects, recentTasks, recentTasksLoaded })
 
   const replaceTasks = useCallback((projectId, nextTasks) => {
-    setTasks(nextTasks)
+    const safeTasks = normalizeTasks(nextTasks)
+    setTasks(safeTasks)
     if (!projectId) return
     const now = Date.now()
     const lastWriteAt = taskCacheWriteAtRef.current.get(projectId) || 0
-    const hasActiveTask = nextTasks.some((task) => ['queued', 'paused', 'running'].includes(task?.status))
+    const hasActiveTask = safeTasks.some((task) => ['queued', 'paused', 'running'].includes(task?.status))
     if (!lastWriteAt || now - lastWriteAt >= 15_000 || !hasActiveTask) {
-      writeProjectTaskCache(projectId, nextTasks)
+      writeProjectTaskCache(projectId, safeTasks)
       taskCacheWriteAtRef.current.set(projectId, now)
     }
   }, [])
@@ -916,6 +917,7 @@ function App() {
         <Suspense fallback={<WorkspaceLoading />}>
           <WorkspaceErrorBoundary
             projectId={activeProjectId}
+            step={activeStep}
             onRetry={() => void openProject(activeProjectId)}
           >
             {renderContent()}

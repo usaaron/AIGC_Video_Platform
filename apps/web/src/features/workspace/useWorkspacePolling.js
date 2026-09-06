@@ -8,7 +8,7 @@ import {
   workspaceSnapshotKey,
   workspaceVersionKey,
 } from './workspaceRefreshState'
-import { isActiveWorkspaceProject, normalizeWorkspace } from './workspaceLoadingPolicy'
+import { isActiveWorkspaceProject, normalizeTasks, normalizeWorkspace } from './workspaceLoadingPolicy'
 
 const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 const ACTIVE_TASK_POLL_MS = 2_500
@@ -184,7 +184,7 @@ export function useWorkspacePolling({
               if (billingResult.status === 'fulfilled') setBilling(billingResult.value)
               if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value)
               if (recentTasksResult.status === 'fulfilled') {
-                setRecentTasks(recentTasksResult.value)
+                setRecentTasks(normalizeTasks(recentTasksResult.value))
                 setRecentTasksLoaded(true)
               }
             },
@@ -229,8 +229,4 @@ function normalizeOrThrow(workspace) {
   const normalized = normalizeWorkspace(workspace)
   if (!normalized) throw new Error('项目数据格式异常，请重新打开项目。')
   return normalized
-}
-
-function normalizeTasks(tasks) {
-  return Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : []
 }

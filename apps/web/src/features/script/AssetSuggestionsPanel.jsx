@@ -46,7 +46,9 @@ export function AssetSuggestionsPanel({
   disabled = false,
   copy = {},
 }) {
-  const assets = result?.assets || []
+  const assets = Array.isArray(result?.assets)
+    ? result.assets.filter((asset) => asset && typeof asset === 'object')
+    : []
   const grouped = groupAssets(assets)
   const [editingKeys, setEditingKeys] = useState(() => new Set())
   const [editedPrompts, setEditedPrompts] = useState({})
@@ -358,7 +360,7 @@ export function AssetSuggestionsPanel({
 }
 
 export function assetSuggestionKey(asset) {
-  return `${asset.kind}:${asset.name.trim().toLocaleLowerCase('zh-CN')}`
+  return `${asset?.kind || 'prop'}:${String(asset?.name || '未命名建议').trim().toLocaleLowerCase('zh-CN')}`
 }
 
 function buildSuggestionFacts(asset) {

@@ -20,7 +20,7 @@ import {
   planVideoBatch,
 } from '../storyboard/videoBatchPlanner'
 import { api } from '../../services/apiClient'
-import { isActiveWorkspaceProject, normalizeWorkspace } from './workspaceLoadingPolicy'
+import { isActiveWorkspaceProject, normalizeTasks, normalizeWorkspace } from './workspaceLoadingPolicy'
 
 const TASK_KIND_BY_LABEL = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const VIDEO_RESOLUTIONS = new Set(['480p', '720p', '1080p', '4k'])
@@ -93,9 +93,11 @@ export function createWorkspaceCommands({
       api.projects(),
     ])
     if (!isCurrentProject(project.id)) return
-    workspaceCacheRef.current.set(project.id, nextWorkspace)
-    setWorkspace(nextWorkspace)
-    setTasks(nextTasks)
+    const safeWorkspace = normalizeWorkspace(nextWorkspace)
+    if (!safeWorkspace) throw new Error('项目数据格式异常，请重新打开项目。')
+    workspaceCacheRef.current.set(project.id, safeWorkspace)
+    setWorkspace(safeWorkspace)
+    setTasks(normalizeTasks(nextTasks))
     setBilling(nextBilling)
     setProjects(nextProjects)
   }

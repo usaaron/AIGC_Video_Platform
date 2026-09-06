@@ -115,6 +115,26 @@ export function FilmPage({
     setSelectedPreviewTaskId('current')
   }, [project.id, selectedEpisode])
 
+  if (!shots.length) {
+    return (
+      <div className="page film-page">
+        <PageHeader
+          eyebrow="第 5 步 · 成片"
+          title="一眼看清整段影片"
+          description="当前项目还没有可预览的分镜。"
+        />
+        <section className="film-empty-state" role="status">
+          <Film size={28} />
+          <strong>还没有分镜，暂时无法预览成片</strong>
+          <span>先在分镜页生成或保存至少一个镜头，完成后即可回到这里预览。</span>
+          <button className="button secondary" type="button" onClick={onEdit}>
+            返回分镜设计
+          </button>
+        </section>
+      </div>
+    )
+  }
+
   const selectEpisode = (value) => {
     setSelectedEpisode(value)
     setViewMode('full')
