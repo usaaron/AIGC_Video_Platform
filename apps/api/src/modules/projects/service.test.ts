@@ -383,9 +383,7 @@ describe('ProjectService script billing', () => {
 
     expect(result.script.match(/\[画外音\]/gu) || []).toHaveLength(0)
     expect(result.script).toContain('[对白]林砚：我会查清。')
-    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain(
-      '每场写 4 到 6 句短而有意义的对白',
-    )
+    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain('每个镜头目标 4 句')
     expect(repository.update).toHaveBeenCalledOnce()
   })
 

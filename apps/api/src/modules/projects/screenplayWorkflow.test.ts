@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { extractScriptAssetNameIndex } from './assetSuggestions.js'
 import { splitScriptIntoSmartSceneShots } from './directorShotPlanning.js'
-import { completeWebSeriesSpokenContent } from './scriptWriting.js'
+import {
+  completeWebSeriesSpokenContent,
+  quickScriptIssues,
+  webSeriesDialoguePlan,
+  webSeriesDialogueRequirement,
+} from './scriptWriting.js'
 import { parseShotFields, splitScriptParagraphs } from './shotPlanning.js'
 
 const READABLE_SCRIPT = `资产：
@@ -24,6 +29,26 @@ const READABLE_SCRIPT = `资产：
 林晚扶着程野从东侧小门进入储物间，两人停在北墙货架前。
 画外音：“他们只剩一条路。”
 程野：“灯要灭了。”`
+
+const SINGLE_SCENE_WITH_ORDERED_DIALOGUE = `场次：S01｜药店后巷｜傍晚｜外景｜20秒
+雨刚停，巷子里积着浅水。林晚小步快走从南口进入，水声随脚步溅起，她停在积水边，侧头望向药店后门方向，那里传来低沉撞击声及模糊呼救声。她握紧左手的铁棍，沿右墙向前探，在巷口拐角停止，看见翻倒货架斜靠墙边，程野侧躺在货架空隙间，胸前夹克有深色湿痕。远处东侧街口隐约有密集挪动身影，缓慢朝巷里聚拢。林晚压低身，快速扫视后门，确认门体半掩、没有锁栓，先伸手试一试，门微微晃动，确认能推开。她快步跨到程野身侧，弯腰将铁棍插进后腰，双手拽住程野腋下，用力向后拖。程野皱眉睁眼，抬起满是血污的手指向后门。
+林晚：“门能进，跟我走。”
+程野：“它们来了……”
+林晚回头瞥向东侧路口，黑影数量已近二十，距离约四十米。
+林晚：“先进去再说。”`
+
+const SINGLE_SCENE_WITH_DENSE_DIALOGUE = `场次：S01｜药店后巷｜傍晚｜外景｜20秒
+雨刚停，林晚从南口进入窄巷，沿右墙快步靠近药店后门。东侧街口传来连续脚步声，程野在翻倒货架后抬头看她。
+程野：“你从南口来？”
+林晚：“东街已经封死。”
+程野：“后门能进去吗？”
+林晚：“我先确认。”
+林晚按住左手铁棍，贴着右墙走到北侧后门，先用右手试压门把，再低头看锁舌没有退开。
+林晚：“门没有锁栓。”
+程野：“那就快拖我。”
+林晚回头看见东侧黑影逼近，俯身抓住程野腋下向后拖。
+程野：“别松手，林晚。”
+林晚：“抓紧我的肩。”`
 
 describe('readable screenplay workflow', () => {
   it('parses scene metadata, action, dialogue, and sound without visible production fields', () => {
@@ -51,8 +76,60 @@ describe('readable screenplay workflow', () => {
     expect(shots.map((shot) => shot.duration)).toEqual([10, 10])
     expect(shots[0]?.prompt).toContain('卷帘门外十余只丧尸连续撞门')
     expect(shots[0]?.prompt).toContain('程野：后门能走吗？')
+    expect(shots[0]?.prompt).not.toContain('林晚：先进去再说')
+    expect(shots[0]?.prompt).not.toContain('用左手连续下压门把两次')
     expect(shots[1]?.prompt).toContain('用左手连续下压门把两次')
     expect(shots[1]?.prompt).toContain('林晚：锁死了。')
+    expect(shots[1]?.prompt).not.toContain('卷帘门外十余只丧尸连续撞门')
+    expect(shots[1]?.prompt).not.toContain('林晚：门能进，跟我走。')
+    expect(shots[1]?.prompt).not.toContain('程野：后门能走吗？')
+    expect(shots[0]?.prompt).toContain('镜头隔离：只执行本镜的镜头内容和对白')
+  })
+
+  it('keeps each natural scene shot and its dialogue cues disjoint', () => {
+    const [scene] = splitScriptParagraphs(SINGLE_SCENE_WITH_ORDERED_DIALOGUE)
+    const shots = splitScriptIntoSmartSceneShots([scene!], 120, true)
+
+    expect(shots).toHaveLength(2)
+    expect(shots[0]?.prompt).toContain('雨刚停，巷子里积着浅水')
+    expect(shots[0]?.prompt).toContain('林晚：门能进，跟我走。')
+    expect(shots[0]?.prompt).toContain('程野：它们来了……')
+    expect(shots[0]?.prompt).not.toContain('她快步跨到程野身侧')
+    expect(shots[0]?.prompt).not.toContain('林晚：先进去再说')
+
+    expect(shots[1]?.prompt).toContain('她快步跨到程野身侧')
+    expect(shots[1]?.prompt).toContain('林晚回头瞥向东侧路口')
+    expect(shots[1]?.prompt).toContain('林晚：先进去再说')
+    expect(shots[1]?.prompt).not.toContain('雨刚停，巷子里积着浅水')
+    expect(shots[1]?.prompt).not.toContain('林晚：门能进，跟我走。')
+    expect(shots[1]?.prompt).not.toContain('程野：它们来了……')
+  })
+
+  it('allocates about four ordered dialogue cues to each director shot', () => {
+    const [scene] = splitScriptParagraphs(SINGLE_SCENE_WITH_DENSE_DIALOGUE)
+    const shots = splitScriptIntoSmartSceneShots([scene!], 120, true)
+
+    expect(webSeriesDialoguePlan(20)).toMatchObject({ shotCount: 2, minimum: 6, target: 8, maximum: 10 })
+    expect(webSeriesDialogueRequirement(20)).toContain('8 句左右')
+    expect(shots).toHaveLength(2)
+    expect(shots[0]?.prompt.match(/\[对白\]/gu) || []).toHaveLength(4)
+    expect(shots[1]?.prompt.match(/\[对白\]/gu) || []).toHaveLength(4)
+    expect(shots[0]?.prompt).toContain('程野：你从南口来？')
+    expect(shots[0]?.prompt).toContain('林晚：我先确认。')
+    expect(shots[0]?.prompt).not.toContain('程野：别松手，林晚。')
+    expect(shots[1]?.prompt).toContain('林晚：门没有锁栓。')
+    expect(shots[1]?.prompt).toContain('程野：别松手，林晚。')
+    expect(shots[1]?.prompt).toContain('林晚：抓紧我的肩。')
+    expect(shots[1]?.prompt).not.toContain('程野：你从南口来？')
+  })
+
+  it('reports dialogue density gaps without manufacturing repeated lines', () => {
+    const script =
+      '场次：S01｜时长：20秒｜剧情：林晚确认药店后门状态。｜场景：废弃药店。｜角色：林晚、程野｜动作：林晚观察后门。｜对白：[对白]林晚：我先确认。'
+
+    expect(quickScriptIssues(script, 'web-series', 20)).toEqual(
+      expect.arrayContaining([expect.stringContaining('S01 当前仅有 1 句可听对白')]),
+    )
   })
 
   it('keeps temporary prop states out of reusable asset names', () => {

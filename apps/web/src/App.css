@@ -12152,19 +12152,26 @@
 
 .storyboard-editor-backdrop {
   align-items: start;
+  box-sizing: border-box;
+  justify-content: center;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 .storyboard-shot-editor {
-  width: min(1080px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  margin: 16px 0;
+  box-sizing: border-box;
+  width: min(1080px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  margin: 12px 0;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 .storyboard-shot-editor-head {
+  min-width: 0;
   align-items: center;
   margin-bottom: 18px;
 }
 .storyboard-shot-editor-head-actions {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -12205,7 +12212,7 @@
 }
 .shot-editor-workspace {
   display: grid;
-  grid-template-columns: minmax(290px, 0.86fr) minmax(420px, 1.45fr);
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.45fr);
   gap: 24px;
   min-height: 390px;
 }
@@ -17807,10 +17814,10 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .storyboard-shot-editor {
     width: min(100%, calc(100vw - 20px));
-    max-height: calc(100vh - 20px);
+    max-height: calc(100dvh - 20px);
     margin: 10px 0;
     padding: 18px;
   }

@@ -58,8 +58,9 @@ export function compileStoryboardVideoPrompt(input: {
   const identityRules = referenceAssets.map((asset) => identityRuleFor(asset, referenceAssets)).join('；')
   const actorPerformance = actorPerformanceFor(shotFields.角色, actionSequence, shotFields.对白)
   const soundPlan = soundPlanFor(shotFields.对白, prompt, referenceAssets)
+  const shotAction = shotFields.动作 || shotFields.镜头内容
   const subjectMotion = subjectMotionFor(
-    shotFields.动作
+    shotAction
       ? `动作：${actionSequence}`
       : shotFields.对白
         ? `对白：${shotFields.对白}`
@@ -352,6 +353,7 @@ const PROMPT_FIELD_LABELS = new Set([
   '物件',
   '道具',
   '动作',
+  '镜头内容',
   '对白',
   '风格',
   '构图',
@@ -366,7 +368,7 @@ const PROMPT_FIELD_LABELS = new Set([
 function actionSequenceFor(value: string | undefined): string {
   const text = String(value || '').trim()
   const fields = promptFields(text)
-  const source = fields.动作 || fields.剧情 || (Object.keys(fields).length ? '' : text)
+  const source = fields.动作 || fields.镜头内容 || fields.剧情 || (Object.keys(fields).length ? '' : text)
   const beats = fieldBeats(source)
   return (beats[0] || source).slice(0, 420)
 }

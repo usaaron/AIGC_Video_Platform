@@ -100,6 +100,11 @@ export function splitScriptIntoSmartSceneShots(
 
     const fallbackSpecs = fallbackDirectorShotSpecs(fields, requestedShotCount, isWebSeries)
     const plans = fallbackSpecs.map((fallback, index) => ({ ...fallback, ...explicitSpecs[index] }))
+    const sceneDialogueCues = spokenDialogueCues(fields.对白)
+    const fallbackDialogueGroups =
+      sceneDialogueCues.length >= requestedShotCount * 3
+        ? partitionForDirectorShots(sceneDialogueCues, requestedShotCount)
+        : []
     const durations = distributeSceneDuration(sceneDuration, plans, isWebSeries)
     const previousParagraph = paragraphs[sceneIndex - 1]
     const continuesPreviousScene =
@@ -111,7 +116,11 @@ export function splitScriptIntoSmartSceneShots(
       if (shots.length >= maxShots) return shots
       const duration = durations[shotIndex] || minimumShotDuration(isWebSeries)
       const content = plan.content || fields.动作 || fields.剧情 || paragraph
-      const dialogue = plan.dialogue || ''
+      const explicitDialogueCount = spokenDialogueCues(plan.dialogue).length
+      const dialogue =
+        fallbackDialogueGroups.length && explicitDialogueCount < 3
+          ? fallbackDialogueGroups[shotIndex]?.join('；').trim() || plan.dialogue || ''
+          : plan.dialogue || ''
       const framing = directorFraming(plan, content, dialogue, shotIndex)
       const previousSource =
         shotIndex > 0
@@ -322,7 +331,7 @@ function compactDirectorShotPrompt(
 ): string {
   return [
     fieldPart('场次', fields.场次 || '未编号场次', 24),
-    fieldPart('剧情', fields.剧情 || '本场继续推进当前冲突', 320),
+    fieldPart('剧情', shotPlotFor(plan.task, content), 420),
     fieldPart('镜头任务', plan.task || '完成当前叙事阶段并产生可见变化', 220),
     fieldPart('目标', direction.目标 || '角色完成当前可见行动', 180),
     fieldPart('阻力', direction.阻力 || '当前环境或对手阻碍角色推进', 180),
@@ -334,6 +343,10 @@ function compactDirectorShotPrompt(
     fieldPart('资产引用', plan.assetReferences, 300),
     ...(shotIndex === 0 ? [fieldPart('入场状态', direction.入场状态, 320)] : []),
     `镜头边界：本镜是当前场次第 ${shotIndex + 1}/${shotCount} 个导演镜头，只完成本镜任务；允许多个连续动作，但不得重演上一镜或提前执行下一镜内容`,
+    '镜头隔离：只执行本镜的镜头内容和对白；不得执行、复述或让人物说出本场其他导演镜头的动作、对白或结尾状态',
+    dialogue
+      ? `对白执行：本镜仅使用下方对白并按发生顺序完整说完，共 ${spokenDialogueCues(dialogue).length} 句；网剧镜头目标约 4 句，不得省略、改写或重复到其他镜头`
+      : '对白执行：本镜没有可用对白，不得借用其他镜头台词；只保留本镜的动作声和环境声',
     fieldPart('镜头内容', content, 720),
     fieldPart('对白', dialogue || '无对白，仅保留必要动作声和环境声', 420),
     fieldPart('表演', plan.performance, 300),
@@ -351,6 +364,10 @@ function compactDirectorShotPrompt(
   ]
     .filter(Boolean)
     .join('｜')
+}
+
+function shotPlotFor(task: string | undefined, content: string): string {
+  return [task ? `本镜叙事目的：${task}` : '', `本镜只推进：${content}`].filter(Boolean).join('；')
 }
 
 function directorContinuitySource(fields: DirectorSceneFields, plan: DirectorShotSpec): string {
