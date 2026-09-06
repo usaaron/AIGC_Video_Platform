@@ -28,6 +28,9 @@
     redir /admin/ 308
   }
 
+  @adminEntry path /admin/ /admin/index.html
+  header @adminEntry Cache-Control "no-cache"
+
   handle_path /admin/* {
     forward_auth api:8787 {
       uri /api/v1/admin/access

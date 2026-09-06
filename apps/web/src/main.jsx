@@ -8,8 +8,9 @@ import { EmailVerificationPendingPage } from './pages/EmailVerificationPendingPa
 import { PasswordResetPage } from './pages/PasswordResetPage.jsx'
 import { RequiredPasswordChangePage } from './pages/RequiredPasswordChangePage.jsx'
 import { api } from './services/apiClient.js'
+import { loadWithChunkRecovery } from './chunkRecovery.js'
 
-const App = lazy(() => import('./App.jsx'))
+const App = lazy(() => loadWithChunkRecovery(() => import('./App.jsx')))
 
 function Root() {
   const { session, loading, logout, refresh } = useAuth()

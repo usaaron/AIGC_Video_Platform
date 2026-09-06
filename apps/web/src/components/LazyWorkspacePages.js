@@ -1,7 +1,8 @@
 import { lazy } from 'react'
+import { loadWithChunkRecovery } from '../chunkRecovery'
 
 function lazyNamed(loader, exportName) {
-  return lazy(() => loader().then((module) => ({ default: module[exportName] })))
+  return lazy(() => loadWithChunkRecovery(() => loader().then((module) => ({ default: module[exportName] }))))
 }
 
 export const AssetsPage = lazyNamed(() => import('../pages/AssetsPage'), 'AssetsPage')
