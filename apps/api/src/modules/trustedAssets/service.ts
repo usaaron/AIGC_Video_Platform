@@ -8,9 +8,11 @@ import type {
 } from '../../core/generation/volcArkAssetLibraryProvider.js'
 import { createPublicMediaToken, verifyPublicMediaToken } from '../../core/media/publicMediaToken.js'
 import { AppError } from '../../core/errors.js'
+import { isTenantManager } from '../../core/auth/roles.js'
 import type { AppStore, StoredMedia } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { MediaRepository } from '../media/repository.js'
+import type { GenerationTaskRepository } from '../generation/repository.js'
 import type { ProjectRepository } from '../projects/repository.js'
 import type { TrustedValidationSessionRepository } from './validationSessionRepository.js'
 
@@ -57,6 +59,7 @@ export class TrustedAssetService {
       'findSourceById' | 'findSourceByReferenceIds'
     > | null = null,
     private readonly validationSessionRepository: TrustedValidationSessionRepository | null = null,
+    private readonly generationTaskRepository: Pick<GenerationTaskRepository, 'findById'> | null = null,
   ) {}
 
   configuration() {
@@ -91,7 +94,7 @@ export class TrustedAssetService {
     if (!this.publicApiBaseUrl) {
       throw new AppError(503, 'PUBLIC_API_URL_REQUIRED', '真人素材入库需要配置公网 API 地址')
     }
-    await this.requireConfirmedFaceSource(asset)
+    await this.requireConfirmedFaceSource(asset, principal)
 
     const session = await this.callProvider(() => provider.createVisualValidateSession!())
     const now = Date.now()
@@ -154,7 +157,7 @@ export class TrustedAssetService {
 
     try {
       const asset = await this.requireCharacterAsset(session.projectId, session.assetId, principal)
-      const source = await this.findSource(asset)
+      const source = await this.findSource(asset, principal)
       if (!source) throw new AppError(409, 'FACE_SOURCE_REQUIRED', '认证成功，但当前人物没有可上传的面部基准')
       const sourceToken = createPublicMediaToken(source, this.authSecret, Date.now() + SOURCE_URL_TTL_MS)
       const sourceUrl = `${this.publicApiBaseUrl}/api/v1/trusted-assets/source/${sourceToken}`
@@ -193,22 +196,35 @@ export class TrustedAssetService {
   }
 
   async listPortraits(groupType: PortraitGroupType, principal: Principal): Promise<ProviderPortrait[]> {
-    const visibleIds = await this.visiblePortraitIds(principal, groupType)
-    if (!visibleIds.size) return []
+    // Always reach the provider when the user explicitly clicks sync. Returning early when the
+    // local project has no binding made a valid upstream whitelist look empty forever.
     const portraits = await this.callProvider(() => this.requireProvider().listPortraits(groupType))
+    const visibleIds = await this.visiblePortraitIds(principal, groupType)
     return portraits
-      .filter((portrait) => visibleIds.has(portrait.assetId))
+      .filter(
+        (portrait) =>
+          isTenantManager(principal) || groupType === 'LivenessFace' || visibleIds.has(portrait.assetId),
+      )
       .map((portrait) => ({ ...portrait, previewUrl: trustedPortraitPreviewUrl(portrait) }))
   }
 
   async preview(assetId: string, principal: Principal): Promise<PortraitPreview> {
-    if (!(await this.visiblePortraitIds(principal)).has(assetId)) {
-      throw new AppError(404, 'TRUSTED_PORTRAIT_NOT_FOUND', '人像资源不存在或无权访问')
+    const visible = isTenantManager(principal) || (await this.visiblePortraitIds(principal)).has(assetId)
+    let upstreamPortrait: ProviderPortrait | null = null
+    if (!visible) {
+      try {
+        upstreamPortrait = await this.callProvider(() => this.requireProvider().getPortrait(assetId))
+      } catch {
+        throw new AppError(404, 'TRUSTED_PORTRAIT_NOT_FOUND', '人像资源不存在或无权访问')
+      }
+      if (upstreamPortrait.groupType !== 'LivenessFace') {
+        throw new AppError(404, 'TRUSTED_PORTRAIT_NOT_FOUND', '人像资源不存在或无权访问')
+      }
     }
     const provider = this.requireProvider()
     return this.callProvider(async () => {
       if (provider.getPortraitPreview) return provider.getPortraitPreview(assetId)
-      const portrait = await provider.getPortrait(assetId)
+      const portrait = upstreamPortrait ?? (await provider.getPortrait(assetId))
       if (!portrait.previewUrl) throw new Error('素材库当前没有可用的预览图片')
       const response = await fetch(portrait.previewUrl, {
         method: 'GET',
@@ -268,7 +284,7 @@ export class TrustedAssetService {
 
     // Resolve the exact persisted face only when a new provider resource must be created. This
     // lets legacy processing records finish syncing without allowing them to create from a guess.
-    const source = await this.requireConfirmedFaceSource(asset, expectedFaceReferenceId)
+    const source = await this.requireConfirmedFaceSource(asset, principal, expectedFaceReferenceId)
     const token = createPublicMediaToken(source, this.authSecret, Date.now() + SOURCE_URL_TTL_MS)
     const sourceUrl = `${this.publicApiBaseUrl}/api/v1/trusted-assets/source/${token}`
     const replacingPortrait =
@@ -294,7 +310,6 @@ export class TrustedAssetService {
     principal: Principal,
   ): Promise<Asset> {
     const asset = await this.requireCharacterAsset(projectId, localAssetId, principal)
-    await this.requireConfirmedFaceSource(asset)
     const portrait = await this.callProvider(() => this.requireProvider().getPortrait(providerAssetId))
     if (portrait.assetType !== 'Image') {
       throw new AppError(400, 'PORTRAIT_IMAGE_REQUIRED', '人物面部基准必须绑定图片类型的 Asset ID')
@@ -441,18 +456,19 @@ export class TrustedAssetService {
     if (asset.attributes.subjectType !== 'human') {
       throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
     }
-    await this.requireConfirmedFaceSource(asset, expectedFaceReferenceId)
+    await this.requireConfirmedFaceSource(asset, principal, expectedFaceReferenceId)
   }
 
   private async requireConfirmedFaceSource(
     asset: CharacterAsset,
+    principal: Principal,
     expectedFaceReferenceId?: string,
   ): Promise<StoredSource> {
     this.requireApprovedFace(asset, expectedFaceReferenceId)
     if (!asset.attributes.faceReference) {
       throw new AppError(409, 'FACE_SOURCE_REQUIRED', '面部已标记确认，但没有已保存的面部基准，请重新确认')
     }
-    const source = await this.findSource(asset)
+    const source = await this.findSource(asset, principal)
     if (!source) {
       throw new AppError(409, 'FACE_SOURCE_REQUIRED', '面部基准图片已失效，请重新生成或导入并确认')
     }
@@ -609,7 +625,7 @@ export class TrustedAssetService {
     return asset as CharacterAsset
   }
 
-  private async findSource(asset: CharacterAsset): Promise<StoredSource | null> {
+  private async findSource(asset: CharacterAsset, principal: Principal): Promise<StoredSource | null> {
     const currentFace = asset.attributes.faceReference
     if (!currentFace) return null
     const currentFacePath = referencePath(currentFace.url)
@@ -624,7 +640,7 @@ export class TrustedAssetService {
     const generated = /^\/api\/v1\/generation\/tasks\/([^/]+)\/outputs\/(single)$/.exec(currentFacePath)
     if (!generated) return null
     if (currentFace.id !== `${generated[1]}-single`) return null
-    return this.findGeneratedTaskSource(asset, generated[1]!, generated[2]!)
+    return this.findGeneratedTaskSource(asset, generated[1]!, generated[2]!, principal)
   }
 
   private async findMediaSourceById(mediaId: string, asset: CharacterAsset): Promise<StoredSource | null> {
@@ -668,31 +684,39 @@ export class TrustedAssetService {
     })
   }
 
-  private findGeneratedTaskSource(asset: CharacterAsset, taskId: string, view: string): StoredSource | null {
-    return this.store.read((state) => {
-      const sourceTask = state.tasks.find(
-        (task) =>
-          task.id === taskId &&
-          task.projectId === asset.projectId &&
-          task.tenantId === asset.tenantId &&
-          task.kind === 'image' &&
-          task.metadata.assetId === asset.id &&
-          task.metadata.generationStage === 'face' &&
-          task.status === 'completed',
-      )
-      const descriptors = Array.isArray(sourceTask?.metadata.generatedOutputs)
-        ? sourceTask.metadata.generatedOutputs
-        : []
-      const descriptor = descriptors.find(
-        (item) =>
-          item &&
-          typeof item === 'object' &&
-          (item as { view?: unknown }).view === view &&
-          typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
-          typeof (item as { contentType?: unknown }).contentType === 'string',
-      ) as StoredSource | undefined
-      return descriptor ?? null
-    })
+  private async findGeneratedTaskSource(
+    asset: CharacterAsset,
+    taskId: string,
+    view: string,
+    principal: Principal,
+  ): Promise<StoredSource | null> {
+    const sourceTask =
+      this.generationTaskRepository && principal
+        ? await this.generationTaskRepository.findById(taskId, principal)
+        : this.store.read((state) => state.tasks.find((task) => task.id === taskId) ?? null)
+    if (
+      !sourceTask ||
+      sourceTask.projectId !== asset.projectId ||
+      sourceTask.tenantId !== asset.tenantId ||
+      sourceTask.kind !== 'image' ||
+      sourceTask.metadata.assetId !== asset.id ||
+      sourceTask.metadata.generationStage !== 'face' ||
+      sourceTask.status !== 'completed'
+    ) {
+      return null
+    }
+    const descriptors = Array.isArray(sourceTask.metadata.generatedOutputs)
+      ? sourceTask.metadata.generatedOutputs
+      : []
+    const descriptor = descriptors.find(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        (item as { view?: unknown }).view === view &&
+        typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
+        typeof (item as { contentType?: unknown }).contentType === 'string',
+    ) as StoredSource | undefined
+    return descriptor ?? null
   }
 
   private savePortrait(

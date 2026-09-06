@@ -12,6 +12,9 @@ const assetParamsSchema = z.object({
 const sourceParamsSchema = z.object({ token: z.string().min(10).max(4_000) })
 const portraitPreviewParamsSchema = z.object({ assetId: z.string().min(1).max(128) })
 const bindSchema = z.object({ providerAssetId: z.string().trim().min(1).max(128) })
+const registerSchema = z
+  .object({ expectedFaceReferenceId: z.string().trim().min(1).max(128).optional() })
+  .default({})
 const validationSessionParamsSchema = z.object({ sessionId: z.string().uuid() })
 const listPortraitsQuerySchema = z.object({
   groupType: z.enum(['AIGC', 'LivenessFace']).default('LivenessFace'),
@@ -85,7 +88,13 @@ export async function registerTrustedAssetRoutes(
     { preHandler: requirePermission(PERMISSIONS.ASSET_WRITE) },
     async (request) => {
       const params = parse(assetParamsSchema, request.params)
-      return service.registerVirtual(params.projectId, params.assetId, request.principal!)
+      const input = parse(registerSchema, request.body)
+      return service.registerVirtual(
+        params.projectId,
+        params.assetId,
+        request.principal!,
+        input.expectedFaceReferenceId,
+      )
     },
   )
 

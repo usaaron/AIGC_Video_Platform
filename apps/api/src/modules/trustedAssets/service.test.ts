@@ -1,4 +1,7 @@
-import type { AssetLibraryProvider } from '../../core/generation/volcArkAssetLibraryProvider.js'
+import type {
+  AssetLibraryProvider,
+  ProviderPortrait,
+} from '../../core/generation/volcArkAssetLibraryProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore, defaultAssetAttributes } from '../../infra/store.js'
 import { describe, expect, it, vi } from 'vitest'
@@ -107,6 +110,46 @@ describe('TrustedAssetService', () => {
     expect(previewed).toEqual(['portrait-own'])
   })
 
+  it('syncs the shared upstream whitelist for a tenant manager before local binding exists', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const upstreamPortrait: ProviderPortrait = {
+      assetId: 'portrait-upstream-only',
+      groupId: 'group-upstream-only',
+      groupType: 'LivenessFace',
+      name: '已授权演员',
+      assetType: 'Image',
+      status: 'active',
+      previewUrl: null,
+      errorCode: null,
+      errorMessage: null,
+    }
+    const provider: AssetLibraryProvider = {
+      createVirtualGroup: async () => 'unused',
+      createVirtualAsset: async () => upstreamPortrait,
+      getPortrait: async () => upstreamPortrait,
+      getPortraitPreview: async () => ({ content: Buffer.from('portrait'), contentType: 'image/png' }),
+      listPortraits: async () => [upstreamPortrait],
+      listAuthorizedPortraits: async () => [upstreamPortrait],
+    }
+    const service = new TrustedAssetService(
+      store,
+      provider,
+      new MemoryStorage(),
+      'test-secret-with-at-least-32-characters',
+      'https://api.example.com',
+      'default',
+    )
+
+    await expect(
+      service.listPortraits('LivenessFace', {
+        userId: 'user-owner',
+        tenantId: 'tenant-seqora-demo',
+        roles: ['owner'],
+      }),
+    ).resolves.toMatchObject([{ assetId: 'portrait-upstream-only', status: 'active' }])
+  })
+
   it('publishes an approved face through a signed URL and creates an AIGC resource', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -176,6 +219,10 @@ describe('TrustedAssetService', () => {
         error: null,
       })
     })
+    const faceTask = store.read((state) => state.tasks.find((task) => task.id === 'face-task'))!
+    await store.mutate((state) => {
+      state.tasks = state.tasks.filter((task) => task.id !== 'face-task')
+    })
 
     let submittedSourceUrl = ''
     const provider: AssetLibraryProvider = {
@@ -207,6 +254,11 @@ describe('TrustedAssetService', () => {
       'test-secret-with-at-least-32-characters',
       'https://api.example.com',
       'default',
+      null,
+      null,
+      null,
+      null,
+      { findById: async () => faceTask },
     )
 
     const updated = await service.registerVirtual('project-midnight-film', 'character-1', {

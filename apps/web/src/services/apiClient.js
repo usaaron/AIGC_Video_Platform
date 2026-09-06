@@ -271,8 +271,11 @@ export const api = {
   trustedAssetConfiguration: () => request('/trusted-assets/configuration'),
   trustedPortraits: (groupType) =>
     request(`/trusted-assets/portraits?groupType=${encodeURIComponent(groupType)}`),
-  registerVirtualPortrait: (projectId, assetId) =>
-    request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/register`, { method: 'POST' }),
+  registerVirtualPortrait: (projectId, assetId, expectedFaceReferenceId) =>
+    request(
+      `/projects/${projectId}/assets/${assetId}/trusted-portrait/register`,
+      json('POST', expectedFaceReferenceId ? { expectedFaceReferenceId } : {}),
+    ),
   createTrustedValidationSession: (projectId, assetId) =>
     request(`/projects/${projectId}/assets/${assetId}/trusted-portrait/validation-session`, {
       method: 'POST',

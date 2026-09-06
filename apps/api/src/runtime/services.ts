@@ -294,6 +294,7 @@ export function createRuntimeServices(input: {
     repositories.projectRepository,
     mediaRepository,
     repositories.trustedValidationSessionRepository,
+    repositories.generationTaskRepository,
   )
   const generationService = new GenerationService(
     repositories.generationTaskRepository,

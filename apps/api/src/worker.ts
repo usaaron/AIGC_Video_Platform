@@ -183,6 +183,7 @@ const trustedAssetService = new TrustedAssetService(
   projectRepository,
   mediaRepository,
   new TrustedValidationSessionRepository(store, database),
+  generationTaskRepository,
 )
 const novelService = new NovelService(
   new NovelRepository(store, database, objectStorage),
