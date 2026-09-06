@@ -17,8 +17,8 @@ import type {
 
 const taskResponseSchema = z
   .object({
-    id: z.string().min(1).nullish(),
-    task_id: z.string().min(1).nullish(),
+    id: z.union([z.string().min(1), z.number().int().nonnegative()]).nullish(),
+    task_id: z.union([z.string().min(1), z.number().int().nonnegative()]).nullish(),
     status: z.string().min(1).nullish(),
     progress: z.union([z.number().min(0).max(100), z.string()]).nullish(),
     result_url: z.union([z.string().url(), z.array(z.string().url()).min(1)]).nullish(),
@@ -339,7 +339,7 @@ async function extractLastFrameFromVideo(
 function taskIdFrom(response: DoraTaskResponse): string {
   const taskId = response.id || response.task_id
   if (!taskId) throw new Error('DoraRouter创建任务后没有返回任务 ID')
-  return taskId
+  return String(taskId)
 }
 
 function videoUrlFrom(response: DoraTaskResponse): string | null {

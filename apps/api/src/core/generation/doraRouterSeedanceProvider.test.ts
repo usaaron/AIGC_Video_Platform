@@ -212,6 +212,38 @@ describe('DoraRouterSeedanceProvider', () => {
     ])
   })
 
+  it('normalizes numeric task ids returned by DoraRouter', async () => {
+    const fetcher = (async () =>
+      Response.json({
+        code: 200,
+        data: {
+          id: 6803928,
+          status: 'PENDING',
+          progress: '0%',
+        },
+      })) as typeof fetch
+    const provider = new DoraRouterSeedanceProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-dora-token',
+      defaultModel: 'TH-doubao-seedance2.0',
+      requestTimeoutMs: 30_000,
+      fetcher,
+    })
+
+    await expect(
+      provider.submit({
+        taskId: 'local-dora-task',
+        model: null,
+        prompt: '测试数字任务 ID',
+        seconds: 5,
+        ratio: '9:16',
+        resolution: '720p',
+        images: [],
+        generateAudio: true,
+      }),
+    ).resolves.toEqual({ providerTaskId: '6803928', status: 'queued', progress: 0 })
+  })
+
   it('extracts a last frame locally when the completed response only has an MP4 URL', async () => {
     const calls: string[] = []
     const fetcher = (async (input: RequestInfo | URL) => {
