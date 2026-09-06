@@ -29,7 +29,7 @@ export function OverviewPage({
   const projectPreview =
     project.previewUrl ||
     shots.find((shot) => shot.imageUrl)?.imageUrl ||
-    assets.map(getAssetPreviewUrl).find(Boolean)
+    assets.map((asset) => getAssetPreviewUrl(asset, jobs)).find(Boolean)
   const progress = Math.min(
     100,
     Math.round(
