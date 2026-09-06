@@ -20,7 +20,8 @@ const taskResponseSchema = z
     id: z.string().min(1).nullish(),
     task_id: z.string().min(1).nullish(),
     status: z.string().min(1).nullish(),
-    progress: z.number().min(0).max(100).nullish(),
+    progress: z.union([z.number().min(0).max(100), z.string()]).nullish(),
+    result_url: z.union([z.string().url(), z.array(z.string().url()).min(1)]).nullish(),
     metadata: z
       .object({
         url: z.string().url().nullish(),
@@ -45,6 +46,7 @@ const taskResponseSchema = z
         z.object({ code: z.string().optional(), message: z.string().optional() }).passthrough(),
       ])
       .nullish(),
+    data: z.unknown().nullish(),
   })
   .passthrough()
 
@@ -120,9 +122,9 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
         ...(request.seed === undefined ? {} : { seed: request.seed }),
       }),
     })
-    const parsed = taskResponseSchema.parse(response)
+    const parsed = normalizeTaskResponse(response)
     const providerTaskId = taskIdFrom(parsed)
-    return { providerTaskId, status: 'queued', progress: parsed.progress ?? 0 }
+    return { providerTaskId, status: 'queued', progress: progressValue(parsed.progress, 0) }
   }
 
   async getStatus(providerTaskId: string): Promise<VideoGenerationStatus> {
@@ -160,7 +162,7 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
     }
     return {
       status: 'running',
-      progress: Math.max(5, Math.min(99, parsed.progress ?? (providerStatus === 'queued' ? 5 : 50))),
+      progress: Math.max(5, Math.min(99, progressValue(parsed.progress, providerStatus === 'queued' ? 5 : 50))),
       error: null,
     }
   }
@@ -229,7 +231,7 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
       { method: 'GET' },
       timeoutMs,
     )
-    return taskResponseSchema.parse(response)
+    return normalizeTaskResponse(response)
   }
 
   private async readMedia(url: string, range: string | undefined, label: string): Promise<VideoContent> {
@@ -341,7 +343,8 @@ function taskIdFrom(response: DoraTaskResponse): string {
 }
 
 function videoUrlFrom(response: DoraTaskResponse): string | null {
-  return response.metadata?.url || response.metadata?.video_url || response.content?.video_url || null
+  const resultUrl = Array.isArray(response.result_url) ? response.result_url[0] : response.result_url
+  return resultUrl || response.metadata?.url || response.metadata?.video_url || response.content?.video_url || null
 }
 
 function lastFrameUrlFrom(response: DoraTaskResponse): string | null {
@@ -361,6 +364,20 @@ function normalizeResolution(value: string): '480p' | '720p' | '1080p' {
 function errorMessage(response: DoraTaskResponse): string {
   if (typeof response.error === 'string') return response.error
   return response.error?.message || response.error?.code || response.message || response.code || ''
+}
+
+function normalizeTaskResponse(value: unknown): DoraTaskResponse {
+  const envelope = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const data = envelope.data
+  const task = data && typeof data === 'object' && !Array.isArray(data) ? data : envelope
+  return taskResponseSchema.parse(task)
+}
+
+function progressValue(value: number | string | null | undefined, fallback: number): number {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return fallback
+  const parsed = Number.parseFloat(value.replace('%', '').trim())
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function statusMessage(status: string): string {

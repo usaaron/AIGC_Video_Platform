@@ -38,7 +38,10 @@ export class WorkspaceErrorBoundary extends Component {
   }
 
   componentDidUpdate(previousProps) {
-    if (previousProps.projectId !== this.props.projectId && this.state.error) {
+    if (
+      (previousProps.projectId !== this.props.projectId || previousProps.step !== this.props.step) &&
+      this.state.error
+    ) {
       this.setState({ error: null })
     }
   }

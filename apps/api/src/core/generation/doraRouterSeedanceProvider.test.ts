@@ -168,6 +168,50 @@ describe('DoraRouterSeedanceProvider', () => {
     })
   })
 
+  it('unwraps DoraRouter envelopes and recognizes SUCCESS result_url responses', async () => {
+    const calls: string[] = []
+    const fetcher = (async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      if (calls.length === 1) {
+        return Response.json({
+          code: 200,
+          message: 'success',
+          data: {
+            task_id: 'task_dora_envelope',
+            status: 'SUCCESS',
+            progress: '100%',
+            result_url: 'https://storage.example/enveloped-video.mp4?signature=test',
+          },
+        })
+      }
+      return new Response('video-bytes', {
+        status: 200,
+        headers: { 'Content-Type': 'video/mp4', 'Content-Length': '11' },
+      })
+    }) as typeof fetch
+    const provider = new DoraRouterSeedanceProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-dora-token',
+      defaultModel: 'TH-doubao-seedance2.0',
+      requestTimeoutMs: 30_000,
+      fetcher,
+    })
+
+    await expect(provider.getStatus('task_dora_envelope')).resolves.toEqual({
+      status: 'completed',
+      progress: 100,
+      error: null,
+    })
+    const content = await provider.getContent('task_dora_envelope')
+    const chunks: Uint8Array[] = []
+    for await (const chunk of content.stream) chunks.push(chunk)
+    expect(Buffer.concat(chunks)).toEqual(Buffer.from('video-bytes'))
+    expect(calls).toEqual([
+      'https://www.dorarouter.com/v1/video/generations/task_dora_envelope',
+      'https://storage.example/enveloped-video.mp4?signature=test',
+    ])
+  })
+
   it('extracts a last frame locally when the completed response only has an MP4 URL', async () => {
     const calls: string[] = []
     const fetcher = (async (input: RequestInfo | URL) => {

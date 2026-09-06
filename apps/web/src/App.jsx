@@ -106,6 +106,10 @@ function App() {
     const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(projectId))
     if (cachedWorkspace) {
       workspaceCacheRef.current.set(projectId, cachedWorkspace)
+      setWorkspace((current) => {
+        if (current?.project?.id === projectId) return current
+        return cachedWorkspace
+      })
       setWorkspaceLoadError((current) => (current?.projectId === projectId ? null : current))
       return
     }
