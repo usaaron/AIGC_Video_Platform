@@ -47,7 +47,7 @@ import {
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
-import { shouldLoadTaskDetails } from './features/workspace/workspaceLoadingPolicy'
+import { normalizeWorkspace, shouldLoadTaskDetails } from './features/workspace/workspaceLoadingPolicy'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
@@ -144,8 +144,10 @@ function App() {
         if (projectList[0] && activeProjectIdRef.current === null) {
           const initialProjectId = projectList[0].id
           selectActiveProject(initialProjectId)
+          const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(initialProjectId))
+          if (cachedWorkspace) workspaceCacheRef.current.set(initialProjectId, cachedWorkspace)
           setWorkspace(
-            workspaceCacheRef.current.get(initialProjectId) || {
+            cachedWorkspace || {
               project: projectList[0],
               scriptEpisodes: [],
               assets: [],
@@ -319,7 +321,9 @@ function App() {
             if (project?.id === projectId) {
               const nextProjectId = nextProjects[0]?.id || null
               selectActiveProject(nextProjectId)
-              const nextWorkspace = nextProjectId ? await api.project(nextProjectId) : null
+              const nextWorkspace = nextProjectId
+                ? normalizeWorkspace(await api.project(nextProjectId))
+                : null
               setWorkspace(nextWorkspace)
               if (nextProjectId) {
                 replaceTasks(nextProjectId, readProjectTaskCache(nextProjectId))

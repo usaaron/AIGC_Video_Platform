@@ -8,7 +8,7 @@ import {
   workspaceSnapshotKey,
   workspaceVersionKey,
 } from './workspaceRefreshState'
-import { isActiveWorkspaceProject } from './workspaceLoadingPolicy'
+import { isActiveWorkspaceProject, normalizeWorkspace } from './workspaceLoadingPolicy'
 
 const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 const ACTIVE_TASK_POLL_MS = 2_500
@@ -50,15 +50,15 @@ export function useWorkspacePolling({
     const isCurrentProject = () => isActiveWorkspaceProject(activeProjectIdRef?.current, projectId)
 
     const loadInitialTasks = async () => {
-      if (includeTaskDetails) return api.tasks(projectId)
+      if (includeTaskDetails) return normalizeTasks(await api.tasks(projectId))
       try {
         const result = await api.pollTasks(projectId)
-        taskPollingEtag = result.etag || null
-        return result.tasks || []
+        taskPollingEtag = result?.etag || null
+        return normalizeTasks(result?.tasks)
       } catch (error) {
         // Older API instances may not expose the compact polling endpoint yet.
         if (error?.status !== 404) throw error
-        return api.tasks(projectId)
+        return normalizeTasks(await api.tasks(projectId))
       }
     }
 
@@ -88,8 +88,8 @@ export function useWorkspacePolling({
               onWorkspaceError?.(projectId, workspaceResult.reason)
               throw workspaceResult.reason
             }
-            nextTasks = tasksResult.status === 'fulfilled' ? tasksResult.value : []
-            nextWorkspace = workspaceResult.value
+            nextTasks = tasksResult.status === 'fulfilled' ? normalizeTasks(tasksResult.value) : []
+            nextWorkspace = normalizeOrThrow(workspaceResult.value)
           }
           initialized = true
         } else {
@@ -100,14 +100,14 @@ export function useWorkspacePolling({
             // Keep rolling deployments compatible while the API is upgraded first.
             if (error?.status !== 404) throw error
             taskPollingEtag = null
-            nextTasks = await api.tasks(projectId)
+            nextTasks = normalizeTasks(await api.tasks(projectId))
           }
           if (pollResult) {
             taskPollingEtag = pollResult.etag || taskPollingEtag
             if (pollResult.notModified) {
               nextTasks = currentTasks
             } else {
-              const summaries = pollResult.tasks || []
+              const summaries = normalizeTasks(pollResult.tasks)
               taskFinished = hasTaskTerminalTransition(previousTaskStatuses, summaries)
               const previousById = new Map(currentTasks.map((task) => [task.id, task]))
               const needsFullRefresh = summaries.some(
@@ -117,7 +117,7 @@ export function useWorkspacePolling({
               )
               nextTasks =
                 includeTaskDetails && needsFullRefresh
-                  ? await api.tasks(projectId)
+                  ? normalizeTasks(await api.tasks(projectId))
                   : mergeTaskPolling(currentTasks, summaries)
             }
           }
@@ -146,10 +146,13 @@ export function useWorkspacePolling({
             }
           }
         }
-        const refreshWorkspace = !workspaceCacheRef.current.has(projectId) || taskFinished || workspaceChanged
+        // The initial parallel request already loaded the workspace. Do not issue
+        // a second detail request before caching that successful response.
+        const refreshWorkspace =
+          !nextWorkspace && (!workspaceCacheRef.current.has(projectId) || taskFinished || workspaceChanged)
         if (refreshWorkspace) {
           try {
-            nextWorkspace = await api.project(projectId)
+            nextWorkspace = normalizeOrThrow(await api.project(projectId))
           } catch (error) {
             onWorkspaceError?.(projectId, error)
             throw error
@@ -220,4 +223,14 @@ export function useWorkspacePolling({
     onWorkspaceError,
     onWorkspaceReady,
   ])
+}
+
+function normalizeOrThrow(workspace) {
+  const normalized = normalizeWorkspace(workspace)
+  if (!normalized) throw new Error('项目数据格式异常，请重新打开项目。')
+  return normalized
+}
+
+function normalizeTasks(tasks) {
+  return Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : []
 }

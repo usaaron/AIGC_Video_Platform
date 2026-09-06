@@ -20,7 +20,7 @@ import {
   planVideoBatch,
 } from '../storyboard/videoBatchPlanner'
 import { api } from '../../services/apiClient'
-import { isActiveWorkspaceProject } from './workspaceLoadingPolicy'
+import { isActiveWorkspaceProject, normalizeWorkspace } from './workspaceLoadingPolicy'
 
 const TASK_KIND_BY_LABEL = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const VIDEO_RESOLUTIONS = new Set(['480p', '720p', '1080p', '4k'])
@@ -52,7 +52,8 @@ export function createWorkspaceCommands({
 
   const refreshWorkspace = async (projectId = project?.id) => {
     if (!projectId) return
-    const next = await api.project(projectId)
+    const next = normalizeWorkspace(await api.project(projectId))
+    if (!next) throw new Error('项目数据格式异常，请重新打开项目。')
     workspaceCacheRef.current.set(projectId, next)
     if (isCurrentProject(projectId)) setWorkspace(next)
     void api
@@ -232,9 +233,9 @@ export function createWorkspaceCommands({
     let projectSummary = projects.find((item) => item.id === projectId)
     if (!projectSummary) {
       try {
-        const next = await api.project(projectId)
+        const next = normalizeWorkspace(await api.project(projectId))
         projectSummary = next?.project
-        if (projectSummary) workspaceCacheRef.current.set(projectId, next)
+        if (next) workspaceCacheRef.current.set(projectId, next)
       } catch (error) {
         if (!isCurrentProject(projectId)) return null
         if (isCurrentProject(projectId)) setWorkspace(null)
@@ -248,18 +249,9 @@ export function createWorkspaceCommands({
       setToast('项目不存在或暂时无法访问。')
       return null
     }
-    const cachedWorkspace = workspaceCacheRef.current.get(projectId)
-    setWorkspace(
-      cachedWorkspace ||
-        (projectSummary
-          ? {
-              project: projectSummary,
-              scriptEpisodes: [],
-              assets: [],
-              shots: [],
-            }
-          : null),
-    )
+    const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(projectId))
+    if (!cachedWorkspace) workspaceCacheRef.current.delete(projectId)
+    setWorkspace(cachedWorkspace || null)
     replaceTasks(projectId, readProjectTaskCache(projectId))
     navigateTo('overview')
     return projectSummary
