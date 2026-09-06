@@ -19,6 +19,13 @@ import type { GenerationTaskRepository } from './repository.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
 
+export type AssetLibraryTaskPreflight = (
+  projectId: string,
+  assetId: string,
+  principal: Principal,
+  expectedFaceReferenceId?: string,
+) => Promise<void>
+
 export class GenerationService {
   constructor(
     private readonly repository: GenerationTaskRepository,
@@ -28,6 +35,7 @@ export class GenerationService {
     private readonly objectStorage: ObjectStorage | null = null,
     private readonly filmPreviewComposer: FilmPreviewDispatcher | null = null,
     private readonly textProvider: TextGenerationProvider | null = null,
+    private readonly assetLibraryTaskPreflight: AssetLibraryTaskPreflight | null = null,
   ) {}
 
   async createTask(
@@ -41,6 +49,7 @@ export class GenerationService {
     if (input.kind === 'text' && input.provider === 'text' && !this.textProvider) {
       throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     }
+    await this.preflightAssetLibraryTask(input, principal)
     const existingAssetSuggestionTask = await this.findExistingAssetSuggestionTask(input, principal)
     if (existingAssetSuggestionTask) return existingAssetSuggestionTask
     const existingTrustedPortraitTask = await this.findActiveTrustedPortraitTask(input, principal)
@@ -69,6 +78,25 @@ export class GenerationService {
     const task = await this.repository.createWithCharge(taskInput, principal, traceContext(traceId))
     await this.dispatcher.dispatch(task, { traceId: traceId ?? traceIdFromGenerationTask(task) })
     return task
+  }
+
+  private async preflightAssetLibraryTask(input: CreateGenerationTask, principal: Principal): Promise<void> {
+    if (input.provider !== 'asset-library' || input.metadata?.trustedAssetOperation !== 'register-virtual') {
+      return
+    }
+    const assetId = input.metadata.assetId
+    if (typeof assetId !== 'string' || !assetId) {
+      throw new AppError(400, 'CHARACTER_ASSET_REQUIRED', '人物资产 ID 缺失')
+    }
+    if (!this.assetLibraryTaskPreflight) {
+      throw new AppError(503, 'ASSET_LIBRARY_NOT_READY', '人物素材资源预检服务尚未就绪')
+    }
+    const expectedFaceReferenceId = input.metadata.faceReferenceId
+    if (typeof expectedFaceReferenceId === 'string') {
+      await this.assetLibraryTaskPreflight(input.projectId, assetId, principal, expectedFaceReferenceId)
+    } else {
+      await this.assetLibraryTaskPreflight(input.projectId, assetId, principal)
+    }
   }
 
   private async findActiveTrustedPortraitTask(

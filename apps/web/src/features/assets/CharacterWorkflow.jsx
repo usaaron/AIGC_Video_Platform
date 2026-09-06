@@ -66,6 +66,10 @@ export function CharacterWorkflow({
     faceCreationMode === 'direct' ? references[0] || null : completedFaceCandidate
   const facePreview =
     faceCandidate || confirmedOrCompletedFace || attributes.faceReference || references[0] || null
+  const faceConfirmationReady =
+    attributes.faceStatus === 'approved' &&
+    Boolean(attributes.faceReference?.id && attributes.faceReference?.url) &&
+    (!faceCandidate || sameReference(faceCandidate, attributes.faceReference))
   const bodyCandidate = completedOutput(bodyTask)
   const appearanceVariants = Array.isArray(attributes.appearanceVariants) ? attributes.appearanceVariants : []
   const activeAppearanceVariantId = attributes.activeAppearanceVariantId || null
@@ -285,6 +289,7 @@ export function CharacterWorkflow({
           onBindTrustedPortrait={onBindTrustedPortrait}
           onRefreshTrustedPortrait={onRefreshTrustedPortrait}
           onEnsureAsset={onEnsureAsset}
+          faceReady={faceConfirmationReady}
           onPreview={(reference) =>
             setPreview({
               url: reference.url,
@@ -688,6 +693,10 @@ function completedOutput(task) {
     task.outputs.find((output) => output.mediaType === 'image') ||
     null
   )
+}
+
+function sameReference(left, right) {
+  return Boolean(left?.id && right?.id && left.id === right.id && left.url === right.url)
 }
 
 function isActive(task) {

@@ -90,9 +90,20 @@ describe('GenerationService task creation', () => {
       createWithCharge: vi.fn(),
     } as unknown as GenerationTaskRepository
     const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
-    const service = new GenerationService(repository, dispatcher)
+    const preflight = vi.fn(async () => undefined)
+    const service = new GenerationService(
+      repository,
+      dispatcher,
+      null,
+      'stringx-seedance',
+      null,
+      null,
+      null,
+      preflight,
+    )
 
     await expect(service.createTask(input, principal)).resolves.toBe(active)
+    expect(preflight).toHaveBeenCalledWith(input.projectId, 'character-1', principal)
     expect(repository.listByProject).toHaveBeenCalledWith(input.projectId, principal)
     expect(repository.createWithCharge).not.toHaveBeenCalled()
     expect(dispatcher.dispatch).not.toHaveBeenCalled()

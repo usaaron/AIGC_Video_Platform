@@ -169,6 +169,9 @@ export const trustedPortraitSchema = z.object({
   assetId: z.string().min(1).max(128),
   groupId: z.string().min(1).max(128),
   groupType: z.enum(['AIGC', 'LivenessFace']),
+  // Records created before this field was introduced remain readable; new registrations bind
+  // the provider resource to the exact face confirmation that produced it.
+  faceReferenceId: z.string().min(1).max(128).nullable().optional(),
   status: z.enum(['processing', 'active', 'failed']),
   name: z.string().max(255),
   previewUrl: z.string().max(2_000).nullable(),

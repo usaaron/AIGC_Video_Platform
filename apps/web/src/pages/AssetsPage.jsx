@@ -238,9 +238,9 @@ export function AssetsPage({
           imageModel={imageModel}
           onGetTrustedConfiguration={onGetTrustedConfiguration}
           onListTrustedPortraits={onListTrustedPortraits}
-          onRegisterVirtualPortrait={async (assetId, assetName) => {
+          onRegisterVirtualPortrait={async (assetId, assetName, faceReferenceId) => {
             // 注册接口返回的是后台任务，不是资产；资产状态由项目轮询同步。
-            return onRegisterVirtualPortrait(assetId, assetName)
+            return onRegisterVirtualPortrait(assetId, assetName, faceReferenceId)
           }}
           onCreateTrustedValidationSession={onCreateTrustedValidationSession}
           onRefreshTrustedValidationSession={onRefreshTrustedValidationSession}

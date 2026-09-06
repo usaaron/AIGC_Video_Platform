@@ -165,6 +165,34 @@ export function AssetEditor({
     setDraft((current) => applyAssetCreationMode(current, mode, kind))
   }
 
+  const updateReferences = (references) => {
+    setDraft((current) => {
+      const next = { ...current, references }
+      if (
+        kind !== 'character' ||
+        characterStage !== 'face' ||
+        !current.attributes.faceReference ||
+        sameReference(current.attributes.faceReference, references[0])
+      ) {
+        return next
+      }
+      // A new imported/reference image is only a candidate. It must be explicitly confirmed
+      // before the old face or trusted portrait can be used again.
+      return {
+        ...next,
+        attributes: {
+          ...current.attributes,
+          faceStatus: 'pending',
+          faceReference: null,
+          bodyStatus: 'pending',
+          bodyReference: null,
+          trustedPortrait: null,
+          activeAppearanceVariantId: null,
+        },
+      }
+    })
+  }
+
   const selectPromptMode = (mode) => {
     if (mode === 'standard') {
       setDraft((current) => ({ ...current, promptMode: 'standard' }))
@@ -359,7 +387,7 @@ export function AssetEditor({
                 mode={directImport ? 'direct' : 'reference'}
                 limit={directImport && kind !== 'scene' ? 1 : undefined}
                 references={draft.references}
-                onChange={(references) => setDraft({ ...draft, references })}
+                onChange={updateReferences}
                 onUpload={onUpload}
               />
             )}
@@ -765,4 +793,8 @@ function buildEditorSuggestionFacts(suggestion) {
     ]
   }
   return []
+}
+
+function sameReference(left, right) {
+  return Boolean(left?.id && right?.id && left.id === right.id && left.url === right.url)
 }

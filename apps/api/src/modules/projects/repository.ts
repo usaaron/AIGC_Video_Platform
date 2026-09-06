@@ -19,6 +19,7 @@ import { insertAuditLog, type AuditLogInput } from '../../core/audit/auditLog.js
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore } from '../../infra/store.js'
+import { mergeAssetAttributes } from './assetAttributesMerge.js'
 import { projectGenerationSummary, projectPreviewUrl, type ProjectPreviewState } from './projectPreview.js'
 import {
   assetColumns,
@@ -50,6 +51,8 @@ import {
   type ProjectRuntimeCacheOptions,
   readRuntimeProjectVersions,
 } from './runtimeCache.js'
+
+export { mergeAssetAttributes } from './assetAttributesMerge.js'
 
 export { projectGenerationSummary, projectPreviewUrl } from './projectPreview.js'
 
@@ -2398,36 +2401,6 @@ function prefixedAssetColumns(alias: string): string {
     .split(',')
     .map((column) => `${alias}.${column.trim()}`)
     .join(',\n')
-}
-
-export function mergeAssetAttributes(
-  current: Asset,
-  incoming: Asset['attributes'] | undefined,
-): Asset['attributes'] {
-  if (!incoming || current.attributes.type !== 'character' || incoming.type !== 'character') {
-    return incoming ?? current.attributes
-  }
-
-  const currentPortrait = current.attributes.trustedPortrait
-  const incomingPortrait = incoming.trustedPortrait
-  if (!currentPortrait) return incoming
-  if (!incomingPortrait) {
-    return {
-      ...incoming,
-      portraitSource: current.attributes.portraitSource,
-      trustedPortrait: currentPortrait,
-    }
-  }
-
-  const preserveCurrent =
-    (currentPortrait.status === 'active' && incomingPortrait.status !== 'active') ||
-    Date.parse(currentPortrait.checkedAt) > Date.parse(incomingPortrait.checkedAt)
-  if (!preserveCurrent) return incoming
-  return {
-    ...incoming,
-    portraitSource: current.attributes.portraitSource,
-    trustedPortrait: currentPortrait,
-  }
 }
 
 function shotInsertParams(shot: Shot): unknown[] {

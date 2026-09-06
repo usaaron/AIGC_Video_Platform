@@ -235,15 +235,6 @@ export function createRuntimeServices(input: {
         config.NODE_ENV !== 'production',
       )
     : null
-  const generationService = new GenerationService(
-    repositories.generationTaskRepository,
-    dispatchers.taskDispatcher,
-    providers.videoProvider,
-    videoProviderName(config),
-    objectStorage,
-    filmPreviewComposer,
-    providers.textProvider,
-  )
   const projectService = new ProjectService(
     repositories.projectRepository,
     providers.textProvider,
@@ -303,6 +294,16 @@ export function createRuntimeServices(input: {
     repositories.projectRepository,
     mediaRepository,
     repositories.trustedValidationSessionRepository,
+  )
+  const generationService = new GenerationService(
+    repositories.generationTaskRepository,
+    dispatchers.taskDispatcher,
+    providers.videoProvider,
+    videoProviderName(config),
+    objectStorage,
+    filmPreviewComposer,
+    providers.textProvider,
+    trustedAssetService.assertVirtualRegistrationReady.bind(trustedAssetService),
   )
   const paymentProvider =
     paymentProviderOverride !== undefined ? paymentProviderOverride : createRuntimePaymentProvider(config)

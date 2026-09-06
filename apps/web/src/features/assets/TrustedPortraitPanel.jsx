@@ -28,6 +28,7 @@ export function TrustedPortraitPanel({
   onRefreshTrustedPortrait,
   onEnsureAsset,
   onPreview,
+  faceReady = attributes.faceStatus === 'approved' && Boolean(attributes.faceReference?.id),
 }) {
   const [providerAssetId, setProviderAssetId] = useState('')
   const [libraryGroupType, setLibraryGroupType] = useState('AIGC')
@@ -55,9 +56,9 @@ export function TrustedPortraitPanel({
     failed: '审核失败',
   }
   const activeLibraryPortraits = libraryPortraits.filter((item) => item.status === 'active')
-  const registrationHint = registrationAvailabilityHint(configuration, attributes.faceStatus)
+  const registrationHint = registrationAvailabilityHint(configuration, faceReady)
   const boundPreviewUrl = portraitPreviewUrl(portrait)
-  const registrationDisabledReason = registrationAvailabilityHint(configuration, attributes.faceStatus)
+  const registrationDisabledReason = registrationAvailabilityHint(configuration, faceReady)
   const registrationSetupBlocked = Boolean(configuration && !configuration.virtualRegistrationReady)
   const validationSetupBlocked = Boolean(configuration && !configuration.realValidationReady)
 
@@ -227,7 +228,7 @@ export function TrustedPortraitPanel({
             type="button"
             disabled={
               (!assetId && !onEnsureAsset) ||
-              attributes.faceStatus !== 'approved' ||
+              !faceReady ||
               portrait?.status === 'processing' ||
               portrait?.status === 'active' ||
               registrationTaskActive ||
@@ -246,7 +247,7 @@ export function TrustedPortraitPanel({
               void run('register', async () => {
                 const persisted = assetId ? { id: assetId } : await onEnsureAsset?.()
                 if (!persisted?.id) throw new Error('请先保存人物资产，再创建 AI 人像资源')
-                return onRegisterVirtualPortrait(persisted.id, assetName)
+                return onRegisterVirtualPortrait(persisted.id, assetName, attributes.faceReference.id)
               })
             }}
           >
@@ -313,7 +314,7 @@ export function TrustedPortraitPanel({
               validationBusy ||
               busyAction !== null ||
               !assetId ||
-              attributes.faceStatus !== 'approved' ||
+              !faceReady ||
               validationSetupBlocked ||
               validationSession?.status === 'pending' ||
               validationSession?.status === 'uploading'
@@ -512,7 +513,7 @@ export function TrustedPortraitPanel({
           首次创建会先保存当前人物资产，再把已确认的面部基准提交到 Dora 素材库。
         </p>
       )}
-      {configuration?.configured && attributes.faceStatus !== 'approved' && (
+      {configuration?.configured && !faceReady && (
         <p className="trusted-portrait-notice">请先在上方将一张面部候选图设置为面部基准。</p>
       )}
       {status === 'processing' && (
@@ -563,9 +564,9 @@ export function portraitPreviewUrl(portrait) {
   return portrait.status === 'active' ? portrait.previewUrl || null : null
 }
 
-export function registrationAvailabilityHint(configuration, faceStatus) {
+export function registrationAvailabilityHint(configuration, faceReady) {
   if (!configuration) return '正在检查 Dora 素材库配置。'
-  if (faceStatus !== 'approved') return '请先创建任务大头照-设定面部基准后，再创建 AI 人像资源。'
+  if (!faceReady) return '请先生成或导入一张面部图，并点击“设为面部基准”后，再创建 AI 人像资源。'
   if (!configuration.configured) return 'Dora 素材库凭据尚未配置，请联系管理员。'
   if (!configuration.virtualRegistrationReady) {
     return '自动创建需要配置可公网访问的 API 地址，供 Dora 读取面部原图。'

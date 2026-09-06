@@ -91,6 +91,7 @@ export class TrustedAssetService {
     if (!this.publicApiBaseUrl) {
       throw new AppError(503, 'PUBLIC_API_URL_REQUIRED', '真人素材入库需要配置公网 API 地址')
     }
+    await this.requireConfirmedFaceSource(asset)
 
     const session = await this.callProvider(() => provider.createVisualValidateSession!())
     const now = Date.now()
@@ -223,7 +224,12 @@ export class TrustedAssetService {
     })
   }
 
-  async registerVirtual(projectId: string, assetId: string, principal: Principal): Promise<Asset> {
+  async registerVirtual(
+    projectId: string,
+    assetId: string,
+    principal: Principal,
+    expectedFaceReferenceId?: string,
+  ): Promise<Asset> {
     const provider = this.requireProvider()
     if (!this.publicApiBaseUrl) {
       throw new AppError(
@@ -236,33 +242,40 @@ export class TrustedAssetService {
     if (asset.attributes.subjectType !== 'human') {
       throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
     }
-    if (asset.attributes.faceStatus !== 'approved') {
-      throw new AppError(409, 'FACE_APPROVAL_REQUIRED', '请先确认人物面部基准，再创建 Dora 素材资源')
+    this.requireApprovedFace(asset, expectedFaceReferenceId)
+    if (
+      asset.attributes.trustedPortrait?.status === 'active' &&
+      portraitMatchesFace(asset, asset.attributes.trustedPortrait)
+    ) {
+      return asset
     }
-    if (asset.attributes.trustedPortrait?.status === 'active') return asset
 
     const current = asset.attributes.trustedPortrait
-    if (current?.groupType === 'AIGC' && current.status === 'processing') {
+    if (
+      current?.groupType === 'AIGC' &&
+      current.status === 'processing' &&
+      portraitMatchesFace(asset, current)
+    ) {
       const portrait = await this.readProcessingPortrait(provider, current)
       const recovered = await this.recoverHistoricalPortrait(asset, current, portrait)
       if (!recovered) return asset
       return this.savePortrait(asset, recovered, 'ai-virtual', principal)
     }
-    if (current?.groupType === 'AIGC' && current.status === 'failed') {
+    if (current?.groupType === 'AIGC' && current.status === 'failed' && portraitMatchesFace(asset, current)) {
       const recovered = await this.recoverHistoricalPortrait(asset, current)
       if (recovered) return this.savePortrait(asset, recovered, 'ai-virtual', principal)
     }
 
-    const source = await this.findSource(asset)
-    if (!source) {
-      throw new AppError(409, 'FACE_SOURCE_REQUIRED', '请先生成或导入并确认人物面部，再创建 Dora 素材资源')
-    }
+    // Resolve the exact persisted face only when a new provider resource must be created. This
+    // lets legacy processing records finish syncing without allowing them to create from a guess.
+    const source = await this.requireConfirmedFaceSource(asset, expectedFaceReferenceId)
     const token = createPublicMediaToken(source, this.authSecret, Date.now() + SOURCE_URL_TTL_MS)
     const sourceUrl = `${this.publicApiBaseUrl}/api/v1/trusted-assets/source/${token}`
-    const retryingFailedPortrait = current?.groupType === 'AIGC' && current.status === 'failed'
-    const retrySuffix = retryingFailedPortrait ? `-${randomUUID().slice(0, 8)}` : ''
+    const replacingPortrait =
+      current?.groupType === 'AIGC' && (current.status === 'failed' || !portraitMatchesFace(asset, current))
+    const retrySuffix = replacingPortrait ? `-${randomUUID().slice(0, 8)}` : ''
     const groupId =
-      current?.groupType === 'AIGC' && !retryingFailedPortrait
+      current?.groupType === 'AIGC' && !replacingPortrait
         ? current.groupId
         : await this.callProvider(() =>
             provider.createVirtualGroup(`${asset.name}${retrySuffix}`, asset.description || 'AIGC 人物形象'),
@@ -281,6 +294,7 @@ export class TrustedAssetService {
     principal: Principal,
   ): Promise<Asset> {
     const asset = await this.requireCharacterAsset(projectId, localAssetId, principal)
+    await this.requireConfirmedFaceSource(asset)
     const portrait = await this.callProvider(() => this.requireProvider().getPortrait(providerAssetId))
     if (portrait.assetType !== 'Image') {
       throw new AppError(400, 'PORTRAIT_IMAGE_REQUIRED', '人物面部基准必须绑定图片类型的 Asset ID')
@@ -297,6 +311,10 @@ export class TrustedAssetService {
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
     const current = asset.attributes.trustedPortrait
     if (!current) throw new AppError(409, 'TRUSTED_PORTRAIT_REQUIRED', '当前人物尚未绑定 Dora 素材资源')
+    this.requireApprovedFace(asset)
+    if (current.groupType === 'AIGC' && !portraitMatchesFace(asset, current)) {
+      throw new AppError(409, 'FACE_RESOURCE_STALE', '当前 Dora 人像资源对应旧面部，请确认新面部后重新创建')
+    }
     const portrait =
       current.status === 'processing'
         ? await this.readProcessingPortrait(this.requireProvider(), current)
@@ -304,7 +322,9 @@ export class TrustedAssetService {
             this.requireProvider().getPortrait(current.assetId, current.groupType),
           )
     const recovered =
-      current.groupType === 'AIGC' ? await this.recoverHistoricalPortrait(asset, current, portrait) : portrait
+      current.groupType === 'AIGC' && portraitMatchesFace(asset, current)
+        ? await this.recoverHistoricalPortrait(asset, current, portrait)
+        : portrait
     if (!recovered) return asset
     return this.savePortrait(
       asset,
@@ -338,10 +358,18 @@ export class TrustedAssetService {
     )
     if (!processing.length) return []
 
+    // A scheduled refresh must not revive a portrait created from an unconfirmed or replaced face.
+    const eligible = processing.filter(
+      (asset) =>
+        asset.attributes.faceStatus === 'approved' &&
+        portraitMatchesFace(asset, asset.attributes.trustedPortrait!),
+    )
+    if (!eligible.length) return []
+
     const listed = await this.callProvider(() => this.requireProvider().listPortraits('AIGC'))
     const listedById = new Map(listed.map((portrait) => [portrait.assetId, portrait]))
     return await Promise.all(
-      processing.map(async (asset) => {
+      eligible.map(async (asset) => {
         const current = asset.attributes.trustedPortrait!
         let portrait = listedById.get(current.assetId) ?? null
         if (!portrait) portrait = await this.readPortraitIfAvailable(current)
@@ -389,6 +417,55 @@ export class TrustedAssetService {
       throw new AppError(503, 'REAL_VALIDATION_NOT_SUPPORTED', '当前素材库 Provider 不支持真人认证')
     }
     return provider
+  }
+
+  /**
+   * Synchronous generation-task preflight. Registration must never reach billing or the queue
+   * unless the face confirmation and its persisted source are both still valid.
+   */
+  async assertVirtualRegistrationReady(
+    projectId: string,
+    assetId: string,
+    principal: Principal,
+    expectedFaceReferenceId?: string,
+  ): Promise<void> {
+    this.requireProvider()
+    if (!this.publicApiBaseUrl) {
+      throw new AppError(
+        503,
+        'PUBLIC_API_URL_REQUIRED',
+        '自动入库需要配置公网 API 地址；本地 localhost 无法供 Dora 素材库下载素材',
+      )
+    }
+    const asset = await this.requireCharacterAsset(projectId, assetId, principal)
+    if (asset.attributes.subjectType !== 'human') {
+      throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
+    }
+    await this.requireConfirmedFaceSource(asset, expectedFaceReferenceId)
+  }
+
+  private async requireConfirmedFaceSource(
+    asset: CharacterAsset,
+    expectedFaceReferenceId?: string,
+  ): Promise<StoredSource> {
+    this.requireApprovedFace(asset, expectedFaceReferenceId)
+    if (!asset.attributes.faceReference) {
+      throw new AppError(409, 'FACE_SOURCE_REQUIRED', '面部已标记确认，但没有已保存的面部基准，请重新确认')
+    }
+    const source = await this.findSource(asset)
+    if (!source) {
+      throw new AppError(409, 'FACE_SOURCE_REQUIRED', '面部基准图片已失效，请重新生成或导入并确认')
+    }
+    return source
+  }
+
+  private requireApprovedFace(asset: CharacterAsset, expectedFaceReferenceId?: string): void {
+    if (asset.attributes.faceStatus !== 'approved') {
+      throw new AppError(409, 'FACE_APPROVAL_REQUIRED', '请先生成或导入人物面部，并点击“设为面部基准”')
+    }
+    if (expectedFaceReferenceId && asset.attributes.faceReference?.id !== expectedFaceReferenceId) {
+      throw new AppError(409, 'FACE_CONFIRMATION_CHANGED', '人物面部已更换，请重新创建当前面部对应的素材资源')
+    }
   }
 
   private async visiblePortraitIds(
@@ -534,24 +611,20 @@ export class TrustedAssetService {
 
   private async findSource(asset: CharacterAsset): Promise<StoredSource | null> {
     const currentFace = asset.attributes.faceReference
-    if (currentFace) {
-      const currentFacePath = referencePath(currentFace.url)
-      const mediaId = /^\/api\/v1\/media\/([^/]+)$/.exec(currentFacePath)?.[1] ?? currentFace.id
-      const mediaSource = await this.findMediaSourceById(mediaId, asset)
-      if (mediaSource) return mediaSource
-
-      const generated = /^\/api\/v1\/generation\/tasks\/([^/]+)\/outputs\/([^/]+)$/.exec(currentFacePath)
-      if (!generated) return null
-      return this.findGeneratedTaskSource(asset, generated[1]!, generated[2]!)
+    if (!currentFace) return null
+    const currentFacePath = referencePath(currentFace.url)
+    const mediaMatch = /^\/api\/v1\/media\/([^/]+)$/.exec(currentFacePath)
+    if (mediaMatch) {
+      // The URL and ID are both persisted confirmation data; do not silently substitute another
+      // reference from the character or project.
+      if (currentFace.id !== mediaMatch[1]) return null
+      return this.findMediaSourceById(mediaMatch[1], asset)
     }
 
-    const generated = this.findLegacyGeneratedFaceSource(asset)
-    if (generated) return generated
-
-    return await this.findMediaSourceByReferenceIds(
-      asset.references.map((item) => item.id),
-      asset,
-    )
+    const generated = /^\/api\/v1\/generation\/tasks\/([^/]+)\/outputs\/(single)$/.exec(currentFacePath)
+    if (!generated) return null
+    if (currentFace.id !== `${generated[1]}-single`) return null
+    return this.findGeneratedTaskSource(asset, generated[1]!, generated[2]!)
   }
 
   private async findMediaSourceById(mediaId: string, asset: CharacterAsset): Promise<StoredSource | null> {
@@ -602,6 +675,9 @@ export class TrustedAssetService {
           task.id === taskId &&
           task.projectId === asset.projectId &&
           task.tenantId === asset.tenantId &&
+          task.kind === 'image' &&
+          task.metadata.assetId === asset.id &&
+          task.metadata.generationStage === 'face' &&
           task.status === 'completed',
       )
       const descriptors = Array.isArray(sourceTask?.metadata.generatedOutputs)
@@ -619,37 +695,13 @@ export class TrustedAssetService {
     })
   }
 
-  private findLegacyGeneratedFaceSource(asset: CharacterAsset): StoredSource | null {
-    return this.store.read((state) => {
-      const faceTask = state.tasks.find(
-        (task) =>
-          task.projectId === asset.projectId &&
-          task.tenantId === asset.tenantId &&
-          task.metadata.assetId === asset.id &&
-          task.metadata.generationStage === 'face' &&
-          task.status === 'completed',
-      )
-      const descriptors = Array.isArray(faceTask?.metadata.generatedOutputs)
-        ? faceTask.metadata.generatedOutputs
-        : []
-      const generated = descriptors.find(
-        (item) =>
-          item &&
-          typeof item === 'object' &&
-          typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
-          typeof (item as { contentType?: unknown }).contentType === 'string',
-      ) as StoredSource | undefined
-      return generated ?? null
-    })
-  }
-
   private savePortrait(
     asset: CharacterAsset,
     portrait: ProviderPortrait,
     portraitSource: 'ai-virtual' | 'authorized-real',
     principal: Principal,
   ): Promise<Asset> {
-    const trustedPortrait = toTrustedPortrait(portrait)
+    const trustedPortrait = toTrustedPortrait(portrait, asset.attributes.faceReference?.id ?? null)
     if (this.projectRepository) {
       return this.projectRepository
         .updateAsset(
@@ -692,11 +744,12 @@ function referencePath(url: string): string {
   }
 }
 
-function toTrustedPortrait(portrait: ProviderPortrait): TrustedPortrait {
+function toTrustedPortrait(portrait: ProviderPortrait, faceReferenceId: string | null): TrustedPortrait {
   return {
     assetId: portrait.assetId,
     groupId: portrait.groupId,
     groupType: portrait.groupType,
+    faceReferenceId,
     status: portrait.status,
     name: portrait.name,
     previewUrl: trustedPortraitPreviewUrl(portrait),
@@ -704,6 +757,12 @@ function toTrustedPortrait(portrait: ProviderPortrait): TrustedPortrait {
     errorMessage: portrait.errorMessage,
     checkedAt: new Date().toISOString(),
   }
+}
+
+function portraitMatchesFace(asset: CharacterAsset, portrait: TrustedPortrait): boolean {
+  // Legacy resources have no source binding. Keep them readable and let the next successful
+  // registration attach the binding; all newly created resources must match exactly.
+  return !portrait.faceReferenceId || portrait.faceReferenceId === asset.attributes.faceReference?.id
 }
 
 function publicValidationSession(session: {

@@ -14,7 +14,13 @@ export function createTrustedAssetTaskHandler(
     }
     const assetId = task.metadata.assetId
     if (typeof assetId !== 'string' || !assetId) throw new Error('人物资产 ID 缺失')
-    const asset = await service.registerVirtual(task.projectId, assetId, principalForTask(store, task))
+    const expectedFaceReferenceId = task.metadata.faceReferenceId
+    const asset = await service.registerVirtual(
+      task.projectId,
+      assetId,
+      principalForTask(store, task),
+      typeof expectedFaceReferenceId === 'string' ? expectedFaceReferenceId : undefined,
+    )
     const portrait = asset.attributes.type === 'character' ? asset.attributes.trustedPortrait : null
     if (portrait?.status === 'failed') {
       throw new Error(portrait.errorMessage || portrait.errorCode || 'Dora 人像资源审核失败')

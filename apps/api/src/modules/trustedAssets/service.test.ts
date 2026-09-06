@@ -131,6 +131,11 @@ describe('TrustedAssetService', () => {
         attributes: {
           ...defaultAssetAttributes('character'),
           faceStatus: 'approved',
+          faceReference: {
+            id: 'face-task-single',
+            url: '/api/v1/generation/tasks/face-task/outputs/single',
+            name: '角色甲-面部基准',
+          },
         },
         imageUrl: '/api/v1/generation/tasks/face-task/outputs/single',
         status: 'draft',
@@ -431,6 +436,7 @@ describe('TrustedAssetService', () => {
           name: id,
           attributes: {
             ...defaultAssetAttributes('character'),
+            faceStatus: 'approved',
             trustedPortrait: {
               assetId,
               groupId: `group-${assetId}`,

@@ -360,6 +360,9 @@ export class AgentRunner {
             generationStage: 'trusted-portrait',
             trustedAssetOperation: 'register-virtual',
             assetId: asset.id,
+            ...(asset.attributes.faceReference?.id
+              ? { faceReferenceId: asset.attributes.faceReference.id }
+              : {}),
           },
         },
         principal,

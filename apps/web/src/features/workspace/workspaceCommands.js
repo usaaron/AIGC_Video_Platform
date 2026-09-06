@@ -139,7 +139,7 @@ export function createWorkspaceCommands({
       },
     })
 
-  const createTrustedPortraitJob = async (assetId, assetName = '人物') => {
+  const createTrustedPortraitJob = async (assetId, assetName = '人物', faceReferenceId) => {
     if (!project) return null
     const task = await api.createTask({
       clientRequestId: crypto.randomUUID(),
@@ -152,6 +152,7 @@ export function createWorkspaceCommands({
         generationStage: 'trusted-portrait',
         trustedAssetOperation: 'register-virtual',
         assetId,
+        ...(faceReferenceId ? { faceReferenceId } : {}),
       },
     })
     replaceTasks(project.id, await api.tasks(project.id))

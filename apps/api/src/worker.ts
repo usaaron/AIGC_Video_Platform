@@ -239,6 +239,8 @@ generationService = new GenerationService(
   videoProviderName(config),
   objectStorage,
   filmPreviewComposer,
+  textProvider,
+  trustedAssetService.assertVirtualRegistrationReady.bind(trustedAssetService),
 )
 const agentRunner = new AgentRunner(agentRunRepository, projectService, () => generationService)
 
