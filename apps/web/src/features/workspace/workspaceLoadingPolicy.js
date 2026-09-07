@@ -151,7 +151,9 @@ function normalizeTextResult(result) {
   return {
     ...result,
     summary: stringValue(result.summary),
-    warnings: Array.isArray(result.warnings) ? result.warnings.filter((item) => typeof item === 'string') : [],
+    warnings: Array.isArray(result.warnings)
+      ? result.warnings.filter((item) => typeof item === 'string')
+      : [],
     assets: result.assets.map(normalizeSuggestion).filter(Boolean),
   }
 }
@@ -202,7 +204,9 @@ function normalizeVariants(value) {
 
 function normalizeReferences(value, ownerId) {
   if (!Array.isArray(value)) return []
-  return value.map((item, index) => normalizeReference(item, `${ownerId}-reference-${index + 1}`)).filter(Boolean)
+  return value
+    .map((item, index) => normalizeReference(item, `${ownerId}-reference-${index + 1}`))
+    .filter(Boolean)
 }
 
 function normalizeReference(value, fallbackId) {

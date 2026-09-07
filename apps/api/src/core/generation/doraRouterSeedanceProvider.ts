@@ -162,7 +162,10 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
     }
     return {
       status: 'running',
-      progress: Math.max(5, Math.min(99, progressValue(parsed.progress, providerStatus === 'queued' ? 5 : 50))),
+      progress: Math.max(
+        5,
+        Math.min(99, progressValue(parsed.progress, providerStatus === 'queued' ? 5 : 50)),
+      ),
       error: null,
     }
   }
@@ -344,7 +347,9 @@ function taskIdFrom(response: DoraTaskResponse): string {
 
 function videoUrlFrom(response: DoraTaskResponse): string | null {
   const resultUrl = Array.isArray(response.result_url) ? response.result_url[0] : response.result_url
-  return resultUrl || response.metadata?.url || response.metadata?.video_url || response.content?.video_url || null
+  return (
+    resultUrl || response.metadata?.url || response.metadata?.video_url || response.content?.video_url || null
+  )
 }
 
 function lastFrameUrlFrom(response: DoraTaskResponse): string | null {

@@ -360,7 +360,9 @@ export function AssetSuggestionsPanel({
 }
 
 export function assetSuggestionKey(asset) {
-  return `${asset?.kind || 'prop'}:${String(asset?.name || '未命名建议').trim().toLocaleLowerCase('zh-CN')}`
+  return `${asset?.kind || 'prop'}:${String(asset?.name || '未命名建议')
+    .trim()
+    .toLocaleLowerCase('zh-CN')}`
 }
 
 function buildSuggestionFacts(asset) {

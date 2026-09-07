@@ -66,7 +66,9 @@ describe('workspace loading policy', () => {
     expect(normalized).toMatchObject({
       project: { name: '未命名项目', script: '' },
       scriptEpisodes: [{ title: '第 1 集', content: '', continuityState: {} }],
-      assets: [{ name: '未命名资产', references: [], attributes: { type: 'character', appearanceVariants: [] } }],
+      assets: [
+        { name: '未命名资产', references: [], attributes: { type: 'character', appearanceVariants: [] } },
+      ],
       shots: [{ title: '镜头 1', order: 1, duration: 3, prompt: '' }],
     })
   })

@@ -47,7 +47,11 @@ import {
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
-import { normalizeTasks, normalizeWorkspace, shouldLoadTaskDetails } from './features/workspace/workspaceLoadingPolicy'
+import {
+  normalizeTasks,
+  normalizeWorkspace,
+  shouldLoadTaskDetails,
+} from './features/workspace/workspaceLoadingPolicy'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
