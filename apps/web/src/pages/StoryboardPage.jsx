@@ -75,6 +75,7 @@ export function StoryboardPage({
   const [splitting, setSplitting] = useState('')
   const [splittingEpisodes, setSplittingEpisodes] = useState(false)
   const [generatingAll, setGeneratingAll] = useState(false)
+  const [pendingBatchMode, setPendingBatchMode] = useState('')
   const [generatingSelected, setGeneratingSelected] = useState(false)
   const [rerollShotIds, setRerollShotIds] = useState(() => new Set())
   const [operationError, setOperationError] = useState('')
@@ -213,18 +214,8 @@ export function StoryboardPage({
     }
   }
 
-  const generateAll = async (mode = batchMode) => {
+  const runGenerateAll = async (mode) => {
     if (controlsLocked) return
-    if (
-      mode === 'parallel' &&
-      !window.confirm('安全并发只会同时生成互相独立的镜头链；同一链内仍会等待上一镜真实尾帧。确认开始吗？')
-    )
-      return
-    if (
-      mode === 'independent' &&
-      !window.confirm('全部独立生成会取消所有镜头的尾帧承接关系，速度更快，但镜头连续性会降低。确认继续吗？')
-    )
-      return
     setGeneratingAll(true)
     setOperationError('')
     setOperationNotice('')
@@ -235,6 +226,22 @@ export function StoryboardPage({
     } finally {
       setGeneratingAll(false)
     }
+  }
+
+  const generateAll = (mode = batchMode) => {
+    if (controlsLocked) return
+    if (mode === 'parallel' || mode === 'independent') {
+      setPendingBatchMode(mode)
+      return
+    }
+    void runGenerateAll(mode)
+  }
+
+  const confirmBatchGeneration = () => {
+    if (!pendingBatchMode) return
+    const mode = pendingBatchMode
+    setPendingBatchMode('')
+    void runGenerateAll(mode)
   }
 
   const toggleRerollShot = (shotId) => {
@@ -445,26 +452,32 @@ export function StoryboardPage({
           </button>
         </div>
         <button
+          type="button"
           className="button primary"
-          onClick={() => void generateAll()}
+          onClick={() => (pendingBatchMode === batchMode ? confirmBatchGeneration() : generateAll())}
           disabled={!rangeShots.length || controlsLocked}
         >
           {generatingAll ? <LoaderCircle size={16} className="spin" /> : <Video size={16} />}
           {generatingAll
             ? '正在加入队列'
-            : currentEpisode
-              ? `生成第 ${currentEpisode.number} 集视频`
-              : batchMode === 'parallel'
-                ? '安全并发生成全部剧集'
-                : '按集串联生成'}
+            : pendingBatchMode === batchMode
+              ? '确认开始生成'
+              : currentEpisode
+                ? `生成第 ${currentEpisode.number} 集视频`
+                : batchMode === 'parallel'
+                  ? '安全并发生成全部剧集'
+                  : '按集串联生成'}
         </button>
         <span className="safe-parallel-help" tabIndex={0} aria-label="安全并发生成说明">
           <CircleHelp size={16} />
           <span role="tooltip">独立镜头链会同时生成；同一链内必须等上一镜真实尾帧返回后再生成下一镜。</span>
         </span>
         <button
+          type="button"
           className="button secondary"
-          onClick={() => void generateAll('independent')}
+          onClick={() =>
+            pendingBatchMode === 'independent' ? confirmBatchGeneration() : generateAll('independent')
+          }
           disabled={!rangeShots.length || controlsLocked}
           title="忽略尾帧承接，把所有镜头作为独立任务同时提交"
         >
@@ -484,6 +497,28 @@ export function StoryboardPage({
               : `批量下载 ${downloadableVideos.length} 条`}
         </button>
       </PageHeader>
+      {pendingBatchMode && (
+        <div className="storyboard-batch-confirm" role="alert">
+          <div>
+            <strong>
+              {pendingBatchMode === 'independent' ? '确认全部独立生成？' : '确认安全并发生成？'}
+            </strong>
+            <span>
+              {pendingBatchMode === 'independent'
+                ? '将忽略尾帧承接，所有镜头直接提交，速度更快但连续性较弱。'
+                : '只并发独立镜头链，同一链按真实尾帧顺序提交，不会重复创建任务。'}
+            </span>
+          </div>
+          <div>
+            <button type="button" className="button primary" onClick={confirmBatchGeneration}>
+              <Video size={16} /> 确认生成
+            </button>
+            <button type="button" className="button secondary" onClick={() => setPendingBatchMode('')}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
       {!hasScriptEpisodeWorkflow && (
         <div className="episode-split-toolbar">
           <div>

@@ -125,9 +125,11 @@ export function createWorkspaceCommands({
         estimatedCredits: cost,
         metadata: options.metadata,
       })
-      replaceTasks(project.id, await api.tasks(project.id))
-      await refreshBilling()
-      setToast(`${label} 已加入生成队列`)
+      if (options.refreshAfterCreate !== false) {
+        replaceTasks(project.id, await api.tasks(project.id))
+        await refreshBilling()
+        setToast(`${label} 已加入生成队列`)
+      }
       return created
     } catch (error) {
       setToast(error.message)
@@ -303,6 +305,7 @@ export function createWorkspaceCommands({
       batchId = null,
       batchMode = null,
       allowCreateContinuitySource = true,
+      refreshAfterCreate = true,
     } = {},
   ) => {
     const references = selectShotAssetReferencesFromIndex(
@@ -362,6 +365,7 @@ export function createWorkspaceCommands({
       Boolean,
     )
     return createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
+      refreshAfterCreate,
       prompt: videoPrompt,
       negativePrompt: shot.negativePrompt,
       metadata: {
@@ -471,6 +475,7 @@ export function createWorkspaceCommands({
             batchId,
             batchMode: forceNewVersion ? `reroll-${selectionMode}` : mode,
             allowCreateContinuitySource: !forceNewVersion,
+            refreshAfterCreate: false,
           })
           if (!createdTask) break
           previousVideoTask = createdTask
@@ -480,8 +485,9 @@ export function createWorkspaceCommands({
       }),
     )
     const created = laneResults.reduce((total, count) => total + count, 0)
-    await refreshWorkspace()
-    replaceTasks(project.id, await api.tasks(project.id))
+    const [, nextTasks] = await Promise.all([refreshWorkspace(), api.tasks(project.id)])
+    replaceTasks(project.id, nextTasks)
+    if (created) await refreshBilling()
     const laneCount = Math.min(plan.immediateLaneCount, created)
     if (created) {
       setToast(
