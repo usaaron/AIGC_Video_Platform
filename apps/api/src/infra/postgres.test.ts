@@ -17,6 +17,33 @@ afterAll(async () => {
 })
 
 describe('postgres migrations', { timeout: 30_000 }, () => {
+  it('isolates migration catalogs when two fixtures coexist', async () => {
+    if (!postgres) throw new Error('Postgres fixture is not ready')
+    const secondFixture = await startPostgresAuthFixture()
+    const first = new AccountDatabase(postgres.connectionString)
+    const second = new AccountDatabase(secondFixture.connectionString)
+    try {
+      const results = await Promise.all(
+        [first, second].map((database) =>
+          database.query<{
+            database_name: string
+            constraint_count: number
+          }>(`
+        SELECT current_database() AS database_name, count(*)::integer AS constraint_count
+        FROM pg_constraint
+        WHERE conname IN ('tenant_memberships_roles_known_check', 'tenant_invitations_roles_known_check')
+      `),
+        ),
+      )
+      expect(results[0]?.rows[0]?.database_name).not.toBe(results[1]?.rows[0]?.database_name)
+      expect(results.map((result) => result.rows[0]?.constraint_count)).toEqual([2, 2])
+      await Promise.all([first.ensureLatestMigrations(), second.ensureLatestMigrations()])
+    } finally {
+      await Promise.all([first.close(), second.close()])
+      await secondFixture.close()
+    }
+  })
+
   it('runs advisory lock operations only while the lock is available', async () => {
     if (!postgres) throw new Error('Postgres fixture is not ready')
     const database = new AccountDatabase(postgres.connectionString)

@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  ArrowUp,
   CircleAlert,
   Clock3,
   FolderOpen,
@@ -7,18 +8,25 @@ import {
   PauseCircle,
   Pencil,
   Plus,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
 import { useState } from 'react'
-import { BrandMark } from '../components/BrandMark'
 import { IconButton, PageHeader } from '../components/ui'
 
-export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete }) {
+export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete, onStartAgent }) {
   const [editingId, setEditingId] = useState(null)
   const [name, setName] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [idea, setIdea] = useState('')
+  const visibleProjects = projects.filter((project) =>
+    project.name.toLowerCase().includes(query.toLowerCase()),
+  )
 
   const beginRename = (project) => {
     setEditingId(project.id)
@@ -58,25 +66,78 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
     }
   }
 
-  if (!projects.length) return <ProjectEmptyWelcome onCreate={onCreate} />
-
   return (
     <div className="page project-home-page">
-      <PageHeader
-        eyebrow="项目库"
-        title="所有创作，一处管理"
-        description="打开项目继续制作，或从一个新的故事开始。"
-      >
-        <button className="button primary" onClick={onCreate}>
-          <Plus size={16} /> 新建项目
-        </button>
-      </PageHeader>
+      <PageHeader eyebrow="序幕工作室" title="开始你的下一部作品" />
+      <section className="studio-start" aria-label="一句成片入口">
+        <div className="studio-start-heading">
+          <Sparkles size={21} />
+          <h2>你想拍一个怎样的故事？</h2>
+          <span>一句成片</span>
+        </div>
+        <form
+          className="studio-idea-composer"
+          onSubmit={(event) => {
+            event.preventDefault()
+            ;(onStartAgent || onCreate)(idea.trim())
+          }}
+        >
+          <textarea
+            value={idea}
+            onChange={(event) => setIdea(event.target.value)}
+            aria-label="创作想法"
+            placeholder="说几个点就好。主角是谁，发生了什么，想要什么风格…"
+            rows={3}
+            maxLength={4000}
+          />
+          <div>
+            <span>
+              <i /> 描述想法 · 确认方案 · 开始制作
+            </span>
+            <button
+              type="submit"
+              className="studio-idea-submit"
+              aria-label="用这个想法开始创作"
+              title="开始创作"
+            >
+              <ArrowUp size={19} />
+            </button>
+          </div>
+        </form>
+        <div className="studio-start-options">
+          <div>
+            {['雨夜悬疑短剧', '新品发布广告', '治愈系动画短片'].map((prompt) => (
+              <button key={prompt} type="button" onClick={() => setIdea(prompt)}>
+                {prompt}
+                <ArrowRight size={12} />
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={onCreate}>
+            <SlidersHorizontal size={14} /> 自己掌控制作
+          </button>
+        </div>
+      </section>
 
-      <section className="project-library" aria-label="项目列表">
+      <section className="project-library" aria-label={projects.length ? '项目列表' : '新项目欢迎页'}>
         <div className="project-library-heading">
           <div>
-            <h2>最近项目</h2>
+            <h2>我的项目</h2>
             <span>{projects.length} 个项目</span>
+          </div>
+          <div className="project-library-controls">
+            <label className="project-library-search">
+              <Search size={15} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索项目"
+                aria-label="搜索项目"
+              />
+            </label>
+            <button type="button" className="button secondary" onClick={onCreate}>
+              <Plus size={15} /> 新建项目
+            </button>
           </div>
         </div>
         {error && (
@@ -85,16 +146,22 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
           </p>
         )}
         <div className="project-folder-grid">
-          {projects.map((project, index) => (
+          {visibleProjects.map((project, index) => (
             <article className="project-folder" key={project.id}>
-              <span className="project-folder-index">PROJECT / {String(index + 1).padStart(2, '0')}</span>
               <button className="project-folder-open" onClick={() => onOpen(project.id)}>
                 <span
                   className={`project-folder-mark ${project.previewUrl ? 'has-preview' : ''}`}
                   aria-hidden="true"
                 >
-                  {project.previewUrl ? <img src={project.previewUrl} alt="" /> : <FolderOpen size={25} />}
-                  <small>{String(index + 1).padStart(2, '0')}</small>
+                  {project.previewUrl ? (
+                    <img src={project.previewUrl} alt="" />
+                  ) : (
+                    <>
+                      <FolderOpen size={27} />
+                      <span>STORY {String(index + 1).padStart(2, '0')}</span>
+                    </>
+                  )}
+                  <small>{project.aspectRatio}</small>
                 </span>
                 <span className="project-folder-copy">
                   <span className="project-folder-meta">
@@ -140,92 +207,27 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
               )}
             </article>
           ))}
-          <button className="project-folder project-folder-create" onClick={onCreate}>
-            <span>
-              <Plus size={22} />
-            </span>
-            <strong>新建项目</strong>
-          </button>
         </div>
+        {!projects.length && (
+          <div className="studio-project-empty">
+            <FolderOpen size={28} />
+            <h3>欢迎来到序幕 TV</h3>
+            <p>从一个想法，开始你的第一部作品。</p>
+            <button className="button secondary" onClick={onCreate}>
+              <Plus size={16} /> 创建第一个项目
+            </button>
+          </div>
+        )}
+        {projects.length > 0 && !visibleProjects.length && (
+          <p className="studio-project-search-empty">没有找到“{query}”相关的项目。</p>
+        )}
       </section>
     </div>
   )
 }
 
 export function ProjectEmptyWelcome({ onCreate }) {
-  return (
-    <div className="page project-empty-welcome">
-      <section className="project-welcome-stage" aria-label="新项目欢迎页">
-        <div className="project-welcome-copy">
-          <div className="project-welcome-kicker">
-            <BrandMark size={15} spin />
-            <strong>序幕 TV</strong>
-            <i />
-            <span>创作工作台</span>
-          </div>
-          <span className="project-welcome-sequence">PROJECT / 001</span>
-          <h1>
-            欢迎来到序幕 TV
-            <em>让第一幕，从这里发生。</em>
-          </h1>
-          <p>从一个名字开始，把脑海里的第一幕留在这里。</p>
-          <button className="project-welcome-primary" type="button" onClick={onCreate}>
-            <Plus size={17} />
-            <span>创建第一个项目</span>
-            <ArrowRight size={16} />
-          </button>
-        </div>
-
-        <div className="project-welcome-reel" aria-hidden="true">
-          <header>
-            <span>SEQORA / OPENING</span>
-            <i>
-              <b /> READY
-            </i>
-          </header>
-          <div className="project-welcome-viewfinder">
-            <span className="welcome-corner top-left" />
-            <span className="welcome-corner top-right" />
-            <span className="welcome-corner bottom-left" />
-            <span className="welcome-corner bottom-right" />
-            <div className="welcome-frame-index">
-              <span>SCENE 01</span>
-              <small>00:00:00</small>
-            </div>
-            <div className="welcome-focus-mark">
-              <BrandMark size={52} spin />
-            </div>
-            <blockquote>
-              “序幕起，
-              <br />
-              好戏生。”
-            </blockquote>
-            <span className="welcome-scan-line" />
-          </div>
-          <div className="project-welcome-timeline">
-            <div className="welcome-timecode">
-              <span>00</span>
-              <span>01</span>
-              <span>02</span>
-              <span>03</span>
-              <span>04</span>
-            </div>
-            <div className="welcome-timeline-track">
-              <span />
-              <span />
-              <span />
-              <i />
-            </div>
-          </div>
-        </div>
-      </section>
-      <footer className="project-welcome-footer">
-        <span>NEW PROJECT</span>
-        <i />
-        <span>READY FOR THE FIRST SCENE</span>
-      </footer>
-    </div>
-  )
+  return <ProjectHomePage projects={[]} onCreate={onCreate} />
 }
 
 function contentTypeLabel(value) {

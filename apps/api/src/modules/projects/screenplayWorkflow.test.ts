@@ -6,8 +6,14 @@ import {
   quickScriptIssues,
   webSeriesDialoguePlan,
   webSeriesDialogueRequirement,
+  webSeriesSceneBudget,
 } from './scriptWriting.js'
-import { parseShotFields, splitScriptParagraphs } from './shotPlanning.js'
+import {
+  expandLongScriptParagraphs,
+  parseShotFields,
+  splitScriptParagraphs,
+  spokenDialogueCues,
+} from './shotPlanning.js'
 
 const READABLE_SCRIPT = `资产：
 人物：林晚｜性别：女｜年龄段：青年｜年龄：28岁｜身份：急诊医生｜固定外形：黑色齐肩短发、清瘦
@@ -92,8 +98,8 @@ describe('readable screenplay workflow', () => {
 
     expect(shots).toHaveLength(2)
     expect(shots[0]?.prompt).toContain('雨刚停，巷子里积着浅水')
-    expect(shots[0]?.prompt).toContain('林晚：门能进，跟我走。')
-    expect(shots[0]?.prompt).toContain('程野：它们来了……')
+    expect(shots[0]?.prompt).not.toContain('林晚：门能进，跟我走。')
+    expect(shots[0]?.prompt).not.toContain('程野：它们来了……')
     expect(shots[0]?.prompt).not.toContain('她快步跨到程野身侧')
     expect(shots[0]?.prompt).not.toContain('林晚：先进去再说')
 
@@ -101,16 +107,16 @@ describe('readable screenplay workflow', () => {
     expect(shots[1]?.prompt).toContain('林晚回头瞥向东侧路口')
     expect(shots[1]?.prompt).toContain('林晚：先进去再说')
     expect(shots[1]?.prompt).not.toContain('雨刚停，巷子里积着浅水')
-    expect(shots[1]?.prompt).not.toContain('林晚：门能进，跟我走。')
-    expect(shots[1]?.prompt).not.toContain('程野：它们来了……')
+    expect(shots[1]?.prompt).toContain('林晚：门能进，跟我走。')
+    expect(shots[1]?.prompt).toContain('程野：它们来了……')
   })
 
-  it('allocates about four ordered dialogue cues to each director shot', () => {
+  it('keeps dialogue at the action that prompted it without a fixed per-shot quota', () => {
     const [scene] = splitScriptParagraphs(SINGLE_SCENE_WITH_DENSE_DIALOGUE)
     const shots = splitScriptIntoSmartSceneShots([scene!], 120, true)
 
-    expect(webSeriesDialoguePlan(20)).toMatchObject({ shotCount: 2, minimum: 6, target: 8, maximum: 10 })
-    expect(webSeriesDialogueRequirement(20)).toContain('8 句左右')
+    expect(webSeriesDialoguePlan(20)).toMatchObject({ shotCount: 2, minimum: 0, target: 3, maximum: 6 })
+    expect(webSeriesDialogueRequirement(20)).toContain('给动作和反应留出时间')
     expect(shots).toHaveLength(2)
     expect(shots[0]?.prompt.match(/\[对白\]/gu) || []).toHaveLength(4)
     expect(shots[1]?.prompt.match(/\[对白\]/gu) || []).toHaveLength(4)
@@ -123,13 +129,97 @@ describe('readable screenplay workflow', () => {
     expect(shots[1]?.prompt).not.toContain('程野：你从南口来？')
   })
 
-  it('reports dialogue density gaps without manufacturing repeated lines', () => {
+  it('reports repeated dialogue without manufacturing extra lines', () => {
     const script =
-      '场次：S01｜时长：20秒｜剧情：林晚确认药店后门状态。｜场景：废弃药店。｜角色：林晚、程野｜动作：林晚观察后门。｜对白：[对白]林晚：我先确认。'
+      '场次：S01｜时长：20秒｜剧情：林晚确认药店后门状态。｜场景：废弃药店。｜角色：林晚、程野｜动作：林晚观察后门。｜对白：[对白]林晚：我先确认。；[对白]林晚：我先确认。'
 
     expect(quickScriptIssues(script, 'web-series', 20)).toEqual(
-      expect.arrayContaining([expect.stringContaining('S01 当前仅有 1 句可听对白')]),
+      expect.arrayContaining([expect.stringContaining('S01 存在重复对白')]),
     )
+  })
+
+  it('keeps the camera on evidence when dialogue accompanies a detail shot', () => {
+    const scene =
+      '场次：S01｜候车室｜深夜｜内景｜10秒\n陈默翻过照片，露出背面今天的日期。\n陈默：这是今天拍的。'
+    const [shot] = splitScriptIntoSmartSceneShots(splitScriptParagraphs(scene), 120, true)
+    expect(shot?.framing).toBe('特写')
+    expect(shot?.prompt).toContain('不因说话而移开关键细节')
+    expect(shot?.prompt).not.toContain('推近说话者面部')
+  })
+
+  it('keeps action, dialogue, and sound ownership together across a scene', () => {
+    const scene = `场次：S01｜控制室｜深夜｜内景｜24秒
+林晚刷卡，读卡器亮起红灯。
+林晚：“权限被取消了。”
+[音效]读卡器报警。
+程野指向屏幕，屏幕显示有人远程锁门。
+程野：“是里面的人。”
+[音效]机械锁落下。
+林晚拔出电源，屏幕熄灭，她转向通风口。
+林晚：“换条路。”`
+    const shots = splitScriptIntoSmartSceneShots(splitScriptParagraphs(scene), 120, true)
+    const fields = shots.map((shot) => parseShotFields(shot.prompt))
+    const allCues = fields.flatMap((field) => spokenDialogueCues(field.对白))
+    expect(allCues).toEqual(spokenDialogueCues(parseShotFields(scene).对白))
+    for (const [action, dialogue, sound] of [
+      ['读卡器亮起红灯', '权限被取消了', '读卡器报警'],
+      ['有人远程锁门', '是里面的人', '机械锁落下'],
+      ['拔出电源', '换条路', ''],
+    ]) {
+      const owners = shots.filter((shot) => shot.prompt.includes(action!))
+      expect(owners).toHaveLength(1)
+      expect(owners[0]?.prompt).toContain(dialogue!)
+      if (sound) expect(owners[0]?.prompt).toContain(sound)
+    }
+  })
+
+  it('does not cap a 50-second scene at three shots or lose its final event', () => {
+    const scene = `场次：S01｜控制室｜深夜｜内景｜50秒\n${Array.from({ length: 8 }, (_, index) => `林晚检查第${index + 1}号信号，记录新的坐标。`).join('\n')}`
+    const shots = splitScriptIntoSmartSceneShots(splitScriptParagraphs(scene), 120, true)
+    expect(shots).toHaveLength(4)
+    expect(shots.reduce((sum, shot) => sum + shot.duration, 0)).toBe(50)
+    expect(shots.every((shot) => shot.duration >= 3 && shot.duration <= 15)).toBe(true)
+    for (let index = 1; index <= 8; index += 1) {
+      expect(shots.filter((shot) => shot.prompt.includes(`第${index}号信号`))).toHaveLength(1)
+    }
+    expect(shots[0]?.continuityMode).toBe('independent')
+    expect(shots.slice(1).every((shot) => shot.continuityMode === 'continue')).toBe(true)
+  })
+
+  it('honors short scene durations instead of replacing every scene with a generic five seconds', () => {
+    const script = `场次：S01｜控制室｜深夜｜内景｜7秒\n林晚按下按钮。\n[音效]屏幕轻响。
+场次：S02｜走廊｜深夜｜内景｜12秒\n程野推开窗，停在窗边。\n[音效]风吹动窗框。`
+    const shots = splitScriptIntoSmartSceneShots(splitScriptParagraphs(script), 120, true)
+    expect(shots.map((shot) => shot.duration)).toEqual([7, 12])
+    expect(shots.map((shot) => shot.continuityMode)).toEqual(['independent', 'independent'])
+  })
+
+  it('does not expand one under-specified action into two invented versions', () => {
+    const scene = '场次：S01｜控制室｜深夜｜内景｜20秒\n林晚关上门。'
+    const shots = splitScriptIntoSmartSceneShots(splitScriptParagraphs(scene), 120, true)
+    expect(shots).toHaveLength(1)
+    expect(shots[0]?.prompt).not.toContain('本场后半段行动')
+  })
+
+  it('preserves long natural scenes before director planning without copying dialogue into chunks', () => {
+    const source = `场次：S01｜控制室｜深夜｜内景｜50秒\n${'林晚检查信号，程野记录坐标。\n'.repeat(75)}林晚：“现在出发。”`
+    const paragraphs = splitScriptParagraphs(source)
+    expect(expandLongScriptParagraphs(paragraphs)).toEqual(paragraphs)
+    const shots = splitScriptIntoSmartSceneShots(paragraphs, 120, true)
+    expect(shots.filter((shot) => shot.prompt.includes('现在出发'))).toHaveLength(1)
+  })
+
+  it('uses a duration-based range for episodes and accepts deliberate nonverbal scenes', () => {
+    expect(webSeriesSceneBudget(60)).toEqual({ minimum: 3, target: 5, maximum: 8 })
+    expect(webSeriesSceneBudget(120).target).toBeGreaterThan(webSeriesSceneBudget(60).target)
+    const source = '场次：S01｜控制室｜深夜｜内景｜8秒\n林晚屏住呼吸，门把缓慢转动。\n[音效]门锁轻响。'
+    expect(completeWebSeriesSpokenContent(source, 'web-series')).toBe(source)
+    expect(quickScriptIssues(source, 'web-series', 30).join('')).not.toContain('缺少“对白”')
+    const withoutSound = source.split('\n[音效]')[0]!
+    const completed = completeWebSeriesSpokenContent(withoutSound, 'web-series')
+    expect(completed).not.toContain('不能在这里停下')
+    expect(completed).not.toContain('[内心独白]')
+    expect(completed).toContain('[音效]')
   })
 
   it('keeps temporary prop states out of reusable asset names', () => {

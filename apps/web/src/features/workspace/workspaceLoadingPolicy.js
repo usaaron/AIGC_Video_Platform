@@ -1,9 +1,16 @@
+import {
+  assetKindSchema,
+  generationKindSchema,
+  generationTaskStatusSchema,
+  projectSchema,
+} from '@seqora/contracts'
+
 const TASK_DETAIL_STEPS = new Set(['script', 'assets', 'storyboard', 'film', 'image-studio'])
-const PROJECT_CONTENT_TYPES = new Set(['advertisement', 'animation', 'short-drama'])
-const PROJECT_ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1'])
-const ASSET_KINDS = new Set(['character', 'scene', 'prop', 'costume', 'brand', 'audio'])
-const TASK_KINDS = new Set(['text', 'image', 'video', 'audio'])
-const TASK_STATUSES = new Set(['queued', 'paused', 'running', 'completed', 'failed', 'cancelled'])
+const PROJECT_CONTENT_TYPES = new Set(projectSchema.shape.contentType.options)
+const PROJECT_ASPECT_RATIOS = new Set(projectSchema.shape.aspectRatio.options)
+const ASSET_KINDS = new Set(assetKindSchema.options)
+const TASK_KINDS = new Set(generationKindSchema.options)
+const TASK_STATUSES = new Set(generationTaskStatusSchema.options)
 
 export function workspacePollingProjectId(activeStep, workspace) {
   return activeStep === 'home' ? null : workspace?.project?.id || null

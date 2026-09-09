@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { portraitPreviewUrl } from './assetPreview'
 
 export function TrustedPortraitPanel({
   assetId,
@@ -199,14 +200,13 @@ export function TrustedPortraitPanel({
       {portrait && (
         <div className="trusted-portrait-binding">
           {boundPreviewUrl ? (
-            <button
+            <TrustedPortraitPreview
               className="trusted-portrait-binding-preview"
-              type="button"
-              aria-label="放大查看当前可信人像"
-              onClick={() => onPreview?.({ url: boundPreviewUrl, name: portrait.name || portrait.assetId })}
-            >
-              <img src={boundPreviewUrl} alt="" loading="eager" decoding="async" />
-            </button>
+              url={boundPreviewUrl}
+              name={portrait.name || portrait.assetId}
+              label="放大查看当前可信人像"
+              onPreview={onPreview}
+            />
           ) : (
             <span className="trusted-portrait-binding-placeholder">
               <Images size={16} />
@@ -434,25 +434,13 @@ export function TrustedPortraitPanel({
                 className={`trusted-portrait-card ${selected ? 'selected' : ''} ${!selectable ? 'disabled' : ''}`}
                 key={`${item.groupType}-${item.assetId}`}
               >
-                <button
+                <TrustedPortraitPreview
                   className="trusted-portrait-card-preview"
-                  type="button"
-                  disabled={!itemPreviewUrl}
-                  aria-label={`放大查看${item.name || item.assetId}`}
-                  onClick={() =>
-                    itemPreviewUrl &&
-                    onPreview?.({
-                      url: itemPreviewUrl,
-                      name: item.name || item.assetId,
-                    })
-                  }
-                >
-                  {itemPreviewUrl ? (
-                    <img src={itemPreviewUrl} alt="" loading="eager" decoding="async" />
-                  ) : (
-                    <Images size={22} />
-                  )}
-                </button>
+                  url={itemPreviewUrl}
+                  name={item.name || item.assetId}
+                  label={`放大查看${item.name || item.assetId}`}
+                  onPreview={onPreview}
+                />
                 <button
                   className="trusted-portrait-card-select"
                   type="button"
@@ -556,12 +544,34 @@ export function TrustedPortraitPanel({
   )
 }
 
-export function portraitPreviewUrl(portrait) {
-  if (!portrait) return null
-  if (portrait.assetId && portrait.status === 'active') {
-    return `/api/v1/trusted-assets/portraits/${encodeURIComponent(portrait.assetId)}/preview`
-  }
-  return portrait.status === 'active' ? portrait.previewUrl || null : null
+function TrustedPortraitPreview({ className, url, name, label, onPreview }) {
+  const [failedUrl, setFailedUrl] = useState(null)
+  const [retry, setRetry] = useState(0)
+  const imageUrl = url && retry ? `${url}${url.includes('?') ? '&' : '?'}previewRetry=${retry}` : url
+  const failed = Boolean(imageUrl && failedUrl === imageUrl)
+  return (
+    <button
+      className={className}
+      type="button"
+      disabled={!url}
+      aria-label={failed ? `重新加载${name}的预览` : label}
+      title={failed ? '预览加载失败，点击重试' : label}
+      onClick={() => {
+        if (failed) setRetry((value) => value + 1)
+        else if (imageUrl) onPreview?.({ url: imageUrl, name })
+      }}
+    >
+      {failed ? (
+        <span role="status">
+          <RefreshCw size={18} /> 重新加载预览
+        </span>
+      ) : imageUrl ? (
+        <img src={imageUrl} alt="" loading="eager" decoding="async" onError={() => setFailedUrl(imageUrl)} />
+      ) : (
+        <Images size={22} />
+      )}
+    </button>
+  )
 }
 
 export function registrationAvailabilityHint(configuration, faceReady) {

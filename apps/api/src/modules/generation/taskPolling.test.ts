@@ -36,6 +36,7 @@ describe('generation task polling projection', () => {
           generationStage: 'script-generate',
           shotId: 'shot-1',
           textPreview: '预览内容',
+          sourceVideoTaskIds: ['selected-video-1'],
           textResult: { script: '完整结果' },
           sourcePromptSnapshot: '不应进入轮询摘要',
         },
@@ -67,6 +68,7 @@ describe('generation task polling projection', () => {
       metadata: { generationStage: 'script-generate', shotId: 'shot-1', textPreview: '预览内容' },
     })
     expect(tasks[0]?.metadata).not.toHaveProperty('textResult')
+    expect(tasks[0]?.metadata).toHaveProperty('sourceVideoTaskIds', ['selected-video-1'])
     expect(tasks[0]?.metadata).not.toHaveProperty('sourcePromptSnapshot')
     expect(tasks[0]).not.toHaveProperty('outputs')
   })
@@ -103,6 +105,7 @@ describe('generation task polling projection', () => {
     )
     expect(query.mock.calls[0]?.[0]).not.toContain('negative_prompt')
     expect(query.mock.calls[0]?.[0]).toContain('jsonb_strip_nulls(jsonb_build_object(')
+    expect(query.mock.calls[0]?.[0]).toContain("'sourceVideoTaskIds', metadata->'sourceVideoTaskIds'")
     expect(query.mock.calls[0]?.[0]).not.toMatch(/^\s*metadata,\s*$/m)
   })
 

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { AppSidebar } from './AppShell'
+import { AppSidebar, WorkflowNavigation } from './AppShell'
 
 const sidebarProps = {
   activeStep: 'settings',
@@ -13,23 +13,31 @@ const sidebarProps = {
 }
 
 describe('app shell account entry', () => {
-  it('places the function stack between the project library and creative flow', () => {
+  it('keeps global tools in the sidebar and production stages in the workspace', () => {
     const html = renderToStaticMarkup(
       <AppSidebar {...sidebarProps} canOpenAdminAccounts={false} adminConsoleUrl="http://localhost:5174/" />,
     )
 
     const projectLibrary = html.indexOf('项目库')
     const functionStack = html.indexOf('aria-label="功能栈"')
-    const creativeFlow = html.indexOf('aria-label="创作流程"')
 
     expect(projectLibrary).toBeGreaterThanOrEqual(0)
     expect(functionStack).toBeGreaterThan(projectLibrary)
-    expect(creativeFlow).toBeGreaterThan(functionStack)
+    expect(html).not.toContain('aria-label="创作流程"')
     expect(html).toContain('一句成片')
     expect(html).toContain('生图大师')
     expect(html).toContain('剧本大师')
-    expect(html.match(/已启用/g)).toHaveLength(2)
+    expect(html).toContain('开始创作')
     expect(html.match(/开发中/g)).toHaveLength(1)
+  })
+
+  it('renders stage navigation with one current step', () => {
+    const html = renderToStaticMarkup(
+      <WorkflowNavigation activeStep="script" onNavigate={() => {}} guide={{ ready: { script: true } }} />,
+    )
+    expect(html).toContain('aria-label="创作流程"')
+    expect(html).toContain('资产设计')
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1)
   })
 
   it('hides the admin console link from ordinary members', () => {

@@ -8,7 +8,7 @@ test('资产库列表支持下载入口并可导入当前项目', async ({ page 
   await page.getByRole('button', { name: /资产库/ }).click()
 
   await expect(page.getByText('雨夜车站参考图')).toBeVisible()
-  await expect(page.getByRole('link', { name: /下载/ })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: '下载雨夜车站参考图', exact: true })).toHaveAttribute(
     'href',
     '/api/v1/library/items/library-image-1/download',
   )

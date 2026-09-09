@@ -24,6 +24,7 @@ import { api } from '../services/apiClient'
 
 export function FunctionStackPage({
   tool,
+  initialDraft,
   project,
   billing,
   tasks,
@@ -41,7 +42,7 @@ export function FunctionStackPage({
       <PageHeader eyebrow={item.eyebrow} title={item.title} description={item.description}>
         {item.id === 'agent-studio' ? (
           <span className="tool-development-badge agent-live-badge">
-            <i /> 自动编排已启用
+            <i /> 一句想法，开始制作
           </span>
         ) : item.id === 'writing-studio' ? (
           <span className="tool-development-badge">
@@ -50,7 +51,12 @@ export function FunctionStackPage({
         ) : null}
       </PageHeader>
       {item.id === 'agent-studio' ? (
-        <AgentStudio billing={billing} onOpenProject={onOpenProject} onProjectCreated={onProjectCreated} />
+        <AgentStudio
+          initialDraft={initialDraft}
+          billing={billing}
+          onOpenProject={onOpenProject}
+          onProjectCreated={onProjectCreated}
+        />
       ) : null}
       {item.id === 'image-studio' ? (
         <ImageStudioPage
@@ -98,15 +104,21 @@ const STATUS_LABELS = {
 }
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'pausing'])
 
-function AgentStudio({ billing, onOpenProject, onProjectCreated }) {
+function AgentStudio({ billing, onOpenProject, onProjectCreated, initialDraft }) {
   const [runs, setRuns] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
-  const [input, setInput] = useState('')
+  const [selectedId, setSelectedId] = useState(initialDraft ? 'new' : null)
+  const [input, setInput] = useState(initialDraft?.text || '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const runsSnapshotRef = useRef('')
   const selected =
     selectedId === 'new' ? null : (runs.find((run) => run.id === selectedId) ?? runs[0] ?? null)
+
+  useEffect(() => {
+    if (!initialDraft) return
+    setSelectedId('new')
+    setInput(initialDraft.text || '')
+  }, [initialDraft])
 
   useEffect(() => {
     let active = true
@@ -177,15 +189,15 @@ function AgentStudio({ billing, onOpenProject, onProjectCreated }) {
 
   return (
     <section
-      className="tool-studio-frame agent-studio-frame agent-studio-live"
+      className="tool-studio-frame agent-studio-frame agent-studio-live studio-director"
       aria-label="一句成片 Agent 工作台"
     >
       <header className="tool-frame-header">
         <div className="tool-frame-identity">
           <BrandMark size={18} spin />
           <div>
-            <strong>序幕TV Director</strong>
-            <span>一句需求，按集交付</span>
+            <strong>创作对话</strong>
+            <span>你的想法，逐步成形</span>
           </div>
         </div>
         <div className={`tool-frame-status agent-run-status ${selected?.status || 'idle'}`}>
@@ -241,12 +253,12 @@ function AgentStudio({ billing, onOpenProject, onProjectCreated }) {
         </aside>
         <div className="agent-conversation">
           <div className="agent-conversation-date">
-            <span>{selected ? `任务 ${selected.id.slice(0, 8).toUpperCase()}` : '新建制作任务'}</span>
+            <span>{selected ? selected.plan.projectName : '新的故事'}</span>
             <i />
             <span>今天</span>
           </div>
           {!selected ? (
-            <AgentWelcome />
+            <AgentWelcome onChoose={setInput} />
           ) : (
             <AgentRunView
               run={selected}
@@ -323,16 +335,30 @@ function agentRunsSnapshotKey(runs) {
     .join('||')
 }
 
-function AgentWelcome() {
+function AgentWelcome({ onChoose }) {
   return (
     <div className="agent-welcome">
       <BrandMark size={32} spin />
-      <span>ONE-LINE PRODUCTION</span>
-      <h2>说出故事，其余交给制作链路。</h2>
-      <p>我会先找出缺失信息，只让你确认一次。确认后自动完成剧本、资产、分镜、视频与按集合成。</p>
-      <div>
+      <span>一句成片</span>
+      <h2>你的想法，值得成为一部作品。</h2>
+      <p>先说说你想拍什么。我们一起确认故事、风格和预算，再开始制作。</p>
+      <ol className="agent-start-steps">
+        <li>
+          <span>01</span>描述想法
+        </li>
+        <li>
+          <span>02</span>确认方案
+        </li>
+        <li>
+          <span>03</span>开始制作
+        </li>
+      </ol>
+      <div className="agent-idea-examples">
         {['30秒竖屏城市宣传片', '1分钟电影CG网剧', '15秒横屏产品广告'].map((text) => (
-          <span key={text}>{text}</span>
+          <button type="button" key={text} onClick={() => onChoose(text)}>
+            {text}
+            <ChevronRight size={14} />
+          </button>
         ))}
       </div>
     </div>

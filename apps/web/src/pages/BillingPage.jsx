@@ -62,7 +62,7 @@ export function BillingPage({ billing }) {
       <PageHeader
         eyebrow="账户 / 积分"
         title="用量与套餐"
-        description="每次生成都会进入积分账本；订阅、充值和退款由支付回调自动入账。"
+        description="了解本月创作用量，查看每一笔积分变动。"
       />
       <section className="billing-summary">
         <div>
@@ -143,11 +143,13 @@ export function BillingPage({ billing }) {
           </div>
         </div>
       </section>
-      {paymentMessage && <p className="payment-notice">{paymentMessage}</p>}
-      {!paymentConfig && <p className="payment-notice">正在读取支付配置...</p>}
-      {paymentConfig && !paymentEnabled && (
-        <p className="payment-notice">当前环境未启用支付沙箱，订阅和充值入口暂不可用。</p>
+      {paymentMessage && (
+        <p className="payment-notice" role="status">
+          {paymentMessage}
+        </p>
       )}
+      {!paymentConfig && <p className="payment-notice">正在读取支付配置...</p>}
+      {paymentConfig && !paymentEnabled && <p className="payment-notice">在线订阅与充值暂未开放。</p>}
       <section className="ledger-panel">
         <div className="panel-head">
           <div>

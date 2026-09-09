@@ -3419,7 +3419,7 @@ describe('API authorization', () => {
     expect(blocked.json()).toMatchObject({ error: { code: 'PLAN_CHANGE_REQUIRES_BILLING_WEBHOOK' } })
   })
 
-  it('splits the script into at most eight predictable shots without calling the text provider', async () => {
+  it('preserves ten script paragraphs within the requested shot capacity without calling the text provider', async () => {
     const generate = vi.fn(async () => '不应调用')
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
@@ -3446,11 +3446,11 @@ describe('API authorization', () => {
       method: 'POST',
       url: '/api/v1/projects/project-midnight-film/shots/generate',
       headers,
-      payload: { maxShots: 8 },
+      payload: { maxShots: 10 },
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toHaveLength(8)
+    expect(response.json()).toHaveLength(10)
     expect(response.json()[0]).toMatchObject({
       title: '镜头 01',
       prompt: '剧本段落 1',
@@ -3458,9 +3458,9 @@ describe('API authorization', () => {
       continuityNote: '',
       imageUrl: null,
     })
-    expect(response.json()[7]).toMatchObject({
-      title: '镜头 08',
-      prompt: '剧本段落 8',
+    expect(response.json()[9]).toMatchObject({
+      title: '镜头 10',
+      prompt: '剧本段落 10',
       continuityMode: 'continue',
       continuityNote: expect.stringContaining('上一场已完成'),
       imageUrl: null,

@@ -193,332 +193,355 @@ export function SettingsPage({
           </a>
         )}
       </PageHeader>
-
-      <div className="account-center-top">
-        <section className="account-center-panel account-identity-panel">
-          <div className="account-panel-heading">
-            <span className="account-avatar">
-              <UserRound size={22} />
-            </span>
-            <div>
-              <p>当前账号</p>
-              <h2>{account.name}</h2>
-              <span>{account.email}</span>
-            </div>
-          </div>
-
-          <div className="account-status-line">
-            {account.emailVerified === false ? (
-              <span className="account-state pending">邮箱待验证</span>
-            ) : (
-              <span className="account-state verified">
-                <BadgeCheck size={14} /> 邮箱已验证
-              </span>
-            )}
-            {membershipRoles.map((role) => (
-              <span key={role} className="account-role-chip">
-                {roleName(role)}
-              </span>
-            ))}
-          </div>
-
-          {account.emailVerified === false && (
-            <div className="account-verification-notice">
-              <div>
-                <strong>完成邮箱验证后即可正常使用创作与计费功能</strong>
-                {verificationState.message && (
-                  <small className={verificationState.status}>{verificationState.message}</small>
-                )}
-              </div>
-              <button
-                className="button secondary"
-                type="button"
-                onClick={requestEmailVerification}
-                disabled={verificationState.status === 'saving'}
-              >
-                {verificationState.status === 'saving' ? (
-                  <LoaderCircle size={15} className="spin" />
-                ) : (
-                  <RefreshCw size={15} />
-                )}
-                发送验证邮件
-              </button>
-            </div>
-          )}
-
-          <details className="account-id-disclosure">
-            <summary>账户编号</summary>
-            <code>{account.id}</code>
-          </details>
-        </section>
-
-        <section className="account-center-panel account-billing-panel">
-          <div className="account-panel-topline">
-            <div>
-              <p>积分与用量</p>
-              <h2>当前创作额度</h2>
-            </div>
-            <span className="account-plan-chip">{billing?.plan === 'member' ? '会员版' : '基础版'}</span>
-          </div>
-          <div className="account-credit-total">
-            <Wallet size={20} />
-            <strong>{formatNumber(availableCredits)}</strong>
-            <span>可用积分</span>
-          </div>
-          <div className="account-usage-grid">
-            <div>
-              <span>本月消耗</span>
-              <strong>{formatNumber(usage?.consumedCredits ?? 0)}</strong>
-            </div>
-            <div>
-              <span>本月生成</span>
-              <strong>{formatNumber(usage?.generationCount ?? 0)}</strong>
-            </div>
-            <div>
-              <span>可用并发</span>
-              <strong>{billing?.unlimitedConcurrency ? '不限' : (billing?.concurrency ?? 1)}</strong>
-            </div>
-          </div>
-          <p className="account-refund-note">本月已退回 {formatNumber(usage?.refundedCredits ?? 0)} 积分</p>
-          <button className="button primary account-billing-action" type="button" onClick={onOpenBilling}>
-            查看账单与积分明细
-          </button>
-        </section>
-      </div>
-
-      <section className="account-center-panel account-organization-panel">
-        <div className="account-panel-topline">
-          <div>
-            <p>{scopeEyebrow}</p>
-            <h2>{scopeTitle}</h2>
-          </div>
-          <span className={organizationSpace ? 'organization-type team' : 'organization-type personal'}>
-            {scopeBadge}
-          </span>
-        </div>
-
-        <div className="organization-current-row">
-          <span className="organization-icon">
-            {organizationSpace ? <Building2 size={20} /> : <UserRound size={20} />}
-          </span>
-          <div>
-            <strong>{scopeTitle}</strong>
-            <span>{scopeDescription}</span>
-          </div>
-          <span className="organization-role-label">
-            {organizationSpace ? organizationRoleLabel(membershipRoles) : '当前账号数据'}
-          </span>
-        </div>
-
-        {showScopeSwitcher && (
-          <div className="organization-switch-section">
-            <div className="organization-switch-heading">
-              <strong>切换组织/空间</strong>
-              <span>切换后项目、资产和积分范围会同步更新。</span>
-            </div>
-            <div className="organization-switch-list">
-              {switchableMemberships.map((item) => {
-                const organization = membershipOrganization(item)
-                const organizationId = organization?.id
-                if (!organizationId) return null
-                const active = organizationId === currentOrganizationId
-                const organizationScope = isOrganizationScopeMembership(item)
-                return (
-                  <button
-                    key={organizationId}
-                    type="button"
-                    className={active ? 'active' : ''}
-                    disabled={active || accountBusy === `organization:${organizationId}`}
-                    onClick={() => switchOrganization(organizationId)}
-                  >
-                    <span>
-                      <strong>{organizationScope ? organization.name : '当前账号数据'}</strong>
-                      <small>
-                        {organizationScope
-                          ? `${organizationRoleLabel(item.membership?.roles ?? [])} · 组织空间`
-                          : '当前账号数据'}
-                      </small>
-                    </span>
-                    {active ? (
-                      <Check size={16} />
-                    ) : accountBusy === `organization:${organizationId}` ? (
-                      <LoaderCircle size={16} className="spin" />
-                    ) : (
-                      <span>切换</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {isOrganizationAdmin && (
-          <form className="organization-invite" onSubmit={inviteOrganizationMember}>
-            <div className="organization-invite-copy">
-              <UsersRound size={18} />
-              <div>
-                <strong>邀请组织成员</strong>
-                <span>成员通过邮件完成注册后，将以组织成员身份加入当前组织空间。</span>
-              </div>
-            </div>
-            <label>
-              <span className="sr-only">成员邮箱</span>
-              <input
-                className="text-input"
-                type="email"
-                autoComplete="email"
-                placeholder="成员邮箱"
-                value={inviteEmail}
-                onChange={(event) => setInviteEmail(event.target.value)}
-                required
-              />
-            </label>
-            <button className="button secondary" disabled={inviteState.status === 'saving'}>
-              {inviteState.status === 'saving' ? (
-                <LoaderCircle size={15} className="spin" />
-              ) : (
-                <UsersRound size={15} />
-              )}
-              发送邀请
-            </button>
-            {inviteState.message && (
-              <p className={`organization-invite-message ${inviteState.status}`} role="status">
-                {inviteState.message}
-              </p>
-            )}
-          </form>
-        )}
-      </section>
-
-      <div className="account-center-lower">
-        <section className="account-center-panel account-security-panel">
-          <div className="account-panel-topline">
-            <div>
-              <p>账号安全</p>
-              <h2>更新登录密码</h2>
-            </div>
-            <ShieldCheck size={21} />
-          </div>
-          <form className="account-password-form" onSubmit={changePassword}>
-            <label>
-              <span>当前密码</span>
-              <input
-                className="text-input"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              <span>新密码</span>
-              <input
-                className="text-input"
-                type="password"
-                autoComplete="new-password"
-                minLength={8}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              <span>确认新密码</span>
-              <input
-                className="text-input"
-                type="password"
-                autoComplete="new-password"
-                minLength={8}
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-              />
-            </label>
-            {passwordState.message && (
-              <p className={`account-form-message ${passwordState.status}`} role="status">
-                {passwordState.message}
-              </p>
-            )}
-            <button className="button secondary" disabled={passwordState.status === 'saving'}>
-              {passwordState.status === 'saving' ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : (
-                <KeyRound size={16} />
-              )}
-              {passwordState.status === 'saving' ? '正在更新' : '更新密码'}
-            </button>
-          </form>
-          <button className="account-sign-out" type="button" onClick={onLogout}>
-            <LogOut size={15} /> 退出当前账号
-          </button>
-        </section>
-
-        <section className="account-center-panel account-devices-panel">
-          <div className="account-panel-topline">
-            <div>
-              <p>登录设备</p>
-              <h2>当前会话</h2>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={refreshAccountScope}
-              disabled={accountBusy === 'load'}
-              aria-label="刷新登录设备"
-              title="刷新登录设备"
-            >
-              {accountBusy === 'load' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-            </button>
-          </div>
-
-          {accountMessage.message && (
-            <p className={`account-scope-message ${accountMessage.status}`} role="status">
-              {accountMessage.message}
-            </p>
-          )}
-
-          <div className="account-session-list">
-            {sessions.map((session) => (
-              <article
-                key={session.sessionId}
-                className={session.revokedAt ? 'account-session revoked' : 'account-session'}
-              >
-                <span className="session-device-icon">
-                  <Monitor size={17} />
+      <div className="account-layout">
+        <nav className="account-navigation" aria-label="账号设置分类">
+          <a href="#account-profile">
+            <UserRound size={16} />
+            个人资料
+          </a>
+          <a href="#account-space">
+            <Building2 size={16} />
+            创作空间
+          </a>
+          <a href="#account-security">
+            <ShieldCheck size={16} />
+            登录与安全
+          </a>
+        </nav>
+        <div className="account-content">
+          <div className="account-center-top" id="account-profile">
+            <section className="account-center-panel account-identity-panel">
+              <div className="account-panel-heading">
+                <span className="account-avatar">
+                  <UserRound size={22} />
                 </span>
                 <div>
-                  <strong>
-                    {session.current ? '当前设备' : (session.deviceLabel ?? deviceLabel(session))}
-                  </strong>
-                  <span>{session.current ? deviceLabel(session) : formatDate(session.createdAt)}</span>
+                  <p>当前账号</p>
+                  <h2>{account.name}</h2>
+                  <span>{account.email}</span>
+                </div>
+              </div>
+
+              <div className="account-status-line">
+                {account.emailVerified === false ? (
+                  <span className="account-state pending">邮箱待验证</span>
+                ) : (
+                  <span className="account-state verified">
+                    <BadgeCheck size={14} /> 邮箱已验证
+                  </span>
+                )}
+                {membershipRoles.map((role) => (
+                  <span key={role} className="account-role-chip">
+                    {roleName(role)}
+                  </span>
+                ))}
+              </div>
+
+              {account.emailVerified === false && (
+                <div className="account-verification-notice">
+                  <div>
+                    <strong>完成邮箱验证后即可正常使用创作与计费功能</strong>
+                    {verificationState.message && (
+                      <small className={verificationState.status}>{verificationState.message}</small>
+                    )}
+                  </div>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={requestEmailVerification}
+                    disabled={verificationState.status === 'saving'}
+                  >
+                    {verificationState.status === 'saving' ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : (
+                      <RefreshCw size={15} />
+                    )}
+                    发送验证邮件
+                  </button>
+                </div>
+              )}
+
+              <details className="account-id-disclosure">
+                <summary>账户编号</summary>
+                <code>{account.id}</code>
+              </details>
+            </section>
+
+            <section className="account-center-panel account-billing-panel">
+              <div className="account-panel-topline">
+                <div>
+                  <p>积分与用量</p>
+                  <h2>当前创作额度</h2>
+                </div>
+                <span className="account-plan-chip">{billing?.plan === 'member' ? '会员版' : '基础版'}</span>
+              </div>
+              <div className="account-credit-total">
+                <Wallet size={20} />
+                <strong>{formatNumber(availableCredits)}</strong>
+                <span>可用积分</span>
+              </div>
+              <div className="account-usage-grid">
+                <div>
+                  <span>本月消耗</span>
+                  <strong>{formatNumber(usage?.consumedCredits ?? 0)}</strong>
+                </div>
+                <div>
+                  <span>本月生成</span>
+                  <strong>{formatNumber(usage?.generationCount ?? 0)}</strong>
+                </div>
+                <div>
+                  <span>可用并发</span>
+                  <strong>{billing?.unlimitedConcurrency ? '不限' : (billing?.concurrency ?? 1)}</strong>
+                </div>
+              </div>
+              <p className="account-refund-note">
+                本月已退回 {formatNumber(usage?.refundedCredits ?? 0)} 积分
+              </p>
+              <button className="button primary account-billing-action" type="button" onClick={onOpenBilling}>
+                查看账单与积分明细
+              </button>
+            </section>
+          </div>
+
+          <section className="account-center-panel account-organization-panel" id="account-space">
+            <div className="account-panel-topline">
+              <div>
+                <p>{scopeEyebrow}</p>
+                <h2>{scopeTitle}</h2>
+              </div>
+              <span className={organizationSpace ? 'organization-type team' : 'organization-type personal'}>
+                {scopeBadge}
+              </span>
+            </div>
+
+            <div className="organization-current-row">
+              <span className="organization-icon">
+                {organizationSpace ? <Building2 size={20} /> : <UserRound size={20} />}
+              </span>
+              <div>
+                <strong>{scopeTitle}</strong>
+                <span>{scopeDescription}</span>
+              </div>
+              <span className="organization-role-label">
+                {organizationSpace ? organizationRoleLabel(membershipRoles) : '当前账号数据'}
+              </span>
+            </div>
+
+            {showScopeSwitcher && (
+              <div className="organization-switch-section">
+                <div className="organization-switch-heading">
+                  <strong>切换组织/空间</strong>
+                  <span>切换后项目、资产和积分范围会同步更新。</span>
+                </div>
+                <div className="organization-switch-list">
+                  {switchableMemberships.map((item) => {
+                    const organization = membershipOrganization(item)
+                    const organizationId = organization?.id
+                    if (!organizationId) return null
+                    const active = organizationId === currentOrganizationId
+                    const organizationScope = isOrganizationScopeMembership(item)
+                    return (
+                      <button
+                        key={organizationId}
+                        type="button"
+                        className={active ? 'active' : ''}
+                        disabled={active || accountBusy === `organization:${organizationId}`}
+                        onClick={() => switchOrganization(organizationId)}
+                      >
+                        <span>
+                          <strong>{organizationScope ? organization.name : '当前账号数据'}</strong>
+                          <small>
+                            {organizationScope
+                              ? `${organizationRoleLabel(item.membership?.roles ?? [])} · 组织空间`
+                              : '当前账号数据'}
+                          </small>
+                        </span>
+                        {active ? (
+                          <Check size={16} />
+                        ) : accountBusy === `organization:${organizationId}` ? (
+                          <LoaderCircle size={16} className="spin" />
+                        ) : (
+                          <span>切换</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {isOrganizationAdmin && (
+              <form className="organization-invite" onSubmit={inviteOrganizationMember}>
+                <div className="organization-invite-copy">
+                  <UsersRound size={18} />
+                  <div>
+                    <strong>邀请组织成员</strong>
+                    <span>成员通过邮件完成注册后，将以组织成员身份加入当前组织空间。</span>
+                  </div>
+                </div>
+                <label>
+                  <span className="sr-only">成员邮箱</span>
+                  <input
+                    className="text-input"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="成员邮箱"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                    required
+                  />
+                </label>
+                <button className="button secondary" disabled={inviteState.status === 'saving'}>
+                  {inviteState.status === 'saving' ? (
+                    <LoaderCircle size={15} className="spin" />
+                  ) : (
+                    <UsersRound size={15} />
+                  )}
+                  发送邀请
+                </button>
+                {inviteState.message && (
+                  <p className={`organization-invite-message ${inviteState.status}`} role="status">
+                    {inviteState.message}
+                  </p>
+                )}
+              </form>
+            )}
+          </section>
+
+          <div className="account-center-lower" id="account-security">
+            <section className="account-center-panel account-security-panel">
+              <div className="account-panel-topline">
+                <div>
+                  <p>账号安全</p>
+                  <h2>更新登录密码</h2>
+                </div>
+                <ShieldCheck size={21} />
+              </div>
+              <form className="account-password-form" onSubmit={changePassword}>
+                <label>
+                  <span>当前密码</span>
+                  <input
+                    className="text-input"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  <span>新密码</span>
+                  <input
+                    className="text-input"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  <span>确认新密码</span>
+                  <input
+                    className="text-input"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    required
+                  />
+                </label>
+                {passwordState.message && (
+                  <p className={`account-form-message ${passwordState.status}`} role="status">
+                    {passwordState.message}
+                  </p>
+                )}
+                <button className="button secondary" disabled={passwordState.status === 'saving'}>
+                  {passwordState.status === 'saving' ? (
+                    <LoaderCircle size={16} className="spin" />
+                  ) : (
+                    <KeyRound size={16} />
+                  )}
+                  {passwordState.status === 'saving' ? '正在更新' : '更新密码'}
+                </button>
+              </form>
+              <button className="account-sign-out" type="button" onClick={onLogout}>
+                <LogOut size={15} /> 退出当前账号
+              </button>
+            </section>
+
+            <section className="account-center-panel account-devices-panel">
+              <div className="account-panel-topline">
+                <div>
+                  <p>登录设备</p>
+                  <h2>当前会话</h2>
                 </div>
                 <button
-                  className="button secondary compact"
+                  className="icon-button"
                   type="button"
-                  disabled={
-                    session.current ||
-                    Boolean(session.revokedAt) ||
-                    accountBusy === `session:${session.sessionId}`
-                  }
-                  onClick={() => revokeSession(session)}
+                  onClick={refreshAccountScope}
+                  disabled={accountBusy === 'load'}
+                  aria-label="刷新登录设备"
+                  title="刷新登录设备"
                 >
-                  {accountBusy === `session:${session.sessionId}` ? (
-                    <LoaderCircle size={14} className="spin" />
-                  ) : null}
-                  {session.revokedAt ? '已退出' : session.current ? '当前' : '退出'}
+                  {accountBusy === 'load' ? (
+                    <LoaderCircle size={16} className="spin" />
+                  ) : (
+                    <RefreshCw size={16} />
+                  )}
                 </button>
-              </article>
-            ))}
-            {!sessions.length && accountBusy === 'load' && (
-              <p className="account-empty">正在同步登录设备...</p>
-            )}
-            {!sessions.length && accountBusy !== 'load' && !accountMessage.message && (
-              <p className="account-empty">暂无其他登录设备。</p>
-            )}
+              </div>
+
+              {accountMessage.message && (
+                <p className={`account-scope-message ${accountMessage.status}`} role="status">
+                  {accountMessage.message}
+                </p>
+              )}
+
+              <div className="account-session-list">
+                {sessions.map((session) => (
+                  <article
+                    key={session.sessionId}
+                    className={session.revokedAt ? 'account-session revoked' : 'account-session'}
+                  >
+                    <span className="session-device-icon">
+                      <Monitor size={17} />
+                    </span>
+                    <div>
+                      <strong>
+                        {session.current ? '当前设备' : (session.deviceLabel ?? deviceLabel(session))}
+                      </strong>
+                      <span>{session.current ? deviceLabel(session) : formatDate(session.createdAt)}</span>
+                    </div>
+                    <button
+                      className="button secondary compact"
+                      type="button"
+                      disabled={
+                        session.current ||
+                        Boolean(session.revokedAt) ||
+                        accountBusy === `session:${session.sessionId}`
+                      }
+                      onClick={() => revokeSession(session)}
+                    >
+                      {accountBusy === `session:${session.sessionId}` ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : null}
+                      {session.revokedAt ? '已退出' : session.current ? '当前' : '退出'}
+                    </button>
+                  </article>
+                ))}
+                {!sessions.length && accountBusy === 'load' && (
+                  <p className="account-empty">正在同步登录设备...</p>
+                )}
+                {!sessions.length && accountBusy !== 'load' && !accountMessage.message && (
+                  <p className="account-empty">暂无其他登录设备。</p>
+                )}
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       </div>
     </div>
   )

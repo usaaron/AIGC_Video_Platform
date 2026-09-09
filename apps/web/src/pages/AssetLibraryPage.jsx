@@ -7,6 +7,7 @@ import {
   Download,
   FileText,
   Image,
+  History,
   LoaderCircle,
   Music,
   PackageOpen,
@@ -14,7 +15,9 @@ import {
   Search,
   Trash2,
   Video,
+  X,
 } from 'lucide-react'
+import { PageHeader } from '../components/ui'
 
 const KIND_LABELS = {
   character: '角色',
@@ -126,17 +129,16 @@ export function AssetLibraryPage({
   }
 
   return (
-    <section className="asset-library-page">
-      <div className="asset-library-hero">
-        <div>
-          <p className="eyebrow">账号资产库</p>
-          <h1>长期资产</h1>
-          <p>保存、追溯和复用跨项目的图片、剧本、音频、视频和成片包。</p>
-        </div>
+    <section className="page asset-library-page">
+      <PageHeader
+        eyebrow="你的创作资源"
+        title="资产库"
+        description="让好的角色、画面与故事，在下一部作品中继续生长。"
+      >
         <button className="button secondary" type="button" onClick={() => void load()}>
           <RefreshCw size={15} /> 刷新
         </button>
-      </div>
+      </PageHeader>
 
       <div className="library-stat-strip">
         <Metric label="可用资产" value={stats?.activeItems ?? 0} />
@@ -164,6 +166,7 @@ export function AssetLibraryPage({
         <label className="library-search">
           <Search size={15} />
           <input
+            aria-label="搜索资产库"
             value={query}
             onChange={(event) => {
               setQuery(event.target.value)
@@ -173,6 +176,7 @@ export function AssetLibraryPage({
           />
         </label>
         <select
+          aria-label="资产类别"
           className="library-kind-select"
           value={kind}
           onChange={(event) => {
@@ -281,8 +285,14 @@ export function AssetLibraryPage({
             <div className="library-side-section version-drawer">
               <div className="library-version-heading">
                 <h2>{selectedItem.title}</h2>
-                <button className="icon-button" type="button" onClick={() => setSelectedItem(null)}>
-                  ×
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="关闭版本记录"
+                  title="关闭版本记录"
+                  onClick={() => setSelectedItem(null)}
+                >
+                  <X size={16} />
                 </button>
               </div>
               <p>当前版本 v{selectedItem.currentVersion}</p>
@@ -385,14 +395,25 @@ function LibraryItemRow({
         </div>
       </div>
       <div className="library-item-actions">
-        <button className="button secondary" type="button" onClick={() => onOpenVersions(item)}>
-          版本
+        <button
+          className="icon-button"
+          type="button"
+          aria-label={`${item.title}的版本记录`}
+          title="版本记录"
+          onClick={() => onOpenVersions(item)}
+        >
+          <History size={16} />
         </button>
-        <a className="button secondary" href={item.downloadUrl}>
-          <Download size={14} /> 下载
+        <a className="icon-button" aria-label={`下载${item.title}`} title="下载资产" href={item.downloadUrl}>
+          <Download size={16} />
         </a>
-        <a className="button secondary" href={item.packageUrl}>
-          <PackageOpen size={14} /> 包
+        <a
+          className="icon-button"
+          aria-label={`下载${item.title}资源包`}
+          title="下载资源包"
+          href={item.packageUrl}
+        >
+          <PackageOpen size={16} />
         </a>
         {onImport && mode !== 'trash' && (
           <button

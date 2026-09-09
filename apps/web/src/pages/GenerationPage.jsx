@@ -1,11 +1,23 @@
 import { useState } from 'react'
-import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
+import {
+  Archive,
+  ArrowRight,
+  Check,
+  Clapperboard,
+  Clock3,
+  Crown,
+  Info,
+  LoaderCircle,
+  Play,
+  Zap,
+} from 'lucide-react'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { VideoPreviewModal } from '../components/VideoPreviewModal'
 import { JobRow, PageHeader } from '../components/ui'
 
 const filters = [
   ['all', '全部'],
+  ['text', '文本'],
   ['image', '图片'],
   ['video', '视频'],
   ['audio', '音频'],
@@ -23,10 +35,19 @@ export function GenerationPage({
   onNext,
 }) {
   const [filter, setFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [actionError, setActionError] = useState('')
   const [busyTaskId, setBusyTaskId] = useState(null)
   const [preview, setPreview] = useState(null)
   const queueJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
-  const visibleJobs = filter === 'all' ? queueJobs : queueJobs.filter((job) => job.kind === filter)
+  const visibleJobs = queueJobs.filter(
+    (job) =>
+      (filter === 'all' || job.kind === filter) &&
+      (statusFilter === 'all' ||
+        (statusFilter === 'active'
+          ? ['queued', 'paused', 'running'].includes(job.status)
+          : job.status === statusFilter)),
+  )
   const active = queueJobs.filter((job) => ['queued', 'paused', 'running'].includes(job.status))
   const running = queueJobs.filter((job) => job.status === 'running' && job.provider !== 'local-compose')
   const hasTerminalJobs = queueJobs.some((job) => ['completed', 'failed', 'cancelled'].includes(job.status))
@@ -34,8 +55,11 @@ export function GenerationPage({
   const runTaskAction = async (taskId, action) => {
     if (busyTaskId) return
     setBusyTaskId(taskId)
+    setActionError('')
     try {
       await action(taskId)
+    } catch (error) {
+      setActionError(error.message || '操作失败，请重试。')
     } finally {
       setBusyTaskId(null)
     }
@@ -44,17 +68,22 @@ export function GenerationPage({
   return (
     <div className="page queue-page">
       <PageHeader
-        eyebrow="第 4 步 · 生成队列"
-        title="创作正在发生"
-        description="任务由后端持续处理，刷新页面不会中断。"
+        eyebrow="生成队列"
+        title="生成队列"
+        description="作品在后台持续制作，你可以继续创作或稍后回来。"
       >
         <button className="button secondary" onClick={onClear} disabled={!hasTerminalJobs}>
-          归档已结束
+          <Archive size={15} /> 归档已结束
         </button>
         <button className="button primary" onClick={onNext}>
           预览成片 <Play size={15} fill="currentColor" />
         </button>
       </PageHeader>
+      {actionError && (
+        <p className="asset-save-error" role="alert">
+          {actionError}
+        </p>
+      )}
       <div className="queue-stats">
         <div>
           <span className="stat-icon mint">
@@ -100,9 +129,7 @@ export function GenerationPage({
         <Info size={17} />
         <div>
           <strong>队列处理规则</strong>
-          <span>
-            等待中的任务可以暂停、继续或删除并自动退款；上游支持取消时可直接取消，其他运行中任务不可伪暂停，失败会自动退款。
-          </span>
+          <span>等待中的任务可以暂停或取消；生成失败会自动退回积分。</span>
         </div>
       </section>
       {!member && (
@@ -121,6 +148,34 @@ export function GenerationPage({
         </section>
       )}
       <section className="queue-panel">
+        <div className="queue-status-tabs" role="group" aria-label="任务状态筛选">
+          {[
+            ['all', '全部任务'],
+            ['active', '进行中'],
+            ['failed', '需处理'],
+            ['completed', '已完成'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              className={statusFilter === id ? 'active' : ''}
+              aria-pressed={statusFilter === id}
+              onClick={() => setStatusFilter(id)}
+            >
+              {label}
+              <span>
+                {
+                  queueJobs.filter(
+                    (job) =>
+                      id === 'all' ||
+                      (id === 'active'
+                        ? ['queued', 'paused', 'running'].includes(job.status)
+                        : job.status === id),
+                  ).length
+                }
+              </span>
+            </button>
+          ))}
+        </div>
         <div className="panel-head">
           <div>
             <h2>全部任务</h2>

@@ -33,14 +33,13 @@ import { ScriptHelp, TextTimingSummary } from '../features/script/ScriptPageSupp
 import {
   assetSuggestionRevision,
   deriveScriptTaskState,
-  formatEpisodeDuration,
   scriptSuggestionFingerprint,
   scriptTaskStage,
   textPreviewStageLabel,
 } from '../features/script/scriptTaskState'
 import { useScriptTaskPreview } from '../features/script/useScriptTaskPreview'
 import { useAssetSuggestions } from '../features/script/useAssetSuggestions'
-import { useScriptGeneration } from '../features/script/useScriptGeneration'
+import { normalizeContentDuration, useScriptGeneration } from '../features/script/useScriptGeneration'
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 export function ScriptPage({
@@ -382,12 +381,8 @@ export function ScriptPage({
   }
 
   return (
-    <div className="page editor-page script-page-redesign">
-      <PageHeader
-        eyebrow="AI 创作工作台"
-        title={`《${project.name}》${contentConfig.pageTitle}`}
-        description={contentConfig.pageDescription}
-      >
+    <div className="page editor-page script-page-redesign studio-authoring-page">
+      <PageHeader eyebrow="剧本" title={`《${project.name}》${contentConfig.pageTitle}`}>
         <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
         <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
           <Upload size={16} /> 导入文本
@@ -409,7 +404,7 @@ export function ScriptPage({
       </PageHeader>
 
       <section className="script-section-nav" aria-label="剧本工作区小项">
-        {SCRIPT_SECTIONS.map(({ id, label, description, status, icon: Icon }) => (
+        {SCRIPT_SECTIONS.map(({ id, label, status, icon: Icon }) => (
           <button
             type="button"
             key={id}
@@ -425,7 +420,6 @@ export function ScriptPage({
                 {label}
                 {status && <em>{status}</em>}
               </strong>
-              <small>{description}</small>
             </span>
           </button>
         ))}
@@ -433,40 +427,15 @@ export function ScriptPage({
 
       <>
         <section className="script-direction-bar script-generation-console" aria-label="剧本生成设置">
-          <header className="script-generation-head">
-            <div className="script-direction-title">
-              <span className="direction-symbol">
-                <Sparkles size={17} />
-              </span>
-              <div>
-                <span className="eyebrow">AI 编剧</span>
-                <strong>
-                  {hasGeneratedScript ? contentConfig.generatedTitle : contentConfig.initialTitle}
-                </strong>
-              </div>
-            </div>
-            <div className="script-generation-summary">
-              <strong>{count.toLocaleString()} 字</strong>
-              <span>
-                {usesDuration
-                  ? `${formatEpisodeDuration(episodeDurationSeconds)} ${contentConfig.durationSuffix}`
-                  : '单次 1 集'}
-              </span>
-            </div>
-          </header>
-
           <div className="script-generation-controls">
             <section className="script-format-strip" aria-label="剧本节奏">
               <div className="script-format-identity">
-                <span className="direction-symbol">
-                  <Clapperboard size={17} />
-                </span>
-                <div>
-                  <span className="eyebrow">项目节奏已锁定</span>
-                  <strong>{contentConfig.modeLabel}</strong>
-                </div>
+                <Clapperboard size={16} />
+                <strong>{contentConfig.modeLabel}</strong>
+                <ScriptHelp label="剧本节奏说明">
+                  {contentConfig.modeNote} · {contentConfig.featureNote}
+                </ScriptHelp>
               </div>
-              <span className="script-format-note">{contentConfig.modeNote}</span>
               {usesDuration ? (
                 <label className="script-episode-seconds">
                   <span>{contentConfig.durationLabel}</span>
@@ -487,17 +456,18 @@ export function ScriptPage({
                   </span>
                 </label>
               ) : (
-                <span className="script-single-episode-budget">6～8 个场次</span>
+                <span className="script-single-episode-budget">按剧情分场</span>
               )}
             </section>
 
             <section className="script-setting-block script-model-card" aria-label="生成模型">
-              <div className="script-setting-label">
-                <strong>生成模型</strong>
-                <small>当前 Provider</small>
-              </div>
               <label className="script-control-field">
-                <select value={scriptModel} onChange={(event) => setScriptModel(event.target.value)}>
+                <span>生成模型</span>
+                <select
+                  aria-label="生成模型"
+                  value={scriptModel}
+                  onChange={(event) => setScriptModel(event.target.value)}
+                >
                   {scriptModelOptions.map((model) => (
                     <option key={model.id} value={model.id} disabled={!model.available}>
                       {model.label}
@@ -545,7 +515,6 @@ export function ScriptPage({
                         : '正在生成本集'
                       : `${isSeries && orderedEpisodes.length > 0 && !activeEpisode ? `继续生成第 ${orderedEpisodes.length + 1} 集` : usesDuration ? '智能生成' : activeEpisode ? '重新生成本集' : '生成第 1 集'} · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
               </button>
-              <span className="script-primary-generation-note">{contentConfig.featureNote}</span>
             </div>
           </div>
         </section>
@@ -575,7 +544,12 @@ export function ScriptPage({
           </div>
         )}
 
-        {latestTextTiming && <TextTimingSummary timing={latestTextTiming} />}
+        {latestTextTiming && (
+          <details className="authoring-diagnostics">
+            <summary>最近生成记录</summary>
+            <TextTimingSummary timing={latestTextTiming} />
+          </details>
+        )}
 
         <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
           <section className="script-document" aria-busy={busy}>
@@ -708,6 +682,7 @@ export function ScriptPage({
                   assets={assets}
                   tasks={tasks}
                   value={script}
+                  aria-label={contentConfig.documentName}
                   onChange={(event) => update(event.target.value)}
                   placeholder={contentConfig.placeholder}
                 />
@@ -800,7 +775,7 @@ export function ScriptPage({
               )}
               <span>{count} 字</span>
               <span>{paragraphCount} 段</span>
-              <span>{usesDuration ? `约 ${estimatedMinutes} 分钟` : '单集制作单元 · 6～8 场'}</span>
+              <span>{usesDuration ? `约 ${estimatedMinutes} 分钟` : '单集制作单元 · 按剧情分场'}</span>
               <button
                 className="script-document-save"
                 disabled={saving || saved || !script.trim()}
@@ -816,8 +791,7 @@ export function ScriptPage({
             <aside className="script-revision-panel" aria-label="剧本后续编辑">
               <header className="script-revision-panel-head">
                 <div>
-                  <span className="eyebrow">后续编辑</span>
-                  <h2>{contentConfig.revisionTitle}</h2>
+                  <h2>继续打磨</h2>
                 </div>
                 <ScriptHelp label="后续编辑说明">{contentConfig.revisionHelp}</ScriptHelp>
               </header>
@@ -830,6 +804,7 @@ export function ScriptPage({
                   </ScriptHelp>
                 </div>
                 <textarea
+                  aria-label="改写要求"
                   value={revisionNote}
                   rows={4}
                   maxLength={2_000}
@@ -884,6 +859,7 @@ export function ScriptPage({
                     </ScriptHelp>
                   </div>
                   <textarea
+                    aria-label={contentConfig.appendTitle}
                     value={segmentGoal}
                     rows={3}
                     maxLength={500}
@@ -904,7 +880,9 @@ export function ScriptPage({
                             setSegmentDurationSeconds(event.target.value.replace(/\D/g, ''))
                           }
                           onBlur={() =>
-                            setSegmentDurationSeconds(normalizeContentDuration(segmentDurationSeconds))
+                            setSegmentDurationSeconds(
+                              normalizeContentDuration(segmentDurationSeconds, contentConfig),
+                            )
                           }
                         />
                         <em>秒</em>

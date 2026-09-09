@@ -15,6 +15,7 @@ const testEnv = {
     process.env.SEQORA_TEST_DATABASE_URL ||
     'postgres://seqora:seqora_test_password@127.0.0.1:5433/seqora_test',
   REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6380',
+  TEST_REDIS_URL: process.env.TEST_REDIS_URL || process.env.REDIS_URL || 'redis://127.0.0.1:6380',
 }
 
 const phases = [
@@ -23,7 +24,6 @@ const phases = [
   ['shared build', ['build:shared']],
   ['admin tests', ['--filter', '@seqora/admin', 'test']],
   ['web tests', ['--filter', '@seqora/web', 'test']],
-  ['api unit tests', ['--filter', '@seqora/api', 'test:unit']],
 ]
 
 let testDbStarted = false
@@ -41,7 +41,7 @@ try {
     'redis-test',
   ])
   testDbStarted = true
-  await runPnpm('api db integration tests', ['--filter', '@seqora/api', 'test:integration'], {
+  await runPnpm('api full regression tests', ['--filter', '@seqora/api', 'test'], {
     env: testEnv,
   })
 } finally {

@@ -1,7 +1,20 @@
-import { Bot, FileUp, ImagePlus, LoaderCircle, LogOut, Sparkles, Trash2, X } from 'lucide-react'
+import {
+  Bot,
+  FileUp,
+  ImagePlus,
+  LoaderCircle,
+  LogOut,
+  ScanEye,
+  SlidersHorizontal,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconButton } from '../../components/ui'
+import { ImagePreviewModal } from '../../components/ImagePreviewModal'
+import { getAssetPreviewUrl } from './assetPreview'
 import { AssetFields } from './AssetFields'
 import {
   applyAssetCreationMode,
@@ -89,6 +102,8 @@ export function AssetEditor({
   const [savingAction, setSavingAction] = useState(null)
   const [error, setError] = useState('')
   const [trustedConfiguration, setTrustedConfiguration] = useState(null)
+  const [editorTab, setEditorTab] = useState('design')
+  const [imagePreview, setImagePreview] = useState(null)
 
   useEffect(() => {
     setCreationMode(inferAssetCreationMode(asset))
@@ -143,6 +158,7 @@ export function AssetEditor({
   const directImport = creationMode === ASSET_CREATION_MODES.DIRECT
   const usesUpload = directImport || creationMode === ASSET_CREATION_MODES.REFERENCE
   const promptWorkbenchVisible = !directImport || (kind === 'character' && characterStage !== 'face')
+  const currentPreviewUrl = getAssetPreviewUrl({ ...asset, ...draft, kind }, tasks)
 
   const inputFor = (nextDraft = draft) =>
     buildAssetInput({
@@ -319,12 +335,20 @@ export function AssetEditor({
   }
 
   return createPortal(
-    <div className="modal-backdrop asset-editor-backdrop" onMouseDown={onClose}>
-      <form className="asset-studio" onSubmit={handleSubmit} onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop asset-editor-backdrop studio-asset-editor" onMouseDown={onClose}>
+      <form
+        className="asset-studio"
+        noValidate
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="asset-editor-title"
+        onSubmit={handleSubmit}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header className="asset-studio-head">
           <div>
             <span className="eyebrow">{asset.id ? `编辑${kindLabel}` : `新建${kindLabel}`}</span>
-            <h2>{asset.id ? asset.name : `创建${kindLabel}资产`}</h2>
+            <h2 id="asset-editor-title">{asset.id ? asset.name : `创建${kindLabel}资产`}</h2>
           </div>
           <div className="ratio-lock">
             <span>继承项目比例</span>
@@ -335,8 +359,32 @@ export function AssetEditor({
           </IconButton>
         </header>
 
+        <nav className="authoring-editor-tabs" aria-label="资产编辑视图">
+          <button
+            type="button"
+            className={editorTab === 'design' ? 'active' : ''}
+            aria-pressed={editorTab === 'design'}
+            onClick={() => setEditorTab('design')}
+          >
+            <ScanEye size={16} />
+            制作
+          </button>
+          <button
+            type="button"
+            className={editorTab === 'prompt' ? 'active' : ''}
+            aria-pressed={editorTab === 'prompt'}
+            onClick={() => setEditorTab('prompt')}
+          >
+            <SlidersHorizontal size={16} />
+            {promptWorkbenchVisible ? '提示词' : '素材信息'}
+          </button>
+        </nav>
+
         <div className="asset-studio-body">
-          <section className="asset-studio-form">
+          <section
+            className={`asset-studio-form ${kind !== 'character' ? 'authoring-object-design' : ''}`}
+            hidden={editorTab !== 'design'}
+          >
             {(kind !== 'character' || characterStage === 'face') && (
               <div
                 className={`source-switch ${kind === 'audio' ? 'two-options' : ''}`}
@@ -346,36 +394,36 @@ export function AssetEditor({
                 <button
                   type="button"
                   className={directImport ? 'active' : ''}
+                  aria-pressed={directImport}
                   onClick={() => selectCreationMode(ASSET_CREATION_MODES.DIRECT)}
                 >
                   <FileUp size={17} />
                   <span>
                     <strong>{kind === 'audio' ? '上传音频' : '直接使用原图'}</strong>
-                    <small>不生成 · 不扣积分</small>
                   </span>
                 </button>
                 {kind !== 'audio' && (
                   <button
                     type="button"
                     className={creationMode === ASSET_CREATION_MODES.REFERENCE ? 'active' : ''}
+                    aria-pressed={creationMode === ASSET_CREATION_MODES.REFERENCE}
                     onClick={() => selectCreationMode(ASSET_CREATION_MODES.REFERENCE)}
                   >
                     <ImagePlus size={17} />
                     <span>
                       <strong>参考图再生成</strong>
-                      <small>原图 + 提示词交给 Img2</small>
                     </span>
                   </button>
                 )}
                 <button
                   type="button"
                   className={creationMode === ASSET_CREATION_MODES.TEXT ? 'active' : ''}
+                  aria-pressed={creationMode === ASSET_CREATION_MODES.TEXT}
                   onClick={() => selectCreationMode(ASSET_CREATION_MODES.TEXT)}
                 >
                   <Bot size={17} />
                   <span>
                     <strong>{kind === 'audio' ? 'AI 音频草稿' : '纯提示词生成'}</strong>
-                    <small>{kind === 'audio' ? '仅保存配置' : '不携带本地参考图'}</small>
                   </span>
                 </button>
               </div>
@@ -438,15 +486,8 @@ export function AssetEditor({
                                 : '生成身份参数'
                               : '全身生成参数'}
                           </span>
-                          <h3>{characterStage === 'face' ? '定义人物身份与画风' : '定义人物体型与背景'}</h3>
+                          <h3>{characterStage === 'face' ? '人物设定' : '体型与背景'}</h3>
                         </div>
-                        <p>
-                          {characterStage === 'face'
-                            ? directImport
-                              ? '仅用于资产识别和后续镜头匹配，不会调用 Img2。'
-                              : '这些选项会先写入提示词，再用于生成下方的面部身份锚点。'
-                            : '全身生成会继承已确认面部，并叠加以下身体参数。'}
-                        </p>
                       </div>
                       <AssetFields
                         attributes={draft.attributes}
@@ -488,21 +529,47 @@ export function AssetEditor({
             )}
 
             {kind !== 'character' && (
-              <AssetFields
-                attributes={draft.attributes}
-                characterStage={characterStage}
-                characterAssets={projectAssets.filter((item) => item.kind === 'character')}
-                onChange={(attributes) => setDraft({ ...draft, attributes })}
-              />
+              <div className="authoring-object-properties">
+                <AssetFields
+                  attributes={draft.attributes}
+                  characterStage={characterStage}
+                  characterAssets={projectAssets.filter((item) => item.kind === 'character')}
+                  onChange={(attributes) => setDraft({ ...draft, attributes })}
+                />
+              </div>
+            )}
+            {kind !== 'character' && kind !== 'audio' && (
+              <div className="authoring-object-preview">
+                {currentPreviewUrl ? (
+                  <button
+                    type="button"
+                    aria-label={`放大查看${draft.name || kindLabel}`}
+                    onClick={() =>
+                      setImagePreview({
+                        url: currentPreviewUrl,
+                        alt: draft.name || kindLabel,
+                        fileName: `${draft.name || kindLabel}-预览`,
+                      })
+                    }
+                  >
+                    <img src={currentPreviewUrl} alt={draft.name || kindLabel} />
+                  </button>
+                ) : (
+                  <div>
+                    <ImagePlus size={32} />
+                    <span>尚无图片</span>
+                  </div>
+                )}
+              </div>
             )}
           </section>
 
           {promptWorkbenchVisible ? (
-            <aside className="prompt-workbench">
+            <aside className="prompt-workbench" hidden={editorTab !== 'prompt'}>
               <div className="prompt-workbench-head">
                 <span>
                   <Sparkles size={16} />
-                  提示词工作台
+                  生成提示词
                 </span>
                 <strong>
                   {kind === 'character'
@@ -530,22 +597,18 @@ export function AssetEditor({
                   className={draft.promptMode === 'standard' ? 'active' : ''}
                   onClick={() => selectPromptMode('standard')}
                 >
-                  标准模式
+                  自动生成
                 </button>
                 <button
                   type="button"
                   className={draft.promptMode === 'advanced' ? 'active' : ''}
                   onClick={() => selectPromptMode('advanced')}
                 >
-                  高级模式
+                  自行编辑
                 </button>
               </div>
               <label className="compiled-prompt">
-                <span>
-                  {draft.promptMode === 'advanced'
-                    ? 'Provider 完整提示词（修改后直接传参）'
-                    : '最终发送给 Provider'}
-                </span>
+                <span>{draft.promptMode === 'advanced' ? '自定义提示词' : '最终生成提示词'}</span>
                 <textarea
                   readOnly={draft.promptMode !== 'advanced'}
                   value={
@@ -566,13 +629,9 @@ export function AssetEditor({
                 />
                 <small className="field-hint">系统会按人物、场景、产品和画风自动合并质量保护规则。</small>
               </label>
-              <div className="provider-payload-note">
-                <strong>Img2 请求已准备</strong>
-                <p>参考图、项目比例、属性、提示词和输出规格都会随生成任务提交。</p>
-              </div>
             </aside>
           ) : (
-            <aside className="prompt-workbench direct-asset-summary">
+            <aside className="prompt-workbench direct-asset-summary" hidden={editorTab !== 'prompt'}>
               <div className="prompt-workbench-head">
                 <span>
                   <FileUp size={16} />
@@ -588,7 +647,7 @@ export function AssetEditor({
               <dl>
                 <div>
                   <dt>图片生成</dt>
-                  <dd>不调用 Img2</dd>
+                  <dd>使用上传的原图</dd>
                 </div>
                 <div>
                   <dt>提示词</dt>
@@ -614,7 +673,11 @@ export function AssetEditor({
               </button>
             )}
           </div>
-          {error && <span className="asset-save-error">{error}</span>}
+          {error && (
+            <span className="asset-save-error" role="alert">
+              {error}
+            </span>
+          )}
           <button className="button secondary" type="button" onClick={onClose}>
             取消
           </button>
@@ -637,6 +700,7 @@ export function AssetEditor({
             {savingAction === 'save' ? '保存中…' : directImport ? '保存并直接使用' : '保存资产'}
           </button>
         </footer>
+        {imagePreview && <ImagePreviewModal image={imagePreview} onClose={() => setImagePreview(null)} />}
       </form>
     </div>,
     document.body,

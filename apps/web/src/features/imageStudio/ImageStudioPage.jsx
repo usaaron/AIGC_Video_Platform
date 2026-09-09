@@ -233,7 +233,7 @@ export function ImageStudioPage({
       return
     }
     setSubmitting(true)
-    setMessage(assist.promptOptimization || assist.referenceVision ? '正在由服务端处理高级辅助能力' : '')
+    setMessage(assist.promptOptimization || assist.referenceVision ? '正在优化画面描述与参考信息' : '')
     try {
       const result = await createImage2Batch({
         clientRequestId: nextClientRequestId(),
@@ -492,7 +492,7 @@ export function ImageStudioPage({
             本批 {estimatedCredits}
           </span>
           <span className={providerConfigured ? '' : 'warning'}>
-            <ShieldCheck size={14} /> {providerConfigured ? '服务端结算' : '生图大师未配置'}
+            <ShieldCheck size={14} /> {providerConfigured ? '可以开始创作' : '生图服务暂不可用'}
           </span>
         </div>
         <button className="button secondary image2-toolbar-billing" type="button" onClick={onOpenBilling}>

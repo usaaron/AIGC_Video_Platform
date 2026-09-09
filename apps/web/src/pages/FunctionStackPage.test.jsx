@@ -11,7 +11,7 @@ describe('function stack pages', () => {
 
     expect(html).toContain(title)
     expect(html).toContain(`aria-label="${region}"`)
-    expect(html).toContain(tool === 'agent-studio' ? '自动编排已启用' : '外部模块 · 等待接入')
+    expect(html).toContain(tool === 'agent-studio' ? '一句想法，开始制作' : '外部模块 · 等待接入')
   })
 
   it('does not present fake long-form progress while the external module is unavailable', () => {

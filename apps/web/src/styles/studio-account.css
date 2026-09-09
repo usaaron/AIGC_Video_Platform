@@ -1,0 +1,368 @@
+.account-layout {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+}
+.account-navigation {
+  display: grid;
+  gap: 5px;
+  position: sticky;
+  top: 90px;
+}
+.account-navigation a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+  border-radius: 6px;
+}
+.account-navigation a:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.account-content {
+  min-width: 0;
+}
+.account-content [id] {
+  scroll-margin-top: 95px;
+}
+.studio-shell .account-center-top,
+.studio-shell .account-center-lower {
+  display: block;
+  margin: 0;
+}
+.studio-shell .account-center-panel {
+  padding: 0 0 28px;
+  margin: 0 0 28px;
+  border: 0;
+  border-bottom: 1px solid var(--soft-line);
+  border-radius: 0;
+  background: none;
+}
+.studio-shell .account-panel-heading {
+  gap: 20px;
+}
+.studio-shell .account-avatar {
+  width: 54px;
+  height: 54px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.studio-shell .account-panel-heading h2 {
+  font-size: 21px;
+  font-weight: 550;
+}
+.studio-shell .account-status-line {
+  padding-left: 74px;
+}
+.studio-shell .account-id-disclosure {
+  margin-left: 74px;
+}
+.studio-shell .account-panel-topline h2 {
+  font-size: 16px;
+}
+.studio-shell .account-panel-topline p {
+  margin-bottom: 5px;
+  color: var(--subtle);
+  font-size: 11px;
+}
+.studio-shell .account-credit-total {
+  margin-block: 25px 20px;
+}
+.studio-shell .account-credit-total strong {
+  font-size: 32px;
+  font-weight: 550;
+}
+.studio-shell .account-usage-grid {
+  max-width: 600px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+.studio-shell .account-usage-grid > div {
+  background: none;
+  border: 0;
+  padding: 0 20px;
+  border-left: 1px solid var(--line);
+}
+.studio-shell .account-usage-grid > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.studio-shell .account-billing-action {
+  width: auto;
+  margin-top: 12px;
+}
+.studio-shell .account-password-form {
+  max-width: 520px;
+}
+.studio-shell .account-session {
+  padding: 18px 0;
+  border-radius: 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--soft-line);
+}
+.studio-shell .organization-current-row {
+  background: none;
+  padding: 20px 0;
+  border: 0;
+  border-radius: 0;
+}
+.studio-shell .organization-icon {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.studio-shell .billing-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+.studio-shell .billing-summary > div:not(.plan-summary) {
+  min-height: 120px;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 24px;
+  background: none;
+  border-left: 1px solid var(--soft-line);
+}
+.studio-shell .billing-summary > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.studio-shell .billing-summary > div:not(.plan-summary) .stat-icon {
+  display: none;
+}
+.studio-shell .billing-summary p {
+  gap: 12px;
+  font-size: 12px;
+}
+.studio-shell .billing-summary strong {
+  font-size: 36px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.studio-shell .plan-summary {
+  grid-column: 1/-1;
+  margin-top: 24px;
+  padding: 26px 0;
+  border: 0;
+  border-top: 1px solid var(--soft-line);
+  border-bottom: 1px solid var(--soft-line);
+  border-radius: 0;
+  background: none;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+}
+.studio-shell .plan-summary .membership-icon {
+  color: var(--muted);
+  background: var(--surface-muted);
+  border: 0;
+}
+.studio-shell .plan-summary h2 {
+  font-size: 17px;
+  font-weight: 550;
+}
+.studio-shell .plan-summary p {
+  display: block;
+  max-width: 550px;
+  line-height: 1.8;
+  font-size: 12px;
+}
+.studio-shell .billing-actions {
+  flex-wrap: wrap;
+}
+.studio-shell .ledger-panel {
+  padding: 24px 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.studio-shell .ledger-row {
+  min-height: 76px;
+  grid-template-columns: 85px minmax(0, 1fr) auto;
+  font-size: 13px;
+}
+.studio-shell .ledger-row strong {
+  font-weight: 500;
+}
+.studio-shell .ledger-row > div {
+  gap: 8px;
+}
+.studio-shell .ledger-sign {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.studio-shell .payment-notice {
+  padding: 16px 0;
+  color: var(--subtle);
+  border: 0;
+  background: none;
+  font-size: 12px;
+}
+.studio-shell .asset-library-page {
+  display: block;
+}
+.studio-shell .library-stat-strip {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  margin: 0 0 30px;
+}
+.studio-shell .library-metric {
+  padding: 8px 24px;
+  gap: 12px;
+}
+.studio-shell .library-metric:first-child {
+  padding-left: 0;
+  border: 0;
+}
+.studio-shell .library-metric span {
+  font-size: 12px;
+}
+.studio-shell .library-metric strong {
+  font-size: 28px;
+  font-weight: 500;
+}
+.studio-shell .library-toolbar {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--soft-line);
+}
+.studio-shell .asset-library-layout {
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 30px;
+}
+.studio-shell .asset-library-side {
+  border-left: 1px solid var(--soft-line);
+  padding-left: 24px;
+}
+.studio-shell .library-side-section {
+  padding: 0 0 24px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.studio-shell .library-side-section h2 {
+  font-size: 13px;
+  font-weight: 550;
+}
+.studio-shell .library-item-row {
+  padding: 18px 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--soft-line);
+  border-radius: 0;
+  gap: 16px;
+}
+.studio-shell .library-item-icon {
+  width: 42px;
+  height: 48px;
+  background: var(--surface-muted);
+  border: 0;
+  border-radius: 5px;
+}
+.studio-shell .library-item-title strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.studio-shell .library-item-title > span {
+  font-size: 10px;
+}
+.studio-shell .library-item-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.studio-shell .library-item-actions .icon-button {
+  display: inline-grid;
+  place-items: center;
+}
+.studio-shell .library-item-actions .button {
+  font-size: 11px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+.studio-shell .library-pagination {
+  margin-top: 24px;
+}
+@media (max-width: 1100px) {
+  .account-layout {
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 24px;
+  }
+  .studio-shell .asset-library-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-shell .asset-library-side {
+    border-left: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .studio-shell .plan-summary {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+  .studio-shell .billing-actions {
+    grid-column: 2;
+  }
+}
+@media (max-width: 700px) {
+  .account-layout {
+    display: block;
+  }
+  .account-navigation {
+    position: static;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 3px;
+    margin-bottom: 30px;
+  }
+  .account-navigation a {
+    padding: 10px 4px;
+    font-size: 11px;
+    gap: 6px;
+    justify-content: center;
+  }
+  .studio-shell .billing-summary > div:not(.plan-summary) {
+    padding: 8px 12px;
+    min-height: 100px;
+  }
+  .studio-shell .billing-summary strong {
+    font-size: 27px;
+  }
+  .studio-shell .billing-summary p {
+    font-size: 11px;
+  }
+  .studio-shell .billing-actions {
+    grid-column: 1/-1;
+  }
+  .studio-shell .ledger-row {
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: 10px;
+  }
+  .studio-shell .ledger-row > span:last-child {
+    grid-column: 2;
+    padding-bottom: 12px;
+  }
+  .studio-shell .library-metric {
+    padding: 6px 12px;
+  }
+  .studio-shell .library-metric strong {
+    font-size: 24px;
+  }
+  .studio-shell .library-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-shell .library-item-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+  .studio-shell .library-item-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}

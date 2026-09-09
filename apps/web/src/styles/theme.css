@@ -1,0 +1,138 @@
+:root {
+  color-scheme: dark;
+  --ink: #f5f5f7;
+  --muted: #a3a3aa;
+  --subtle: #77777f;
+  --canvas: #101012;
+  --paper: #18181b;
+  --surface: var(--paper);
+  --surface-muted: #202024;
+  --surface-hover: #29292e;
+  --sidebar: #151517;
+  --line: #333338;
+  --soft-line: #25252a;
+  --line-strong: #56565f;
+  --action: #f1f1f1;
+  --action-hover: #dedede;
+  --action-ink: #171717;
+  --green: #6cd5b1;
+  --accent-strong: var(--green);
+  --accent: var(--green);
+  --border: var(--line);
+  --accent-soft: #223b33;
+  --accent-line: #3b6a58;
+  --lime: #294239;
+  --lime-dark: #46675a;
+  --danger: #f09890;
+  --danger-soft: #442c2b;
+  --danger-line: #794844;
+  --amber: #e5c47e;
+  --warning-soft: #3e3728;
+  --warning-line: #746343;
+  --blue: #a0c5f5;
+  --info-soft: #2a3544;
+  --info-line: #486484;
+  --coral: #f2aa94;
+  --media-surface: #111111;
+  --media-ink: #ffffff;
+  --overlay: rgb(0 0 0 / 64%);
+  --shadow: 0 18px 64px rgb(0 0 0 / 34%);
+  --sidebar-width: 224px;
+  --header-height: 68px;
+  --motion-fast: 160ms;
+  --motion-slow: 360ms;
+  --radius: 8px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ink: #1d1d1f;
+  --muted: #66666e;
+  --subtle: #777780;
+  --canvas: #fafafa;
+  --paper: #ffffff;
+  --surface-muted: #f2f2f4;
+  --surface-hover: #e9e9ed;
+  --sidebar: #f3f3f5;
+  --line: #dfdfe4;
+  --soft-line: #eaeaec;
+  --line-strong: #aaaaaa;
+  --action: #242424;
+  --action-hover: #3b3b3b;
+  --action-ink: #ffffff;
+  --green: #226e55;
+  --accent-soft: #eaf4ef;
+  --accent-line: #a9c9b9;
+  --lime: #dbece3;
+  --lime-dark: #b3d2c0;
+  --danger: #ab4036;
+  --danger-soft: #fff0ee;
+  --danger-line: #e5b9b3;
+  --amber: #806019;
+  --warning-soft: #fcf5e4;
+  --warning-line: #dfcf9e;
+  --blue: #365f98;
+  --info-soft: #edf3fc;
+  --info-line: #bfd0e8;
+  --coral: #b9664e;
+  --overlay: rgb(0 0 0 / 42%);
+  --shadow: 0 12px 40px rgb(0 0 0 / 10%);
+}
+
+.theme-toggle {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.auth-theme-toggle {
+  position: fixed;
+  z-index: 150;
+  top: 18px;
+  right: 22px;
+  background: var(--canvas);
+}
+
+.auth-brand {
+  position: absolute;
+  z-index: 140;
+  top: 22px;
+  left: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.auth-brand .brand-mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--action);
+  color: var(--action-ink);
+}
+
+::selection {
+  background: var(--accent-line);
+  color: var(--ink);
+}

@@ -112,8 +112,12 @@ export function ShotRow({
               aria-label={`${shot.title}成片预览`}
               onClick={(event) => event.stopPropagation()}
             />
+          ) : shot.imageUrl ? (
+            <img src={shot.imageUrl} alt={shot.title} />
           ) : (
-            <img src={shot.imageUrl || '/demo/station.jpg'} alt={shot.title} />
+            <div className="shot-preview-placeholder">
+              <Video size={24} />
+            </div>
           )}
           <span>{previewVideoUrl ? '成片预览' : shot.framing}</span>
         </div>
@@ -268,13 +272,15 @@ export function ContinuityConnector({ previousShot, shot, previousVideoTask, onC
               src={`/api/v1/generation/tasks/${previousVideoTask.id}/outputs/last-frame`}
               alt={`${previousShot.title}尾帧`}
             />
+          ) : previousShot.imageUrl ? (
+            <img src={previousShot.imageUrl} alt={`${previousShot.title}参考图`} />
           ) : (
-            <img src={previousShot.imageUrl || '/demo/station.jpg'} alt={`${previousShot.title}参考图`} />
+            <Video size={15} />
           )}
         </span>
         <ArrowDown size={16} />
         <span className="continuity-thumb">
-          <img src={shot.imageUrl || '/demo/station.jpg'} alt={`${shot.title}参考图`} />
+          {shot.imageUrl ? <img src={shot.imageUrl} alt={`${shot.title}参考图`} /> : <Video size={15} />}
         </span>
       </div>
       <div className="continuity-copy">

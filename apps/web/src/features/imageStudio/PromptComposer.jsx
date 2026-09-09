@@ -59,8 +59,7 @@ export function PromptComposer({
       <section className="image2-panel image2-composer" aria-label="提示词编排">
         <div className="image2-panel-head">
           <div>
-            <span className="eyebrow">提示词</span>
-            <strong>文本与约束</strong>
+            <strong>描述你想看到的画面</strong>
           </div>
         </div>
 
@@ -91,7 +90,7 @@ export function PromptComposer({
             disabled={submitting}
             icon={<Sparkles size={13} />}
             label="提示词优化"
-            title="由服务端使用 gpt-5.4 优化本次提示词。"
+            title="补充构图、光线和画面细节，保留你的原始想法。"
             onChange={(checked) => onAssistChange({ ...assist, promptOptimization: checked })}
           />
           <AssistToggle
@@ -99,17 +98,13 @@ export function PromptComposer({
             disabled={submitting}
             icon={<Eye size={13} />}
             label="引用图视觉解析"
-            title="由服务端先把引用图转成文字描述再参与生成。"
+            title="提取参考图片的主体、风格和构图特征。"
             onChange={(checked) => onAssistChange({ ...assist, referenceVision: checked })}
           />
         </div>
 
         <div className="image2-composer-foot">
           <div className="image2-param-panel">
-            <div className="image2-param-panel-head">
-              <strong>生成参数</strong>
-              <span>画幅比例、生成质量和张数</span>
-            </div>
             <GenerationSettings
               compact
               aspectRatio={aspectRatio}
@@ -139,7 +134,11 @@ export function PromptComposer({
               {submitting ? <Sparkles size={15} className="spin" /> : <Sparkles size={15} />}
               <span>提交批次</span>
             </button>
-            <p className="image2-composer-note">{error || '生成配置由服务端托管。'}</p>
+            {error && (
+              <p className="image2-composer-note" role="status">
+                {error}
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -181,7 +180,7 @@ export function PromptComposer({
                     本次生成
                   </span>
                   <strong>{imageCount} 张</strong>
-                  <small>提交后会按当前批次配置进入服务端队列。</small>
+                  <small>确认后开始排队生成。</small>
                 </article>
                 <article className={`image2-submit-confirm-stat ${summaryWarning ? 'warning' : ''}`}>
                   <span>
@@ -189,9 +188,7 @@ export function PromptComposer({
                     预计消耗
                   </span>
                   <strong>{estimatedCredits} 积分</strong>
-                  <small>
-                    {summaryWarning ? '当前余额不足，确认后也无法完成提交。' : '将按提交时的服务端规则扣除。'}
-                  </small>
+                  <small>{summaryWarning ? '积分不足，请先充值。' : '生成失败的任务会退还积分。'}</small>
                 </article>
                 <article className="image2-submit-confirm-stat">
                   <span>

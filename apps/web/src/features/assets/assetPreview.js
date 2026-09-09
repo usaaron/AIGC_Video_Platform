@@ -5,14 +5,7 @@ export function getAssetPreviewUrl(asset, tasks = []) {
     const activeVariant = (asset.attributes?.appearanceVariants || []).find(
       (variant) => variant.id === asset.attributes?.activeAppearanceVariantId,
     )
-    const trustedPortrait = asset.attributes?.trustedPortrait
-    const trustedPortraitUrl =
-      trustedPortrait?.status === 'active'
-        ? trustedPortrait.previewUrl ||
-          (trustedPortrait.assetId
-            ? `/api/v1/trusted-assets/portraits/${encodeURIComponent(trustedPortrait.assetId)}/preview`
-            : null)
-        : null
+    const trustedPortraitUrl = portraitPreviewUrl(asset.attributes?.trustedPortrait)
     return (
       activeVariant?.bodyReference?.url ||
       asset.attributes?.bodyReference?.url ||
@@ -25,6 +18,15 @@ export function getAssetPreviewUrl(asset, tasks = []) {
     )
   }
   return asset.imageUrl || generatedTaskUrl || asset.references?.[0]?.url || null
+}
+
+export function portraitPreviewUrl(portrait) {
+  if (portrait?.status !== 'active') return null
+  if (portrait.assetId) {
+    return `/api/v1/trusted-assets/portraits/${encodeURIComponent(portrait.assetId)}/preview`
+  }
+  const url = portrait.previewUrl
+  return typeof url === 'string' && (/^https?:\/\//i.test(url) || /^\/(?!\/)/.test(url)) ? url : null
 }
 
 function latestCompletedAssetOutput(asset, tasks) {

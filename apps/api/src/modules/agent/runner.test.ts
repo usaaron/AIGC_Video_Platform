@@ -5,6 +5,34 @@ import { AgentRunner } from './runner.js'
 const principal: Principal = { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] }
 
 describe('AgentRunner', () => {
+  it('uses scene planning within the confirmed shot budget before creating videos', async () => {
+    const run = runFixture()
+    run.currentStage = 'storyboard'
+    run.stages.slice(0, 4).forEach((stage) => {
+      stage.status = 'completed'
+    })
+    const repository = {
+      claimNext: vi.fn(async () => structuredClone(run)),
+      principalFor: vi.fn(async () => principal),
+      saveClaimed: vi.fn(async (value: AgentRun) => value),
+    }
+    const projects = {
+      workspace: vi.fn(async () => workspaceFixture('完整剧本正文')),
+      generateShots: vi.fn(async () => [{ id: 'shot-1' }]),
+    }
+    const generations = { createTask: vi.fn() }
+    const runner = new AgentRunner(repository as never, projects as never, generations as never)
+
+    await runner.tick()
+
+    expect(projects.generateShots).toHaveBeenCalledWith(
+      run.projectId,
+      { mode: 'scene', maxShots: 15, episodeDurationSeconds: 60 },
+      principal,
+    )
+    expect(generations.createTask).not.toHaveBeenCalled()
+  })
+
   it('advances a completed script stage without creating another task', async () => {
     const run = runFixture()
     run.stages[0]!.taskIds = ['script-task']

@@ -389,7 +389,7 @@ export class AgentRunner {
         run.projectId!,
         {
           maxShots: run.plan.estimate!.estimatedShots,
-          mode: 'beat',
+          mode: 'scene',
           episodeDurationSeconds: run.plan.episodeDurationSeconds!,
         },
         principal,

@@ -373,84 +373,88 @@ export function StoryboardPage({
 
   return (
     <div className="page storyboard-page">
-      <PageHeader
-        eyebrow="第 3 步 · 分镜"
-        title="一眼看清整段影片"
-        description="分镜已保存到项目，可以调整画面、提示词和时长。"
-      >
-        <button
-          className="button secondary"
-          onClick={() => void splitFromScript('scene')}
-          disabled={controlsLocked}
-          title={
-            currentEpisode
-              ? `只重新生成第 ${currentEpisode.number} 集分镜，不影响其他集`
-              : '扫描全部已保存剧集并按场次批量生成分镜'
-          }
-        >
-          {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {splitting === 'scene'
-            ? currentEpisode
-              ? `正在生成第 ${currentEpisode.number} 集`
-              : '正在批量拆分全部剧集'
-            : currentEpisode
-              ? `生成第 ${currentEpisode.number} 集导演分镜`
-              : '生成全部剧集导演分镜'}
-        </button>
-        <button
-          type="button"
-          className="button secondary"
-          onClick={() => setEditing(newShotDraft())}
-          disabled={controlsLocked}
-        >
-          <Plus size={16} /> 添加分镜
-        </button>
-        {!hasScriptEpisodeWorkflow && (
+      <PageHeader eyebrow="分镜" title="分镜" description="先确认故事如何展开，再让每一个镜头动起来。" />
+      <div className="storyboard-commandbar">
+        <div className="storyboard-create-actions">
+          <button
+            className="button secondary"
+            onClick={() => void splitFromScript('scene')}
+            disabled={controlsLocked}
+            title={
+              currentEpisode
+                ? `只重新生成第 ${currentEpisode.number} 集分镜，不影响其他集`
+                : '扫描全部已保存剧集并按场次批量生成分镜'
+            }
+          >
+            {splitting === 'scene' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+            {splitting === 'scene'
+              ? currentEpisode
+                ? `正在生成第 ${currentEpisode.number} 集`
+                : '正在批量拆分全部剧集'
+              : currentEpisode
+                ? `生成第 ${currentEpisode.number} 集导演分镜`
+                : '生成全部剧集导演分镜'}
+          </button>
           <button
             type="button"
             className="button secondary"
-            onClick={() => setEditing(newShotDraft((latestEpisode?.number || 0) + 1, true))}
+            onClick={() => setEditing(newShotDraft())}
             disabled={controlsLocked}
           >
-            <BookOpenText size={16} /> 添加分集
+            <Plus size={16} /> 添加分镜
           </button>
-        )}
-        <label className="batch-resolution-control">
-          <span>批量清晰度</span>
-          <select
-            value={batchResolution}
-            onChange={(event) => setBatchResolution(event.target.value)}
-            disabled={controlsLocked}
-          >
-            {VIDEO_RESOLUTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="batch-mode-control" role="group" aria-label="批量生成策略">
-          <button
-            type="button"
-            className={batchMode === 'parallel' ? 'active' : ''}
-            aria-pressed={batchMode === 'parallel'}
-            title={`最多同时执行 ${concurrency} 路视频链路`}
-            onClick={() => setBatchMode('parallel')}
-            disabled={controlsLocked}
-          >
-            <Zap size={14} /> 分段并发
-          </button>
-          <button
-            type="button"
-            className={batchMode === 'continuity' ? 'active' : ''}
-            aria-pressed={batchMode === 'continuity'}
-            title="把全部镜头设为一条尾帧承接链，严格按顺序生成"
-            onClick={() => setBatchMode('continuity')}
-            disabled={controlsLocked}
-          >
-            <Link2 size={14} /> 全片串联
-          </button>
+          {!hasScriptEpisodeWorkflow && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setEditing(newShotDraft((latestEpisode?.number || 0) + 1, true))}
+              disabled={controlsLocked}
+            >
+              <BookOpenText size={16} /> 添加分集
+            </button>
+          )}
         </div>
+        <details className="storyboard-video-settings">
+          <summary>视频设置</summary>
+          <div>
+            <label className="batch-resolution-control">
+              <span>批量清晰度</span>
+              <select
+                value={batchResolution}
+                onChange={(event) => setBatchResolution(event.target.value)}
+                disabled={controlsLocked}
+              >
+                {VIDEO_RESOLUTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="batch-mode-control" role="group" aria-label="批量生成策略">
+              <button
+                type="button"
+                className={batchMode === 'parallel' ? 'active' : ''}
+                aria-pressed={batchMode === 'parallel'}
+                title={`最多同时执行 ${concurrency} 路视频链路`}
+                onClick={() => setBatchMode('parallel')}
+                disabled={controlsLocked}
+              >
+                <Zap size={14} /> 分段并发
+              </button>
+              <button
+                type="button"
+                className={batchMode === 'continuity' ? 'active' : ''}
+                aria-pressed={batchMode === 'continuity'}
+                title="把全部镜头设为一条尾帧承接链，严格按顺序生成"
+                onClick={() => setBatchMode('continuity')}
+                disabled={controlsLocked}
+              >
+                <Link2 size={14} /> 全片串联
+              </button>
+            </div>
+          </div>
+        </details>
         <button
           type="button"
           className="button primary"
@@ -472,31 +476,37 @@ export function StoryboardPage({
           <CircleHelp size={16} />
           <span role="tooltip">独立镜头链会同时生成；同一链内必须等上一镜真实尾帧返回后再生成下一镜。</span>
         </span>
-        <button
-          type="button"
-          className="button secondary"
-          onClick={() =>
-            pendingBatchMode === 'independent' ? confirmBatchGeneration() : generateAll('independent')
-          }
-          disabled={!rangeShots.length || controlsLocked}
-          title="忽略尾帧承接，把所有镜头作为独立任务同时提交"
-        >
-          <Zap size={16} /> 全部独立生成
-        </button>
-        <button
-          className="button secondary"
-          onClick={() => void downloadCompletedVideos()}
-          disabled={!downloadableVideos.length || downloadingVideos}
-          title={`下载当前选中的已完成视频版本，共 ${downloadableVideos.length} 条`}
-        >
-          {downloadingVideos ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
-          {downloadingVideos
-            ? '正在打包'
-            : currentEpisode
-              ? `下载第 ${currentEpisode.number} 集 · ${downloadableVideos.length} 条`
-              : `批量下载 ${downloadableVideos.length} 条`}
-        </button>
-      </PageHeader>
+        <details className="storyboard-more-actions">
+          <summary>更多操作</summary>
+          <div>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() =>
+                pendingBatchMode === 'independent' ? confirmBatchGeneration() : generateAll('independent')
+              }
+              disabled={!rangeShots.length || controlsLocked}
+              title="忽略尾帧承接，所有镜头独立生成"
+            >
+              <Zap size={16} />
+              全部独立生成
+            </button>
+            <button
+              className="button secondary"
+              onClick={() => void downloadCompletedVideos()}
+              disabled={!downloadableVideos.length || downloadingVideos}
+              title={`下载当前选中的已完成视频版本，共 ${downloadableVideos.length} 条`}
+            >
+              {downloadingVideos ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
+              {downloadingVideos
+                ? '正在打包'
+                : currentEpisode
+                  ? `下载第 ${currentEpisode.number} 集 · ${downloadableVideos.length} 条`
+                  : `批量下载 ${downloadableVideos.length} 条`}
+            </button>
+          </div>
+        </details>
+      </div>
       {pendingBatchMode && (
         <div className="storyboard-batch-confirm" role="alert">
           <div>
@@ -783,8 +793,8 @@ export function StoryboardPage({
           </IconButton>
         </div>
       ) : (
-        <div className="sticky-actions">
-          <span>视频 18 积分；直接使用项目资产与上一镜真实尾帧，不预生成静态分镜图。</span>
+        <div className="storyboard-next-action">
+          <span>视频生成后，可在队列中查看进度。</span>
           <button className="button primary" onClick={onNext}>
             查看生成队列 <ArrowRight size={16} />
           </button>

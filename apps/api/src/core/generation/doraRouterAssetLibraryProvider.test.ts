@@ -2,6 +2,67 @@ import { describe, expect, it, vi } from 'vitest'
 import { DoraRouterAssetLibraryProvider } from './doraRouterAssetLibraryProvider.js'
 
 describe('DoraRouterAssetLibraryProvider', () => {
+  it('previews a relative image URL without querying material group metadata or forwarding credentials', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.searchParams.get('Action') === 'GetAsset') {
+        return Response.json({
+          Result: {
+            Id: 'portrait-1',
+            GroupId: 'group-1',
+            AssetType: 'Image',
+            Status: 'Active',
+            URL: '/previews/portrait-1.png',
+          },
+        })
+      }
+      expect(url.href).toBe('https://www.dorarouter.com/previews/portrait-1.png')
+      expect(new Headers(init?.headers).has('Authorization')).toBe(false)
+      return new Response(Buffer.from('portrait-preview'), { headers: { 'content-type': 'image/png' } })
+    })
+    const provider = new DoraRouterAssetLibraryProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-key',
+      projectName: 'default',
+      requestTimeoutMs: 1_000,
+      fetcher,
+    })
+
+    await expect(provider.getPortraitPreview('portrait-1')).resolves.toEqual({
+      content: Buffer.from('portrait-preview'),
+      contentType: 'image/png',
+    })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses the group type returned with the portrait without a separate group lookup', async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        Result: {
+          Id: 'portrait-1',
+          GroupId: 'group-1',
+          GroupType: 'LivenessFace',
+          AssetType: 'Image',
+          Status: 'Active',
+          URL: 'https://images.example.test/portrait.png',
+        },
+      }),
+    )
+    const provider = new DoraRouterAssetLibraryProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-key',
+      projectName: 'default',
+      requestTimeoutMs: 1_000,
+      fetcher,
+    })
+
+    await expect(provider.getPortrait('portrait-1')).resolves.toMatchObject({
+      assetId: 'portrait-1',
+      groupType: 'LivenessFace',
+    })
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
   it('uses the DoraRouter bearer token for trusted portrait lifecycle calls', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; authorization: string }> = []
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

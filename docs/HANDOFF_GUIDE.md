@@ -1,6 +1,8 @@
 # SEQORA 项目交接与快速上手
 
-这份文档是新开发者的总览。代码 Agent 应先读根目录 `AGENTS.md` 和 [当前状态](CURRENT_STATE.md)，再用本文在 30 分钟内理解产品、启动项目和找到关键代码。
+这份文档是新开发者的 30 分钟快速上手指南。完整的架构、流程、部署、运维和交接清单见 [全量交接手册](PROJECT_HANDOFF.md)；代码 Agent 应先读根目录 `AGENTS.md` 和 [当前状态](CURRENT_STATE.md)。
+
+> 2026-09-08 按当前工作分支校对；代码能力与生产部署验收分开记录，本文不表示本次修改已上线。
 
 ## 1. 项目是什么
 
@@ -10,18 +12,19 @@ SEQORA 是面向漫剧、短剧和动画短片团队的一站式 AIGC 视频生�
 登录 -> 项目与比例 -> 剧本 -> 资产 -> 分镜 -> 视频队列 -> 完整成片
 ```
 
-当前生产已跑通主要创作闭环：
+当前代码提供的主要创作链路：
 
-- 中文剧本智能生成、按意见改写、续写下一段/集和资产建议；光影、运镜、构图、声音意图已并入智能生成，不再展示独立补齐或结构块按钮。
+- 中文剧本智能生成、按意见改写、续写下一段/集和资产建议；网剧采用自然分场正文，场次数与各场时长按剧情和目标时长安排，摄影执行信息由后续分镜层补齐。
 - 人物、场景、物品和服装资产；人物包含面部、全身、腿部优化和三视图流程。
 - TokenAdvent 文本与图片生成。
 - 弦序 Seedance 2.0 视频生成、任务轮询、取消、失败退款和可信人像素材库。
-- 分镜按场次或动作拆分、资产匹配、尾帧承接和会员三路并发。
-- Seedance 单镜头启用对白/现场声音频，FFmpeg 按分镜顺序合成无声完整 MP4 工作预览。
+- 分镜按场次时长与有序叙事单元规划，保留明确动作细拆；支持资产匹配、尾帧承接和会员三路并发。
+- Seedance 单镜头启用对白/现场声音频，FFmpeg 按分镜顺序生成有声 MP4 工作预览，无音轨镜头补静音。
+- 一句成片 AgentStudio 已连接需求规划、制作参数与预算确认、阶段执行、暂停/恢复和失败重试；序幕 image2 已连接图片批次工作流。
 
-项目库“对话一句成片 / 图片大师 / 剧本大师”、小说上传与章节和长剧本创作仍是禁用或开发中入口。Quick Start Service/API 与旧弹窗文件仍存在，但没有挂到当前正式 UI，不能把它当成一键成片 Agent。
+剧本大师是等待接入的外部模块，小说上传与章节和长剧本创作仍非正式用户流程。Quick Start Service/API 与旧弹窗文件仍存在，但当前一句成片入口使用 `modules/agent`，不能把这两套实现混为一谈。AgentStudio 和有声成片均为原分支已有能力，旧文档将其写作占位和无声并不准确。
 
-尚未完成完整成片音轨、配音/字幕/混音、正式支付、投递失败运营、Worker 横向扩缩容演练和正式商用监控。Resend 已用于注册验证码、邮箱验证、邀请和密码重置。账号/auth、组织 membership、session、账单、项目、资产、分镜、任务、通用 AI Job 和小说域已经迁入 Postgres；任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 消费。当前定位是封闭客户测试和小团队联合开发。
+尚未完成正式配音/字幕/混音、正式支付、投递失败运营、Worker 横向扩缩容演练和正式商用监控。Resend 已用于注册验证码、邮箱验证、邀请和密码重置。账号/auth、组织 membership、session、账单、项目、资产、分镜、任务、通用 AI Job 和小说域已经迁入 Postgres；任务触发通过事务 Outbox 投递到 Redis/BullMQ，由独立 Worker 消费。当前定位是封闭客户测试和小团队联合开发。
 
 ## 2. 收到压缩包后先做什么
 
@@ -110,7 +113,7 @@ Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 - Identity & Access：`core/auth`、`core/email`、`modules/auth`、`modules/users`。
 - Organizations：`modules/accountManagement`，负责组织、成员、角色、membership、组织 session 和兼容 workspace/tenant 入口。
 - Billing：`modules/billing`，负责 Postgres ledger、扣费、退款、充值、管理员调账、支付和对账告警。
-- Creative Projects：`modules/projects`、`modules/novels`、`modules/quickStart`、`modules/trustedAssets`。其中 `quickStart` 是仍依赖 AppStore 聚合写入的遗留实验，不应被新模块复用。
+- Creative Projects：`modules/projects`、`modules/novels`、`modules/agent`、`modules/quickStart`、`modules/trustedAssets`。一句成片使用 `modules/agent` 的 planner/service/repository/runner；`quickStart` 是仍依赖 AppStore 聚合写入的遗留实验，不应被新模块复用。
 - Jobs/Workers：`core/jobs`、`modules/generation`、`modules/aiJobs`、`worker.ts` 和 `runtime/queues.ts`。
 - Media Storage：`infra/objectStorage.ts`、`modules/media`、`core/media` 和 `runtime/storage.ts`。
 - Admin Console：`modules/admin`、`apps/admin` 和 `packages/contracts/src/admin.ts`。
@@ -130,6 +133,10 @@ Route -> Service -> Repository / Provider -> Postgres / AppStore / 外部 API
 - `components/AuthProvider.jsx`：会话恢复、登录、退出和 `401` 处理。
 
 页面保持中文、清晰和低学习成本。不要把专业剪辑软件的复杂轨道、面板和术语直接搬进来。UI 修改至少验证桌面和 `390px` 移动宽度，无横向溢出和内容遮挡。
+
+创作端默认深色，可切换浅色，主题选择保存在浏览器；登录与工作区复用主题规则。独立管理员端 `apps/admin` 未包含在本次 UI 修改中。
+
+新版首页以「一句成片」想法输入为主，手动新建项目为辅。全局工具在侧栏，项目内六个阶段在顶部固定导航。`features/workspace/workflowGuide.js` 复用成片版本判断计算下一步建议，指引仅提供跳转，不额外限制现有制作流程。新版视觉入口是 `styles/studio-*.css`，按壳层、编写与资产、概览、账号、制作模块划分；历史 CSS 仍承担兼容样式。素材与验收说明见 [CREATOR_UI_REDESIGN.md](CREATOR_UI_REDESIGN.md)。
 
 ## 7. 核心数据模型
 
@@ -165,6 +172,16 @@ DeepSeek V4 在配置 `DASHSCOPE_API_KEY` 时优先走阿里云百炼 OpenAI 兼
 
 ### 视频
 
+进入视频前的剧本与分镜规则：
+
+- 网剧单集场次预算随时长调整，60 秒建议从 5 场起草、允许 3～8 场；已结构化原稿改写默认保持原场次，不为新预算重排用户已有剧本。
+- 编剧使用目标、阻力、选择、代价、结果的因果链；短片和快速剧本复用这一原则，广告按独立传播任务推进。对白按可表演时长安排，允许无对白段落，不以每镜四句凑数。
+- `screenplayParsing.ts` 保留自然正文中的动作、对白与声音顺序；`directorShotPlanning.ts` 按叙事单元及表演负载分配，台词与声音跟随触发动作，短场次保留标注时长，单镜最长 15 秒。
+- 每镜仅执行本镜动作与对白，场尾结果只出现在末镜；长自然场景不会先被复制成多份同对白文本。用户选择动作细拆时，仍按明确拍点处理，逗号不直接切镜。
+- 以上是本地确定性规则，没有新增导演模型调用。旧字段没有记录台词时机、长句超出表演时间、原稿自身重复或空间歧义时，仍需人工审阅；尚无完整语义导演、预演或内容质检闭环。
+
+规则设计与后续边界见 [导演链路审计](DIRECTOR_PIPELINE_AUDIT.md)，其中列明本次实际阅读的场景写作与镜头清单资料。
+
 视频默认调用 DoraRouter 的 Seedance 2.0 兼容接口：
 
 1. Web 根据项目、当前镜头和匹配资产编译提示词。
@@ -188,31 +205,32 @@ StringX 和官方方舟保留为显式回滚 Provider；当前视频主链路使
 
 ## 9. 完整成片
 
-每个分镜必须有一个真实完成的视频任务。`FilmPreviewComposer` 按镜头顺序下载视频，统一比例、尺寸、帧率和 H.264 编码，再拼成一个无声 MP4。虽然单镜头请求启用了 Seedance 音频，当前 FFmpeg 合成使用 `-an`，不会保留音轨。`local-compose` 不扣积分，也不占 Seedance 并发。
+每个分镜必须有一个真实完成的视频任务。`FilmPreviewComposer` 按镜头顺序下载视频，统一比例、尺寸、帧率和 H.264 编码；音轨统一为 48 kHz 双声道，并补齐或裁剪到对应镜头时长，无音轨输入用 `anullsrc` 补静音，再拼接为 AAC 有声 MP4。旧文档所写的 `-an` 已与代码不符；音轨保留属于原分支已有实现，不是本次新增。`local-compose` 不扣积分，也不占 Seedance 并发。
 
-当前成片是测试预览，不包含配音、背景音乐、字幕、响度、正式码率和交付封装，不能当作商用母版。
+当前成片是工作预览，不包含完整的独立配音、背景音乐编排、正式字幕、响度混音与母版交付流程；保留源音轨并不保证对白可听度和跨镜环境声连续。
 
 ## 10. 如何修改常见功能
 
-| 需求                   | 优先查看                                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面                                |
-| 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                                          |
-| 修改注册/邀请/邮箱     | `modules/accountManagement/`、`core/email/`、`LoginPage.jsx`、`AUTHORIZATION.md`              |
-| 修改剧本生成/资产建议  | `modules/projects/service.ts`、`core/jobs/scriptTaskHandler.ts`、`ScriptPage.jsx`             |
-| 修改网剧分集与保存     | `035_script_episodes.sql`、项目 Repository/Routes、`ScriptPage.jsx`                           |
-| 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`                                |
-| 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录                                   |
-| 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting`                       |
-| 修改可信人像           | `modules/trustedAssets/`、`volcArkAssetLibraryProvider.ts`、`CharacterWorkflow.jsx`           |
-| 修改分镜拆分           | `modules/projects/service.ts`、`StoryboardPage.jsx`                                           |
-| 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新                             |
-| 修改任务状态/暂停取消  | `packages/contracts` 任务 schema、`modules/generation/`、`core/jobs/`、`QueuePage.jsx`        |
-| 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                                                |
-| 修改组织/session       | `modules/accountManagement/`、`apps/web/src/pages/SettingsPage.jsx`、`apps/admin/src/App.jsx` |
-| 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`、`apps/admin/src/`                        |
-| 新增 Provider          | `core/generation` 接口与适配器、`runtime/providers.ts`、配置 schema、健康检查和替身测试       |
-| 修改部署               | `compose.demo.yml`、`deploy/`、`OPERATIONS_RUNBOOK.md`、`DEPLOYMENT.md`                       |
+| 需求                   | 优先查看                                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 新增项目/资产/分镜字段 | `packages/contracts/src/project.ts`、项目 Repository、对应页面                                              |
+| 修改登录和账号         | `modules/auth/`、`AuthProvider.jsx`、`LoginPage.jsx`                                                        |
+| 修改注册/邀请/邮箱     | `modules/accountManagement/`、`core/email/`、`LoginPage.jsx`、`AUTHORIZATION.md`                            |
+| 修改剧本生成/资产建议  | `modules/projects/service.ts`、`core/jobs/scriptTaskHandler.ts`、`ScriptPage.jsx`                           |
+| 修改网剧分集与保存     | `035_script_episodes.sql`、项目 Repository/Routes、`ScriptPage.jsx`                                         |
+| 修改积分、套餐或退款   | `modules/billing/`、`modules/generation/`、`taskDispatcher.ts`                                              |
+| 修改图片生成           | `core/generation/tokenAdventImageProvider.ts`、资产功能目录                                                 |
+| 修改视频请求           | `stringXSeedanceProvider.ts`、`taskDispatcher.ts`、`packages/prompting`                                     |
+| 修改可信人像           | `modules/trustedAssets/`、`volcArkAssetLibraryProvider.ts`、`CharacterWorkflow.jsx`                         |
+| 修改分镜拆分           | `modules/projects/directorShotPlanning.ts`、`shotPlanning.ts`、`screenplayParsing.ts`、`StoryboardPage.jsx` |
+| 修改一句成片编排       | `modules/agent/`、`packages/contracts/src/agent.ts`、`FunctionStackPage.jsx`                                |
+| 修改三路并发           | `videoBatchPlanner.js`、`taskDispatcher.ts`，两端测试必须同时更新                                           |
+| 修改任务状态/暂停取消  | `packages/contracts` 任务 schema、`modules/generation/`、`core/jobs/`、`QueuePage.jsx`                      |
+| 修改完整成片           | `core/film/`、`FilmPage.jsx`、`features/film/`                                                              |
+| 修改组织/session       | `modules/accountManagement/`、`apps/web/src/pages/SettingsPage.jsx`、`apps/admin/src/App.jsx`               |
+| 修改后台管理           | `modules/admin/`、`packages/contracts/src/admin.ts`、`apps/admin/src/`                                      |
+| 新增 Provider          | `core/generation` 接口与适配器、`runtime/providers.ts`、配置 schema、健康检查和替身测试                     |
+| 修改部署               | `compose.demo.yml`、`deploy/`、`OPERATIONS_RUNBOOK.md`、`DEPLOYMENT.md`                                     |
 
 接手现有模块时先沿一条真实请求链阅读：页面事件 -> `apiClient` -> contracts -> Route -> Service -> Repository/任务 -> Worker/Provider -> 状态回写。新增模块也必须沿用这一顺序，不能只做页面或只写一个直连 Provider 的 Route。任务结束前至少同步 `CURRENT_STATE.md` 和本模块专项文档。
 
@@ -258,7 +276,7 @@ docker compose --env-file deploy/demo.env -f compose.demo.yml ps
 1. 项目/任务/AI Job 已进入 Postgres，任务触发已通过 Outbox 进入 Redis/BullMQ；商用多实例前仍要验证组织过滤、重复投递、故障恢复和 Worker 横向扩缩容。
 2. Worker 是独立进程，但队列监控、死信处理、任务恢复演练和告警还没生产化。
 3. `app.json` 仍承载本地媒体索引和兼容备份，恢复数据前必须先确认 Postgres、JSON 和对象存储三者一致。
-4. 音频资产 AI 生成、完整成片音轨、用户协议/隐私/数据删除流程尚未实现；邮件已接 Resend，但退信与投递告警仍需补齐；Stripe test mode 已接入，正式支付仍需价格/webhook、税务发票、支付失败通知和对账告警。
+4. 音频资产 AI 生成、正式配音/混音/字幕、用户协议/隐私/数据删除流程尚未实现；完整预览已经保留音轨。邮件已接 Resend，但退信与投递告警仍需补齐；Stripe test mode 已接入，正式支付仍需价格/webhook、税务发票、支付失败通知和对账告警。
 5. 第三方生成质量不稳定，提示词和负面规则只能提高下限，仍需人工验收。
 6. 上游额度、并发池、素材审核和安全策略会导致平台外部错误，不能用本地假状态掩盖。
 

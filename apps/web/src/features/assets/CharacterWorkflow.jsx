@@ -75,6 +75,15 @@ export function CharacterWorkflow({
   const activeAppearanceVariantId = attributes.activeAppearanceVariantId || null
   const activeAppearanceVariant =
     appearanceVariants.find((variant) => variant.id === activeAppearanceVariantId) || null
+  const bodyConfirmationReady =
+    faceConfirmationReady &&
+    attributes.bodyStatus === 'approved' &&
+    Boolean(attributes.bodyReference?.id && attributes.bodyReference?.url) &&
+    (!bodyCandidate ||
+      sameReference(bodyCandidate, attributes.bodyReference) ||
+      sameReference(activeAppearanceVariant?.bodyReference, attributes.bodyReference))
+  const stageReady = (targetStage) =>
+    targetStage === 'face' || (targetStage === 'body' ? faceConfirmationReady : bodyConfirmationReady)
 
   useEffect(() => {
     if (stage !== 'turnaround' || variantName.trim()) return
@@ -86,6 +95,13 @@ export function CharacterWorkflow({
     setSubmittingStage(targetStage)
     setClosingStage(closeAfterQueue ? targetStage : null)
     try {
+      if (!stageReady(targetStage)) {
+        throw new Error(
+          targetStage === 'body'
+            ? '请先确认当前面部基准，再生成全身。'
+            : '请先确认当前全身基准，再生成三视图。',
+        )
+      }
       await (closeAfterQueue ? onGenerateAndClose(targetStage) : onGenerate(targetStage))
     } catch (generationError) {
       setError(generationError.message)
@@ -169,7 +185,7 @@ export function CharacterWorkflow({
     <button
       className="button background-generation-button"
       type="button"
-      disabled={submittingStage !== null || isActive(taskFor(targetStage))}
+      disabled={submittingStage !== null || !stageReady(targetStage) || isActive(taskFor(targetStage))}
       onClick={() => void generate(targetStage, true)}
     >
       {closingStage === targetStage ? <LoaderCircle size={15} className="spin" /> : <LogOut size={15} />}
@@ -178,13 +194,10 @@ export function CharacterWorkflow({
   )
 
   return (
-    <section className="character-workflow">
-      <div className="character-stage-nav">
+    <section className={`character-workflow authoring-character-workflow stage-${stage}`}>
+      <nav className="character-stage-nav" aria-label="人物制作步骤">
         {STAGES.map(([id, label, Icon], index) => {
-          const unlocked =
-            id === 'face' ||
-            (id === 'body' && attributes.faceStatus === 'approved') ||
-            (id === 'turnaround' && attributes.bodyStatus === 'approved')
+          const unlocked = stageReady(id)
           const completed =
             (id === 'face' && attributes.faceStatus === 'approved') ||
             (id === 'body' && attributes.bodyStatus === 'approved') ||
@@ -201,22 +214,22 @@ export function CharacterWorkflow({
               <span>
                 {completed ? <CheckCircle2 size={15} /> : unlocked ? <Icon size={15} /> : <Lock size={14} />}
               </span>
-              <small>步骤 {index + 1}</small>
+              <small>{String(index + 1).padStart(2, '0')}</small>
               <strong>{label}</strong>
             </button>
           )
         })}
-      </div>
+      </nav>
       {settings}
 
       {stage === 'face' && (
         <StagePanel
-          eyebrow="身份锚点"
-          title="先确定人物面部"
+          eyebrow="面部定稿"
+          title="确认人物面部"
           description={
             faceCreationMode === 'direct'
-              ? '上传图会直接成为身份锚点；确认后全身与三视图都会固定使用它。'
-              : '大头照只处理脸型、五官、年龄、发型和画风。确认后全身与三视图都会固定使用它。'
+              ? '确认这张原图作为人物面部基准。'
+              : '确认后，全身与三视图将沿用这张面部基准。'
           }
           task={faceTask}
           reference={facePreview}
@@ -302,9 +315,9 @@ export function CharacterWorkflow({
 
       {stage === 'body' && (
         <StagePanel
-          eyebrow="身体设定"
-          title="基于确认面部制作全身"
-          description="全身生成会自动携带面部基准；腿部优化仅影响身体比例，不改变已确认的脸。"
+          eyebrow="全身定稿"
+          title="确认人物全身"
+          description="沿用已确认的面部基准。"
           task={bodyTask}
           reference={bodyCandidate || attributes.bodyReference || attributes.faceReference}
           previewMode="contain"
@@ -332,7 +345,7 @@ export function CharacterWorkflow({
           <button
             className="button secondary"
             type="button"
-            disabled={submittingStage !== null || isActive(bodyTask)}
+            disabled={submittingStage !== null || !faceConfirmationReady || isActive(bodyTask)}
             onClick={() => void generate('body')}
           >
             {(submittingStage === 'body' && closingStage !== 'body') || isActive(bodyTask) ? (
@@ -343,6 +356,7 @@ export function CharacterWorkflow({
             {bodyTask ? '重新生成全身' : '生成全身候选'}
           </button>
           {backgroundGenerateButton('body')}
+          {!faceConfirmationReady && <p role="status">请先确认当前面部基准，再生成全身。</p>}
           <button
             className="button primary"
             type="button"
@@ -360,8 +374,7 @@ export function CharacterWorkflow({
           <div className="turnaround-panel-head">
             <div>
               <span className="eyebrow">交付设定表</span>
-              <h3>生成一张三视图设定表</h3>
-              <p>系统保留正面、侧面、背面三张源图，默认合成一张 16:9 三栏图片。</p>
+              <h3>三视图设定表</h3>
             </div>
             <div className="turnaround-layout" role="group" aria-label="三视图输出方式">
               <button
@@ -414,7 +427,7 @@ export function CharacterWorkflow({
             <button
               className="button secondary"
               type="button"
-              disabled={submittingStage !== null || isActive(turnaroundTask)}
+              disabled={submittingStage !== null || !bodyConfirmationReady || isActive(turnaroundTask)}
               onClick={() => void generate('turnaround')}
             >
               {(submittingStage === 'turnaround' && closingStage !== 'turnaround') ||
@@ -426,6 +439,7 @@ export function CharacterWorkflow({
               {turnaroundTask ? '重新生成三视图' : '生成三视图'}
             </button>
             {backgroundGenerateButton('turnaround')}
+            {!bodyConfirmationReady && <p role="status">请先确认当前全身基准，再生成三视图。</p>}
             {turnaroundTask?.status === 'completed' && turnaroundTask.outputs.length >= 3 && (
               <button
                 className="button primary"
@@ -491,7 +505,7 @@ function StagePanel({
   description,
   task,
   reference,
-  previewMode = 'cover',
+  previewMode = 'contain',
   emptyText,
   onPreview,
   showTaskState = true,

@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ChevronDown,
   Search,
   Shirt,
   Sparkles,
@@ -68,6 +69,7 @@ export function AssetsPage({
   const [busyAssetId, setBusyAssetId] = useState(null)
   const [batchGenerating, setBatchGenerating] = useState(false)
   const [imageModel, setImageModel] = useState('img2-default')
+  const [error, setError] = useState('')
   const hunyuanConfigured = imageModels?.hunyuan === 'configured'
   const filtered = assets.filter(
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
@@ -95,26 +97,25 @@ export function AssetsPage({
   ])
 
   return (
-    <div className="page assets-page">
-      <PageHeader
-        eyebrow="第 2 步 · 资产"
-        title="建立可复用的视觉资产"
-        description="人物、场景、物品、服装、品牌和音频分别管理，并保持同一项目风格一致。"
-      >
+    <div className="page assets-page studio-assets-page">
+      <PageHeader eyebrow="视觉资产" title="资产设计">
         <span className="inherited-ratio">
           项目比例 <strong>{project.aspectRatio}</strong>
         </span>
-        <button className="button secondary" onClick={() => setEditing({ kind: tab })}>
+        <button className="button primary" onClick={() => setEditing({ kind: tab })}>
           <Plus size={16} /> 添加{tabLabel}
         </button>
         {billing.plan === 'member' && generatable.length > 0 && (
           <button
-            className="button primary"
+            className="button secondary"
             disabled={batchGenerating}
             onClick={async () => {
               setBatchGenerating(true)
+              setError('')
               try {
                 await onGenerateAll(generatable, imageModel)
+              } catch (generationError) {
+                setError(generationError.message)
               } finally {
                 setBatchGenerating(false)
               }
@@ -126,9 +127,15 @@ export function AssetsPage({
         )}
       </PageHeader>
 
-      <div className="asset-tabs asset-tabs-six">
+      <div className="asset-tabs asset-tabs-six" role="tablist" aria-label="资产分类">
         {ASSET_TABS.map(([kind, label]) => (
-          <button key={kind} className={tab === kind ? 'active' : ''} onClick={() => setTab(kind)}>
+          <button
+            role="tab"
+            aria-selected={tab === kind}
+            key={kind}
+            className={tab === kind ? 'active' : ''}
+            onClick={() => setTab(kind)}
+          >
             {label} <span>{assets.filter((asset) => asset.kind === kind).length}</span>
           </button>
         ))}
@@ -137,6 +144,7 @@ export function AssetsPage({
         <div className="search-box">
           <Search size={16} />
           <input
+            aria-label={`搜索${tabLabel}`}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={`搜索${tabLabel}`}
@@ -144,7 +152,7 @@ export function AssetsPage({
         </div>
         <div className="generation-note">
           <Gauge size={15} />
-          {billing.plan === 'member' ? '会员模式：最多同时生成 3 项' : '免费模式：任务按顺序逐个生成'}
+          {billing.plan === 'member' ? '最多并发 3 项' : '按顺序生成'}
         </div>
         <label className="asset-model-select">
           <span>图片模型</span>
@@ -163,6 +171,11 @@ export function AssetsPage({
           </select>
         </label>
       </div>
+      {error && (
+        <p className="operation-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="asset-grid">
         {filtered.map((asset) => (
@@ -179,8 +192,11 @@ export function AssetsPage({
             tasks={tasks}
             onGenerate={async () => {
               setBusyAssetId(asset.id)
+              setError('')
               try {
                 await onGenerate(asset, imageModel)
+              } catch (generationError) {
+                setError(generationError.message)
               } finally {
                 setBusyAssetId(null)
               }
@@ -189,16 +205,30 @@ export function AssetsPage({
             busy={busyAssetId === asset.id}
           />
         ))}
-        <button className="add-asset" onClick={() => setEditing({ kind: tab })}>
-          <span>
-            <Plus size={21} />
-          </span>
-          <strong>添加{tabLabel}</strong>
-          <small>本地导入或使用 AI 生成</small>
-        </button>
+        {filtered.length > 0 && (
+          <button className="add-asset" onClick={() => setEditing({ kind: tab })}>
+            <span>
+              <Plus size={21} />
+            </span>
+            <strong>添加{tabLabel}</strong>
+          </button>
+        )}
       </div>
+      {filtered.length === 0 && (
+        <div className="authoring-asset-empty">
+          <Boxes size={30} />
+          <h2>{search ? `没有找到“${search}”` : `还没有${tabLabel}资产`}</h2>
+          <button
+            className="button secondary"
+            onClick={() => (search ? setSearch('') : setEditing({ kind: tab }))}
+          >
+            {search ? <Search size={16} /> : <Plus size={16} />}
+            {search ? '清除搜索' : `添加${tabLabel}`}
+          </button>
+        </div>
+      )}
 
-      <div className="sticky-actions">
+      <div className="sticky-actions authoring-flow-footer">
         <span>
           <BadgeCheck size={15} />
           当前项目共 {assets.length} 项资产
@@ -272,8 +302,14 @@ export function AssetsPage({
 
 function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
-  const [emptyTitle, emptyDescription] = emptyAssetCopy[asset.kind] || ['资产待生成', '完成生成后在此预览']
-  const tags = [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)]
+  const [emptyTitle] = emptyAssetCopy[asset.kind] || ['资产待生成']
+  const tags = [
+    ...new Set(
+      [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)].filter(
+        Boolean,
+      ),
+    ),
+  ]
   const previewUrl = getAssetPreviewUrl(asset, tasks)
   const taskCardState = assetTaskCardState(task, previewUrl)
   return (
@@ -291,13 +327,17 @@ function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate
             <img src={previewUrl} alt={asset.name} loading="eager" decoding="async" />
           </button>
         ) : (
-          <div className={`asset-empty-state asset-empty-${asset.kind}`}>
+          <button
+            type="button"
+            onClick={onEdit}
+            className={`asset-empty-state asset-empty-${asset.kind}`}
+            aria-label={`编辑${asset.name}并生成图片`}
+          >
             <span>
               <EmptyIcon size={28} />
             </span>
             <strong>{emptyTitle}</strong>
-            <small>{emptyDescription}</small>
-          </div>
+          </button>
         )}
         {(busy || taskCardState) && (
           <div className="asset-generation-overlay" role="status" aria-live="polite">
@@ -335,26 +375,45 @@ function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate
             <span key={tag}>{tag}</span>
           ))}
         </div>
-        <label>{asset.sourceMode === 'import' ? '素材使用方式' : '最终提示词'}</label>
-        <p className="prompt-text">
-          {asset.sourceMode === 'import'
-            ? '直接使用本地原图，不调用 Img2；描述和标签只用于资产检索与镜头匹配。'
-            : asset.prompt || '编辑资产后自动生成中文提示词'}
-        </p>
+        <details className="authoring-card-details">
+          <summary>
+            {asset.sourceMode === 'import' ? '素材信息' : '提示词'}
+            <ChevronDown size={14} />
+          </summary>
+          <p className="prompt-text">
+            {asset.sourceMode === 'import' ? '直接使用原图' : asset.prompt || '编辑资产后自动生成中文提示词'}
+          </p>
+        </details>
         <div className="asset-actions">
-          <button onClick={asset.kind === 'character' || asset.sourceMode === 'import' ? onEdit : onGenerate}>
-            {asset.kind === 'character' || asset.sourceMode === 'import' ? (
+          <button
+            disabled={
+              asset.kind !== 'character' &&
+              asset.kind !== 'audio' &&
+              asset.sourceMode !== 'import' &&
+              (busy || ['queued', 'paused', 'running'].includes(taskCardState))
+            }
+            onClick={
+              asset.kind === 'character' || asset.kind === 'audio' || asset.sourceMode === 'import'
+                ? onEdit
+                : onGenerate
+            }
+          >
+            {asset.kind === 'character' || asset.kind === 'audio' || asset.sourceMode === 'import' ? (
               <Pencil size={14} />
             ) : (
               <RefreshCw size={14} />
             )}
             {asset.kind === 'character'
               ? '继续人物设定'
-              : asset.sourceMode === 'import'
-                ? '管理原图'
-                : '生成新版本'}
+              : asset.kind === 'audio'
+                ? '编辑音频素材'
+                : asset.sourceMode === 'import'
+                  ? '管理原图'
+                  : '生成新版本'}
           </button>
-          <button onClick={onEdit}>编辑</button>
+          <button onClick={onEdit} aria-label={`编辑${asset.name}设定`} title="编辑设定">
+            <Pencil size={15} />
+          </button>
         </div>
       </div>
     </article>

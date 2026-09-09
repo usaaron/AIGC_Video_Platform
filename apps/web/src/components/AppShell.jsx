@@ -25,17 +25,19 @@ import {
   Zap,
 } from 'lucide-react'
 import { BrandMark } from './BrandMark'
+import { ThemeToggle } from './ThemeToggle'
 import { IconButton, StatusDot } from './ui'
 import { FUNCTION_STACK_ITEMS } from '../features/functionStack/config'
+import { WORKFLOW_STEPS } from '../features/workspace/workflowGuide'
 
-const STEPS = [
-  { id: 'overview', label: '项目概览', icon: LayoutDashboard },
-  { id: 'script', label: '剧本', icon: BookOpenText },
-  { id: 'assets', label: '资产设计', icon: UsersRound },
-  { id: 'storyboard', label: '分镜', icon: Layers3 },
-  { id: 'generate', label: '生成队列', icon: WandSparkles },
-  { id: 'film', label: '成片', icon: Clapperboard },
-]
+const STEP_ICONS = {
+  overview: LayoutDashboard,
+  script: BookOpenText,
+  assets: UsersRound,
+  storyboard: Layers3,
+  generate: WandSparkles,
+  film: Clapperboard,
+}
 
 const FUNCTION_STACK_ICONS = {
   'agent-studio': MessageSquareText,
@@ -87,7 +89,7 @@ export function AppHeader({
         <button className="mobile-menu" onClick={onOpenNav} aria-label="打开导航">
           <Menu size={21} />
         </button>
-        <BrandMark spin />
+        <BrandMark />
         <div className="brand-name">
           序幕
           <span>
@@ -101,9 +103,10 @@ export function AppHeader({
         <ChevronDown size={15} />
       </button>
       <div className="top-actions">
+        <ThemeToggle />
         <div className="queue-indicator">
           <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
-          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '暂无进行中的任务'}
         </div>
         <div
           ref={notificationCenterRef}
@@ -218,12 +221,13 @@ export function AppSidebar({
   mobileNav,
   billing,
   assetCount,
+  project,
+  onCreate,
   canOpenAdminAccounts = false,
   adminConsoleUrl,
   onNavigate,
   onClose,
 }) {
-  const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
   const usage = billing?.monthlyUsage
   const usageBudget = usage?.includedCredits || (usage?.netCredits ?? 0) + (billing?.credits ?? 0)
   const usagePercent = usageBudget
@@ -233,7 +237,7 @@ export function AppSidebar({
   return (
     <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`}>
       <div className="mobile-sidebar-head">
-        <div className="brand-name">创作流程</div>
+        <div className="brand-name">序幕工作室</div>
         <IconButton label="关闭导航" onClick={onClose}>
           <X size={19} />
         </IconButton>
@@ -245,9 +249,11 @@ export function AppSidebar({
         <FolderOpen size={17} />
         <span>项目库</span>
       </button>
+      <button className="sidebar-create" onClick={() => onNavigate('agent-studio')}>
+        <MessageSquareText size={18} /> 开始创作 <ArrowRight size={16} />
+      </button>
       <div className="sidebar-group-heading">
-        <span>功能栈</span>
-        <small>03</small>
+        <span>创作工具</span>
       </div>
       <nav className="sidebar-tool-nav" aria-label="功能栈">
         {FUNCTION_STACK_ITEMS.map((item) => {
@@ -262,30 +268,41 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>{item.id === 'writing-studio' ? '开发中' : '已启用'}</small>
+              {item.id === 'writing-studio' && <small>开发中</small>}
             </button>
           )
         })}
       </nav>
-      <div className="sidebar-label">创作流程</div>
-      <nav className="sidebar-flow-nav" aria-label="创作流程">
-        {STEPS.map((step, index) => {
-          const Icon = step.icon
-          return (
-            <button
-              key={step.id}
-              className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
-              onClick={() => onNavigate(step.id)}
-            >
-              <span className={`nav-index ${index < activeIndex ? 'done' : ''}`}>
-                {index < activeIndex ? <Check size={12} /> : index + 1}
-              </span>
-              <Icon size={17} />
-              <span>{step.label}</span>
-            </button>
-          )
-        })}
-      </nav>
+      <div className="sidebar-project-heading">
+        <span>当前项目</span>
+        {onCreate && (
+          <IconButton label="新建项目" onClick={onCreate}>
+            <FolderKanban size={15} />
+          </IconButton>
+        )}
+      </div>
+      {project ? (
+        <button
+          className={`sidebar-project ${WORKFLOW_STEPS.some((step) => step.id === activeStep) ? 'active' : ''}`}
+          onClick={() => onNavigate('overview')}
+        >
+          <Clapperboard size={17} />
+          <span>
+            <strong>{project.name}</strong>
+            <small>
+              {project.aspectRatio} ·{' '}
+              {project.contentType === 'short-drama'
+                ? '网剧'
+                : project.contentType === 'advertisement'
+                  ? '广告'
+                  : '短片'}
+            </small>
+          </span>
+          <ChevronDown size={14} />
+        </button>
+      ) : (
+        <p className="sidebar-project-empty">开始创作，或打开一个项目。</p>
+      )}
       <div className="sidebar-spacer" />
       <button
         className={`sidebar-link ${activeStep === 'library' ? 'active' : ''}`}
@@ -303,7 +320,7 @@ export function AppSidebar({
         className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
         onClick={() => onNavigate('settings')}
       >
-        <Settings size={17} /> 项目设置
+        <Settings size={17} /> 账号中心
       </button>
       {canOpenAdminAccounts && (
         <a className="sidebar-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">
@@ -329,6 +346,65 @@ export function AppSidebar({
           {usage?.includedCredits ? ` · 月度 ${usage.includedCredits}` : ' · 按量使用'}
         </small>
       </button>
+    </aside>
+  )
+}
+
+export function WorkflowNavigation({ activeStep, guide, onNavigate }) {
+  const navigationRef = useRef(null)
+  useEffect(() => {
+    const navigation = navigationRef.current
+    const selected = navigation?.querySelector('[aria-current="step"]')
+    if (!navigation || !selected) return
+    navigation.scrollTo({
+      left: selected.offsetLeft - navigation.offsetLeft - (navigation.clientWidth - selected.clientWidth) / 2,
+    })
+  }, [activeStep])
+  return (
+    <div className="workflow-navigation-wrap">
+      <nav ref={navigationRef} className="workflow-navigation" aria-label="创作流程">
+        {WORKFLOW_STEPS.map((step, index) => {
+          const Icon = STEP_ICONS[step.id]
+          const complete = guide.ready[step.id]
+          return (
+            <button
+              type="button"
+              key={step.id}
+              className={activeStep === step.id ? 'active' : ''}
+              aria-current={activeStep === step.id ? 'step' : undefined}
+              onClick={() => onNavigate(step.id)}
+              title={step.detail}
+            >
+              <span className={`workflow-navigation-index ${complete ? 'complete' : ''}`}>
+                {complete ? <Check size={12} /> : String(index + 1).padStart(2, '0')}
+              </span>
+              <Icon size={16} />
+              <span>{step.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+    </div>
+  )
+}
+
+export function WorkflowGuidance({ guide, activeStep, onNavigate }) {
+  if (activeStep === 'overview') return null
+  return (
+    <aside className={`workflow-guidance ${guide.tone}`} aria-label="下一步建议">
+      <span className="workflow-guidance-mark">
+        <Clapperboard size={17} />
+      </span>
+      <div>
+        <strong>{guide.title}</strong>
+        <span>{guide.detail}</span>
+      </div>
+      {guide.step !== activeStep && (
+        <button type="button" onClick={() => onNavigate(guide.step)}>
+          {guide.action}
+          <ArrowRight size={15} />
+        </button>
+      )}
     </aside>
   )
 }

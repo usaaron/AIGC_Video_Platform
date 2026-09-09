@@ -1,4 +1,5 @@
 import type { GenerationTask } from '@seqora/contracts'
+import { parseStoredImageReference } from '../../core/media/storedImageReference.js'
 
 export type TaskDependencyReference = {
   id: string
@@ -96,6 +97,16 @@ export function taskDependencyReferences(task: GenerationTask): TaskDependencyRe
     const ids = task.metadata[key]
     if (!Array.isArray(ids)) continue
     ids.forEach(add)
+  }
+  // Generated reference images remain required after their tasks leave the active queue.
+  for (const key of ['references', 'images']) {
+    const images = task.metadata[key]
+    if (!Array.isArray(images)) continue
+    for (const image of images) {
+      const url = typeof image === 'string' ? image : image && typeof image === 'object' ? image.url : null
+      const reference = parseStoredImageReference(url)
+      if (reference?.kind === 'generation') add(reference.taskId)
+    }
   }
   return [
     ...new Map(

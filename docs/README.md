@@ -1,16 +1,17 @@
 # 序幕TV 文档索引
 
-本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新 Agent 先读根目录 `AGENTS.md`，再读 `CURRENT_STATE.md`。工程化升级前的全量审查见 [ENGINEERING_AUDIT.md](ENGINEERING_AUDIT.md)。
+本目录按“当前事实、开发边界、专项能力、质量、运维、历史”组织。新同事或新 Agent 先读根目录 `AGENTS.md`，再读 [全量交接手册](PROJECT_HANDOFF.md) 和 `CURRENT_STATE.md`。工程化升级前的全量审查见 [ENGINEERING_AUDIT.md](ENGINEERING_AUDIT.md)。
 
 ## 当前事实
 
-| 文档                                                   | 用途                                 | 状态                        |
-| ------------------------------------------------------ | ------------------------------------ | --------------------------- |
-| [CURRENT_STATE.md](CURRENT_STATE.md)                   | 当前功能矩阵、生产状态、限制和优先级 | 当前事实源，2026-08-03 核对 |
-| [HANDOFF_GUIDE.md](HANDOFF_GUIDE.md)                   | 30 分钟项目总览和代码地图            | 当前交接入口                |
-| [DEVELOPMENT_MEMORY.md](DEVELOPMENT_MEMORY.md)         | 历史决策、事故、验收和迁移记录       | 历史日志，顶部当前快照优先  |
-| [PRODUCT_VOCABULARY.md](PRODUCT_VOCABULARY.md)         | 产品词汇和角色冻结                   | 有效                        |
-| [ACCOUNT_DELIVERY_GUIDE.md](ACCOUNT_DELIVERY_GUIDE.md) | 公账付款后的 C 端/B 端账号交付 SOP   | 有效                        |
+| 文档                                                   | 用途                                   | 状态                                 |
+| ------------------------------------------------------ | -------------------------------------- | ------------------------------------ |
+| [CURRENT_STATE.md](CURRENT_STATE.md)                   | 当前功能矩阵、生产状态、限制和优先级   | 当前工作分支事实，2026-09-08 校对    |
+| [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)               | 面向同事的架构、流程、部署和运维总交接 | 2026-09-09 全量交接入口              |
+| [HANDOFF_GUIDE.md](HANDOFF_GUIDE.md)                   | 30 分钟项目总览和代码地图              | 快速上手，完整内容见 PROJECT_HANDOFF |
+| [DEVELOPMENT_MEMORY.md](DEVELOPMENT_MEMORY.md)         | 历史决策、事故、验收和迁移记录         | 历史日志，顶部当前快照优先           |
+| [PRODUCT_VOCABULARY.md](PRODUCT_VOCABULARY.md)         | 产品词汇和角色冻结                     | 有效                                 |
+| [ACCOUNT_DELIVERY_GUIDE.md](ACCOUNT_DELIVERY_GUIDE.md) | 公账付款后的 C 端/B 端账号交付 SOP     | 有效                                 |
 
 ## 架构与开发
 
@@ -26,14 +27,14 @@
 
 ## 产品与 Provider
 
-| 文档                                                     | 用途                                   | 当前阶段                    |
-| -------------------------------------------------------- | -------------------------------------- | --------------------------- |
-| [ASSET_GENERATION.md](ASSET_GENERATION.md)               | 资产、可信人像、图片、视频、分镜和成片 | 主流程有效                  |
-| [DIRECTOR_PIPELINE_AUDIT.md](DIRECTOR_PIPELINE_AUDIT.md) | 剧本到有声粗剪的链路审计与升级方案     | 2026-08-04 调研结论         |
-| [NOVEL_TO_VIDEO_AGENT.md](NOVEL_TO_VIDEO_AGENT.md)       | 长篇小说到视频的阶段方案               | 后端实验，前端开发中        |
-| [NOVEL_REGRESSION.md](NOVEL_REGRESSION.md)               | 小说真实样本回归                       | 手工显式执行                |
-| [SCENE_MASTER_EXPERIMENT.md](SCENE_MASTER_EXPERIMENT.md) | 按场次母带成片实验                     | 实验脚本，不是产品入口      |
-| [BILLING_PAYMENTS.md](BILLING_PAYMENTS.md)               | 积分、Stripe 沙箱与正式支付缺口        | Ledger 可用，正式支付未上线 |
+| 文档                                                     | 用途                                     | 当前阶段                    |
+| -------------------------------------------------------- | ---------------------------------------- | --------------------------- |
+| [ASSET_GENERATION.md](ASSET_GENERATION.md)               | 资产、可信人像、图片、视频、分镜和成片   | 主流程有效                  |
+| [DIRECTOR_PIPELINE_AUDIT.md](DIRECTOR_PIPELINE_AUDIT.md) | 自适应剧本、有序拍点规划、限制与后续方案 | 2026-09-08 按代码校对       |
+| [NOVEL_TO_VIDEO_AGENT.md](NOVEL_TO_VIDEO_AGENT.md)       | 长篇小说到视频的阶段方案                 | 后端实验，前端开发中        |
+| [NOVEL_REGRESSION.md](NOVEL_REGRESSION.md)               | 小说真实样本回归                         | 手工显式执行                |
+| [SCENE_MASTER_EXPERIMENT.md](SCENE_MASTER_EXPERIMENT.md) | 按场次母带成片实验                       | 实验脚本，不是产品入口      |
+| [BILLING_PAYMENTS.md](BILLING_PAYMENTS.md)               | 积分、Stripe 沙箱与正式支付缺口          | Ledger 可用，正式支付未上线 |
 
 ## 测试与质量
 

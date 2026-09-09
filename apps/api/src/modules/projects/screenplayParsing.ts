@@ -2,6 +2,12 @@ export type NaturalScreenplayFields = Partial<
   Record<'场次' | '时长' | '剧情' | '场景' | '角色' | '动作' | '对白' | '声音', string>
 >
 
+export type ScreenplayEvent = {
+  kind: 'action' | 'dialogue' | 'sound'
+  text: string
+  speaker?: string
+}
+
 export function isNaturalScreenplayHeader(line: string): boolean {
   const parts = normalizeHeader(line)
     .split(/[｜|]/u)
@@ -36,48 +42,14 @@ export function parseNaturalScreenplayFields(paragraph: string): NaturalScreenpl
     ) || ''
   const location =
     metadata.find((part) => part !== duration && part !== spatial && part !== moment) || '当前场景'
-  const bodyLines = lines.slice(1).filter((line) => !/^(?:正文|剧本正文|正文内容)\s*[：:]?$/u.test(line))
-  const dialogue: string[] = []
-  const sounds: string[] = []
-  const roles = new Set<string>()
-  const actionLines: string[] = []
-
-  for (const line of bodyLines) {
-    const tagged = line.match(
-      /^\[(对白|台词|画外音|旁白|内心独白|音效|环境声|音乐|音乐\/环境声)\]\s*(?:([^：:\n]{1,16})[：:])?\s*[“"]?(.+?)[”"]?$/u,
-    )
-    if (tagged?.[1] && tagged[3]) {
-      const kind = tagged[1] === '旁白' ? '画外音' : tagged[1]
-      const speaker = tagged[2]?.trim() || ''
-      const cue = `[${kind}]${speaker ? `${speaker}：` : ''}${tagged[3].trim()}`
-      if (/^(?:音效|环境声|音乐|音乐\/环境声)$/u.test(kind)) sounds.push(cue)
-      else dialogue.push(cue)
-      if (speaker && !/^(?:画外音|旁白)$/u.test(speaker)) roles.add(speaker)
-      continue
-    }
-
-    const labelledCue = line.match(/^(画外音|旁白|内心独白|音效|环境声|音乐)\s*[：:]\s*[“"]?(.+?)[”"]?$/u)
-    if (labelledCue?.[1] && labelledCue[2]) {
-      const kind = labelledCue[1] === '旁白' ? '画外音' : labelledCue[1]
-      const cue = `[${kind}]${labelledCue[2].trim()}`
-      if (/^(?:音效|环境声|音乐)$/u.test(kind)) sounds.push(cue)
-      else dialogue.push(cue)
-      continue
-    }
-
-    const spoken = line.match(
-      /^([^：:\n（）()]{1,12})(?:[（(][^）)]{1,24}[）)])?\s*[：:]\s*[“"]?(.+?)[”"]?\s*$/u,
-    )
-    if (spoken?.[1] && spoken[2]) {
-      const speaker = spoken[1].trim()
-      roles.add(speaker)
-      dialogue.push(`[对白]${speaker}：${spoken[2].trim()}`)
-      continue
-    }
-    actionLines.push(line)
-  }
-
-  const action = actionLines.join('\n').trim()
+  const events = naturalScreenplayEvents(paragraph)
+  const dialogue = events.filter((event) => event.kind === 'dialogue').map((event) => event.text)
+  const sounds = events.filter((event) => event.kind === 'sound').map((event) => event.text)
+  const roles = new Set(events.flatMap((event) => (event.speaker ? [event.speaker] : [])))
+  const action = events
+    .filter((event) => event.kind === 'action')
+    .map((event) => event.text)
+    .join('\n')
   const scene = [location, moment, spatial].filter(Boolean).join('，')
   return {
     场次: sceneMatch[1],
@@ -88,6 +60,54 @@ export function parseNaturalScreenplayFields(paragraph: string): NaturalScreenpl
     ...(dialogue.length ? { 对白: dialogue.join('；') } : {}),
     ...(sounds.length ? { 声音: sounds.join('；') } : {}),
   }
+}
+
+export function naturalScreenplayEvents(paragraph: string): ScreenplayEvent[] {
+  const lines = paragraph
+    .replace(/\r/gu, '')
+    .split(/\n+/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (!isNaturalScreenplayHeader(lines[0] || '')) return []
+  const bodyLines = lines.slice(1).filter((line) => !/^(?:正文|剧本正文|正文内容)\s*[：:]?$/u.test(line))
+  const events: ScreenplayEvent[] = []
+
+  for (const line of bodyLines) {
+    const tagged = line.match(
+      /^\[(对白|台词|画外音|旁白|内心独白|音效|环境声|音乐|音乐\/环境声)\]\s*(?:([^：:\n]{1,16})[：:])?\s*[“"]?(.+?)[”"]?$/u,
+    )
+    if (tagged?.[1] && tagged[3]) {
+      const kind = tagged[1] === '旁白' ? '画外音' : tagged[1]
+      const speaker = tagged[2]?.trim() || ''
+      const cue = `[${kind}]${speaker ? `${speaker}：` : ''}${tagged[3].trim()}`
+      events.push({
+        kind: /^(?:音效|环境声|音乐|音乐\/环境声)$/u.test(kind) ? 'sound' : 'dialogue',
+        text: cue,
+        ...(speaker && !/^(?:画外音|旁白)$/u.test(speaker) ? { speaker } : {}),
+      })
+      continue
+    }
+
+    const labelledCue = line.match(/^(画外音|旁白|内心独白|音效|环境声|音乐)\s*[：:]\s*[“"]?(.+?)[”"]?$/u)
+    if (labelledCue?.[1] && labelledCue[2]) {
+      const kind = labelledCue[1] === '旁白' ? '画外音' : labelledCue[1]
+      const cue = `[${kind}]${labelledCue[2].trim()}`
+      events.push({ kind: /^(?:音效|环境声|音乐)$/u.test(kind) ? 'sound' : 'dialogue', text: cue })
+      continue
+    }
+
+    const spoken = line.match(
+      /^([^：:\n（）()]{1,12})(?:[（(][^）)]{1,24}[）)])?\s*[：:]\s*[“"]?(.+?)[”"]?\s*$/u,
+    )
+    if (spoken?.[1] && spoken[2]) {
+      const speaker = spoken[1].trim()
+      events.push({ kind: 'dialogue', text: `[对白]${speaker}：${spoken[2].trim()}`, speaker })
+      continue
+    }
+    events.push({ kind: 'action', text: line })
+  }
+
+  return events
 }
 
 function normalizeHeader(line: string): string {

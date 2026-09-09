@@ -1,8 +1,14 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
+import { Check, LoaderCircle, LogOut, RefreshCw } from 'lucide-react'
 import './App.css'
-import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
-import { IconButton } from './components/ui'
+import {
+  AppHeader,
+  AppSidebar,
+  NewProjectModal,
+  WorkflowNavigation,
+  WorkflowGuidance,
+} from './components/AppShell'
+import { NotificationToasts } from './features/notifications/NotificationToasts'
 import {
   ProjectMenu,
   WorkspaceErrorBoundary,
@@ -47,6 +53,7 @@ import {
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
+import { getWorkflowGuide } from './features/workspace/workflowGuide'
 import {
   normalizeTasks,
   normalizeWorkspace,
@@ -56,6 +63,7 @@ import {
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
   const [activeStep, setActiveStep] = useState('home')
+  const [agentDraft, setAgentDraft] = useState(null)
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
   const [activeProjectId, setActiveProjectId] = useState(null)
@@ -322,6 +330,10 @@ function App() {
       return (
         <ProjectHomePage
           projects={projects}
+          onStartAgent={(text) => {
+            setAgentDraft({ text, createdAt: Date.now() })
+            navigateTo('agent-studio')
+          }}
           onCreate={() => setNewProjectOpen(true)}
           onOpen={openProject}
           onRename={async (projectId, name) => {
@@ -358,6 +370,7 @@ function App() {
       return (
         <FunctionStackPage
           tool={activeStep}
+          initialDraft={agentDraft}
           project={project}
           billing={billing}
           tasks={tasks}
@@ -891,11 +904,16 @@ function App() {
     return (pages[activeStep] || pages.overview)()
   }
 
-  const runningJobs = tasks.filter((task) => task.status === 'running')
   const activeFunction = FUNCTION_STACK_ITEMS.find((item) => item.id === activeStep)
+  const workflowGuide = getWorkflowGuide({
+    project,
+    assets: workspace?.assets,
+    shots: workspace?.shots,
+    tasks,
+  })
 
   return (
-    <div className="app-shell">
+    <div className="app-shell studio-shell">
       <AppHeader
         projectName={
           activeStep === 'home' || !projects.length
@@ -904,7 +922,7 @@ function App() {
         }
         billing={billing}
         account={session.account}
-        runningJobs={runningJobs}
+        runningJobs={tasks.filter((task) => task.status === 'running')}
         notifications={notifications}
         onNotificationOpen={openNotification}
         onNotificationRetry={retryNotification}
@@ -920,7 +938,8 @@ function App() {
         activeStep={activeStep}
         mobileNav={mobileNav}
         billing={billing}
-        assetCount=""
+        project={project}
+        onCreate={() => setNewProjectOpen(true)}
         canOpenAdminAccounts={canOpenAdminAccounts}
         adminConsoleUrl={adminConsoleUrl}
         onNavigate={navigateTo}
@@ -930,6 +949,12 @@ function App() {
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
       <main className="workspace">
+        {project && workspaceRequired && (
+          <>
+            <WorkflowNavigation activeStep={activeStep} guide={workflowGuide} onNavigate={navigateTo} />
+            <WorkflowGuidance guide={workflowGuide} activeStep={activeStep} onNavigate={navigateTo} />
+          </>
+        )}
         <Suspense fallback={<WorkspaceLoading />}>
           <WorkspaceErrorBoundary
             projectId={activeProjectId}
@@ -958,32 +983,11 @@ function App() {
           }}
         />
       )}
-      {notificationPopups.length > 0 && (
-        <div className="notification-toast-stack" aria-live="polite">
-          {notificationPopups.map((notification) => (
-            <article key={notification.id} className={`notification-toast ${notification.status}`}>
-              <span className="notification-status-dot" />
-              <button
-                type="button"
-                className="notification-toast-open"
-                onClick={() => void openNotification(notification)}
-              >
-                <strong>{notification.title}</strong>
-                <small>
-                  {notification.projectName} · {notification.label}
-                </small>
-              </button>
-              <IconButton
-                label="关闭提示"
-                className="notification-toast-close"
-                onClick={() => dismissNotificationPopup(notification.id)}
-              >
-                <X size={15} />
-              </IconButton>
-            </article>
-          ))}
-        </div>
-      )}
+      <NotificationToasts
+        notifications={notificationPopups}
+        onOpen={openNotification}
+        onDismiss={dismissNotificationPopup}
+      />
       {toast && (
         <div className="toast">
           <Check size={16} /> {toast}

@@ -84,6 +84,24 @@ export function createWorkspaceCommands({
     await refreshSession()
   }
 
+  const rememberSubmittedTask = (task) => {
+    if (!isCurrentProject(task.projectId)) return
+    setTasks((current) => [task, ...normalizeTasks(current).filter((item) => item.id !== task.id)])
+  }
+
+  const syncSubmittedTasks = async (projectId, message, { refreshProject = false } = {}) => {
+    // A refresh failure cannot undo a task accepted by the API.
+    const results = await Promise.allSettled([
+      api.tasks(projectId),
+      refreshBilling(),
+      ...(refreshProject ? [refreshWorkspace(projectId)] : []),
+    ])
+    if (!isCurrentProject(projectId)) return
+    if (results[0].status === 'fulfilled') replaceTasks(projectId, results[0].value)
+    const pendingSync = results.some((result) => result.status === 'rejected')
+    setToast(pendingSync ? `${message}，状态同步稍慢，请勿重复提交` : message)
+  }
+
   const refreshCurrentProjectData = async () => {
     if (!project?.id) return
     const [nextWorkspace, nextTasks, nextBilling, nextProjects] = await Promise.all([
@@ -125,10 +143,9 @@ export function createWorkspaceCommands({
         estimatedCredits: cost,
         metadata: options.metadata,
       })
+      rememberSubmittedTask(created)
       if (options.refreshAfterCreate !== false) {
-        replaceTasks(project.id, await api.tasks(project.id))
-        await refreshBilling()
-        setToast(`${label} 已加入生成队列`)
+        await syncSubmittedTasks(project.id, `${label} 已加入生成队列`)
       }
       return created
     } catch (error) {
@@ -169,9 +186,8 @@ export function createWorkspaceCommands({
         ...(faceReferenceId ? { faceReferenceId } : {}),
       },
     })
-    replaceTasks(project.id, await api.tasks(project.id))
-    await refreshBilling()
-    setToast('AI 人像资源已进入后台任务，完成后会自动同步状态')
+    rememberSubmittedTask(task)
+    await syncSubmittedTasks(project.id, 'AI 人像资源已进入后台任务，完成后会自动同步状态')
     return task
   }
 
@@ -206,9 +222,8 @@ export function createWorkspaceCommands({
           model: taskModel,
         },
       })
-      replaceTasks(project.id, await api.tasks(project.id))
-      await refreshBilling()
-      setToast(`${label}已提交后台生成`)
+      rememberSubmittedTask(task)
+      await syncSubmittedTasks(project.id, `${label}已提交后台生成`)
       return task
     } catch (error) {
       setToast(error.message)
@@ -271,10 +286,8 @@ export function createWorkspaceCommands({
     try {
       const created = await api.createTask(retryTaskInput(notification.task))
       markNotificationRead(notification.id)
-      if (project?.id === created.projectId) {
-        replaceTasks(created.projectId, await api.tasks(created.projectId))
-      }
-      setToast(`${created.label}已重新提交`)
+      rememberSubmittedTask(created)
+      await syncSubmittedTasks(created.projectId, `${created.label}已重新提交`)
     } catch (error) {
       setToast(error.message)
     }
@@ -485,12 +498,10 @@ export function createWorkspaceCommands({
       }),
     )
     const created = laneResults.reduce((total, count) => total + count, 0)
-    const [, nextTasks] = await Promise.all([refreshWorkspace(), api.tasks(project.id)])
-    replaceTasks(project.id, nextTasks)
-    if (created) await refreshBilling()
     const laneCount = Math.min(plan.immediateLaneCount, created)
     if (created) {
-      setToast(
+      await syncSubmittedTasks(
+        project.id,
         forceNewVersion
           ? `已创建 ${created} 个重做任务，旧版本仍可切换`
           : mode === 'parallel'
@@ -498,6 +509,7 @@ export function createWorkspaceCommands({
             : mode === 'independent'
               ? `已创建 ${created} 个独立视频任务，全部并发提交`
               : `已按尾帧承接关系创建 ${created} 个视频任务`,
+        { refreshProject: true },
       )
     }
     return { created, laneCount }

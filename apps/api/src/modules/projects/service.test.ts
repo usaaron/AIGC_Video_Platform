@@ -342,8 +342,8 @@ describe('ProjectService script billing', () => {
     )
 
     expect(textProvider.generate).toHaveBeenCalledTimes(1)
-    expect(result.script).not.toContain('无台词')
-    expect(result.script).toContain('[内心独白]林砚：不能在这里停下。')
+    expect(result.script).toContain('无台词；[音效]脚步声')
+    expect(result.script).not.toContain('[内心独白]林砚：不能在这里停下。')
     expect(repository.update).toHaveBeenCalledOnce()
   })
 
@@ -383,7 +383,9 @@ describe('ProjectService script billing', () => {
 
     expect(result.script.match(/\[画外音\]/gu) || []).toHaveLength(0)
     expect(result.script).toContain('[对白]林砚：我会查清。')
-    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain('每个镜头目标 4 句')
+    expect(vi.mocked(textProvider.generate).mock.calls[0]?.[0].systemPrompt).toContain(
+      '短句之间留出人物行动和听者反应',
+    )
     expect(repository.update).toHaveBeenCalledOnce()
   })
 
@@ -424,8 +426,8 @@ describe('ProjectService script billing', () => {
       { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
     )
 
-    expect(result.script).not.toContain('无台词')
-    expect(result.script).toContain('[内心独白]')
+    expect(result.script).toContain('无台词；[音效]脚步声')
+    expect(result.script).not.toContain('[内心独白]')
     expect(splitScriptParagraphs(result.script)).toHaveLength(2)
     expect(repository.update).toHaveBeenCalledOnce()
   })
@@ -534,7 +536,7 @@ describe('ProjectService script billing', () => {
     const firstRequest = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
     expect(firstRequest?.maxOutputTokens).toBe(6_000)
     expect(firstRequest?.userPrompt).toContain('本次只生成 1 集')
-    expect(firstRequest?.userPrompt).toContain('优先恰好输出 3 个可识别长场次')
+    expect(firstRequest?.userPrompt).toContain('根据剧情变化安排 3 到 8 个场次，建议从 5 场起草')
     expect(splitScriptParagraphs(repository.update.mock.calls[0]?.[1]?.script || '')).toHaveLength(7)
 
     const previous = generated
@@ -552,7 +554,7 @@ describe('ProjectService script billing', () => {
     const nextRequest = vi.mocked(textProvider.generate).mock.calls[1]?.[0]
     expect(nextRequest?.maxOutputTokens).toBe(6_000)
     expect(nextRequest?.userPrompt).toContain('1 个下一集生产单元')
-    expect(nextRequest?.userPrompt).toContain('优先恰好输出 3 个长场次')
+    expect(nextRequest?.userPrompt).toContain('根据剧情变化安排 3 到 8 个场次，建议从 5 场起草')
     expect(splitScriptParagraphs(repository.update.mock.calls[1]?.[1]?.script || '')).toHaveLength(14)
   })
 

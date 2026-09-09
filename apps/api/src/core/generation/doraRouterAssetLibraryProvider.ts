@@ -138,19 +138,25 @@ export class DoraRouterAssetLibraryProvider implements AssetLibraryProvider {
   async getPortrait(assetId: string, expectedGroupType?: PortraitGroupType): Promise<ProviderPortrait> {
     const asset = assetSchema.parse(await this.call('GetAsset', { Id: assetId }))
     if (expectedGroupType) return mapPortrait(asset, expectedGroupType)
-    const group = assetGroupSchema.parse(await this.call('GetAssetGroup', { Id: asset.GroupId }))
-    const groupType = group.GroupType ?? asset.GroupType ?? (await this.findGroupType(asset.GroupId))
+    if (asset.GroupType) return mapPortrait(asset, asset.GroupType)
+    // Group details may require extra permissions; scoped group lists can still verify the type.
+    const group = await this.call('GetAssetGroup', { Id: asset.GroupId })
+      .then((result) => assetGroupSchema.parse(result))
+      .catch(() => null)
+    const groupType = group?.GroupType ?? (await this.findGroupType(asset.GroupId))
     if (!groupType) throw new Error('DoraRouter素材详情没有返回可识别的素材组类型')
     return mapPortrait(asset, groupType)
   }
 
   async getPortraitPreview(assetId: string): Promise<PortraitPreview> {
-    const portrait = await this.getPortrait(assetId)
-    if (!portrait.previewUrl) throw new Error('素材库当前没有可用的预览图片')
+    // Previewing an image does not require the material group's permissions or metadata.
+    const asset = assetSchema.parse(await this.call('GetAsset', { Id: assetId }))
+    if (asset.AssetType !== 'Image') throw new Error('该素材不是图片，无法预览')
+    if (!asset.URL) throw new Error('素材库当前没有可用的预览图片')
 
     let previewUrl: URL
     try {
-      previewUrl = new URL(portrait.previewUrl)
+      previewUrl = new URL(asset.URL, `${this.baseUrl}/`)
     } catch {
       throw new Error('素材库返回的预览地址无效')
     }
@@ -162,6 +168,7 @@ export class DoraRouterAssetLibraryProvider implements AssetLibraryProvider {
     try {
       response = await this.fetcher(previewUrl, {
         method: 'GET',
+        headers: { Accept: 'image/*' },
         signal: AbortSignal.timeout(this.options.requestTimeoutMs),
       })
     } catch (error) {
@@ -213,8 +220,8 @@ export class DoraRouterAssetLibraryProvider implements AssetLibraryProvider {
 
   private async findGroupType(groupId: string): Promise<PortraitGroupType | null> {
     for (const groupType of ['AIGC', 'LivenessFace'] as const) {
-      const groups = await this.listGroups(groupType)
-      if (groups.Items.some((group) => group.Id === groupId)) return groupType
+      const groups = await this.listGroups(groupType).catch(() => null)
+      if (groups?.Items.some((group) => group.Id === groupId)) return groupType
     }
     return null
   }

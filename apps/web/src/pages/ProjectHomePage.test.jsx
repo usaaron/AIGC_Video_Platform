@@ -13,7 +13,7 @@ describe('project home', () => {
     expect(html).toContain('aria-label="新项目欢迎页"')
     expect(html).toContain('欢迎来到序幕 TV')
     expect(html).toContain('创建第一个项目')
-    expect(html).toContain('“序幕起，')
+    expect(html).toContain('开始你的第一部作品')
     expect(html).not.toContain('aria-label="项目列表"')
     expect(html).not.toContain('aria-label="功能栈"')
   })

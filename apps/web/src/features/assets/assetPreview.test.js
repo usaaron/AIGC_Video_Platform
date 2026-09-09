@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getAssetPreviewUrl, warmAssetPreviewCache } from './assetPreview'
+import { getAssetPreviewUrl, portraitPreviewUrl, warmAssetPreviewCache } from './assetPreview'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -62,6 +62,18 @@ describe('asset preview selection', () => {
         attributes: { trustedPortrait: { status: 'active', assetId: 'portrait-1' } },
       }),
     ).toBe('/api/v1/trusted-assets/portraits/portrait-1/preview')
+  })
+
+  it('uses the authenticated portrait proxy instead of expired upstream or asset scheme URLs', () => {
+    for (const previewUrl of ['asset://portrait-1', 'https://upstream.example.test/expired.png']) {
+      const portrait = { status: 'active', assetId: 'portrait-1', previewUrl }
+      expect(portraitPreviewUrl(portrait)).toBe('/api/v1/trusted-assets/portraits/portrait-1/preview')
+      expect(getAssetPreviewUrl({ kind: 'character', attributes: { trustedPortrait: portrait } })).toBe(
+        '/api/v1/trusted-assets/portraits/portrait-1/preview',
+      )
+    }
+    expect(portraitPreviewUrl({ status: 'active', previewUrl: 'asset://portrait-1' })).toBeNull()
+    expect(portraitPreviewUrl({ status: 'processing', assetId: 'portrait-1' })).toBeNull()
   })
 
   it('keeps one decoded image object per stable preview URL', () => {

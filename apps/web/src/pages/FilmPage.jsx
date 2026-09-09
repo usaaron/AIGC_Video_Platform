@@ -8,7 +8,6 @@ import {
   Save,
   TriangleAlert,
   Video,
-  Zap,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/ui'
@@ -118,11 +117,7 @@ export function FilmPage({
   if (!shots.length) {
     return (
       <div className="page film-page">
-        <PageHeader
-          eyebrow="第 5 步 · 成片"
-          title="一眼看清整段影片"
-          description="当前项目还没有可预览的分镜。"
-        />
+        <PageHeader eyebrow="成片" title="一眼看清整段影片" description="当前项目还没有可预览的分镜。" />
         <section className="film-empty-state" role="status">
           <Film size={28} />
           <strong>还没有分镜，暂时无法预览成片</strong>
@@ -225,7 +220,7 @@ export function FilmPage({
   return (
     <div className="page film-page">
       <PageHeader
-        eyebrow={`第 5 步 · 成片 · v${project.version}`}
+        eyebrow={`成片 · v${project.version}`}
         title={`《${project.name}》预览`}
         description="先选择剧集范围，再检查、合成并保存当前工作版；历史合成结果可随时回看。"
       >
@@ -425,12 +420,14 @@ export function FilmPage({
               </div>
             ) : (
               <div className="film-pending">
-                <img
-                  key={shot.id}
-                  src={shot.imageUrl || '/demo/station.jpg'}
-                  alt={`${shot.title}分镜参考图`}
-                  className="film-frame"
-                />
+                {shot.imageUrl && (
+                  <img
+                    key={shot.id}
+                    src={shot.imageUrl}
+                    alt={`${shot.title}分镜参考图`}
+                    className="film-frame"
+                  />
+                )}
                 <div className="film-pending-shade" />
                 <div className={`film-pending-state ${displayState.tone}`}>
                   {displayState.icon}
@@ -460,7 +457,7 @@ export function FilmPage({
                   : `《${project.name}》全集预览`
               : `${String(shot.order).padStart(2, '0')} · ${shot.title}`}
           </h2>
-          <img className="film-info-thumb" src={shot.imageUrl || '/demo/station.jpg'} alt="当前镜头缩略图" />
+          {shot.imageUrl && <img className="film-info-thumb" src={shot.imageUrl} alt="当前镜头缩略图" />}
           <dl>
             <div>
               <dt>{viewMode === 'full' ? '镜头数量' : '景别'}</dt>
@@ -543,7 +540,7 @@ export function FilmPage({
       <section className="timeline-panel">
         <div className="panel-head">
           <div>
-            <h2>时间线</h2>
+            <h2>镜头顺序</h2>
             <span>
               {episodeNumber ? `第 ${episodeNumber} 集` : '全部剧集'} · {totalDuration} 秒
             </span>
@@ -551,9 +548,9 @@ export function FilmPage({
         </div>
         <div className="timeline-ruler">
           <span>00:00</span>
-          <span>00:{Math.round(totalDuration / 4)}</span>
-          <span>00:{Math.round(totalDuration / 2)}</span>
-          <span>00:{totalDuration}</span>
+          <span>{formatTimelineTime(totalDuration / 4)}</span>
+          <span>{formatTimelineTime(totalDuration / 2)}</span>
+          <span>{formatTimelineTime(totalDuration)}</span>
         </div>
         <div className="timeline-track">
           {scopedShots.map((item, index) => (
@@ -566,20 +563,19 @@ export function FilmPage({
                 setViewMode('shot')
               }}
             >
-              <img src={item.imageUrl || '/demo/station.jpg'} alt="" />
+              {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <Film size={20} />}
               <span>{String(item.order).padStart(2, '0')}</span>
             </button>
           ))}
         </div>
-        <div className="audio-track">
-          <span>
-            <Zap size={14} /> 项目环境音轨
-          </span>
-          <div />
-        </div>
       </section>
     </div>
   )
+}
+
+function formatTimelineTime(value) {
+  const seconds = Math.round(value)
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 function videoTaskFor(tasks, shot) {

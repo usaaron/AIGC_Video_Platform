@@ -4,6 +4,8 @@ import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider, TextGenerationTiming } from '../../core/generation/textProvider.js'
 import {
   countStructuredScenes,
+  dialogueTextForTiming,
+  nonSpokenSoundCues,
   parseShotFields,
   scriptScenes,
   scriptBodyWithoutAssetManifest,
@@ -28,19 +30,28 @@ const SCENE_PRODUCTION_RULES = `每个场次是一条可以直接交给分镜师
 - 不要凭空添加原稿没有的主要角色、关键道具或新空间规则；保持服装、位置、视线、光线和关键物件连续。
 - 每一行都必须同时包含场次、剧情、目标、阻力、变化、场景、角色、入场状态、动作、对白、出场状态、风格、构图、光影、运镜、衔接，场次值使用 S01、S02 这样的稳定编号；每个场次尽量保持 320 到 560 个中文字符的信息密度，不能为了凑字数重复形容词。`
 
+const STORY_CAUSALITY_RULES = `先在内部明确主角此刻要达成的目标、对方或环境的阻力、必须付出的代价，再写正文，不输出分析。
+- 每个事件由上一事件的结果触发：尝试遇阻，人物作出选择，选择产生新后果。删除只重复已知信息、情绪或同一动作的段落。
+- 每场至少改变一项可观察的事实：线索被证实或推翻、关系改变、控制权转移、计划失败或人物付出代价。后一场从这个结果开始，不重新介绍处境。
+- 用行动和相互回应的短对白展示意图与潜台词；允许停顿、观察与无对白段落。人物只能根据已经看到、听到或验证的信息行动。
+- 开场尽快呈现一个具体异常或迫切目标；中段让看似有效的办法遭遇新代价；结尾用人物的新决定或已发生的反转留下后果，不用空泛威胁或重复开场收尾。
+- 每段动作只推进一个主要变化，按发生顺序另起段落；对白和声音紧随触发它的动作，同一动作或台词只出现一次。`
+
 const FAST_WEB_SERIES_SCENE_RULES = `网剧输出必须像正常剧本一样可直接阅读；机器结构只保留在稳定的资产清单和场次标题里，不把编剧检查项展示给用户。
+${STORY_CAUSALITY_RULES}
 - 正文前固定输出“资产：”，资产清单结束后输出“正文：”。每个稳定实体单独一行，名称后使用“｜”补充可复用设定：人物写“人物：名称｜性别：女｜年龄段：青年｜年龄：28岁｜身份：急诊医生｜体型：清瘦｜脸型：窄长脸｜发型：黑色齐肩短发｜肤色：浅肤色｜基础造型：克制利落”；场景写“场景：名称｜空间：室外｜时代：现代｜场景用途：通行巷道｜固定布局：狭窄直巷｜入口出口：南口、北口｜固定陈设：右侧雨棚、巷尾卷帘门｜材质：旧砖墙和湿水泥地｜基础色彩：冷灰绿”；物品写“物品：名称｜分类：容器｜尺度：手掌大小｜形状：长方体｜材质：金属｜颜色：暗灰｜固定结构：暗扣盒盖｜基础状态：旧但完整｜归属：林晚｜准确文字：无”；服装写“服装：名称｜归属：林晚｜时代：现代｜季节：秋冬｜剪裁：短款｜层次：单层外套｜颜色：深灰｜材质：防水布｜配件：无”；品牌写“品牌：名称｜准确文字：名称｜图形结构：文字标｜字体方向：横排｜标准色：黑白｜版式背景：透明背景”。没有的类别不要输出。
 - 资产名称只能是稳定、可复用的实体名称。伤势、血迹、污渍、表情、姿态、手中状态、盒盖开合、露出多少、天气、时段和镜头角度都是临时状态，只能写进正文，绝不能成为新资产，也不要输出“故事作用”“剧情作用”等字段。
 - 每场标题单独一行，固定格式为“场次：S01｜稳定地点名｜时间｜内景/外景｜20秒”。标题后用正常段落按发生顺序写故事，不再输出“剧情、目标、阻力、变化、角色、动作、对白、镜头、衔接”等栏目名。
-- 每场是一个约 18 到 25 秒的连续事件，不按单个动作拆场，也不在剧本中预拆镜头。系统会依据时长和叙事目的把约 20 秒的场次规划成约 2 个长镜头。
+- 场次由时间、地点或戏剧目标的变化决定，时长可以不同；简单揭示可以短，冲突和选择可以长，不在剧本中预拆镜头。系统依据实际时长和叙事段落规划镜头，不固定每场两镜。
 - 正文必须让读者直接看见因果：人物从哪里来，以步行、快走、奔跑等何种速度和姿态移动；处于空间哪一侧，朝向哪里，与他人或门窗相距多远；哪只手接触什么；经过看、问、摸、试拉、试按或听见反馈后才得出什么结论；动作结束后人物、物品、门窗和伤势分别停在什么状态。禁止角色无缘无故知道出口、药品、敌人或线索的位置。
 - 地点气氛必须化成可见可听的事实。“破败阴森”要落实为掉漆招牌、碎玻璃、积灰货架、忽明忽暗灯管、狭窄动线、风声或撞击声；危险要写明从哪个方向逼近、数量区间、距离和人物如何确认，不能只写“尸群合围”。
-- 对白必须按真实发生时机穿插在动作之间，格式使用“林晚：“门锁死了。””；背景说明使用“画外音：“末日已经进入第七天。””，人物心理使用“内心独白：“今晚不能倒下。””；音效可以使用“[音效]卷帘门被连续撞响。”。18 到 25 秒场次通常拆成 2 个导演镜头，因此每场准备约 8 句短对白，前后半段各约 4 句；其他时长按每个导演镜头约 4 句换算，每个镜头允许 3 到 5 句。单句尽量 5 到 14 个中文字符；每句用于提问、回答、施压、揭示信息或改变决定，不寒暄、不复述画面中已经看得见的动作。
+- 对白必须按真实发生时机穿插在动作之间，格式使用“林晚：“门锁死了。””；背景说明使用“画外音：“末日已经进入第七天。””，人物心理使用“内心独白：“今晚不能倒下。””；音效可以使用“[音效]卷帘门被连续撞响。”。单句通常 5 到 14 个中文字符，每句用于提问、回答、施压、揭示信息或改变决定，不寒暄、不复述可见动作。全场发声文字通常不超过时长秒数的 2 到 3 倍，留出动作、停顿和反应；无对白时用必要现场声音，不凑句数。
 - 说话前后都要写说话者和听者的视线、停顿、表情或动作反应。奔跑、对抗、观察、对白和情绪变化都写成连续可拍的表演，但不要写景别、机位、运镜等导演术语，分镜阶段会依据语义决定全景、中景、特写和推拉。
 - 前一场结尾必须留下下一场能直接承接的人物位置、运动方向、视线、稳定服装、临时伤势、物品归属、门窗状态、光线与声音。已有项目资产必须逐字复用名称，不得为同一资产的临时变化重复建卡。
-- 每场保持约 350 到 600 个中文字符的有效信息密度，不用字段、口号、形容词或重复动作凑字数。`
+- 正文长度随实际事件和时长变化，通常每秒 10 到 18 个中文字符的制作描述即可，不用字段、口号、形容词或重复动作凑字数。`
 
 const ADVERTISEMENT_PRODUCTION_RULES = `每个广告段落是一条可直接交给分镜师和视频模型的制作记录，不要只写口号或抽象氛围。
+- 每段只承担一个新的传播任务，相邻段落不能重演同一动作或换词复述同一卖点；让产品使用产生可见结果，下一段由这个结果继续推进。
 - 在广告段落之前先输出可读的稳定资产清单，固定从“资产：”开始，以“正文：”结束；每个实体单独一行，字段使用“｜”分隔。人物写性别、年龄、身份和固定外形，场景写空间、时代、固定布局、材质和基础色彩，产品/物品写材质、颜色、固定结构、基础状态和准确文字，品牌写准确文字、图形结构、标准色和版式背景；没有的类别不要输出。
 - 资产名称必须是稳定、可复用的实体名称，资产清单中的事实必须在下方广告正文中保持一致；不要输出故事作用，也不要把动作、镜头、临时状态、时间天气或完整句子写进资产名称和固定设定。
 - 每段必须写清“本段传播任务→观众看到的主体与动作→获得的核心信息→段尾画面结果”，屏幕文字必须给出确切内容与出现时机。
@@ -53,6 +64,7 @@ const ADVERTISEMENT_PRODUCTION_RULES = `每个广告段落是一条可直接交�
 - 每一行必须包含场次、剧情、场景、角色、动作、对白、风格、构图、光影、运镜、衔接，场次使用 A01、A02 等稳定编号；信息具体紧凑，不要重复口号凑字数。`
 
 const QUICK_SCRIPT_SYSTEM_PROMPT = `你是中文漫剧的快速编剧。你的任务不是写长篇小说，而是把用户素材整理成 15 到 30 秒视频可以直接进入分镜的故事骨架。
+${STORY_CAUSALITY_RULES}
 
 硬性规格：
 1. 输出 4 到 6 个场景，总长度约 1800 到 2600 个中文字符；每场都要成为可以继续拆成 2 到 3 个动作镜头的完整制作单元，不能用空泛描写凑字数。
@@ -103,6 +115,7 @@ const ADVERTISEMENT_REWRITE_SYSTEM_PROMPT = `你是中文商业广告的创意�
 7. 只输出“资产清单 + 重写后的广告脚本正文”，不要解释、Markdown、表格、JSON 或分析。`
 
 const SHORT_FILM_SCRIPT_SYSTEM_PROMPT = `你是中文叙事短片的编剧、导演和剪辑统筹。请把用户的一句话想法或已有素材扩写成一个有完整起承转合、可以直接进入资产设计、分镜和视频生成的独立短片，不要写成广告、网剧单集、小说梗概或续集预告。
+${STORY_CAUSALITY_RULES}
 
 硬性规格：
 1. 严格围绕用户指定的目标时长倒推场次数量，每行一个连续场次、对应一个可生成视频镜头；开场建立人物处境与目标，中段出现可见阻力和转折，结尾完成情节与情绪落点。
@@ -126,13 +139,13 @@ const SHORT_FILM_REWRITE_SYSTEM_PROMPT = `你是中文叙事短片的剧本编�
 export const WEB_SERIES_SCRIPT_SYSTEM_PROMPT = `你是中文网剧漫剧的主编剧和导演。请把用户素材写成一集可以直接进入资产设计、导演分镜和视频制作的网剧剧本，不要写成长篇小说或提纲。
 
 硬性规格：
-1. 本次只生成 1 集，不生成其他集。严格按用户给出的总时长编排；常规 60 秒单集优先恰好输出 3 个长场次，每场约 18 到 25 秒，每场通常再规划 2 个约 10 秒的导演镜头。场次不是单个动作，也不是单个视频镜头。
+1. 本次只生成 1 集，不生成其他集。严格按用户给出的总时长编排，场次数和各场时长服从剧情变化；常规 60 秒单集可从约 5 场起草，再根据冲突密度调整。各场标注时长之和应接近单集目标，不能固定成三场两镜。场次不是单个动作，也不是单个视频镜头。
 2. 资产清单结束后，按“场次标题 + 自然动作段落 + 穿插对白”书写，从“场次：S01｜地点｜时间｜内景/外景｜时长”开始；不要输出创作说明、人物小传、全剧摘要、Markdown、表格或 JSON。
 3. 每场在自然故事中完成“明确意图→实际阻碍→因果行动→可见变化→场尾结果”，并给出足以消除生成歧义的空间、方向、数量、左右手、移动路线、观察过程、起止状态和关键物件状态；这些检查项不能显示成字段。
 4. 未知信息必须通过搜索、观察、试探、询问或物件反馈获得；角色不能直接知道未看见的后门状态、药品位置、敌人数量或线索结论。
 5. 保持人物身份、稳定服装、地点、时间、光线、伤势和关键物件连续；已有项目资产必须逐字复用，不得把受伤版、污渍版、表情或镜头角度误建成新资产。
 6. 前场快速建立处境，中场增加阻力并迫使人物选择，末场形成明显变化和下一集钩子；最后场仍使用连续 S 编号，把未解决的钩子自然写进结尾动作，不要把场次名改成“剧情钩子”。
-7. 常规 18 到 25 秒场次写约 8 句短而有意义的对白，按前后两个导演镜头各约 4 句安排；其他时长按每个镜头目标 4 句、允许 3 到 5 句换算。对白或必要背景画外音、内心独白必须按发生顺序穿插在动作中，不能复制或跨镜头重复；画外音只补充画面无法直接表达的背景事实，绝不描述人物正在做的动作，人物心理改用内心独白，环境声与动作声直接写进现场。
+7. 对白的数量服从冲突和可表演时长，不能机械要求每镜四句。短句之间留出人物行动和听者反应；对白、必要背景画外音、内心独白和现场声音必须按发生顺序穿插，不复制或跨镜头重复，画外音不能复述可见动作。
 8. ${FAST_WEB_SERIES_SCENE_RULES}
 9. 只输出“资产清单 + 正文场次”，不要标题、解释、Markdown 或分析。`
 
@@ -140,10 +153,10 @@ const WEB_SERIES_REWRITE_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧�
 
 硬性规格：
 1. 保留原稿的场景顺序、人物关系、对白、地点、时间、服装、关键物件和剧情因果；不得压缩成提纲或删除重要情节，不得把动作和对白合并成一句概括。
-2. 原稿已经按场次组织时，场次数量、编号和顺序必须保持；每场补齐 18 到 25 秒的可执行信息，不在剧本中预拆镜头。
+2. 原稿已经按场次组织时，场次数量、编号、顺序和既有时长必须保持；按各场实际时长补齐可执行信息，不在剧本中预拆镜头。
 3. 严格使用“资产清单 + 场次标题 + 自然正文”格式；缺失的空间、位置、方向、左右手、信息获得过程、对白反应、声音和首尾状态可根据上下文合理补齐，但不能新增改变剧情的角色、道具、能力或空间规则。
 4. 每场都要在正常叙事中体现意图、阻碍、变化和结果，动作明确到人物起点、路线、视线、表情、手部和关键物件状态；不要显示“目标/阻力/变化”等检查字段，也不要用“沿用上一场”代替具体状态。
-5. 保留原稿有效对白，并按后续导演镜头数补齐：常规 18 到 25 秒场次约 8 句，每个镜头目标 4 句、允许 3 到 5 句；更短或更长场次按每个镜头约 4 句换算。每句必须改变信息、压力、回答或决定，不能复制原句或把同一句分配给两个镜头。画外音只写背景事实，人物心理只用内心独白，二者都不得复述可见动作，声音字段另写环境声与动作声。
+5. 保留原稿有效对白，每句必须改变信息、压力、回答或决定，不能复制原句、跨镜头重复或为了达到句数添加口号。按实际时长给动作和反应留白；画外音只写背景事实，人物心理只用内心独白，声音按发生顺序紧随动作。
 6. 结尾保留并强化原稿的高波动钩子；如果原稿存在“【强制下一集】”，必须独占一行并原样保留。
 7. ${FAST_WEB_SERIES_SCENE_RULES}
 8. 只输出“资产清单 + 重写后的正文场次”，不要标题、解释、Markdown 或分析。`
@@ -183,8 +196,8 @@ const WEB_SERIES_DETAIL_SYSTEM_PROMPT = `你是中文网剧漫剧的视觉导演
 
 硬性规格：
 1. 保留原有场次、人物、对白、地点、关键物件和剧情因果，不压缩、不另起故事；重点补足空间因果、表演、声音、导演镜头和连续状态。
-2. 每场补齐为“场次标题 + 自然动作段落 + 穿插对白”，常规场次保持 18 到 25 秒；不要在剧本正文显示导演镜头字段，后续分镜会按场次时长和语义规划约 2 个长镜头。
-3. 每场按后续导演镜头数保留或补齐发声内容：常规 18 到 25 秒场次约 8 句，每个镜头目标 4 句、允许 3 到 5 句；更短或更长场次按每个镜头约 4 句换算。对白必须放在实际说话的位置并保持顺序，禁止复制同一句或跨镜头重复；画外音只写背景事实，人物心理使用内心独白，不复述可见动作；说话者发声时写清听者的视线、停顿或表情反应。
+2. 每场补齐为“场次标题 + 自然动作段落 + 穿插对白”，保留已有时长并据此安排动作和反应；不要在正文显示导演镜头字段，也不固定每场的镜头数量。
+3. 保留有效短对白，不按句数凑台词，发声文字通常不超过场次秒数的 2 到 3 倍。对白放在实际说话的位置并保持顺序，禁止复制同一句或跨镜头重复；画外音只写背景事实，人物心理使用内心独白，不复述可见动作；说话者发声时写清听者反应，允许只用动作与现场声音推进的段落。
 4. 补足可供后续导演判断的语义：环境与威胁、人物移动、对话关系、证据出现和情绪落点；正文不写景别、机位或运镜术语。
 5. 场次结尾必须交付人物位置、动作方向、视线、稳定服装、临时伤势、物件和光线状态，下一场开头直接承接。
 6. 最后一个场次保留并强化高波动钩子，不提前揭示结果；原稿中的“【强制下一集】”必须独占一行并原样保留；不要增加拍摄设备、文字、水印或无关人物。
@@ -216,11 +229,12 @@ export function webSeriesSceneBudget(episodeSeconds = 60): {
   target: number
   maximum: number
 } {
-  const target = Math.min(15, Math.max(2, Math.ceil(Math.max(30, episodeSeconds) / 20)))
+  const duration = Math.max(30, episodeSeconds)
+  const target = Math.min(25, Math.max(2, Math.ceil(duration / 12)))
   return {
-    minimum: Math.max(2, target - 1),
+    minimum: Math.max(2, Math.ceil(duration / 24)),
     target,
-    maximum: Math.min(16, target + 1),
+    maximum: Math.min(40, Math.ceil(duration / 8)),
   }
 }
 
@@ -231,18 +245,18 @@ export function webSeriesDialoguePlan(sceneSeconds = 20): {
   maximum: number
 } {
   const duration = Math.max(1, Math.round(sceneSeconds))
-  const shotCount = duration > 15 ? Math.min(3, Math.max(2, Math.round(duration / 10))) : 1
+  const shotCount = Math.max(1, Math.ceil(duration / 15))
   return {
     shotCount,
-    minimum: shotCount * 3,
-    target: shotCount * 4,
-    maximum: shotCount * 5,
+    minimum: 0,
+    target: Math.max(1, Math.round(duration / 6)),
+    maximum: Math.max(1, Math.floor(duration / 3)),
   }
 }
 
 export function webSeriesDialogueRequirement(sceneSeconds = 20): string {
   const plan = webSeriesDialoguePlan(sceneSeconds)
-  return `本场约 ${Math.max(1, Math.round(sceneSeconds))} 秒，后续分镜会拆成 ${plan.shotCount} 个导演镜头；请准备 ${plan.target} 句左右的短对白或必要发声内容（允许 ${plan.minimum} 到 ${plan.maximum} 句），每个镜头目标 4 句。对白要按动作发生顺序均匀分布，不能把同一句复制到不同镜头，也不能用复述可见动作的旁白凑数。`
+  return `本场约 ${Math.max(1, Math.round(sceneSeconds))} 秒，按剧情需要可使用约 ${plan.target} 句短对白；发声文字建议不超过 ${Math.floor(sceneSeconds * 2.5)} 字，给动作和反应留出时间。允许无对白段落并保留现场声音。按动作发生顺序安排，不能跨镜头复制台词，也不能用复述可见动作的旁白凑数。`
 }
 
 type ScriptSceneBudget = ReturnType<typeof webSeriesSceneBudget>
@@ -320,7 +334,7 @@ export function scriptGenerationInstruction(input: {
   const averageSceneSeconds = Math.max(10, Math.round(episodeSeconds / Math.max(1, budget.target)))
   const durationRule =
     scriptMode === 'web-series'
-      ? `本次只生成 1 集，总时长约 ${formatDuration(episodeSeconds)}；优先恰好输出 ${budget.target} 个可识别长场次，每场约 ${averageSceneSeconds} 秒，只有剧情结构确有必要时才允许 ${budget.minimum} 到 ${budget.maximum} 场。每场约 450 到 750 个中文字符并规划约 2 个导演镜头；${webSeriesDialogueRequirement(averageSceneSeconds)}每行一个场次，不得按动作拆场，也不要生成其他集。`
+      ? `本次只生成 1 集，总时长约 ${formatDuration(episodeSeconds)}；根据剧情变化安排 ${budget.minimum} 到 ${budget.maximum} 个场次，建议从 ${budget.target} 场起草，平均约 ${averageSceneSeconds} 秒但各场可长短不同。各场时长之和接近目标，不固定每场镜头数量；${webSeriesDialogueRequirement(averageSceneSeconds)}每场使用独立标题与自然段，不得按动作拆场，也不要生成其他集。`
       : `目标成片时长 ${formatDuration(episodeSeconds)}，输出 ${budget.minimum} 到 ${budget.maximum} 个可识别场次/段落，建议 ${budget.target} 个；每行一个场次，不得把全部内容压成一段。`
 
   if (shouldExpandFromIdea) {
@@ -331,7 +345,7 @@ export function scriptGenerationInstruction(input: {
       return `当前素材仅 ${sourceLength} 字，属于短片创意输入。必须补全人物目标、可见阻力、因果转折和结尾情绪落点，形成完整独立短片，禁止原样复述或只生成故事梗概。${durationRule}`
     }
     if (scriptMode === 'web-series') {
-      return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，直接生成高信息密度网剧单集；不要原样复述，也不要输出人物小传。每场写清空间因果、角色起止状态、连续行动、每个导演镜头约 4 句有效短对白、声音和两个按导演目的划分的镜头；已有资产名称必须逐字复用。${durationRule}`
+      return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产，直接生成有因果推进的网剧单集；不要原样复述，也不要输出人物小传。每场写清目标、阻力、选择与后果，用连续行动和有效短对白推动一次新的变化；已有资产名称必须逐字复用。${durationRule}`
     }
     return `当前内容仅 ${sourceLength} 字。请根据用户想法、项目简介和已有资产生成高信息密度制作剧本；如果原始内容是系统提示语，也要把它转化为具体剧情，不要原样复述。每个场次必须有明确角色、空间、动作拍点、对白类型和上下场衔接。`
   }
@@ -493,7 +507,7 @@ export function scriptSegmentUserPrompt(
       ? (() => {
           const budget = webSeriesSceneBudget(segmentSeconds)
           const averageSeconds = Math.max(10, Math.round(segmentSeconds / budget.target))
-          return `本次只生成 1 个下一集生产单元，总时长约 ${formatDuration(segmentSeconds)}；优先恰好输出 ${budget.target} 个长场次，每场约 ${averageSeconds} 秒，只有剧情确有必要时才允许 ${budget.minimum} 到 ${budget.maximum} 场。每场约 450 到 750 个中文字符并规划约 2 个导演镜头。${webSeriesDialogueRequirement(averageSeconds)}`
+          return `本次只生成 1 个下一集生产单元，总时长约 ${formatDuration(segmentSeconds)}；根据剧情变化安排 ${budget.minimum} 到 ${budget.maximum} 个场次，建议从 ${budget.target} 场起草，平均约 ${averageSeconds} 秒但允许长短不同。各场时长之和接近目标，不固定每场镜头数量。${webSeriesDialogueRequirement(averageSeconds)}`
         })()
       : `追加时长：${formatDuration(segmentSeconds)}`
   return `${projectContext}\n\n已有脚本上下文：\n${scriptSegmentContext(source)}\n\n本次目标：${goal || fallbackGoal}\n${segmentBudget}\n\n${finalInstruction}`
@@ -531,10 +545,10 @@ const SHORT_FILM_SEGMENT_SYSTEM_PROMPT = `你是中文叙事短片的编剧和�
 6. 只输出“本段资产清单 + 续写的新场次正文”，不要复述已有剧本，不要解释、Markdown、表格或分析。`
 
 const WEB_SERIES_SEGMENT_SYSTEM_PROMPT = `你是中文网剧漫剧的连续剧编剧。请基于已有剧本只续写下一集，严禁重写已有内容。
-1. 本次只生成 1 个下一集生产单元，不生成之后的集数；常规 60 秒单集优先输出 3 个约 20 秒的长场次，每场规划约 2 个按导演目的划分的镜头，不按动作拆镜。
+1. 本次只生成 1 个下一集生产单元，不生成之后的集数；场次数和时长由目标时长及剧情变化决定，不固定三场或每场两镜，不在剧本中预拆镜头。
 2. 承接上一段最后的时间、地点、人物状态、服装、视线、动作和关键物件，前两场要明确接住上一段尾部动作。
 3. 每场继续使用“场次标题 + 自然动作段落 + 穿插对白”，在故事里写清人物意图、实际阻碍、可见变化、空间关系、信息获得过程、左右手、移动路线、入场与出场状态，不显示内部检查字段。
-4. 每场按后续导演镜头数安排人物对白、画外音或内心独白：常规 18 到 25 秒场次约 8 句，每个镜头目标 4 句、允许 3 到 5 句；单句尽量 5 到 14 个中文字符，台词必须推进冲突或改变决定，不能复制或跨镜头重复；声音按发生位置写进正文。
+4. 短对白必须推进冲突或改变决定，不能复制或跨镜头重复；保留人物动作和听者反应的时间，不按固定句数填满镜头，允许用动作与现场声音完成无对白段落。
 5. 本段末尾保留高波动钩子：悬念、受辱后反击前一秒、身份或实力即将揭示、关键物件启动或敌人误判；最后场仍使用连续 S 编号，把钩子自然写进结尾动作，不要直接解决。
 6. ${FAST_WEB_SERIES_SCENE_RULES}
 7. 只输出“本集资产清单 + 下一段剧本正文”，不要标题、解释、Markdown、JSON 或分析。`
@@ -644,7 +658,11 @@ function hasSufficientWebSeriesDialogue(script: string): boolean {
   if (!scenes.length) return false
   const spokenScenes = scenes.filter((fields) => {
     const dialogue = String(fields.对白 || '')
-    return /\[(?:对白|画外音|内心独白)\]/u.test(dialogue) && !/无台词/u.test(dialogue)
+    return (
+      sceneHasSpokenDialogue(dialogue) ||
+      Boolean(fields.声音?.trim()) ||
+      nonSpokenSoundCues(dialogue).length > 0
+    )
   }).length
   return spokenScenes === scenes.length
 }
@@ -655,10 +673,12 @@ function webSeriesDialogueDensityIssues(script: string): string[] {
       const fields = parseShotFields(paragraph.text)
       if (!fields.场次) return ''
       const duration = parseSceneDurationSeconds(fields.时长)
-      const plan = webSeriesDialoguePlan(duration)
-      const count = spokenDialogueCues(fields.对白).length
-      return count < plan.minimum
-        ? `${fields.场次} 当前仅有 ${count} 句可听对白，按 ${plan.shotCount} 个导演镜头建议至少 ${plan.minimum} 句，目标 ${plan.target} 句（每镜约 4 句）`
+      const cues = spokenDialogueCues(fields.对白)
+      if (new Set(cues).size < cues.length)
+        return `${fields.场次} 存在重复对白，应删除重复发声并补充新的行动后果`
+      const spokenLength = cues.length ? dialogueTextForTiming(fields.对白).length : 0
+      return spokenLength > duration * 3
+        ? `${fields.场次} ${duration} 秒包含 ${spokenLength} 字发声内容，需缩短对白或增加时长，为动作和反应留出时间`
         : ''
     })
     .filter(Boolean)
@@ -680,18 +700,19 @@ function completeMissingWebSeriesDialogue(script: string, mode: ScriptContentMod
   const completedBody = splitScriptParagraphs(script)
     .map((paragraph) => {
       const fields = parseShotFields(paragraph.text)
-      if (!fields.场次 || sceneHasSpokenDialogue(fields.对白)) return paragraph.text
+      if (
+        !fields.场次 ||
+        sceneHasSpokenDialogue(fields.对白) ||
+        fields.声音?.trim() ||
+        nonSpokenSoundCues(fields.对白).length
+      )
+        return paragraph.text
 
-      const fallback = fallbackSpokenCue(fields.角色)
       const existingSound = String(fields.对白 || '')
         .replace(/无台词[\s，,;；。]*/gu, '')
         .replace(/静音[\s，,;；。]*/gu, '')
         .trim()
-      const dialogue = [
-        fallback,
-        existingSound,
-        existingSound ? '' : '[音效]现场动作声；[环境声]延续当前场景环境声。',
-      ]
+      const dialogue = [existingSound, existingSound ? '' : '[音效]现场动作声；[环境声]延续当前场景环境声。']
         .filter(Boolean)
         .join('；')
       const text = appendSpokenContent(paragraph.text, dialogue)
@@ -758,20 +779,12 @@ function naturalDialogueLines(dialogue: string): string {
     .join('\n')
 }
 
-function fallbackSpokenCue(roleField: string | undefined): string {
-  const role = String(roleField || '')
-    .split(/[、，,；;]/u)
-    .map((value) => value.trim().replace(/[（(].*?[）)]/gu, ''))
-    .find((value) => /^[\u3400-\u9fffA-Za-z0-9·]{1,16}$/u.test(value))
-  return role ? `[内心独白]${role}：不能在这里停下。` : '[画外音]局势正在变化。'
-}
-
 export function assertWebSeriesDialogueCoverage(script: string, mode: ScriptContentMode): void {
   if (mode !== 'web-series' || hasSufficientWebSeriesDialogue(script)) return
   throw new AppError(
     502,
     'PROVIDER_RESPONSE_INVALID',
-    '网剧对白生成不完整：每个场次都需要可听见的对白、画外音或内心独白；原剧本未被覆盖，请重试或切换模型',
+    '网剧声音信息不完整：每个场次需要有效对白或现场声音；原剧本未被覆盖，请重试或切换模型',
   )
 }
 
@@ -882,7 +895,7 @@ export function quickScriptIssues(
       : mode === 'short-film'
         ? Math.max(800, budget.target * 190)
         : mode === 'web-series'
-          ? Math.max(1_000, budget.target * 450)
+          ? Math.max(300, durationSeconds * 10)
           : 1_800
 
   if (characterCount < minimumCharacters)
@@ -926,5 +939,6 @@ export function detailedScriptIssues(
 function sceneFieldMissing(scene: string, field: string, mode: ScriptContentMode): boolean {
   if (mode !== 'web-series') return !new RegExp(`${field}[：:]`).test(scene)
   const fields = parseShotFields(scene) as Record<string, string | undefined>
+  if (field === '对白' && fields.声音?.trim()) return false
   return !String(fields[field] || '').trim()
 }

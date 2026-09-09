@@ -39,6 +39,8 @@ services:
   postgres-test:
     <<: *postgres
     profiles: ['test']
+    mem_limit: 512m
+    cpus: 1
     environment:
       POSTGRES_DB: seqora_test
       POSTGRES_USER: seqora
@@ -59,6 +61,8 @@ services:
   redis-test:
     <<: *redis
     profiles: ['test']
+    mem_limit: 128m
+    cpus: 0.5
     ports:
       - '${REDIS_TEST_PORT:-6380}:6379'
     volumes:

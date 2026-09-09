@@ -874,8 +874,9 @@ export class ProjectService {
         const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(episode.content))
         const shots =
           input.mode === 'beat'
-            ? splitScriptIntoBeatShots(paragraphs, input.maxShots, true)
-            : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, true)
+            ? splitScriptIntoBeatShots(paragraphs, input.maxShots + 1, true)
+            : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots + 1, true)
+        assertShotCapacity(shots.length, input.maxShots)
         const previousEpisode = orderedSavedEpisodes
           .filter((candidate) => candidate.episodeNumber < episode.episodeNumber)
           .at(-1)
@@ -905,8 +906,9 @@ export class ProjectService {
     const isWebSeries = workspace.project.contentType === 'short-drama'
     const shots =
       input.mode === 'beat'
-        ? splitScriptIntoBeatShots(paragraphs, input.maxShots, isWebSeries)
-        : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, isWebSeries)
+        ? splitScriptIntoBeatShots(paragraphs, input.maxShots + 1, isWebSeries)
+        : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots + 1, isWebSeries)
+    assertShotCapacity(shots.length, input.maxShots)
     return this.repository.replaceShots(
       projectId,
       assignShotEpisodes(
@@ -935,6 +937,15 @@ export class ProjectService {
     if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
     return updated
   }
+}
+
+function assertShotCapacity(count: number, limit: number) {
+  if (count <= limit) return
+  throw new AppError(
+    400,
+    'SHOT_LIMIT_EXCEEDED',
+    `完整剧本需要超过 ${limit} 个镜头，原分镜已保留。请按集拆分剧本，或调整镜头数量后重试。`,
+  )
 }
 
 function usageContextForPrincipal(principal: Principal) {

@@ -262,10 +262,10 @@ export function AssetSuggestionsPanel({
                             </div>
                             <p>{asset.description}</p>
                             {asset.prompt && (
-                              <div className="script-asset-suggestion-prompt">
-                                <strong>提示词</strong>
+                              <details className="authoring-card-details script-asset-suggestion-prompt">
+                                <summary>提示词</summary>
                                 <span>{asset.prompt}</span>
-                              </div>
+                              </details>
                             )}
                             {isEditing && (
                               <label className="script-asset-suggestion-edit">

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  Aperture,
   ArrowRight,
   Eye,
   EyeOff,
@@ -13,7 +12,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../components/AuthProvider'
 import { api } from '../services/apiClient'
-import './LoginPage.css'
+import { AuthLayout } from '../components/AuthLayout'
 
 export function LoginPage() {
   const registrationEntry = registrationEntryFromSearch(
@@ -124,242 +123,212 @@ export function LoginPage() {
   }
 
   return (
-    <main className="login-page">
-      <section className="login-scene" aria-label="序幕TV 创作工作台">
-        <img src="/demo/room.jpg" alt="暖光中的电影创作空间" />
-        <div className="login-scene-overlay" />
-        <div className="login-scene-frame" aria-hidden="true">
-          <span>01</span>
-          <span>序幕TV™ ORIGINALS</span>
-        </div>
-        <div className="login-scanline" aria-hidden="true" />
-        <div className="login-brand">
-          <span>
-            <Aperture size={20} />
-          </span>
-          <div>
-            <strong>
-              序幕TV<sup className="login-brand-mark">™</sup>
-            </strong>
-            <small>序幕TV创作工作台</small>
-          </div>
-        </div>
-        <div className="login-story">
-          <span>序幕TV™ · AI CINEMATIC STUDIO</span>
-          <h1>
-            “序幕起，<em>好戏生。</em>”
-          </h1>
-          <div className="login-story-timeline" aria-hidden="true">
-            <i />
-            <span>00:00:01</span>
-          </div>
-        </div>
-        <div className="login-scene-footer" aria-hidden="true">
-          <span>FRAME 01</span>
-          <i />
-          <span>24 FPS</span>
-        </div>
-      </section>
-      <section className="login-panel">
-        <div className="login-panel-meta" aria-hidden="true">
-          <span>序幕TV™</span>
-          <i />
-          <span>SECURE ACCESS</span>
-        </div>
-        <form onSubmit={submit} className="login-form login-entry-form">
-          <div className="login-heading">
-            <span className="eyebrow">序幕TV™ · 创作工作台</span>
-            <h2>{isForgotPassword ? '找回密码' : isRegistering ? '验证邮箱并注册' : '欢迎回来'}</h2>
+    <AuthLayout cinematic>
+      <form onSubmit={submit} className="login-form login-entry-form" aria-busy={submitting}>
+        <div className="login-heading">
+          <h1 className="auth-title">序幕TV</h1>
+          <h2>{isForgotPassword ? '找回密码' : isRegistering ? '验证邮箱并注册' : '欢迎回来'}</h2>
+          {(isForgotPassword || isRegistering) && (
             <p>
               {isForgotPassword
-                ? '输入账号邮箱，系统会发送密码重置链接。'
+                ? '输入账号邮箱，获取密码重置链接。'
                 : isRegistering
                   ? codeSent
                     ? '填写邮箱收到的 6 位验证码，完成账号创建。'
                     : '先验证受邀邮箱，再设置你的账号信息。'
-                  : '登录后继续你的项目。'}
+                  : ''}
             </p>
-          </div>
-
-          <div className="login-mode-switch" role="tablist" aria-label="账号入口">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!isRegistering}
-              className={!isRegistering ? 'is-active' : ''}
-              onClick={() => switchMode('login')}
-            >
-              登录
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={isRegistering}
-              className={isRegistering ? 'is-active' : ''}
-              onClick={() => switchMode('register')}
-            >
-              注册
-            </button>
-          </div>
-
-          {isRegistering && (
-            <>
-              <label>
-                <span>邀请码</span>
-                <div className="login-input">
-                  <Ticket size={17} />
-                  <input
-                    type="text"
-                    value={token}
-                    onChange={(event) => {
-                      setToken(event.target.value)
-                      resetRegistrationCode()
-                    }}
-                    autoComplete="off"
-                    placeholder="请输入邀请码"
-                    required
-                  />
-                </div>
-              </label>
-            </>
           )}
+        </div>
 
-          <label>
-            <span>邮箱</span>
-            <div className="login-input">
-              <Mail size={17} />
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value)
-                  if (isRegistering) resetRegistrationCode()
-                }}
-                autoComplete="email"
-                placeholder="请输入账号邮箱"
-                autoFocus
-                required
-              />
-            </div>
-          </label>
-          {isRegistering && codeSent && (
-            <>
-              <label>
-                <span>邮箱验证码</span>
-                <div className="login-input registration-code-input">
-                  <ShieldCheck size={17} />
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={verificationCode}
-                    onChange={(event) =>
-                      setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))
-                    }
-                    autoComplete="one-time-code"
-                    placeholder="6 位验证码"
-                    maxLength={6}
-                    pattern="[0-9]{6}"
-                    required
-                    autoFocus
-                  />
-                </div>
-              </label>
-              <button
-                className="login-code-resend"
-                type="button"
-                disabled={submitting || resendSeconds > 0}
-                onClick={resendRegistrationCode}
-              >
-                {resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '重新发送验证码'}
-              </button>
-              <label>
-                <span>显示名称</span>
-                <div className="login-input">
-                  <UserPlus size={17} />
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    autoComplete="name"
-                    placeholder="请输入显示名称"
-                    required
-                  />
-                </div>
-                <small className="login-field-hint">仅用于展示，可以与其他用户相同。</small>
-              </label>
-            </>
-          )}
-          {!isForgotPassword && (!isRegistering || codeSent) && (
+        <div className="login-mode-switch" role="tablist" aria-label="账号入口">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isRegistering}
+            className={!isRegistering ? 'is-active' : ''}
+            onClick={() => switchMode('login')}
+          >
+            登录
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isRegistering}
+            className={isRegistering ? 'is-active' : ''}
+            onClick={() => switchMode('register')}
+          >
+            注册
+          </button>
+        </div>
+
+        {isRegistering && (
+          <>
             <label>
-              <span>密码</span>
+              <span>邀请码</span>
               <div className="login-input">
-                <LockKeyhole size={17} />
+                <Ticket size={17} />
                 <input
-                  type={visible ? 'text' : 'password'}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete={isRegistering ? 'new-password' : 'current-password'}
-                  placeholder={isRegistering ? '至少 8 位密码' : '请输入密码'}
+                  type="text"
+                  value={token}
+                  onChange={(event) => {
+                    setToken(event.target.value)
+                    resetRegistrationCode()
+                  }}
+                  autoComplete="off"
+                  placeholder="请输入邀请码"
                   required
-                  minLength={isRegistering ? 8 : undefined}
                 />
-                <button
-                  type="button"
-                  onClick={() => setVisible((value) => !value)}
-                  aria-label={visible ? '隐藏密码' : '显示密码'}
-                >
-                  {visible ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
               </div>
             </label>
-          )}
-          {error && (
-            <div className="login-error">
-              <span>{error}</span>
-              {errorCode === 'INVITATION_ACCOUNT_PASSWORD_INVALID' && (
-                <button type="button" onClick={() => switchMode('forgot')}>
-                  重置已有账号密码
-                </button>
-              )}
-            </div>
-          )}
-          {success && <div className="login-success">{success}</div>}
-          <button className="login-submit" disabled={submitting}>
-            {submitting ? (
-              <LoaderCircle size={18} className="spin" />
-            ) : (
-              <>
-                {isForgotPassword
-                  ? '发送重置邮件'
-                  : isRegistering
-                    ? codeSent
-                      ? '验证并创建账号'
-                      : '发送邮箱验证码'
-                    : '进入工作台'}{' '}
-                <ArrowRight size={17} />
-              </>
-            )}
-          </button>
-          {!isRegistering && (
+          </>
+        )}
+
+        <label>
+          <span>邮箱</span>
+          <div className="login-input">
+            <Mail size={17} />
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value)
+                if (isRegistering) resetRegistrationCode()
+              }}
+              autoComplete="email"
+              placeholder="请输入账号邮箱"
+              autoFocus
+              required
+            />
+          </div>
+        </label>
+        {isRegistering && codeSent && (
+          <>
+            <label>
+              <span>邮箱验证码</span>
+              <div className="login-input registration-code-input">
+                <ShieldCheck size={17} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={verificationCode}
+                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  autoComplete="one-time-code"
+                  placeholder="6 位验证码"
+                  maxLength={6}
+                  pattern="[0-9]{6}"
+                  required
+                  autoFocus
+                />
+              </div>
+            </label>
             <button
-              className="login-link-button"
+              className="login-code-resend"
               type="button"
-              onClick={() => switchMode(isForgotPassword ? 'login' : 'forgot')}
+              disabled={submitting || resendSeconds > 0}
+              onClick={resendRegistrationCode}
             >
-              {isForgotPassword ? '返回登录' : '忘记密码？'}
+              {resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '重新发送验证码'}
             </button>
+            <label>
+              <span id="registration-name-label">显示名称</span>
+              <div className="login-input">
+                <UserPlus size={17} />
+                <input
+                  type="text"
+                  aria-labelledby="registration-name-label"
+                  aria-describedby="registration-name-hint"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  autoComplete="name"
+                  placeholder="请输入显示名称"
+                  required
+                />
+              </div>
+              <small className="login-field-hint" id="registration-name-hint">
+                仅用于展示，可以与其他用户相同。
+              </small>
+            </label>
+          </>
+        )}
+        {!isForgotPassword && (!isRegistering || codeSent) && (
+          <label>
+            <span id="login-password-label">密码</span>
+            <div className="login-input">
+              <LockKeyhole size={17} />
+              <input
+                type={visible ? 'text' : 'password'}
+                aria-labelledby="login-password-label"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                placeholder={isRegistering ? '至少 8 位密码' : '请输入密码'}
+                required
+                minLength={isRegistering ? 8 : undefined}
+              />
+              <button
+                type="button"
+                onClick={() => setVisible((value) => !value)}
+                aria-label={visible ? '隐藏密码' : '显示密码'}
+              >
+                {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+          </label>
+        )}
+        {error && (
+          <div className="login-error" role="alert">
+            <span>{error}</span>
+            {errorCode === 'INVITATION_ACCOUNT_PASSWORD_INVALID' && (
+              <button type="button" onClick={() => switchMode('forgot')}>
+                重置已有账号密码
+              </button>
+            )}
+          </div>
+        )}
+        {success && (
+          <div className="login-success" role="status">
+            {success}
+          </div>
+        )}
+        <button className="login-submit" disabled={submitting}>
+          {submitting ? (
+            <>
+              <LoaderCircle size={18} className="spin" />
+              处理中
+            </>
+          ) : (
+            <>
+              {isForgotPassword
+                ? '发送重置邮件'
+                : isRegistering
+                  ? codeSent
+                    ? '验证并创建账号'
+                    : '发送邮箱验证码'
+                  : '进入工作台'}{' '}
+              <ArrowRight size={17} />
+            </>
           )}
-          <p className="login-access-note">
-            <LockKeyhole size={14} />{' '}
-            {isForgotPassword
-              ? '重置邮件会发送到已注册邮箱'
-              : isRegistering
-                ? '邀请码将在首次发送验证码时绑定当前邮箱'
-                : '仅限已开通账号'}
-          </p>
-        </form>
-      </section>
-    </main>
+        </button>
+        {!isRegistering && (
+          <button
+            className="login-link-button"
+            type="button"
+            onClick={() => switchMode(isForgotPassword ? 'login' : 'forgot')}
+          >
+            {isForgotPassword ? '返回登录' : '忘记密码？'}
+          </button>
+        )}
+        <p className="login-access-note">
+          <LockKeyhole size={14} />{' '}
+          {isForgotPassword
+            ? '重置邮件会发送到已注册邮箱'
+            : isRegistering
+              ? '邀请码将在首次发送验证码时绑定当前邮箱'
+              : '仅限已开通账号'}
+        </p>
+      </form>
+    </AuthLayout>
   )
 }
 

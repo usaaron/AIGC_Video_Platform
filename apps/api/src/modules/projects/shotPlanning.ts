@@ -214,6 +214,7 @@ function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[
   if (paragraph.text.replace(/\s/gu, '').length < LONG_SCRIPT_PARAGRAPH_THRESHOLD) return [paragraph]
 
   const fields = parseShotFields(paragraph.text)
+  if (isNaturalScreenplayHeader(paragraph.text.split('\n')[0] || '')) return [paragraph]
   if (fields.场次 && (fields.镜头1 || fields.镜头2 || fields.镜头3)) return [paragraph]
   const direction = parseSceneDirectionFields(paragraph.text)
   const narrativeField = (['动作', '剧情', '对白'] as const)
@@ -434,7 +435,7 @@ export function splitScriptIntoBeatShots(
     const paragraph = scriptParagraph.text
     const fields = parseShotFields(paragraph)
     const direction = parseSceneDirectionFields(paragraph)
-    const beats = splitFieldBeats(fields.动作 || fields.剧情 || paragraph).slice(0, 4)
+    const beats = splitFieldBeats(fields.动作 || fields.剧情 || paragraph)
     const dialogueBeats = spokenDialogueCues(fields.对白)
     const soundCues = nonSpokenSoundCues(fields.对白)
     const sceneNumber = fields.场次 || String(sceneIndex + 1)
@@ -446,11 +447,9 @@ export function splitScriptIntoBeatShots(
     for (const [beatIndex, beat] of beats.entries()) {
       if (shots.length >= maxShots) return shots
       const spokenDialogue =
-        dialogueBeats.length > 1
-          ? dialogueBeats[beatIndex] || ''
-          : beatIndex === 0
-            ? dialogueBeats[0] || ''
-            : ''
+        beatIndex === beats.length - 1
+          ? dialogueBeats.slice(beatIndex).join('；')
+          : dialogueBeats[beatIndex] || ''
       const dialogue = [spokenDialogue, beatIndex === 0 ? soundCues.join('；') : '']
         .filter(Boolean)
         .join('；')
@@ -775,10 +774,11 @@ function compactShotPrompt(
       : dialogue || '无台词，仅保留本镜动作声、环境声和画内人物反应'
   return [
     fieldPart('场次', fields.场次 || '未编号场次', 24),
-    fieldPart('剧情', fields.剧情 || '本场继续推进当前冲突', 260),
-    fieldPart('目标', direction.目标 || '角色完成当前可见行动', 180),
-    fieldPart('阻力', direction.阻力 || '当前环境或对手阻碍角色推进', 180),
-    fieldPart('变化', direction.变化 || '动作结束后角色状态发生可见变化', 180),
+    fieldPart('剧情', scope === 'scene' ? fields.剧情 || action : action, 260),
+    ...(beatIndex === 0
+      ? [fieldPart('目标', direction.目标, 180), fieldPart('阻力', direction.阻力, 180)]
+      : []),
+    ...(beatIndex === beatCount - 1 ? [fieldPart('变化', direction.变化, 180)] : []),
     fieldPart('场景', fields.场景 || '沿用上一场空间与时间', 320),
     fieldPart('角色', fields.角色 || '沿用上一场所有角色；每位画面内人物都必须有动作、表情或视线变化', 420),
     ...(beatIndex === 0 ? [fieldPart('入场状态', direction.入场状态, 240)] : []),
@@ -795,7 +795,11 @@ function compactShotPrompt(
     fieldPart('构图', fields.构图 || '中景，主体位于画面重心，前中后景清晰', 220),
     fieldPart('光影', fields.光影 || '沿用上一场光源方向和色温，避免跳变', 200),
     fieldPart('运镜', fields.运镜 || '稳定跟随动作，结尾停在下一动作起点', 240),
-    fieldPart('衔接', fields.衔接 || '承接上一场人物位置、视线、动作、服装、物件和光线状态', 300),
+    fieldPart(
+      '衔接',
+      beatIndex === beatCount - 1 ? fields.衔接 : '本镜只交付已完成动作的人物位置、视线与物件状态',
+      300,
+    ),
     ...(beatIndex === beatCount - 1 ? [fieldPart('出场状态', direction.出场状态, 240)] : []),
     fieldPart('导演节拍', directorBeatFor(action, fields.角色, resolvedDialogue, duration, scope), 480),
   ]

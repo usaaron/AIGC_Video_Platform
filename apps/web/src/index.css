@@ -1,30 +1,14 @@
+@import './styles/theme.css';
+
 :root {
-  font-family: MiSans, 'HarmonyOS Sans SC', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
-  color: #242720;
-  background: #f2f3ee;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', MiSans, 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --ink: #242720;
-  --muted: #72786e;
-  --line: #dfe2d9;
-  --soft-line: #eaede6;
-  --paper: #fdfefb;
-  --canvas: #f2f3ee;
-  --lime: #d9f36a;
-  --lime-dark: #a9ca2e;
-  --green: #1f7a52;
-  --accent-strong: var(--green);
-  --accent-soft: #edf5df;
-  --surface: var(--paper);
-  --surface-muted: #eef0e9;
-  --line-strong: #c8cec1;
-  --danger: #a3453c;
-  --coral: #f07458;
-  --amber: #f0b83d;
-  --blue: #4f7edb;
-  --radius: 7px;
-  color-scheme: light;
 }
 
 html,
@@ -63,7 +47,7 @@ button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid #839b2e;
+  outline: 2px solid var(--line-strong);
   outline-offset: 2px;
 }
 button,
@@ -79,6 +63,7 @@ h2,
 h3,
 p {
   margin-top: 0;
+  text-wrap: pretty;
 }
 button {
   letter-spacing: 0;
@@ -89,7 +74,7 @@ button {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cfd3ca;
+  background: var(--line-strong);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-track {
@@ -117,7 +102,30 @@ button {
   display: grid;
   place-items: center;
   border-radius: 6px;
-  background: var(--lime);
-  color: var(--ink);
+  background: var(--action);
+  color: var(--action-ink);
   font-weight: 700;
+}
+
+input,
+textarea,
+select {
+  color: var(--ink);
+  accent-color: var(--green);
+}
+
+.spin {
+  animation: ui-spin 1s linear infinite;
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 2.5s;
+  }
 }

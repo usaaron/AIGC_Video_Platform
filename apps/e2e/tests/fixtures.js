@@ -69,6 +69,15 @@ export async function mockWebApi(page, state = createWebE2EState()) {
     if (method === 'GET' && path === '/auth/me') return fulfillJson(route, state.session)
     if (method === 'GET' && path === '/projects') return fulfillJson(route, state.projects)
     if (method === 'GET' && path === '/billing/summary') return fulfillJson(route, state.billing)
+    if (method === 'GET' && path === '/billing/payment/configuration') {
+      return fulfillJson(route, {
+        provider: null,
+        enabled: false,
+        memberSubscriptionEnabled: false,
+        creditPurchaseEnabled: false,
+        creditPackCredits: null,
+      })
+    }
     if (method === 'GET' && path === '/health') return fulfillJson(route, state.health)
     if (method === 'GET' && path === `/projects/${state.workspace.project.id}`) {
       return fulfillJson(route, state.workspace)

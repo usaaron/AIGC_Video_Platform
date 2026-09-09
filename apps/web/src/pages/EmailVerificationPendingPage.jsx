@@ -1,7 +1,7 @@
 import { CheckCircle2, LoaderCircle, LogOut, MailCheck, RefreshCw, Send } from 'lucide-react'
 import { useState } from 'react'
 import { api } from '../services/apiClient'
-import './LoginPage.css'
+import { AuthLayout } from '../components/AuthLayout'
 
 export function EmailVerificationPendingPage({ account, onRefresh, onLogout }) {
   const [action, setAction] = useState('idle')
@@ -37,82 +37,47 @@ export function EmailVerificationPendingPage({ account, onRefresh, onLogout }) {
   const busy = action !== 'idle'
 
   return (
-    <main className="login-page auth-result-page">
-      <section className="login-scene" aria-label="等待邮箱验证">
-        <img src="/demo/room.jpg" alt="暖光中的电影创作空间" />
-        <div className="login-scene-overlay" />
-        <div className="login-scene-frame" aria-hidden="true">
-          <span>02</span>
-          <span>ACCOUNT / SECURITY</span>
+    <AuthLayout>
+      <div className="login-form auth-result verification-pending">
+        <span className="auth-result-icon warning">
+          <MailCheck size={28} />
+        </span>
+        <div className="login-heading">
+          <span className="eyebrow">邮箱验证</span>
+          <h2>请查收验证邮件</h2>
+          <p>验证邮件已发送至以下邮箱。点击邮件内的链接后返回这里检查状态。</p>
         </div>
-        <div className="login-scanline" aria-hidden="true" />
-        <div className="login-brand">
-          <span>
-            <MailCheck size={20} />
-          </span>
-          <div>
-            <strong>序幕TV</strong>
-            <small>序幕TV创作工作台</small>
+        <div className="verification-pending-email">
+          <MailCheck size={17} />
+          <strong>{account.email}</strong>
+        </div>
+        {message && (
+          <div className="verification-pending-status" role="status">
+            <CheckCircle2 size={15} />
+            <span>{message}</span>
           </div>
+        )}
+        <div className="verification-pending-actions">
+          <button className="login-submit" type="button" onClick={checkVerification} disabled={busy}>
+            {action === 'checking' ? <LoaderCircle size={17} className="spin" /> : <RefreshCw size={17} />}
+            我已完成验证
+          </button>
+          <button
+            className="login-secondary-button"
+            type="button"
+            onClick={resendVerification}
+            disabled={busy}
+          >
+            {action === 'sending' ? <LoaderCircle size={16} className="spin" /> : <Send size={16} />}
+            重新发送验证邮件
+          </button>
+          <button className="login-link-button" type="button" onClick={onLogout} disabled={busy}>
+            <LogOut size={15} />
+            退出登录
+          </button>
         </div>
-        <div className="login-story">
-          <span>账号安全</span>
-          <h1>最后一步，验证你的邮箱。</h1>
-          <p>完成邮箱验证后，项目库、积分和生成工作流会立即开放。</p>
-        </div>
-        <div className="login-scene-footer" aria-hidden="true">
-          <span>SECURE FRAME</span>
-          <i />
-          <span>序幕TV</span>
-        </div>
-      </section>
-      <section className="login-panel">
-        <div className="login-panel-meta" aria-hidden="true">
-          <span>序幕TV</span>
-          <i />
-          <span>EMAIL VERIFICATION</span>
-        </div>
-        <div className="login-form auth-result verification-pending">
-          <span className="auth-result-icon warning">
-            <MailCheck size={28} />
-          </span>
-          <div className="login-heading">
-            <span className="eyebrow">邮箱验证</span>
-            <h2>请查收验证邮件</h2>
-            <p>验证邮件已发送至以下邮箱。点击邮件内的链接后返回这里检查状态。</p>
-          </div>
-          <div className="verification-pending-email">
-            <MailCheck size={17} />
-            <strong>{account.email}</strong>
-          </div>
-          {message && (
-            <div className="verification-pending-status" role="status">
-              <CheckCircle2 size={15} />
-              <span>{message}</span>
-            </div>
-          )}
-          <div className="verification-pending-actions">
-            <button className="login-submit" type="button" onClick={checkVerification} disabled={busy}>
-              {action === 'checking' ? <LoaderCircle size={17} className="spin" /> : <RefreshCw size={17} />}
-              我已完成验证
-            </button>
-            <button
-              className="login-secondary-button"
-              type="button"
-              onClick={resendVerification}
-              disabled={busy}
-            >
-              {action === 'sending' ? <LoaderCircle size={16} className="spin" /> : <Send size={16} />}
-              重新发送验证邮件
-            </button>
-            <button className="login-link-button" type="button" onClick={onLogout} disabled={busy}>
-              <LogOut size={15} />
-              退出登录
-            </button>
-          </div>
-          <p className="login-access-note">没有收到邮件时，请先检查垃圾邮件，再尝试重新发送。</p>
-        </div>
-      </section>
-    </main>
+        <p className="login-access-note">没有收到邮件时，请先检查垃圾邮件，再尝试重新发送。</p>
+      </div>
+    </AuthLayout>
   )
 }

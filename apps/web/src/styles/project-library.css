@@ -1,0 +1,460 @@
+.app-shell {
+  min-height: 100vh;
+  background: var(--canvas);
+}
+.app-shell * {
+  letter-spacing: 0;
+}
+.studio-shell .project-home-page {
+  max-width: 1220px;
+}
+.studio-shell .project-home-page > .page-header {
+  border: 0;
+  padding-bottom: 0;
+  margin-bottom: 34px;
+}
+.studio-start {
+  padding-bottom: 40px;
+  border-bottom: 1px solid var(--soft-line);
+}
+.studio-start-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.studio-start-heading > svg {
+  color: var(--muted);
+}
+.studio-start-heading h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+}
+.studio-start-heading > span {
+  margin-left: auto;
+  color: var(--subtle);
+  font-size: 11px;
+}
+.studio-idea-composer {
+  padding: 20px 22px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  transition: border-color 160ms;
+}
+.studio-idea-composer:focus-within {
+  border-color: var(--line-strong);
+}
+.studio-idea-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.8;
+}
+.studio-idea-composer textarea:focus-visible {
+  outline: 0;
+}
+.studio-idea-composer > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.studio-idea-composer > div > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--subtle);
+  font-size: 11px;
+}
+.studio-idea-composer i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.studio-idea-submit {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--action);
+  color: var(--action-ink);
+  cursor: pointer;
+}
+.studio-idea-submit:hover {
+  background: var(--action-hover);
+}
+.studio-start-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+.studio-start-options > div {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.studio-start-options button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.studio-start-options button:hover {
+  color: var(--ink);
+}
+.project-library {
+  padding-top: 32px;
+}
+.project-library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.project-library-heading > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.project-library-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 550;
+}
+.project-library-heading span {
+  color: var(--subtle);
+  font-size: 11px;
+}
+.project-library-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.project-library-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 0;
+  color: var(--subtle);
+}
+.project-library-search input {
+  width: 145px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  outline: 0;
+}
+.project-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.project-folder {
+  position: relative;
+  min-width: 0;
+  background: transparent;
+}
+.project-folder-open {
+  width: 100%;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.project-folder-mark {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--subtle);
+  transition:
+    border-color 0.2s,
+    transform 0.2s;
+}
+.project-folder-mark > span {
+  font-size: 10px;
+  font-weight: 500;
+}
+.project-folder:hover .project-folder-mark {
+  border-color: var(--line-strong);
+}
+.project-folder-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s;
+}
+.project-folder:hover .project-folder-mark img {
+  transform: scale(1.025);
+}
+.project-folder-mark small {
+  position: absolute;
+  right: 12px;
+  bottom: 11px;
+  padding: 3px 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.project-folder-mark.has-preview small {
+  background: rgb(0 0 0 / 60%);
+  color: white;
+  border-radius: 3px;
+}
+.project-folder-copy {
+  display: grid;
+  gap: 7px;
+  padding: 16px 4px 20px;
+}
+.project-folder-copy > strong {
+  grid-row: 1;
+  padding-right: 70px;
+  font-size: 16px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-folder-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+.project-folder-date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 10px;
+}
+.project-folder-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 10px;
+  margin-top: 3px;
+}
+.project-folder-state i {
+  width: 4px;
+  height: 4px;
+  background: var(--muted);
+  border-radius: 50%;
+}
+.project-folder-arrow {
+  display: none;
+}
+.project-folder-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+}
+.project-folder-actions .icon-button {
+  background: var(--paper);
+  border-color: var(--line);
+  width: 28px;
+  height: 28px;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.project-folder:hover .project-folder-actions .icon-button,
+.project-folder:focus-within .project-folder-actions .icon-button {
+  opacity: 1;
+}
+.project-folder-rename {
+  display: flex;
+  gap: 7px;
+  position: absolute;
+  inset: auto 0 0;
+  align-items: center;
+  padding: 12px 0;
+  background: var(--canvas);
+}
+.project-folder-rename input {
+  min-width: 0;
+  flex: 1;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.project-generation-summary {
+  display: grid;
+  gap: 7px;
+  margin-top: 4px;
+}
+.project-generation-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.project-generation-counts b {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 400;
+}
+.project-generation-counts b.queued,
+.project-generation-counts b.paused {
+  color: var(--amber);
+}
+.project-generation-counts b.failed {
+  color: var(--danger);
+}
+.project-generation-task {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.project-generation-task > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-generation-task small {
+  margin-left: auto;
+  color: var(--subtle);
+}
+.studio-project-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 44px 16px;
+  border-top: 1px solid var(--soft-line);
+  color: var(--subtle);
+}
+.studio-project-empty h3 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 500;
+}
+.studio-project-empty p {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.studio-project-search-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 1180px) {
+  .project-folder-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+}
+@media (max-width: 680px) {
+  .studio-start {
+    padding-bottom: 28px;
+  }
+  .studio-start-heading {
+    gap: 9px;
+  }
+  .studio-start-heading h2 {
+    font-size: 18px;
+  }
+  .studio-start-heading > span {
+    display: none;
+  }
+  .studio-idea-composer {
+    padding: 16px;
+  }
+  .studio-idea-composer textarea {
+    font-size: 14px;
+    min-height: 108px;
+  }
+  .studio-idea-composer > div > span {
+    font-size: 10px;
+  }
+  .studio-start-options {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .studio-start-options > div {
+    gap: 14px;
+  }
+  .project-library-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .project-library-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .project-folder-grid {
+    gap: 18px 14px;
+  }
+  .project-folder-copy {
+    padding-inline: 0;
+  }
+  .project-folder-copy > strong {
+    font-size: 14px;
+    padding-right: 0;
+  }
+  .project-folder-actions {
+    top: 7px;
+    right: 7px;
+  }
+  .project-folder-actions .icon-button {
+    opacity: 1;
+    width: 25px;
+    height: 25px;
+  }
+  .project-folder-meta {
+    font-size: 10px;
+  }
+}
+@media (max-width: 380px) {
+  .project-folder-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -188,7 +188,8 @@ export async function registerGenerationRoutes(
 }
 
 function taskPollingEtag(version: string): string {
-  return `"${createHash('sha256').update(version).digest('base64url')}"`
+  // Invalidate cached projections when the polling response gains fields.
+  return `"${createHash('sha256').update(`polling-v2:${version}`).digest('base64url')}"`
 }
 
 function safeDownloadFileName(value?: string): string {

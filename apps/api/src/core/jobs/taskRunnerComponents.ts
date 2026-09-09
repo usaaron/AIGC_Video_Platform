@@ -24,6 +24,7 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
+import { parseStoredImageReference } from '../media/storedImageReference.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import { usageCollector } from '../observability/usage.js'
@@ -37,6 +38,7 @@ import {
 } from './taskLease.js'
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import { DependencyResolver } from './taskDependencyResolver.js'
+import { resolveStoredReference } from './taskImageReferences.js'
 import {
   GenerationResultWriteback,
   generatedDescriptors,
@@ -751,6 +753,7 @@ export class VideoTaskExecutor {
     private readonly store: AppStore,
     private readonly options: {
       videoProvider: VideoGenerationProvider | null
+      mediaRepository: Pick<MediaRepository, 'findSourceById'> | null
       objectStorage: ObjectStorage | null
       leaseOwnerId: string
       leaseTtlMs: number
@@ -946,14 +949,15 @@ export class VideoTaskExecutor {
         images.push({ url: value, role: 'reference_image' })
         continue
       }
-      if (/^https?:\/\//.test(value)) {
-        images.push({ url: value, role: 'reference_image' })
+      if (!parseStoredImageReference(value)) {
+        if (/^https?:\/\//i.test(value)) images.push({ url: value, role: 'reference_image' })
         continue
       }
-      if (!this.options.objectStorage) continue
-      const stored = findStoredReference(this.store, task, value)
-      if (!stored) continue
+      if (!this.options.objectStorage) throw new Error('视频参考图存储服务不可用，未向视频模型提交任务')
+      const stored = await resolveStoredReference(this.store, this.options.mediaRepository, task, value)
+      if (!stored) throw new Error('视频参考图读取失败，未向视频模型提交任务；请重新上传或选择有效参考图')
       const content = await this.options.objectStorage.get(stored.storageKey)
+      if (!content.length) throw new Error('视频参考图内容为空，未向视频模型提交任务；请重新上传参考图')
       images.push({
         url: `data:${stored.contentType};base64,${content.toString('base64')}`,
         role: 'reference_image',
@@ -1073,9 +1077,12 @@ export class ImageTaskExecutor {
       if (typeof reference.url !== 'string' || !reference.url) {
         throw new Error('参考图地址无效，未向图片模型提交任务')
       }
-      const stored =
-        findStoredReference(this.store, task, reference.url) ??
-        (await this.findPersistedMediaReference(task, reference.url))
+      const stored = await resolveStoredReference(
+        this.store,
+        this.options.mediaRepository,
+        task,
+        reference.url,
+      )
       if (!stored) {
         throw new Error('参考图读取失败，未向图片模型提交任务；请重新上传或选择有效参考图')
       }
@@ -1097,15 +1104,6 @@ export class ImageTaskExecutor {
       })
     }
     return references
-  }
-
-  private async findPersistedMediaReference(
-    task: GenerationTask,
-    url: string,
-  ): Promise<{ storageKey: string; contentType: string } | null> {
-    const mediaId = /^\/api\/v1\/media\/([^/]+)$/.exec(url)?.[1]
-    if (!mediaId || !this.options.mediaRepository) return null
-    return await this.options.mediaRepository.findSourceById(mediaId, task.projectId, task.tenantId, 'image')
   }
 }
 
@@ -1568,33 +1566,6 @@ function videoRequestFor(
     ...(watermark === null ? {} : { watermark }),
     ...(cameraFixed === null ? {} : { cameraFixed }),
   }
-}
-
-function findStoredReference(
-  store: AppStore,
-  task: GenerationTask,
-  url: string,
-): { storageKey: string; contentType: string } | null {
-  const mediaId = /^\/api\/v1\/media\/([^/]+)$/.exec(url)?.[1]
-  if (mediaId) {
-    return store.read((state) => {
-      const media = state.media.find(
-        (item) => item.id === mediaId && item.projectId === task.projectId && item.tenantId === task.tenantId,
-      )
-      return media ? { storageKey: media.storageKey, contentType: media.contentType } : null
-    })
-  }
-
-  const generated = /^\/api\/v1\/generation\/tasks\/([^/]+)\/outputs\/([^/]+)$/.exec(url)
-  if (!generated) return null
-  return store.read((state) => {
-    const sourceTask = state.tasks.find(
-      (item) =>
-        item.id === generated[1] && item.projectId === task.projectId && item.tenantId === task.tenantId,
-    )
-    const descriptor = generatedDescriptors(sourceTask).find((item) => item.view === generated[2])
-    return descriptor ? { storageKey: descriptor.storageKey, contentType: descriptor.contentType } : null
-  })
 }
 
 function providerIdempotencyKeyFor(task: GenerationTask): string {

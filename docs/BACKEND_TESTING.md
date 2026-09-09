@@ -40,7 +40,7 @@ pnpm test:backend:integration
 - billing ledger 扣费、退款、grant、adjustment、Stripe sandbox webhook 和对账。
 - project、asset、shot、generation task 的 Postgres 持久化和跨组织隔离。
 - BullMQ 通过 Redis 投递任务到 Worker。
-- 每个集成测试文件都使用独立 Postgres fixture，并在 `beforeEach` 里 reset，避免测试之间共享状态。
+- 每个集成测试文件都使用独立 Postgres 数据库 fixture，并在 `beforeEach` 里 reset，避免测试之间共享状态。历史 migration 的部分 `pg_constraint` 检查作用于整个数据库，不能只靠 `search_path` 和不同 schema 隔离。测试账号需要 `CREATEDB` 权限；fixture 只创建和清理本次随机命名的 `seqora_test_*` 数据库，不修改配置连接指向的基础数据库。
 - 预发布匿名化脚本通过 Postgres fixture 验证 dry-run、系统组织保护、保留账号保护和创作域脱敏。
 
 ### 3. 契约测试
@@ -82,6 +82,10 @@ pnpm test
 ```
 
 `pnpm test` 会覆盖所有 workspace 包和历史综合测试；`test:backend:pyramid` 用于后端专项回归和 CI 数据库链路。
+
+提交门禁使用 `pnpm check`：格式、架构、部署安全、lint、共享包与两个前端测试后，启动隔离的测试 Postgres/Redis，运行全部 API 测试（含历史综合、HTTP 契约、安全和队列测试），最后构建。`test:full:stable` 在退出时清理它启动的测试服务。共享 Redis 地址同时传入 `TEST_REDIS_URL`，避免 BullMQ 用例另起无法通过远端 Docker 端口访问的容器。
+
+API 单元测试过滤使用目录或具体文件名，不使用作为 Vitest 字面过滤串的 shell `*.test.ts`，避免 Windows 下悄悄漏跑 Provider 等测试。
 
 ## CI 规则
 

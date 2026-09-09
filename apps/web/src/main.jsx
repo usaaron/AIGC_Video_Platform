@@ -9,6 +9,9 @@ import { PasswordResetPage } from './pages/PasswordResetPage.jsx'
 import { RequiredPasswordChangePage } from './pages/RequiredPasswordChangePage.jsx'
 import { api } from './services/apiClient.js'
 import { loadWithChunkRecovery } from './chunkRecovery.js'
+import { initializeTheme } from './theme.js'
+
+initializeTheme()
 
 const App = lazy(() => loadWithChunkRecovery(() => import('./App.jsx')))
 
