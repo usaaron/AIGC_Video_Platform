@@ -32,10 +32,16 @@ dist/
 # Frontend
 node_modules/
 .next/
+.next-*/
+.next-deepseek/
+.next-model-routing/
+.next-module-upgrade/
+.next-storyboard-test/
 out/
 *.tsbuildinfo
 playwright-report/
 test-results/
+test-results-*/
 blob-report/
 
 # Read-only external research repositories

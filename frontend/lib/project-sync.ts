@@ -131,6 +131,8 @@ interface GenerationTaskCheckpointResponse {
       completed_episode_numbers: number[];
       failed_episode_numbers: number[];
       last_error: string | null;
+      lease_id: string | null;
+      lease_expires_at: string | null;
       checkpointed_at: string;
     };
   } | null;
@@ -143,6 +145,7 @@ export interface ServerProjectLoadResult {
 }
 
 const CLIENT_INSTANCE_KEY = "ai-comic-content-os-client-instance";
+const PROJECT_LOAD_PAGE_SIZE = 100;
 const MAX_SYNC_RECONCILIATION_ATTEMPTS = 4;
 const syncQueues = new Map<string, Promise<ProjectServerSyncState>>();
 interface PendingProjectSync {
@@ -322,79 +325,24 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
     return { available: false, projects: [], error: "Server persistence is unavailable." };
   }
   try {
-    const response = await apiRequest<StoryProjectListResponse>(
-      "/story-projects?limit=100&offset=0",
-    );
-    const loadedProjects = await Promise.all(response.data.map(async (remoteProject) => {
-      projectRevisions.set(remoteProject.project_id, remoteProject.revision);
-      try {
-        const workspace = await apiRequest<WorkspaceResponse>(
-          `/story-projects/${remoteProject.project_id}/workspace`,
-        );
-        workspaceRevisions.set(remoteProject.project_id, workspace.data.revision);
-        const payload = workspace.data.workspace_payload;
-        if (!isScriptProject(payload)) return null;
-        let planningSession: PlanningSession | undefined;
-        try {
-          const planning = await apiRequest<PlanningSessionResponse>(
-            `/story-projects/${remoteProject.project_id}/planning-session`,
-          );
-          planningSession = planningSessionFromRemote(planning.data);
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 404)) throw error;
-        }
-        lastSyncedProjectUpdates.set(remoteProject.project_id, payload.updatedAt);
-        const marketProfile = payload.marketProfile ?? inferProjectMarketProfile(payload);
-        let activeGenerationTask = payload.activeGenerationTask;
-        try {
-          const recovery = await apiRequest<GenerationTaskCheckpointResponse>(
-            `/story-projects/${remoteProject.project_id}/generation-tasks/recoverable`,
-          );
-          if (recovery.data) activeGenerationTask = fromGenerationTaskPayload(recovery.data);
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 404)) throw error;
-        }
-        const episodeRoadmaps = normalizeEpisodeRoadmaps(payload.episodeRoadmaps ?? []);
-        const recoveredPlanningCoverage = payload.episodeRoadmapRequired === true
-          ? episodeRoadmapCoverageThrough(episodeRoadmaps)
-          : payload.episodePlansReadyThrough ?? 0;
-        const restored: ScriptProject = {
-          ...payload,
-          ...(planningSession ? {
-            planningSession,
-            storyBibleAuthorInstruction: planningSession.storyBibleAuthorInstruction
-              || payload.storyBibleAuthorInstruction,
-          } : {}),
-          referenceMaterials: payload.referenceMaterials ?? [],
-          ...(activeGenerationTask ? { activeGenerationTask } : {}),
-          ...(remoteProject.active_story_bible_version != null ? {
-            storyBibleVersion: remoteProject.active_story_bible_version,
-            storyBibleStatus: "approved" as const,
-          } : {}),
-          marketProfile,
-          episodeRoadmaps,
-          episodePlansReadyThrough: recoveredPlanningCoverage || undefined,
-          generationSettings: enforceMarketDeliveryContract(
-            normalizeGenerationSettings(payload.generationSettings),
-            marketProfile,
-          ),
-          contentSpecId: remoteProject.content_spec_id ?? undefined,
-          serverSync: {
-            status: "synced",
-            projectRevision: remoteProject.revision,
-            workspaceRevision: workspace.data.revision,
-            lastSyncedAt: workspace.data.updated_at,
-          },
-        };
-        return migrateProjectScreenplayFormat(restored);
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 404) return null;
-        throw error;
+    const projects: ScriptProject[] = [];
+    let offset = 0;
+    while (true) {
+      const response = await apiRequest<StoryProjectListResponse>(
+        `/story-projects?limit=${PROJECT_LOAD_PAGE_SIZE}&offset=${offset}`,
+      );
+      // Finish one page's workspace recovery before loading the next page.
+      const loadedProjects = await Promise.all(response.data.map(loadServerProject));
+      projects.push(...loadedProjects.flatMap((project) => project ? [project] : []));
+      offset += response.data.length;
+      if (offset >= response.total) break;
+      if (!response.data.length) {
+        throw new Error("Server returned an incomplete project list.");
       }
-    }));
+    }
     return {
       available: true,
-      projects: loadedProjects.flatMap((project) => project ? [project] : []),
+      projects,
     };
   } catch (error) {
     if (shouldStartPersistenceCooldown(
@@ -407,6 +355,74 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
       projects: [],
       error: error instanceof Error ? error.message : "Server persistence is unavailable.",
     };
+  }
+}
+
+async function loadServerProject(remoteProject: StoryProjectData): Promise<ScriptProject | null> {
+  projectRevisions.set(remoteProject.project_id, remoteProject.revision);
+  try {
+    const workspace = await apiRequest<WorkspaceResponse>(
+      `/story-projects/${remoteProject.project_id}/workspace`,
+    );
+    workspaceRevisions.set(remoteProject.project_id, workspace.data.revision);
+    const payload = workspace.data.workspace_payload;
+    if (!isScriptProject(payload)) return null;
+    let planningSession: PlanningSession | undefined;
+    try {
+      const planning = await apiRequest<PlanningSessionResponse>(
+        `/story-projects/${remoteProject.project_id}/planning-session`,
+      );
+      planningSession = planningSessionFromRemote(planning.data);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
+    lastSyncedProjectUpdates.set(remoteProject.project_id, payload.updatedAt);
+    const marketProfile = payload.marketProfile ?? inferProjectMarketProfile(payload);
+    let activeGenerationTask = payload.activeGenerationTask;
+    try {
+      const recovery = await apiRequest<GenerationTaskCheckpointResponse>(
+        `/story-projects/${remoteProject.project_id}/generation-tasks/recoverable`,
+      );
+      if (recovery.data) activeGenerationTask = fromGenerationTaskPayload(recovery.data);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
+    const episodeRoadmaps = normalizeEpisodeRoadmaps(payload.episodeRoadmaps ?? []);
+    const recoveredPlanningCoverage = payload.episodeRoadmapRequired === true
+      ? episodeRoadmapCoverageThrough(episodeRoadmaps)
+      : payload.episodePlansReadyThrough ?? 0;
+    const restored: ScriptProject = {
+      ...payload,
+      ...(planningSession ? {
+        planningSession,
+        storyBibleAuthorInstruction: planningSession.storyBibleAuthorInstruction
+          || payload.storyBibleAuthorInstruction,
+      } : {}),
+      referenceMaterials: payload.referenceMaterials ?? [],
+      ...(activeGenerationTask ? { activeGenerationTask } : {}),
+      ...(remoteProject.active_story_bible_version != null ? {
+        storyBibleVersion: remoteProject.active_story_bible_version,
+        storyBibleStatus: "approved" as const,
+      } : {}),
+      marketProfile,
+      episodeRoadmaps,
+      episodePlansReadyThrough: recoveredPlanningCoverage || undefined,
+      generationSettings: enforceMarketDeliveryContract(
+        normalizeGenerationSettings(payload.generationSettings),
+        marketProfile,
+      ),
+      contentSpecId: remoteProject.content_spec_id ?? undefined,
+      serverSync: {
+        status: "synced",
+        projectRevision: remoteProject.revision,
+        workspaceRevision: workspace.data.revision,
+        lastSyncedAt: workspace.data.updated_at,
+      },
+    };
+    return migrateProjectScreenplayFormat(restored);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
   }
 }
 
@@ -436,6 +452,22 @@ export function saveGenerationTaskOnServer(
     () => clearGenerationTaskSaveQueue(queueKey, save),
   );
   return save;
+}
+
+export async function claimGenerationTaskOnServer(
+  projectId: string,
+  task: GenerationRecoveryTask,
+  leaseId: string,
+  leaseTtlSeconds = 300,
+): Promise<GenerationRecoveryTask> {
+  const response = await apiRequest<{ data: NonNullable<GenerationTaskCheckpointResponse["data"]> }>(
+    `/story-projects/${projectId}/generation-tasks/${task.jobId}/claim`,
+    {
+      method: "POST",
+      body: JSON.stringify({ lease_id: leaseId, lease_ttl_seconds: leaseTtlSeconds }),
+    },
+  );
+  return fromGenerationTaskPayload(response.data);
 }
 
 async function saveGenerationTaskWithReconciliation(
@@ -542,6 +574,8 @@ function toGenerationTaskPayload(
       completed_episode_numbers: task.completedEpisodeNumbers,
       failed_episode_numbers: task.failedEpisodeNumbers,
       last_error: task.lastError ?? null,
+      lease_id: task.leaseId ?? null,
+      lease_expires_at: task.leaseExpiresAt ?? null,
       checkpointed_at: task.checkpointedAt,
     },
   };
@@ -568,6 +602,8 @@ function fromGenerationTaskPayload(
     createdAt: payload.batch.created_at,
     checkpointedAt: payload.checkpoint.checkpointed_at,
     completedAt: payload.batch.completed_at ?? undefined,
+    leaseId: payload.checkpoint.lease_id ?? undefined,
+    leaseExpiresAt: payload.checkpoint.lease_expires_at ?? undefined,
     serverBacked: true,
   };
 }

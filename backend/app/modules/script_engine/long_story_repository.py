@@ -8,6 +8,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 from sqlalchemy import delete, func, update
 from sqlmodel import Session, col, select
+from app.document_repository import ModuleDocumentRecord
 
 from app.modules.agent_runtime.persistence import (
     AgentRunRecordTable,
@@ -18,6 +19,7 @@ from app.modules.script_engine.long_story_models import (
     EpisodeArtifact,
     EpisodeArtifactKind,
     EpisodePlan,
+    EpisodePlanMaterialization,
     GenerationBatchPlan,
     GenerationBatchStatus,
     GenerationJobCheckpoint,
@@ -36,6 +38,7 @@ from app.modules.script_engine.long_story_models import (
 from app.modules.script_engine.long_story_persistence import (
     ContinuityLedgerVersionRecord,
     EpisodeArtifactVersionRecord,
+    EpisodePlanMaterializationRecord,
     EpisodePlanVersionRecord,
     GenerationBatchPlanRecord,
     GenerationJobCheckpointRecord,
@@ -454,6 +457,12 @@ class LongStoryRepository:
                     AgentRunRecordTable.project_id == story_project_id
                 )
             ).rowcount,
+            "preproduction_storyboards": self._session.execute(
+                delete(ModuleDocumentRecord).where(
+                    ModuleDocumentRecord.namespace == "preproduction_storyboards",
+                    ModuleDocumentRecord.payload["story_project_id"].as_string() == story_project_id,
+                )
+            ).rowcount,
             "generation_job_checkpoints": self._session.execute(
                 delete(GenerationJobCheckpointRecord).where(
                     GenerationJobCheckpointRecord.batch_id.in_(batch_ids)
@@ -467,6 +476,12 @@ class LongStoryRepository:
             "generation_batches": self._session.execute(
                 delete(GenerationBatchPlanRecord).where(
                     GenerationBatchPlanRecord.story_project_id == story_project_id
+                )
+            ).rowcount,
+            "episode_plan_materializations": self._session.execute(
+                delete(EpisodePlanMaterializationRecord).where(
+                    EpisodePlanMaterializationRecord.story_project_id
+                    == story_project_id
                 )
             ).rowcount,
             "episode_plan_versions": self._session.execute(
@@ -961,6 +976,75 @@ class LongStoryRepository:
             )
         ).all()
         return [EpisodePlan.model_validate(record.payload) for record in records]
+
+    def save_episode_plan_materialization(
+        self,
+        materialization: EpisodePlanMaterialization,
+    ) -> EpisodePlanMaterialization:
+        first_mapping = materialization.mappings[0]
+        last_mapping = materialization.mappings[-1]
+        record = EpisodePlanMaterializationRecord(
+            materialization_id=materialization.materialization_id,
+            story_project_id=materialization.story_project_id,
+            story_bible_id=materialization.story_bible_id,
+            story_bible_version=materialization.story_bible_version,
+            schema_version=materialization.schema_version,
+            source_fingerprint=materialization.source_fingerprint,
+            start_episode=first_mapping.episode_number,
+            end_episode=last_mapping.episode_number,
+            episode_count=len(materialization.mappings),
+            status=materialization.status,
+            author_confirmed_at=materialization.author_confirmed_at,
+            created_at=materialization.created_at,
+            payload=materialization.model_dump(mode="json"),
+        )
+        self._save_immutable(
+            EpisodePlanMaterializationRecord,
+            materialization.materialization_id,
+            record,
+            "Episode Plan materialization",
+        )
+        return materialization
+
+    def get_episode_plan_materialization(
+        self,
+        materialization_id: str,
+    ) -> EpisodePlanMaterialization | None:
+        record = self._session.get(
+            EpisodePlanMaterializationRecord,
+            materialization_id,
+        )
+        return self._from_payload(EpisodePlanMaterialization, record)
+
+    def list_episode_plan_materializations(
+        self,
+        story_project_id: str,
+        *,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
+    ) -> list[EpisodePlanMaterialization]:
+        statement = select(EpisodePlanMaterializationRecord).where(
+            EpisodePlanMaterializationRecord.story_project_id == story_project_id
+        )
+        if story_bible_id is not None:
+            statement = statement.where(
+                EpisodePlanMaterializationRecord.story_bible_id == story_bible_id
+            )
+        if story_bible_version is not None:
+            statement = statement.where(
+                EpisodePlanMaterializationRecord.story_bible_version
+                == story_bible_version
+            )
+        records = self._session.exec(
+            statement.order_by(
+                EpisodePlanMaterializationRecord.created_at,
+                EpisodePlanMaterializationRecord.materialization_id,
+            )
+        ).all()
+        return [
+            EpisodePlanMaterialization.model_validate(record.payload)
+            for record in records
+        ]
 
     def get_episode_plan(
         self,

@@ -109,6 +109,7 @@ def planning_output_chinese_issues(output: BaseModel) -> list[str]:
                 "stage_opposition",
                 "episode_payoff",
                 "pressure_escalation",
+                "protagonist_cost",
                 "exit_state",
                 "cliffhanger",
                 "ending_hook_type",
@@ -117,6 +118,10 @@ def planning_output_chinese_issues(output: BaseModel) -> list[str]:
                 value = getattr(plan, field_name)
                 if mainland_text_violates_language_contract(value):
                     issues.append(f"{prefix}.{field_name}")
+            for unit_index, unit in enumerate(plan.dramatic_units):
+                for field_name in ("trigger", "choice", "visible_consequence", "change_type", "evidence_hint"):
+                    if mainland_text_violates_language_contract(getattr(unit, field_name)):
+                        issues.append(f"{prefix}.dramatic_units.{unit_index}.{field_name}")
             for location_index, location in enumerate(plan.locations):
                 if mainland_text_violates_language_contract(location):
                     issues.append(f"{prefix}.locations.{location_index}")

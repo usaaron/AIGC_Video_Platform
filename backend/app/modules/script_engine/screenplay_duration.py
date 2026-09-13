@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-import unicodedata
 
 from app.modules.master_script.models import LLMGeneratedDraftMasterScript
+from app.modules.script_engine.screenplay_metrics import count_screenplay_text_characters
 
 
 _CHINESE = re.compile(r"[\u3400-\u9fff]")
@@ -31,7 +31,8 @@ def estimate_screenplay_duration(
             _spoken_line_seconds(dialogue.text) for dialogue in scene.dialogues
         )
         action_characters = sum(
-            _effective_character_count(action) for action in scene.character_actions
+            count_screenplay_text_characters(action)
+            for action in scene.character_actions
         )
         visual_seconds = action_characters / 22 + len(scene.character_actions) * 0.35
         dialogue_total += dialogue_seconds
@@ -52,11 +53,3 @@ def _spoken_line_seconds(text: str) -> float:
     if chinese_characters >= english_words:
         return chinese_characters / 4.2
     return english_words / 2.7
-
-
-def _effective_character_count(text: str) -> int:
-    return sum(
-        1
-        for character in unicodedata.normalize("NFKC", text)
-        if unicodedata.category(character)[0] in {"L", "N"}
-    )

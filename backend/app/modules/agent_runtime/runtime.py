@@ -146,6 +146,10 @@ class AgentSession:
         self._persist_step(running_execution)
         try:
             result = self._run_with_heartbeat(operation)
+            checkpoint_type = None
+            checkpoint_payload = None
+            if checkpoint_serializer is not None:
+                checkpoint_type, checkpoint_payload = checkpoint_serializer(result)
         except Exception as error:
             finished_at = datetime.now(timezone.utc)
             execution = running_execution.model_copy(
@@ -160,10 +164,6 @@ class AgentSession:
             self._persist_step(execution)
             raise
         finished_at = datetime.now(timezone.utc)
-        checkpoint_type = None
-        checkpoint_payload = None
-        if checkpoint_serializer is not None:
-            checkpoint_type, checkpoint_payload = checkpoint_serializer(result)
         execution = running_execution.model_copy(
             update={
                 "status": AgentToolStatus.completed,

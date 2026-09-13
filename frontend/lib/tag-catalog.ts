@@ -1,4 +1,5 @@
-import { CURRENT_MARKET_PROFILE, type CreatorTag, type TagCategory } from "@/lib/types";
+import { CURRENT_MARKET_PROFILE, marketProfileForReleaseRegion, type CreatorTag, type ProjectMarketProfile, type ScriptProject, type TagCategory } from "@/lib/types";
+import { hongguoTagLabel } from "@/lib/platform-tag-id";
 
 export interface OntologyTagSource {
   id: string;
@@ -29,11 +30,24 @@ const CREATOR_FACING_ONTOLOGY_CATEGORIES = new Set([
   "Style",
   "Audience",
   "CultureCluster",
-  "Pace",
-  "Hook",
-  "Twist",
-  "Cliffhanger",
 ]);
+
+const HIDDEN_PICKER_IDS = new Set(["audience.romance", "audience.fantasy", "audience.mystery", "audience.family"]);
+const DISPLAY_ID_ALIASES: Record<string, string> = { "world.modern_city": "genre.urban" };
+const TAG_LABEL_ALIASES: Record<string, string[]> = {
+  "genre.romance": ["恋爱"],
+  "genre.modern_romance": ["都市爱情"],
+  "genre.costume_romance": ["古风爱情"],
+  "genre.urban": ["现代都市"],
+  "genre.family": ["家庭"],
+  "genre.apocalypse": ["末世"],
+  "genre.wuxia": ["江湖武侠"],
+  "genre.action": ["动作打斗"],
+  "world.ancient": ["古装"],
+  "theme.power_growth": ["逆袭", "逆袭翻身", "逆风翻盘"],
+  "theme.hidden_identity": ["马甲文"],
+  "theme.cultivation": ["修真"],
+};
 
 const LEGACY_TAG_ID_MAP: Record<string, string> = {
   "element.vampire": "theme.vampire",
@@ -127,6 +141,8 @@ const MAINLAND_TAG_DEFINITIONS: MainlandTagDefinition[] = [
   ["theme.cultivation", "Cultivation", "修仙", "Story Element", "以修行体系、目标与因果代价推动成长。"],
   ["theme.time_loop", "Time Loop", "时间循环", "Story Element", "在重复时间中累积信息、选择与后果。"],
   ["theme.vampire", "Vampire", "吸血鬼", "Story Element", "以身份、欲望、寿命差异与关系代价推动冲突。"],
+  ["world.ancient_court", "Ancient Court", "古代朝堂", "Story Element", "朝堂秩序、官职与政治关系构成故事背景。"],
+  ["world.ancient", "Ancient Setting", "古代", "Story Element", "以古代生活、社会制度与人物关系为背景。"],
   ["relationship.contract", "Contract Relationship", "契约关系", "Story Element", "一项约定把人物利益和情感代价绑定。"],
   ["relationship.marriage_first_love_later", "Marriage Before Love", "先婚后爱", "Story Element", "先建立制度关系，再通过事件发展真实感情。"],
   ["relationship.reconciliation", "Reconciliation", "破镜重圆", "Story Element", "旧关系在新冲突中重新建立或彻底破裂。"],
@@ -154,17 +170,6 @@ const MAINLAND_TAG_DEFINITIONS: MainlandTagDefinition[] = [
   ["audience.family", "Family Drama Audience", "家庭题材受众", "Audience", "关注家庭关系、责任与伦理冲突的受众。"],
 ];
 
-const MAINLAND_RECOMMENDED_TAG_IDS = new Set([
-  "theme.rebirth",
-  "theme.transmigration",
-  "theme.system",
-  "theme.power_growth",
-  "theme.hidden_identity",
-  "theme.true_fake_heir",
-  "relationship.marriage_first_love_later",
-  "theme.investigation",
-]);
-
 const MAINLAND_CREATOR_TAGS: CreatorTag[] = MAINLAND_TAG_DEFINITIONS.map(([
   id,
   label,
@@ -178,29 +183,46 @@ const MAINLAND_CREATOR_TAGS: CreatorTag[] = MAINLAND_TAG_DEFINITIONS.map(([
   category,
   description: descriptionZh,
   descriptionZh,
-  trending: MAINLAND_RECOMMENDED_TAG_IDS.has(id),
 }));
 
-export const CREATOR_TAGS: CreatorTag[] = CURRENT_MARKET_PROFILE === "cn_mainland"
-  ? MAINLAND_CREATOR_TAGS
-  : OVERSEAS_CREATOR_TAGS;
-
-export function getTag(tagId: string): CreatorTag | undefined {
-  return CREATOR_TAGS.find((tag) => tag.id === tagId);
+export function creatorTagsForMarket(market: ProjectMarketProfile): CreatorTag[] {
+  return market === "overseas_tiktok" ? OVERSEAS_CREATOR_TAGS : MAINLAND_CREATOR_TAGS;
 }
 
-export function creatorTagFromOntology(node: OntologyTagSource): CreatorTag {
-  const localTag = getTag(node.id);
+export function getTag(tagId: string, market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): CreatorTag | undefined {
+  const resolved = resolveLegacyTagId(tagId);
+  const catalog = creatorTagsForMarket(market);
+  return catalog.find((tag) => tag.id === resolved)
+    ?? catalog.find((tag) => resolveLegacyTagId(tag.id) === resolved)
+    ?? catalog.find((tag) => tag.id === tagId)
+    ?? MAINLAND_CREATOR_TAGS.find((tag) => tag.id === resolved)
+    ?? OVERSEAS_CREATOR_TAGS.find((tag) => tag.id === tagId);
+}
+
+export function creatorTagFromOntology(node: OntologyTagSource, market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): CreatorTag {
+  const localTag = getTag(creatorTagCanonicalId(node.id), market);
   return {
     id: node.id,
-    label: node.label,
+    label: localTag?.label ?? node.label,
     labelZh: localTag?.labelZh ?? node.label,
-    category: mapOntologyCategory(node.category),
+    category: localTag?.category ?? mapOntologyCategory(node.category),
     description: node.description,
     descriptionZh: localTag?.descriptionZh ?? node.description,
-    trending: localTag?.trending
-      ?? (CURRENT_MARKET_PROFILE === "cn_mainland" && MAINLAND_RECOMMENDED_TAG_IDS.has(node.id)),
+    trending: localTag?.trending ?? false,
   };
+}
+
+export function availableCreatorTags(nodes: OntologyTagSource[], market: ProjectMarketProfile): CreatorTag[] {
+  const catalog = creatorTagsForMarket(market);
+  const active = nodes.filter(isCreatorFacingOntologyNode);
+  const byId = new Map(active.map((node) => [node.id, node]));
+  const tags = catalog.map((tag) => {
+    const node = byId.get(resolveLegacyTagId(tag.id)) ?? byId.get(tag.id);
+    return node ? creatorTagFromOntology(node, market) : tag;
+  });
+  // Canonical local labels lead; preserve extra runtime tags in the mainland catalog.
+  if (market !== "overseas_tiktok") tags.push(...active.map((node) => creatorTagFromOntology(node, market)));
+  return deduplicateCreatorTags(tags.filter((tag) => !HIDDEN_PICKER_IDS.has(creatorTagCanonicalId(tag.id))), market);
 }
 
 export function isCreatorFacingOntologyNode(node: OntologyTagSource): boolean {
@@ -209,6 +231,62 @@ export function isCreatorFacingOntologyNode(node: OntologyTagSource): boolean {
 
 export function resolveLegacyTagId(tagId: string): string {
   return LEGACY_TAG_ID_MAP[tagId] ?? tagId;
+}
+
+export function creatorTagCanonicalId(id: string): string {
+  const resolved = resolveLegacyTagId(id);
+  return DISPLAY_ID_ALIASES[resolved] ?? resolved;
+}
+
+const normalizedLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
+
+export function findCreatorTagByLabel(label: string, market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): CreatorTag | undefined {
+  const key = normalizedLabel(label);
+  if (!key) return undefined;
+  return creatorTagsForMarket(market).find((tag) => (
+    [tag.label, tag.labelZh, ...(TAG_LABEL_ALIASES[creatorTagCanonicalId(tag.id)] ?? [])]
+      .some((name) => normalizedLabel(name) === key)
+  ));
+}
+
+export function creatorTagIdentity(tag: Pick<CreatorTag, "id"> & Partial<Pick<CreatorTag, "labelZh" | "label">>, market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): string {
+  const label = tag.labelZh ?? hongguoTagLabel(tag.id) ?? tag.label;
+  const known = label ? findCreatorTagByLabel(label, market) : undefined;
+  if (known) return creatorTagCanonicalId(known.id);
+  return tag.id.startsWith("custom.") && label ? `label:${normalizedLabel(label)}` : creatorTagCanonicalId(tag.id);
+}
+
+export function deduplicateCreatorTags(tags: CreatorTag[], market: ProjectMarketProfile): CreatorTag[] {
+  const unique = new Map<string, CreatorTag>();
+  for (const tag of tags) {
+    const key = creatorTagIdentity(tag, market);
+    if (!unique.has(key)) unique.set(key, tag);
+  }
+  return [...unique.values()];
+}
+
+export function selectedTagIdentity(id: string, custom: ScriptProject["customTags"], market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): string {
+  return creatorTagIdentity({ id, labelZh: custom.find((tag) => tag.id === id)?.label }, market);
+}
+
+export function matchingSelectedTagIds(tag: CreatorTag, selected: string[], custom: ScriptProject["customTags"], market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): string[] {
+  const key = creatorTagIdentity(tag, market);
+  return selected.filter((id) => selectedTagIdentity(id, custom, market) === key);
+}
+
+export function uniqueSelectedTagIds(selected: string[], custom: ScriptProject["customTags"], market: ProjectMarketProfile = CURRENT_MARKET_PROFILE): string[] {
+  const seen = new Set<string>();
+  return selected.filter((id) => {
+    const key = selectedTagIdentity(id, custom, market);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function creatorTagMatchesQuery(tag: CreatorTag, query: string): boolean {
+  const names = [tag.label, tag.labelZh, ...(TAG_LABEL_ALIASES[creatorTagCanonicalId(tag.id)] ?? [])];
+  return names.some((name) => normalizedLabel(name).includes(normalizedLabel(query)));
 }
 
 function mapOntologyCategory(category: string): TagCategory {
@@ -225,4 +303,60 @@ export function getLocalizedTagLabel(tag: CreatorTag, locale: "en" | "zh"): stri
 
 export function getLocalizedTagDescription(tag: CreatorTag, locale: "en" | "zh"): string {
   return locale === "zh" ? tag.descriptionZh : tag.description;
+}
+
+export function projectTagLabel(project: Pick<ScriptProject, "customTags" | "generationSettings">, tagId: string, locale: "en" | "zh" = "zh"): string | undefined {
+  const custom = project.customTags?.find((tag) => tag.id === tagId);
+  if (custom?.label.trim()) return custom.label.trim();
+  const tag = getTag(tagId, marketProfileForReleaseRegion(project.generationSettings.releaseRegion));
+  return tag ? getLocalizedTagLabel(tag, locale) : hongguoTagLabel(tagId);
+}
+
+function uniqueTagLabels(labels: string[]): string[] {
+  const seen = new Set<string>();
+  return labels.map((label) => label.trim()).filter((label) => {
+    const key = label.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function projectTagLabels(project: Pick<ScriptProject, "selectedTagIds" | "customTags" | "generationSettings">): string[] {
+  const market = marketProfileForReleaseRegion(project.generationSettings.releaseRegion);
+  return uniqueTagLabels(uniqueSelectedTagIds(project.selectedTagIds, project.customTags ?? [], market).map((id) => projectTagLabel(project, id) ?? id));
+}
+
+export function resolveProjectTagSelection(
+  project: Pick<ScriptProject, "selectedTagIds" | "customTags" | "generationSettings">,
+  nodes: Pick<OntologyTagSource, "id" | "label" | "is_active">[],
+): { systemTagIds: string[]; creativeTagLabels: string[] } {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const custom = new Map((project.customTags ?? []).map((tag) => [tag.id, tag.label.trim()]));
+  const systemTagIds = new Set<string>();
+  const creativeTagLabels: string[] = [];
+  const missing: string[] = [];
+  const market = marketProfileForReleaseRegion(project.generationSettings.releaseRegion);
+  const representatives = new Map<string, string>();
+  for (const id of project.selectedTagIds) {
+    const key = selectedTagIdentity(id, project.customTags ?? [], market);
+    const current = representatives.get(key);
+    const activeSystem = !id.startsWith("custom.") && (byId.get(resolveLegacyTagId(id)) ?? byId.get(id))?.is_active;
+    if (!current || (current.startsWith("custom.") && activeSystem)) representatives.set(key, id);
+  }
+  for (const id of representatives.values()) {
+    const explicitLabel = custom.get(id) || hongguoTagLabel(id);
+    const resolvedId = resolveLegacyTagId(id);
+    const node = byId.get(resolvedId) ?? byId.get(id);
+    if (explicitLabel) creativeTagLabels.push(explicitLabel);
+    else if (node?.is_active) systemTagIds.add(node.id);
+    else {
+      // A catalog entry can disappear without invalidating the author's choice.
+      const label = projectTagLabel(project, id) ?? node?.label;
+      if (label?.trim()) creativeTagLabels.push(label);
+      else missing.push(id);
+    }
+  }
+  if (missing.length) throw new Error(`部分已选标签的名称已丢失，请移除后重新选择：${missing.join("、")}`);
+  return { systemTagIds: [...systemTagIds], creativeTagLabels: uniqueTagLabels(creativeTagLabels) };
 }

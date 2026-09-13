@@ -14,8 +14,7 @@ import {
 import { orderedScreenplayBody } from "./screenplay-body-order.ts";
 import { safeFilename } from "./filename.ts";
 import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
-import { episodeEndingLabel, episodeEndingText } from "./episode-ending.ts";
-import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
+import type { BilingualScriptView, GeneratedDraft, GeneratedScene } from "./types.ts";
 import type JSZip from "jszip";
 
 export type EpisodeDocumentFormat = "markdown" | "text" | "word";
@@ -29,6 +28,82 @@ export interface EpisodeDocumentSource {
 export interface ArchiveAttachment {
   filename: string;
   content: string | Blob | ArrayBuffer;
+}
+
+function uniqueValues(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function sceneCharacterRefs(scene: GeneratedScene): string[] {
+  const explicit = scene.content_manifest?.character_refs ?? scene.character_refs ?? [];
+  if (explicit.length) return uniqueValues(explicit);
+  return uniqueValues(scene.dialogues.map((line) => line.chinese_character_name || line.character_name));
+}
+
+function sceneHeading(scene: GeneratedScene, sceneIndex: number, bilingualView?: BilingualScriptView): string {
+  const dialoguePresentation = overseasDialoguePresentation(bilingualView);
+  const rawHeading = scene.scene_heading ?? scene.setting_hint ?? scene.setting ?? scene.slug;
+  return clientSceneHeading(overseasNarrativeText(
+    dialoguePresentation,
+    scene.scene_heading
+      ? `scenes.${sceneIndex}.scene_heading`
+      : scene.setting_hint
+        ? `scenes.${sceneIndex}.setting_hint`
+        : `scenes.${sceneIndex}.slug`,
+    rawHeading,
+  ));
+}
+
+function episodeCast(draft: GeneratedDraft): string[] {
+  const explicit = draft.episode_cast ?? [];
+  if (explicit.length) return uniqueValues(explicit);
+  return uniqueValues(draft.scenes.flatMap(sceneCharacterRefs));
+}
+
+function episodeLocations(draft: GeneratedDraft): string[] {
+  const explicit = draft.locations ?? [];
+  if (explicit.length) return uniqueValues(explicit);
+  return uniqueValues(draft.scenes.map((scene) => scene.content_manifest?.location ?? scene.scene_heading ?? scene.setting_hint ?? scene.setting ?? scene.slug));
+}
+
+function episodeInformationMarkdown(
+  draft: GeneratedDraft,
+  bilingualView?: BilingualScriptView,
+): string {
+  const dialoguePresentation = overseasDialoguePresentation(bilingualView);
+  const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
+  const cast = episodeCast(draft).map((name) => {
+    const profile = draft.characters.find((character) => character.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    const label = applyChineseCharacterNames(name, characterNames);
+    return profile ? `${label}：${applyChineseCharacterNames(profile.role, characterNames)}` : label;
+  });
+  const locations = episodeLocations(draft).map((location) => applyChineseCharacterNames(location, characterNames));
+  const sceneRows = draft.scenes.map((scene, index) => {
+    const manifest = scene.content_manifest;
+    const heading = applyChineseCharacterNames(sceneHeading(scene, index, bilingualView), characterNames);
+    const refs = sceneCharacterRefs(scene).map((ref) => applyChineseCharacterNames(ref, characterNames));
+    const props = manifest?.props?.length ? manifest.props.join("、") : "无特别道具";
+    const objective = manifest?.objective ?? scene.purpose;
+    const conflict = manifest?.conflict ?? scene.beat_summary;
+    const outcome = manifest?.outcome ?? scene.turning_point ?? scene.beat_summary;
+    return [
+      `${index + 1}. ${heading}`,
+      `   出场人物：${refs.join("、") || "待补充"}`,
+      `   场景任务：${objective}`,
+      `   主要阻力：${conflict}`,
+      `   场景结果：${outcome}`,
+      `   必要道具：${props}`,
+    ].join("\n");
+  });
+  return [
+    "## 本集信息",
+    `剧情梗概：${overseasNarrativeText(dialoguePresentation, "synopsis", draft.synopsis)}`,
+    `本集目标：${overseasNarrativeText(dialoguePresentation, "episode_goal", draft.episode_goal ?? "")}`,
+    `本集出场人物：${cast.join("、") || "待补充"}`,
+    `使用场地：${locations.join("、") || "待补充"}`,
+    "场景清单：",
+    sceneRows.join("\n"),
+  ].join("\n\n");
 }
 
 export function toEpisodeMarkdown(
@@ -80,25 +155,17 @@ export function toEpisodeMarkdown(
         ? `\n\n> 中文：${text.chinese}`
         : ""}`;
     }).join("\n\n");
-    const heading = applyChineseCharacterNames(
-      clientSceneHeading(overseasNarrativeText(
-        dialoguePresentation,
-        scene.setting_hint
-          ? `scenes.${sceneIndex}.setting_hint`
-          : `scenes.${sceneIndex}.slug`,
-        scene.setting_hint ?? scene.setting ?? scene.slug,
-      )),
-      characterNames,
-    );
+    const heading = applyChineseCharacterNames(sceneHeading(scene, sceneIndex, bilingualView), characterNames);
     return `## ${heading}\n\n${body}`;
   }).join("\n\n");
   return [
     `# 第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
     `预计时长：${episodeDurationSeconds(draft)}秒`,
+    episodeInformationMarkdown(draft, bilingualView),
+    "## 正式正文",
     "FADE IN / 淡入：",
     scenes,
     "FADE OUT / 淡出。",
-    `（${episodeEndingLabel(draft)}：${applyChineseCharacterNames(episodeEndingText(draft), characterNames)}）`,
     "",
   ].filter(Boolean).join("\n\n");
 }
@@ -118,13 +185,7 @@ export function toEpisodePlainText(
   );
   const scenes = draft.scenes.map((scene, sceneIndex) => [
     applyChineseCharacterNames(
-      clientSceneHeading(overseasNarrativeText(
-        dialoguePresentation,
-        scene.setting_hint
-          ? `scenes.${sceneIndex}.setting_hint`
-          : `scenes.${sceneIndex}.slug`,
-        scene.setting_hint ?? scene.setting ?? scene.slug,
-      )),
+      sceneHeading(scene, sceneIndex, bilingualView),
       characterNames,
     ),
     ...orderedScreenplayBody(scene).flatMap((item) => {
@@ -168,10 +229,11 @@ export function toEpisodePlainText(
   return [
     `第${episodeNumber}集${chineseEpisodeTitle ? `《${chineseEpisodeTitle}》` : ""}`,
     `预计时长：${episodeDurationSeconds(draft)}秒`,
+    episodeInformationMarkdown(draft, bilingualView).replace(/^## 本集信息\n\n/, "本集信息\n\n"),
+    "正式正文",
     "FADE IN / 淡入：",
     scenes,
     "FADE OUT / 淡出。",
-    `（${episodeEndingLabel(draft)}：${applyChineseCharacterNames(episodeEndingText(draft), characterNames)}）`,
     "",
   ].filter(Boolean).join("\n\n") + "\n";
 }

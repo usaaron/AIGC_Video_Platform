@@ -1,12 +1,13 @@
 import type { PlanningPhase, ScriptProject } from "./types";
 
-export type WorkspaceSectionId = "story-bible" | "planning" | "script";
+export type WorkspaceSectionId = "story-bible" | "planning" | "script" | "storyboard";
 
 export interface WorkspaceSectionAccess {
   phase: PlanningPhase;
   storyBible: true;
   planning: boolean;
   script: boolean;
+  storyboard: boolean;
 }
 
 type WorkspaceStageProject = Pick<ScriptProject,
@@ -57,6 +58,7 @@ export function workspaceSectionAccess(
     storyBible: true,
     planning,
     script,
+    storyboard: script,
   };
 }
 
@@ -66,6 +68,7 @@ export function workspaceSectionHref(
 ): string {
   if (section === "story-bible") return `/projects/${project.id}/planning`;
   if (section === "planning") return `/projects/${project.id}/planning/structure`;
+  if (section === "storyboard") return `/projects/${project.id}/storyboard`;
   // Entering the script workspace must never start generation implicitly.
   // Generation is launched only by an explicit user action. Legacy callers
   // may still provide `?generate=1` when they intentionally request a batch;

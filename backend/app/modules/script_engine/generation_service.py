@@ -2,23 +2,37 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from copy import deepcopy
+from functools import wraps
+from inspect import signature
 import hashlib
 import json
 import logging
+import math
 import re
 import threading
 import time
-import unicodedata
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
+
+from app.modules.script_engine import draft_contract, draft_recovery, targeted_revision
+from app.modules.script_engine.author_conflict_models import AuthorConflictAssessment, StoredAuthorConflictReview
+from app.modules.script_engine.author_conflicts import (
+    AuthorConflictResolutionError,
+    AuthorConflictReviewRepository,
+    make_review,
+    resolved_option,
+    review_prompt,
+)
+from app.modules.script_engine.draft_contract import InvalidDraftMasterScriptOutputError
+from app.modules.script_engine.draft_evidence import reconcile_draft_evidence
+from app.modules.script_engine.draft_scalar_normalization import normalize_draft_scalar_contracts, normalize_script_tone
 
 from app.modules.content_spec.models import ResolvedCreativeContext
 from app.modules.content_spec.market_profile import content_spec_market_contract
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.master_script.models import (
     CharacterProfile,
-    CharacterStateUpdate,
     DraftMasterScript,
     DraftSceneCard,
     LLMContinuityRepairPatch,
@@ -42,8 +56,11 @@ from app.modules.script_engine.llm_adapter import (
     LLMStructuredOutputError,
     MockLLMAdapter,
     bind_llm_log_context,
+    bind_llm_market,
+    deadline_request_error,
     is_recoverable_llm_request_error,
 )
+from app.modules.script_engine.llm_deadline import LLMDeadlineExceeded, check_deadline, deadline_scope
 from app.modules.script_engine.creative_deepening import (
     CreativeDeepeningService,
     build_deepening_qc_comparison,
@@ -62,12 +79,19 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
     OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
+    PARTNER_SCREENPLAY_CONTENT_TEMPLATE_VERSION,
     PARTNER_SCREENPLAY_FORMAT_VERSION,
     ending_mode_requires_hook,
 )
 from app.modules.script_engine.continuity_qc import (
     BlockingContinuityConflictError,
     evaluate_episode_continuity,
+)
+from app.modules.script_engine.episode_readiness import (
+    episode_execution_readiness_issues,
+)
+from app.modules.script_engine.episode_quality_review import (
+    review_episode_dramatic_evidence,
 )
 from app.modules.script_engine.knowledge_bundle import StaticKnowledgeBundleCatalog
 from app.modules.script_engine.mainland_language import (
@@ -110,6 +134,11 @@ from app.modules.script_engine.screenplay_duration import (
     ScreenplayDurationEstimate,
     estimate_screenplay_duration,
 )
+from app.modules.script_engine.screenplay_metrics import (
+    is_chinese_language,
+    screenplay_character_count,
+    screenplay_scene_character_counts,
+)
 from app.modules.script_engine.script_post_editor import (
     InvalidScriptPostEditError,
     ScriptPostEditCheckpoint,
@@ -120,11 +149,26 @@ from app.modules.script_engine.production_count_utils import (
     episode_production_counts,
     episode_production_counts_are_valid,
     record_episode_production_counts,
+    rebalance_scene_items,
 )
 from app.modules.script_engine.story_qc import PlaceholderStoryQC, StoryQC
 
 
 logger = logging.getLogger(__name__)
+
+
+def _bind_draft_market(operation):
+    operation_signature = signature(operation)
+    request_parameter = tuple(operation_signature.parameters)[1]
+
+    @wraps(operation)
+    def routed(self, *args, **kwargs):
+        request = operation_signature.bind(self, *args, **kwargs).arguments[request_parameter]
+        source = getattr(request, "source_generation_run", request)
+        with bind_llm_market(source.release_region):
+            return operation(self, *args, **kwargs)
+
+    return routed
 
 
 class MissingContentSpecError(ValueError):
@@ -139,12 +183,12 @@ class MissingSceneSettingSourceError(ValueError):
     """Raised when draft generation cannot trace a scene setting source."""
 
 
-class InvalidDraftMasterScriptOutputError(ValueError):
-    """Raised when a real LLM response cannot be validated as a draft script."""
-
-
 class InvalidResolvedCreativeContextError(ValueError):
     """Raised when resolved creative context does not match the generation request."""
+
+
+class EpisodeExecutionNotReadyError(ValueError):
+    """Raised when a fast screenplay executor receives an incomplete episode plan."""
 
 
 class CreativeDeepeningDisabledError(ValueError):
@@ -202,23 +246,7 @@ FULL_DRAFT_REPAIR_MAX_OUTPUT_TOKENS = 32_000
 # 32K episode response while leaving ample room for high-effort reasoning.
 TARGETED_MODIFICATION_OUTPUT_TOKENS = 16_000
 
-TARGETED_MODIFICATION_ROOT_FIELDS = {
-    "hook",
-    "synopsis",
-    "next_episode_question",
-}
-TARGETED_MODIFICATION_SCENE_FIELDS = {
-    "slug",
-    "purpose",
-    "setting_hint",
-    "beat_summary",
-}
-TARGETED_MODIFICATION_CAUSALITY_FIELDS = {
-    "goal",
-    "conflict",
-    "outcome",
-    "causal_link",
-}
+
 
 # A continuity patch can legitimately fix one conflict while exposing another
 # related evidence mismatch. Allow one bounded follow-up against the fresh QC
@@ -229,16 +257,6 @@ CONTINUITY_REPAIR_MAX_ATTEMPTS = 2
 # are still allowed to finish; validated first drafts avoid optional model work.
 SCRIPT_GENERATION_SOFT_TARGET_MS = 300_000
 
-DRAFT_RESPONSE_ENVELOPE_KEYS = (
-    "draft_master_script",
-    "master_script",
-    "script",
-    "screenplay",
-    "episode_script",
-    "data",
-    "result",
-    "output",
-)
 
 
 class ScriptGenerationService:
@@ -260,13 +278,20 @@ class ScriptGenerationService:
         contract_fallback_llm_adapter: LLMAdapter | None = None,
         continuity_llm_adapter: LLMAdapter | None = None,
         script_editor_llm_adapter: LLMAdapter | None = None,
+        conversation_editor_llm_adapter: LLMAdapter | None = None,
+        author_conflict_llm_adapter: LLMAdapter | None = None,
+        author_conflict_repository: AuthorConflictReviewRepository | None = None,
         script_editor_enabled: bool = False,
         story_qc: StoryQC | None = None,
         revision_planner: RubricRevisionPlanner | None = None,
         knowledge_bundle_catalog: StaticKnowledgeBundleCatalog | None = None,
         creative_deepening_service: CreativeDeepeningService | None = None,
         creative_deepening_enabled: bool = False,
+        initial_generation_timeout_seconds: float = 900,
     ) -> None:
+        if not math.isfinite(initial_generation_timeout_seconds) or initial_generation_timeout_seconds <= 0:
+            raise ValueError("Initial generation timeout must be finite and positive.")
+        self._initial_generation_timeout_seconds = initial_generation_timeout_seconds
         self._content_spec_repository = content_spec_repository
         self._generation_strategy_repository = generation_strategy_repository
         self._platform_profile_repository = platform_profile_repository
@@ -295,6 +320,9 @@ class ScriptGenerationService:
         self._script_editor_llm_adapter = (
             script_editor_llm_adapter or self._llm_adapter
         )
+        self._conversation_editor_llm_adapter = conversation_editor_llm_adapter
+        self._author_conflict_llm_adapter = author_conflict_llm_adapter
+        self._author_conflict_repository = author_conflict_repository or AuthorConflictReviewRepository()
         self._script_post_editor = ScriptPostEditor(
             llm_adapter=self._script_editor_llm_adapter
         )
@@ -312,6 +340,11 @@ class ScriptGenerationService:
             )
         )
         self._creative_deepening_enabled = creative_deepening_enabled
+
+    def _conversation_editor_adapter(self) -> LLMAdapter:
+        if self._conversation_editor_llm_adapter is not None:
+            return self._conversation_editor_llm_adapter
+        return self._llm_adapter
 
     def generate_draft(
         self,
@@ -334,7 +367,7 @@ class ScriptGenerationService:
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ScriptGenerationDraftRun:
-        """Generate a validated DeepSeek checkpoint before GPT final editing."""
+        """Generate a validated checkpoint before optional final editing."""
 
         return self._generate_draft_with_failure_boundary(
             payload,
@@ -343,6 +376,7 @@ class ScriptGenerationService:
             cancel_event=cancel_event,
         )
 
+    @_bind_draft_market
     def _generate_draft_with_failure_boundary(
         self,
         payload: ScriptGenerationDraftRequest,
@@ -394,7 +428,7 @@ class ScriptGenerationService:
             # The provider-facing contract is validated before internal draft
             # assembly. A bare Pydantic error here therefore identifies a
             # local contract mismatch, not an opaque server failure.
-            paths = self._validation_error_paths(error)
+            paths = draft_contract.validation_error_paths(error)
             logger.warning(
                 "Validated episode draft failed internal assembly paths=%s",
                 paths,
@@ -473,6 +507,18 @@ class ScriptGenerationService:
             raise MissingGenerationStrategyError(
                 f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
             )
+        if (
+            payload.episode_context is not None
+            and generation_strategy.model_tier == "fast_executor"
+        ):
+            readiness_issues = episode_execution_readiness_issues(
+                payload.episode_context.approved_episode_plan
+            )
+            if readiness_issues:
+                raise EpisodeExecutionNotReadyError(
+                    "Fast screenplay execution requires a complete approved episode "
+                    "scene blueprint: " + ", ".join(readiness_issues[:20])
+                )
 
         knowledge_bundle = None
         knowledge_items: list[StaticKnowledgeItem] = []
@@ -723,6 +769,7 @@ class ScriptGenerationService:
                 prompt.version for prompt in prompt_retrieval_result.prompts
             ],
             ending_mode=ending_mode,
+            episode_context=payload.episode_context,
         )
         draft_master_script = draft_master_script.model_copy(
             update={"target_duration_seconds": effective_target_duration_seconds}
@@ -981,8 +1028,8 @@ class ScriptGenerationService:
                     )
         if (
             not defer_agent_finalization
-            and self._script_editor_enabled
             and payload.release_region == ScriptReleaseRegion.overseas
+            and self._script_editor_enabled
             and not self._is_mock_output(draft_output)
         ):
             draft_master_script, dialogue_pair_repair_count = (
@@ -1052,6 +1099,10 @@ class ScriptGenerationService:
                     strategy=generation_strategy,
                 )
             )
+        draft_master_script = self._attach_episode_quality_review(
+            draft_master_script,
+            payload.episode_context,
+        )
         self._emit_progress(progress_callback, "stage", stage="quality_checking")
         story_qc_report = self._story_qc.evaluate(
             draft_master_script.model_dump(),
@@ -1208,6 +1259,7 @@ class ScriptGenerationService:
             )
         return result
 
+    @_bind_draft_market
     def finalize_pre_edit_draft(
         self,
         source_run: ScriptGenerationDraftRun,
@@ -1532,7 +1584,10 @@ class ScriptGenerationService:
     def review_draft(self, payload: ScriptDraftReviewRequest) -> ScriptGenerationDraftRun:
         """Re-run deterministic QC/planning after a creator edits an episode draft."""
         source_run = payload.source_generation_run
-        draft = payload.draft_master_script
+        draft = self._attach_episode_quality_review(
+            payload.draft_master_script,
+            source_run.episode_context,
+        )
         generation_strategy = self._validate_source_run(source_run, draft)
         continuity_qc_report = evaluate_episode_continuity(
             draft,
@@ -1560,6 +1615,20 @@ class ScriptGenerationService:
             }
         )
 
+    @staticmethod
+    def _attach_episode_quality_review(
+        draft: DraftMasterScript,
+        episode_context: EpisodeGenerationContext | None,
+    ) -> DraftMasterScript:
+        review = review_episode_dramatic_evidence(
+            draft,
+            episode_context.approved_episode_plan if episode_context else None,
+        )
+        metadata = dict(draft.llm_metadata)
+        metadata["episode_quality_review"] = review
+        return draft.model_copy(update={"llm_metadata": metadata})
+
+    @_bind_draft_market
     def modify_draft(
         self,
         payload: ScriptDraftModificationRequest,
@@ -1581,7 +1650,35 @@ class ScriptGenerationService:
                 f"PlatformProfile '{content_spec.platform_goal.platform_profile_id}' was not found."
             )
 
-        if payload.selection_context is not None:
+        option = resolved_option(payload, self._author_conflict_repository)
+        if option is not None and option.kind != "bridge":
+            raise AuthorConflictResolutionError("该方案涉及上游设定，请确认建立修订版本后在新版规划中处理。")
+        if option is None:
+            adapter = self._author_conflict_llm_adapter or self._conversation_editor_adapter()
+            with bind_llm_log_context(stage="script_modification.author_conflict_review"):
+                assessment_output = adapter.generate_structured_output(
+                    review_prompt(payload),
+                    strategy=generation_strategy.model_copy(update={"max_tokens": 6_000}),
+                    output_schema=AuthorConflictAssessment.model_json_schema(),
+                )
+            try:
+                assessment = AuthorConflictAssessment.model_validate({
+                    key: value for key, value in assessment_output.items() if key != "_meta"
+                })
+                review = make_review(payload, assessment)
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise InvalidDraftMasterScriptOutputError("修改影响审阅尚未形成可核对结果，请重新检查。") from exc
+            if review.conflicts:
+                self._author_conflict_repository.save(StoredAuthorConflictReview(
+                    id=review.review_id, review=review, source_project_id=source_run.story_project_id,
+                ))
+                return ScriptDraftModificationResult(
+                    source_draft_master_script_id=source_draft.id,
+                    instruction=payload.instruction,
+                    conflict_review=review,
+                )
+
+        if payload.selection_context is not None and option is None:
             targeted_candidate_run = self._try_targeted_draft_modification(
                 payload=payload,
                 source_run=source_run,
@@ -1614,8 +1711,18 @@ class ScriptGenerationService:
                     else None
                 ),
             )
+        restored_prompts = self._prompt_retrieval_service.resolve_prompt_ids(
+            generation_strategy, source_run.selected_prompt_ids, retrieval_mode="exact_ids",
+        )
+        source_versions = {item.id: item.version for item in source_run.prompt_retrieval_result.prompts}
+        for item in restored_prompts.prompts:
+            if source_versions.get(item.id) != item.version:
+                raise MissingPromptLibraryItemError(
+                    f"PromptLibraryItem '{item.id}' no longer matches the source version."
+                )
+        source_run = source_run.model_copy(update={"prompt_retrieval_result": restored_prompts})
         prompt_build_result = self._prompt_builder.build_master_prompt(
-            prompts=source_run.prompt_retrieval_result.prompts,
+            prompts=restored_prompts.prompts,
             context=self._build_prompt_context(
                 content_spec=content_spec,
                 platform_profile=platform_profile,
@@ -1633,6 +1740,16 @@ class ScriptGenerationService:
             ),
             strategy=generation_strategy,
         )
+        if option is not None:
+            prompt_build_result = prompt_build_result.model_copy(update={
+                "prompt_text": prompt_build_result.prompt_text + (
+                    "\n\nAuthorConfirmedResolutionContract:\n"
+                    "用户已确认以下转变衔接方案，按此实现本次修改目标。该确认只允许补足本集因果与表演依据，"
+                    "不授权篡改既有事实或另造秘密，不把候选直接当成历史。保持已批准结局与规划义务，"
+                    "正文及账本仍须通过连续性检查；不能把用户要求静默改回旧的表达。\n"
+                    + option.plan
+                ),
+            })
         # A creator modification still returns a complete DraftMasterScript;
         # do not let the persisted strategy's small legacy budget truncate the
         # replacement episode before downstream validation can run.
@@ -1640,7 +1757,7 @@ class ScriptGenerationService:
             generation_strategy
         )
         with bind_llm_log_context(stage="script_modification.full_episode"):
-            raw_output = self._llm_adapter.generate_structured_output(
+            raw_output = self._conversation_editor_adapter().generate_structured_output(
                 prompt_build_result.prompt_text,
                 strategy=modification_strategy,
                 output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
@@ -1716,6 +1833,18 @@ class ScriptGenerationService:
                 draft_master_script=candidate,
             )
         )
+        if option is not None:
+            metadata = dict(candidate_run.draft_master_script.llm_metadata)
+            metadata["author_conflict_resolution"] = {
+                "review_id": payload.resolution.review.review_id,
+                "source_fingerprint": payload.resolution.review.source_fingerprint,
+                "instruction": payload.instruction,
+                "option": option.model_dump(mode="json"),
+                "scope": "episode_candidate",
+            }
+            candidate_run = candidate_run.model_copy(update={
+                "draft_master_script": candidate_run.draft_master_script.model_copy(update={"llm_metadata": metadata}),
+            })
         return ScriptDraftModificationResult(
             source_draft_master_script_id=source_draft.id,
             instruction=payload.instruction,
@@ -1739,7 +1868,8 @@ class ScriptGenerationService:
         target_path = self._targeted_modification_path(selection.source_field)
         if target_path is None:
             return None
-        source_value = self._targeted_text_value(source_draft, target_path)
+        candidate_payload = source_draft.model_dump(mode="python")
+        source_value = self._targeted_text_value(candidate_payload, target_path)
         if source_value is None or selection.selected_text not in source_value:
             return None
 
@@ -1775,7 +1905,7 @@ class ScriptGenerationService:
             update={"max_tokens": TARGETED_MODIFICATION_OUTPUT_TOKENS}
         )
         with bind_llm_log_context(stage="script_modification.targeted_patch"):
-            raw_patch = self._llm_adapter.generate_structured_output(
+            raw_patch = self._conversation_editor_adapter().generate_structured_output(
                 prompt_text,
                 strategy=targeted_strategy,
                 output_schema=LLMTargetedScriptTextPatch.model_json_schema(),
@@ -1783,74 +1913,23 @@ class ScriptGenerationService:
         raw_patch = self._unwrap_targeted_patch_response(raw_patch)
         try:
             patch = LLMTargetedScriptTextPatch.model_validate(
-                {key: value for key, value in raw_patch.items() if key != "_meta"}
+                draft_contract.without_metadata(raw_patch)
             )
         except ValidationError:
             logger.info(
                 "Targeted modification returned an incompatible payload; using full episode fallback."
             )
             return None
-        if patch.requires_full_episode_rewrite:
-            logger.info(
-                "Targeted modification requested full episode fallback: %s",
-                patch.reason,
-            )
-            return None
-        if patch.replacement_text is None:
-            return None
-        if requires_translation and patch.updated_chinese_translation is None:
-            logger.info(
-                "Targeted overseas dialogue patch omitted its Chinese counterpart; using full episode fallback."
-            )
-            return None
-
-        replacement_text = patch.replacement_text.strip()
-        if not replacement_text:
-            return None
-        updated_value = self._replace_selected_text(
-            source_value,
-            selected_text=selection.selected_text,
-            before_text=selection.before_text,
-            after_text=selection.after_text,
-            replacement_text=replacement_text,
-        )
-        if updated_value is None or updated_value == source_value:
-            return None
-
-        candidate_payload = source_draft.model_dump(mode="python")
-        for identity_field in ("id", "created_at", "updated_at"):
-            candidate_payload.pop(identity_field, None)
-        if not self._set_targeted_text_value(
-            candidate_payload,
-            target_path,
-            updated_value,
-        ):
-            return None
-        if requires_translation and patch.updated_chinese_translation is not None:
-            translation_path = target_path.rsplit(".", 1)[0] + ".chinese_translation"
-            if not self._set_targeted_text_value(
-                candidate_payload,
-                translation_path,
-                patch.updated_chinese_translation.strip(),
-            ):
-                return None
-
         raw_metadata = raw_patch.get("_meta")
-        candidate_payload["llm_metadata"] = {
-            **source_draft.llm_metadata,
-            "targeted_modification": True,
-            "targeted_modification_path": target_path,
-            "targeted_modification_source_draft_id": source_draft.id,
-            "targeted_modification_model": (
-                dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-            ),
-        }
-        try:
-            candidate = DraftMasterScript.model_validate(candidate_payload)
-        except ValidationError:
-            logger.info(
-                "Targeted modification did not satisfy the exact field contract; using full episode fallback."
-            )
+        candidate = targeted_revision.build_targeted_candidate(
+            payload,
+            candidate_payload=candidate_payload,
+            target_path=target_path,
+            patch=patch,
+            raw_metadata=raw_metadata,
+            requires_translation=requires_translation,
+        )
+        if candidate is None:
             return None
 
         canonical_names = (
@@ -1955,279 +2034,27 @@ class ScriptGenerationService:
                 source_run.episode_context,
                 model_context_tokens=self._llm_adapter.get_model_info().max_context_tokens,
             )
-        creative_contract = {
-            "title": content_spec.title,
-            "audience_goal": content_spec.audience_goal.model_dump(mode="json"),
-            "commercial_goal": content_spec.commercial_goal.model_dump(mode="json"),
-            "platform_goal": content_spec.platform_goal.model_dump(mode="json"),
-            "creative_brief": content_spec.creative_brief.model_dump(mode="json"),
-            "resolved_creative_context": (
-                source_run.resolved_creative_context.model_dump(
-                    mode="json",
-                    exclude_none=True,
-                )
-                if source_run.resolved_creative_context is not None
-                else None
-            ),
-        }
-        selection = payload.selection_context
-        assert selection is not None
-        translation_rule = (
-            "The target is an overseas English dialogue line. Return "
-            "updated_chinese_translation as the complete Chinese translation of the "
-            "updated full dialogue line, generated in this same response."
-            if requires_translation
-            else "Set updated_chinese_translation to null."
-        )
-        return (
-            "TARGETED SCREENPLAY TEXT REVISION\n"
-            "Revise exactly one selected text fragment without regenerating the episode. "
-            "The server deterministically inserts replacement_text at target_path and "
-            "rejects every other mutation.\n\n"
-            "Decision rule:\n"
-            "- Use requires_full_episode_rewrite=false only when the instruction can be "
-            "satisfied by replacing the selected fragment alone.\n"
-            "- Set requires_full_episode_rewrite=true with a concise reason if satisfying "
-            "the request requires another field, another scene, a character/state update, "
-            "a new story fact, or a changed causal/continuity contract.\n"
-            "- replacement_text is only the replacement for selected_text, not the full "
-            "field and not an explanation. Preserve language, names, established facts, "
-            "tone, causality, and handoff obligations. Do not weaken production clarity.\n"
-            "- The user instruction is subordinate to story_bible_context, approved_story_node, "
-            "approved_episode_plan, and confirmed continuity. Never change their required outcome, "
-            "route obligations, or locked facts.\n"
-            f"- {translation_rule}\n\n"
-            f"Release region: {source_run.release_region.value}\n"
-            f"Target path: {target_path}\n"
-            "UserDirectedModificationContract:\n"
-            f"User instruction: {payload.instruction}\n"
-            "DocumentSelectionContext:\n"
-            + json.dumps(selection.model_dump(mode="json"), ensure_ascii=False)
-            + "\nCurrent complete target field:\n"
-            + source_value
-            + "\n\nCreative contract:\n"
-            + json.dumps(creative_contract, ensure_ascii=False)
-            + "\n\nGoverned generation guidance:\n"
-            + json.dumps(
-                [item.model_dump(mode="json") for item in knowledge_items],
-                ensure_ascii=False,
-            )
-            + "\n\nCanonical episode and continuity packet:\n"
-            + json.dumps(episode_context, ensure_ascii=False)
-            + "\n\nImmutable episode context and relevant scene evidence:\n"
-            + json.dumps(
-                self._targeted_modification_context(source_draft, target_path),
-                ensure_ascii=False,
-            )
+        return targeted_revision.build_targeted_modification_prompt(
+            payload=payload,
+            source_run=source_run,
+            source_draft=source_draft,
+            content_spec=content_spec,
+            target_path=target_path,
+            source_value=source_value,
+            requires_translation=requires_translation,
+            knowledge_items=knowledge_items,
+            episode_context=episode_context,
         )
 
-    @staticmethod
-    def _targeted_modification_path(source_field: str) -> str | None:
-        match = re.search(r"[（(]([^()（）]+)[）)]\s*$", source_field.strip())
-        if match is None:
-            return None
-        path = match.group(1).strip()
-        parts = path.split(".")
-        if len(parts) == 1:
-            return path if path in TARGETED_MODIFICATION_ROOT_FIELDS else None
-        if len(parts) < 3 or parts[0] != "scenes" or not parts[1].isdigit():
-            return None
-        if len(parts) == 3 and parts[2] in TARGETED_MODIFICATION_SCENE_FIELDS:
-            return path
-        if (
-            len(parts) == 4
-            and parts[2] == "scene_causality"
-            and parts[3] in TARGETED_MODIFICATION_CAUSALITY_FIELDS
-        ):
-            return path
-        if (
-            len(parts) == 4
-            and parts[2] == "character_actions"
-            and parts[3].isdigit()
-        ):
-            return path
-        if (
-            len(parts) == 5
-            and parts[2] == "dialogues"
-            and parts[3].isdigit()
-            and parts[4] in {"intent", "text"}
-        ):
-            return path
-        return None
+    _targeted_modification_path = staticmethod(targeted_revision.targeted_modification_path)
+    _unwrap_targeted_patch_response = staticmethod(targeted_revision.unwrap_targeted_patch_response)
+    _targeted_text_value = staticmethod(targeted_revision.targeted_text_value)
+    _set_targeted_text_value = staticmethod(targeted_revision.set_targeted_text_value)
+    _replace_selected_text = staticmethod(targeted_revision.replace_selected_text)
+    _targeted_modification_context = staticmethod(targeted_revision.targeted_modification_context)
+    _script_editor_issue_category = staticmethod(targeted_revision.script_editor_issue_category)
 
-    @staticmethod
-    def _unwrap_targeted_patch_response(
-        output: dict[str, object],
-    ) -> dict[str, object]:
-        """Accept a shallow provider envelope without accepting arbitrary nested mutations."""
-
-        patch_fields = set(LLMTargetedScriptTextPatch.model_fields)
-        inherited_metadata = output.get("_meta")
-        current = output
-        for _ in range(3):
-            if set(current).intersection(patch_fields):
-                break
-            nested = next(
-                (
-                    current[key]
-                    for key in ("data", "result", "output", "patch")
-                    if isinstance(current.get(key), dict)
-                ),
-                None,
-            )
-            if not isinstance(nested, dict):
-                break
-            current = nested
-        if current is output:
-            return output
-        unwrapped = dict(current)
-        if isinstance(inherited_metadata, dict):
-            metadata = unwrapped.setdefault("_meta", {})
-            if isinstance(metadata, dict):
-                for key, value in inherited_metadata.items():
-                    metadata.setdefault(key, value)
-        return unwrapped
-
-    @staticmethod
-    def _targeted_text_value(
-        draft: DraftMasterScript,
-        target_path: str,
-    ) -> str | None:
-        current: object = draft.model_dump(mode="python")
-        for part in target_path.split("."):
-            if isinstance(current, dict):
-                if part not in current:
-                    return None
-                current = current[part]
-            elif isinstance(current, list) and part.isdigit():
-                index = int(part)
-                if index >= len(current):
-                    return None
-                current = current[index]
-            else:
-                return None
-        return current if isinstance(current, str) else None
-
-    @staticmethod
-    def _set_targeted_text_value(
-        payload: dict[str, object],
-        target_path: str,
-        value: str,
-    ) -> bool:
-        parts = target_path.split(".")
-        current: object = payload
-        for part in parts[:-1]:
-            if isinstance(current, dict):
-                if part not in current:
-                    return False
-                current = current[part]
-            elif isinstance(current, list) and part.isdigit():
-                index = int(part)
-                if index >= len(current):
-                    return False
-                current = current[index]
-            else:
-                return False
-        final_part = parts[-1]
-        if isinstance(current, dict) and final_part in current:
-            current[final_part] = value
-            return True
-        return False
-
-    @staticmethod
-    def _replace_selected_text(
-        source_value: str,
-        *,
-        selected_text: str,
-        before_text: str,
-        after_text: str,
-        replacement_text: str,
-    ) -> str | None:
-        positions: list[int] = []
-        cursor = 0
-        while True:
-            position = source_value.find(selected_text, cursor)
-            if position < 0:
-                break
-            positions.append(position)
-            cursor = position + max(1, len(selected_text))
-        if not positions:
-            return None
-        if len(positions) == 1:
-            selected_position = positions[0]
-        else:
-            ranked: list[tuple[int, int]] = []
-            for position in positions:
-                prefix = source_value[:position]
-                suffix = source_value[position + len(selected_text) :]
-                score = 0
-                if before_text and prefix.endswith(before_text):
-                    score += len(before_text)
-                if after_text and suffix.startswith(after_text):
-                    score += len(after_text)
-                ranked.append((score, position))
-            ranked.sort(reverse=True)
-            if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
-                return None
-            selected_position = ranked[0][1]
-        return (
-            source_value[:selected_position]
-            + replacement_text
-            + source_value[selected_position + len(selected_text) :]
-        )
-
-    @staticmethod
-    def _targeted_modification_context(
-        draft: DraftMasterScript,
-        target_path: str,
-    ) -> dict[str, object]:
-        payload = draft.model_dump(
-            mode="json",
-            exclude={"id", "created_at", "updated_at", "llm_metadata"},
-        )
-        scenes = payload.pop("scenes", [])
-        scene_outline: list[dict[str, object]] = []
-        if isinstance(scenes, list):
-            for scene in scenes:
-                if not isinstance(scene, dict):
-                    continue
-                scene_outline.append(
-                    {
-                        key: scene.get(key)
-                        for key in (
-                            "scene_number",
-                            "slug",
-                            "purpose",
-                            "setting_hint",
-                            "beat_summary",
-                            "emotional_shift",
-                            "emotional_objective",
-                            "turning_point",
-                            "scene_causality",
-                            "cliffhanger",
-                        )
-                    }
-                )
-        context: dict[str, object] = {
-            "episode_invariants": payload,
-            "scene_outline": scene_outline,
-        }
-        parts = target_path.split(".")
-        if (
-            len(parts) > 2
-            and parts[0] == "scenes"
-            and parts[1].isdigit()
-            and isinstance(scenes, list)
-            and int(parts[1]) < len(scenes)
-        ):
-            context["target_scene"] = scenes[int(parts[1])]
-        return context
-
-    @staticmethod
-    def _script_editor_issue_category(issue: str) -> str:
-        prefix = issue.split("：", 1)[0]
-        return re.sub(r"\d+(?:\.\d+)?", "#", prefix)
-
+    @_bind_draft_market
     def deepen_draft(
         self,
         payload: ScriptCreativeDeepeningRequest,
@@ -2668,7 +2495,6 @@ class ScriptGenerationService:
         )
         for field_name, limit in (
             ("previous_episode_summary", 1_200),
-            ("previous_episode_handoff", 2_800),
             ("module_handoff", 3_000),
             ("long_range_anchor", 1_800),
             ("story_bible_context", 2_200),
@@ -2697,12 +2523,43 @@ class ScriptGenerationService:
         payload.pop("confirmed_continuity_checkpoint", None)
         payload.pop("project_continuity_summary", None)
         if memory_recall is not None:
-            # A task-scoped recall packet supersedes the legacy fixed checkpoint
-            # in the model prompt, while the original checkpoint remains on the
-            # request for backward-compatible continuity QC and recovery.
             payload["memory_recall"] = cls._compact_memory_recall_for_prompt(
                 memory_recall
             )
+            # Older recall packets flatten knowledge into prose. Preserve the
+            # stable update keys from a checkpoint at the same working boundary.
+            checkpoint = cls._decode_json_context(continuity_checkpoint)
+            keyed_character_refs = {
+                ref
+                for capsule in memory_recall.get("capsules", [])
+                if isinstance(capsule, dict) and capsule.get("knowledge_states")
+                for ref in capsule.get("entity_refs", [])
+            } if isinstance(memory_recall, dict) else set()
+            if (
+                isinstance(checkpoint, dict)
+                and isinstance(memory_recall, dict)
+                and checkpoint.get("version") == "provisional"
+                and memory_recall.get("memory_layer") == "provisional"
+                and checkpoint.get("through_episode_number")
+                == memory_recall.get("through_episode_number")
+                and isinstance(checkpoint.get("through_episode_number"), int)
+                and checkpoint["through_episode_number"] < episode_context.episode_number
+            ):
+                checkpoint_characters = checkpoint.get("character_states")
+                knowledge_index = [
+                    {"character_ref": item["character_ref"],
+                     "knowledge_states": item["knowledge_states"]}
+                    for item in (checkpoint_characters if isinstance(checkpoint_characters, list) else [])
+                    if isinstance(item, dict)
+                    and item.get("character_ref") and item.get("knowledge_states")
+                    and item["character_ref"] not in keyed_character_refs
+                ]
+                if knowledge_index:
+                    payload["character_knowledge_index"] = {
+                        "memory_layer": "provisional",
+                        "through_episode_number": checkpoint["through_episode_number"],
+                        "characters": knowledge_index,
+                    }
         elif continuity_checkpoint:
             payload["continuity_checkpoint"] = cls._decode_json_context(
                 continuity_checkpoint
@@ -2839,6 +2696,12 @@ class ScriptGenerationService:
                 ],
                 "body_character_reference": payload.target_script_body_characters,
                 "screenplay_format": PARTNER_SCREENPLAY_FORMAT_VERSION,
+                "content_template": PARTNER_SCREENPLAY_CONTENT_TEMPLATE_VERSION,
+                "required_scene_content": [
+                    "scene_heading",
+                    "character_refs",
+                    "content_manifest",
+                ],
             },
         }
         return f"""你是序幕TV剧本大师的单集正文 Agent。上一轮 DeepSeek high 推理已耗尽输出预算，
@@ -2850,7 +2713,7 @@ class ScriptGenerationService:
 
 执行要求：
 1. approved_episode_plan、scene_execution_plan、layer_contracts和continuity_checkpoint是硬合同。
-2. 严格执行冲突-决定-局部回报-压力升级-退出状态因果链；{ending_instruction}
+2. 沿用批准的单集节奏和场景职责，让行动与后果因果连贯，并呈现具体的信息、人物理解、情绪或期待变化；允许有价值的安静段落，不强制反转、不可逆变化或固定循环；{ending_instruction}
 3. 每场按body_order自然交错可拍动作与对白；不得写镜头语言、心理活动或小说叙述。
 4. 全集场景1–5个、对白25–35条、镜头执行单元15–20个、成片75–115秒。
 5. characters和所有状态更新必须来自写作包中的人物与已确认事实；状态更新保持简短并标注场次证据。
@@ -2913,6 +2776,8 @@ class ScriptGenerationService:
                         "authority",
                         "mandatory",
                         "conflict_note",
+                        "knowledge_states",
+                        "active_constraints",
                     )
                     if key in raw_capsule
                     and raw_capsule[key] not in (None, "", [], {})
@@ -2973,6 +2838,7 @@ class ScriptGenerationService:
         output_language: str,
         selected_prompt_versions: list[str],
         ending_mode: EndingMode = DEFAULT_ENDING_MODE,
+        episode_context: EpisodeGenerationContext | None = None,
     ) -> DraftMasterScript:
         llm_metadata = (
             llm_raw_output.get("_meta", {})
@@ -2992,6 +2858,16 @@ class ScriptGenerationService:
                 output_language=output_language,
                 llm_metadata=llm_metadata,
                 ending_mode=ending_mode,
+            )
+
+        if (episode_context is not None
+                and episode_context.approved_episode_plan is not None
+                and episode_context.approved_episode_plan.scene_execution_plan):
+            from app.modules.script_engine.mock_screenplay import build_mock_episode_draft
+
+            return build_mock_episode_draft(
+                content_spec=content_spec, generation_strategy=generation_strategy,
+                context=episode_context, output_language=output_language, llm_metadata=llm_metadata,
             )
 
         scene_asset_ids = self._collect_asset_ids(
@@ -3133,10 +3009,8 @@ class ScriptGenerationService:
         llm_metadata: dict[str, object],
         ending_mode: EndingMode = DEFAULT_ENDING_MODE,
     ) -> DraftMasterScript:
-        llm_raw_output = self._unwrap_draft_response_envelope(llm_raw_output)
-        validation_payload = {
-            key: value for key, value in llm_raw_output.items() if key != "_meta"
-        }
+        llm_raw_output = draft_contract.unwrap_response_envelope(llm_raw_output)
+        validation_payload = draft_contract.without_metadata(llm_raw_output)
         # The approved episode context, not an untrusted model omission, is
         # authoritative for finale semantics. Injecting the optional field
         # before validation keeps legacy JSON valid while allowing a series
@@ -3163,6 +3037,8 @@ class ScriptGenerationService:
             tone=llm_script.tone,
             hook=llm_script.hook,
             synopsis=llm_script.synopsis,
+            episode_cast=llm_script.episode_cast,
+            locations=llm_script.locations,
             episode_goal=llm_script.episode_goal,
             target_duration_seconds=llm_script.target_duration_seconds,
             ending_mode=ending_mode,
@@ -3180,11 +3056,13 @@ class ScriptGenerationService:
                 DraftSceneCard(
                     scene_number=scene.scene_number,
                     slug=scene.slug,
+                    scene_heading=scene.scene_heading or scene.setting,
                     purpose=scene.purpose,
                     setting_hint=scene.setting,
                     beat_summary=scene.beat_summary,
                     emotional_shift=scene.emotional_shift,
                     emotional_objective=scene.emotional_objective,
+                    character_refs=scene.character_refs,
                     character_actions=self._deduplicate_draft_strings(
                         scene.character_actions
                     ),
@@ -3198,6 +3076,7 @@ class ScriptGenerationService:
                     ),
                     dialogues=scene.dialogues,
                     supporting_asset_ids=[],
+                    content_manifest=scene.content_manifest,
                 )
                 for scene in llm_script.scenes
             ],
@@ -3237,7 +3116,7 @@ class ScriptGenerationService:
         output = self._with_authoritative_ending_mode(output, ending_mode)
 
         validated = LLMGeneratedDraftMasterScript.model_validate(
-            {key: value for key, value in output.items() if key != "_meta"}
+            draft_contract.without_metadata(output)
         )
         scene_count, dialogue_count, shot_count = self._episode_production_counts(
             validated
@@ -3302,15 +3181,13 @@ class ScriptGenerationService:
         repair_strategy = self._with_episode_production_count_repair_output_budget(
             strategy
         )
-        # Most count misses are caused by one long, independently performable
-        # action or line. Split/merge only at punctuation or whitespace first;
-        # this preserves wording and avoids an otherwise unnecessary model call.
+        # Explicit sentence boundaries can recover a count miss locally.
+        # Preserve authored order and bilingual pairs throughout adjustment.
         locally_rebalanced = (
             self._rebalance_episode_production_counts_locally(
                 output,
                 target_dialogue_count=target_dialogue_count,
                 target_shot_count=target_shot_count,
-                safe_only=True,
             )
             if (
                 dialogue_count <= target_dialogue_count
@@ -3324,11 +3201,7 @@ class ScriptGenerationService:
         )
         try:
             local_candidate = LLMGeneratedDraftMasterScript.model_validate(
-                {
-                    key: value
-                    for key, value in locally_rebalanced.items()
-                    if key != "_meta"
-                }
+                draft_contract.without_metadata(locally_rebalanced)
             )
         except ValidationError:
             local_candidate = None
@@ -3459,11 +3332,7 @@ class ScriptGenerationService:
                     ending_mode=ending_mode,
                 )
                 repair_patch = LLMMainlandBodyRepairPatch.model_validate(
-                    {
-                        key: value
-                        for key, value in normalized_patch.items()
-                        if key != "_meta"
-                    }
+                    draft_contract.without_metadata(normalized_patch)
                 )
                 expected_scene_numbers = {
                     scene.scene_number for scene in validated.scenes
@@ -3481,7 +3350,7 @@ class ScriptGenerationService:
                 )
                 repaired = self._with_authoritative_ending_mode(repaired, ending_mode)
                 repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                    {key: value for key, value in repaired.items() if key != "_meta"}
+                    draft_contract.without_metadata(repaired)
                 )
                 (
                     candidate_scene_count,
@@ -3535,7 +3404,7 @@ class ScriptGenerationService:
             repaired = self._with_authoritative_ending_mode(repaired, ending_mode)
             try:
                 repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                    {key: value for key, value in repaired.items() if key != "_meta"}
+                    draft_contract.without_metadata(repaired)
                 )
             except ValidationError as error:
                 raise InvalidDraftMasterScriptOutputError(
@@ -3557,9 +3426,15 @@ class ScriptGenerationService:
             raise InvalidDraftMasterScriptOutputError(
                 "本集正文缺少足够的可拆分动作或台词，无法在不新增剧情的前提下满足生产数量。"
             ) from last_repair_error
-        self._merge_output_metadata(source=output, target=repaired)
+        if not EPISODE_RUNTIME_MIN_SECONDS <= repaired_duration.total_seconds <= EPISODE_RUNTIME_MAX_SECONDS:
+            raise InvalidDraftMasterScriptOutputError(
+                "正文数量修复后预计时长不符合交付要求："
+                f"{repaired_duration.total_seconds}秒，必须保持在"
+                f"{EPISODE_RUNTIME_MIN_SECONDS}至{EPISODE_RUNTIME_MAX_SECONDS}秒。"
+            ) from last_repair_error
+        draft_contract.merge_output_metadata(source=output, target=repaired)
         for repair_output in repair_outputs:
-            self._merge_output_metadata(source=repair_output, target=repaired)
+            draft_contract.merge_output_metadata(source=repair_output, target=repaired)
         metadata = repaired.setdefault("_meta", {})
         if isinstance(metadata, dict):
             metadata["episode_production_count_model_pass_count"] = (
@@ -3583,22 +3458,19 @@ class ScriptGenerationService:
                     repaired_duration.total_seconds
                 ),
                 "episode_production_count_duration_preserved": (
-                    target_duration_seconds is None
-                    or EPISODE_RUNTIME_MIN_SECONDS
+                    EPISODE_RUNTIME_MIN_SECONDS
                     <= repaired_duration.total_seconds
                     <= EPISODE_RUNTIME_MAX_SECONDS
                 ),
             })
         return repaired
 
-    @classmethod
+    @staticmethod
     def _rebalance_episode_production_counts_locally(
-        cls,
         output: dict[str, object],
         *,
         target_dialogue_count: int,
         target_shot_count: int,
-        safe_only: bool = False,
     ) -> dict[str, object]:
         """Converge a valid body patch without inventing another episode draft."""
 
@@ -3610,263 +3482,12 @@ class ScriptGenerationService:
         if len(scenes) != len(raw_scenes):
             return repaired
 
-        cls._rebalance_action_items(
-            scenes,
-            target=target_shot_count,
-            safe_only=safe_only,
-        )
-        cls._rebalance_dialogue_items(
-            scenes,
-            target=target_dialogue_count,
-            safe_only=safe_only,
-        )
+        rebalance_scene_items(scenes, kind="action", target=target_shot_count)
+        rebalance_scene_items(scenes, kind="dialogue", target=target_dialogue_count)
         metadata = repaired.setdefault("_meta", {})
-        if isinstance(metadata, dict):
+        if isinstance(metadata, dict) and repaired.get("scenes") != output.get("scenes"):
             metadata["episode_production_counts_local_rebalanced"] = True
         return repaired
-
-    @classmethod
-    def _rebalance_action_items(
-        cls,
-        scenes: list[dict[str, object]],
-        *,
-        target: int,
-        safe_only: bool = False,
-    ) -> None:
-        def action_count() -> int:
-            return sum(
-                len(items)
-                for scene in scenes
-                for items in [scene.get("character_actions")]
-                if isinstance(items, list)
-            )
-
-        while action_count() < target:
-            candidates: list[tuple[int, int, int, str, str]] = []
-            for scene_index, scene in enumerate(scenes):
-                items = scene.get("character_actions")
-                if not isinstance(items, list) or len(items) >= 24:
-                    continue
-                for item_index, value in enumerate(items):
-                    if not isinstance(value, str):
-                        continue
-                    split = cls._split_performable_text(
-                        value,
-                        require_boundary=safe_only,
-                    )
-                    if split is not None:
-                        candidates.append(
-                            (len(value), scene_index, item_index, split[0], split[1])
-                        )
-            if not candidates:
-                break
-            _, scene_index, item_index, left, right = max(candidates)
-            items = scenes[scene_index].get("character_actions")
-            if not isinstance(items, list):
-                break
-            items[item_index:item_index + 1] = [left, right]
-
-        while action_count() > target:
-            candidates: list[tuple[int, int, int]] = []
-            for scene_index, scene in enumerate(scenes):
-                items = scene.get("character_actions")
-                if not isinstance(items, list) or len(items) <= 1:
-                    continue
-                for item_index in range(len(items) - 1):
-                    left = items[item_index]
-                    right = items[item_index + 1]
-                    if isinstance(left, str) and isinstance(right, str):
-                        candidates.append(
-                            (len(left) + len(right), scene_index, item_index)
-                        )
-            if not candidates:
-                break
-            _, scene_index, item_index = min(candidates)
-            items = scenes[scene_index].get("character_actions")
-            if not isinstance(items, list):
-                break
-            left = str(items[item_index]).rstrip("，,；;。 ")
-            right = str(items[item_index + 1]).lstrip()
-            items[item_index:item_index + 2] = [f"{left}；{right}"]
-
-    @classmethod
-    def _rebalance_dialogue_items(
-        cls,
-        scenes: list[dict[str, object]],
-        *,
-        target: int,
-        safe_only: bool = False,
-    ) -> None:
-        def dialogue_count() -> int:
-            return sum(
-                len(items)
-                for scene in scenes
-                for items in [scene.get("dialogues")]
-                if isinstance(items, list)
-            )
-
-        while dialogue_count() < target:
-            candidates: list[tuple[int, int, int, str, str]] = []
-            for scene_index, scene in enumerate(scenes):
-                items = scene.get("dialogues")
-                if not isinstance(items, list) or len(items) >= 20:
-                    continue
-                for item_index, item in enumerate(items):
-                    if not isinstance(item, dict):
-                        continue
-                    text = item.get("text")
-                    if not isinstance(text, str):
-                        continue
-                    split = cls._split_performable_text(
-                        text,
-                        require_boundary=safe_only,
-                    )
-                    if split is not None:
-                        candidates.append(
-                            (len(text), scene_index, item_index, split[0], split[1])
-                        )
-            if not candidates:
-                break
-            _, scene_index, item_index, left, right = max(candidates)
-            items = scenes[scene_index].get("dialogues")
-            if not isinstance(items, list) or not isinstance(items[item_index], dict):
-                break
-            source = items[item_index]
-            items[item_index:item_index + 1] = [
-                {**source, "text": left},
-                {**source, "text": right},
-            ]
-
-        while dialogue_count() > target:
-            merge_candidates: list[tuple[int, int, int]] = []
-            for scene_index, scene in enumerate(scenes):
-                items = scene.get("dialogues")
-                if not isinstance(items, list) or len(items) <= 1:
-                    continue
-                for item_index in range(len(items) - 1):
-                    left = items[item_index]
-                    right = items[item_index + 1]
-                    if not isinstance(left, dict) or not isinstance(right, dict):
-                        continue
-                    left_name = str(left.get("character_name") or "").strip().casefold()
-                    right_name = str(right.get("character_name") or "").strip().casefold()
-                    combined_length = len(str(left.get("text") or "")) + len(
-                        str(right.get("text") or "")
-                    )
-                    if left_name and left_name == right_name and combined_length <= 278:
-                        merge_candidates.append(
-                            (combined_length, scene_index, item_index)
-                        )
-            if merge_candidates:
-                _, scene_index, item_index = min(merge_candidates)
-                items = scenes[scene_index].get("dialogues")
-                if not isinstance(items, list):
-                    break
-                left = items[item_index]
-                right = items[item_index + 1]
-                if not isinstance(left, dict) or not isinstance(right, dict):
-                    break
-                left_text = str(left.get("text") or "").rstrip()
-                right_text = str(right.get("text") or "").lstrip()
-                separator = (
-                    ""
-                    if re.search(r"[\u3400-\u9fff]", left_text + right_text)
-                    else " "
-                )
-                left_intent = str(left.get("intent") or "").strip()
-                right_intent = str(right.get("intent") or "").strip()
-                intent = (
-                    left_intent
-                    if left_intent == right_intent or not right_intent
-                    else f"{left_intent}；{right_intent}"[:120]
-                )
-                items[item_index:item_index + 2] = [{
-                    **left,
-                    "intent": intent,
-                    "text": f"{left_text}{separator}{right_text}"[:280],
-                }]
-                continue
-
-            removable = cls._least_valuable_removable_dialogue(scenes)
-            if removable is None:
-                break
-            scene_index, item_index = removable
-            items = scenes[scene_index].get("dialogues")
-            if not isinstance(items, list):
-                break
-            items.pop(item_index)
-
-    @staticmethod
-    def _least_valuable_removable_dialogue(
-        scenes: list[dict[str, object]],
-    ) -> tuple[int, int] | None:
-        candidates: list[tuple[int, int, int]] = []
-        for scene_index, scene in enumerate(scenes):
-            items = scene.get("dialogues")
-            if not isinstance(items, list) or len(items) <= 1:
-                continue
-            action_text = " ".join(
-                str(value)
-                for value in (scene.get("character_actions") or [])
-                if isinstance(value, str)
-            ).casefold()
-            speaker_counts: dict[str, int] = {}
-            for item in items:
-                if isinstance(item, dict):
-                    speaker = str(item.get("character_name") or "").strip().casefold()
-                    speaker_counts[speaker] = speaker_counts.get(speaker, 0) + 1
-            for item_index, item in enumerate(items):
-                if not isinstance(item, dict):
-                    continue
-                if scene_index == len(scenes) - 1 and item_index == len(items) - 1:
-                    continue
-                speaker = str(item.get("character_name") or "").strip().casefold()
-                if speaker_counts.get(speaker, 0) <= 1 and speaker not in action_text:
-                    continue
-                text = str(item.get("text") or "").strip()
-                effective_length = sum(character.isalnum() for character in text)
-                candidates.append((effective_length, scene_index, item_index))
-        if not candidates:
-            return None
-        _, scene_index, item_index = min(candidates)
-        return scene_index, item_index
-
-    @staticmethod
-    def _split_performable_text(
-        value: str,
-        *,
-        require_boundary: bool = False,
-    ) -> tuple[str, str] | None:
-        text = value.strip()
-        if len(text) < 6:
-            return None
-        midpoint = len(text) / 2
-        boundaries = [
-            index + 1
-            for index, character in enumerate(text[:-1])
-            if character in "。！？!?；;，,：:"
-            and len(text[:index + 1].strip()) >= 3
-            and len(text[index + 1:].strip()) >= 3
-        ]
-        whitespace_boundaries = [
-            index
-            for index, character in enumerate(text)
-            if character.isspace()
-            and len(text[:index].strip()) >= 3
-            and len(text[index + 1:].strip()) >= 3
-        ]
-        boundaries.extend(whitespace_boundaries)
-        if boundaries:
-            boundary = min(boundaries, key=lambda index: abs(index - midpoint))
-        elif len(text) >= 8 and not require_boundary:
-            boundary = round(midpoint)
-        else:
-            return None
-        left = text[:boundary].strip()
-        right = text[boundary:].strip()
-        if len(left) < 3 or len(right) < 3:
-            return None
-        return left, right
 
     @staticmethod
     def _episode_production_counts(
@@ -3920,7 +3541,7 @@ class ScriptGenerationService:
 
         output = self._normalize_mainland_scene_slugs(output)
         validated = LLMGeneratedDraftMasterScript.model_validate(
-            {key: value for key, value in output.items() if key != "_meta"}
+            draft_contract.without_metadata(output)
         )
         language_issues = blocking_draft_script_chinese_issues(validated)
         language_warnings = [
@@ -3929,8 +3550,8 @@ class ScriptGenerationService:
             if path not in language_issues
         ]
         screenplay_issues = draft_screenplay_style_issues(validated)
-        actual_characters = self._script_body_character_count(validated)
         scene_characters = self._script_body_scene_character_counts(validated)
+        actual_characters = sum(scene_characters)
         duration_estimate = estimate_screenplay_duration(validated)
         scene_count, dialogue_count, shot_count = self._episode_production_counts(
             validated
@@ -4053,11 +3674,7 @@ class ScriptGenerationService:
                     ending_mode=validated.ending_mode,
                 )
                 repair_patch = LLMMainlandBodyRepairPatch.model_validate(
-                    {
-                        key: value
-                        for key, value in normalized_patch.items()
-                        if key != "_meta"
-                    }
+                    draft_contract.without_metadata(normalized_patch)
                 )
                 repaired = self._apply_mainland_body_repair_patch(
                     output,
@@ -4067,7 +3684,7 @@ class ScriptGenerationService:
                 logger.warning(
                     "Focused mainland body repair returned an invalid scene patch; "
                     "using full-contract fallback errors=%s",
-                    self._validation_error_paths(error)
+                    draft_contract.validation_error_paths(error)
                     if isinstance(error, ValidationError)
                     else [str(error)],
                 )
@@ -4076,7 +3693,7 @@ class ScriptGenerationService:
                 # original valid draft as recovery context.
                 repaired = raw_patch
             else:
-                self._merge_output_metadata(source=raw_patch, target=repaired)
+                draft_contract.merge_output_metadata(source=raw_patch, target=repaired)
         else:
             try:
                 repaired = self._generate_postprocess_output(
@@ -4110,13 +3727,13 @@ class ScriptGenerationService:
                 )
         if not body_only_repair:
             repaired = self._normalize_mechanical_draft_contract(
-                self._unwrap_draft_response_envelope(repaired),
+                draft_contract.unwrap_response_envelope(repaired),
                 ending_mode=validated.ending_mode,
             )
         repaired = self._normalize_mainland_scene_slugs(repaired)
         try:
             repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                {key: value for key, value in repaired.items() if key != "_meta"}
+                draft_contract.without_metadata(repaired)
             )
         except ValidationError as error:
             acceptance_model_passes += 1
@@ -4125,11 +3742,7 @@ class ScriptGenerationService:
                     adapter=self._contract_fallback_llm_adapter,
                     prompt=self._build_full_draft_contract_fallback_prompt(
                         original_prompt=original_prompt,
-                        output={
-                            key: value
-                            for key, value in output.items()
-                            if key != "_meta"
-                        },
+                        output=draft_contract.without_metadata(output),
                         validation_error=error,
                         task=(
                             "Return the complete episode while applying the mainland "
@@ -4154,23 +3767,19 @@ class ScriptGenerationService:
                     error=fallback_failure,
                 )
             repaired = self._normalize_mechanical_draft_contract(
-                self._unwrap_draft_response_envelope(fallback_repaired),
+                draft_contract.unwrap_response_envelope(fallback_repaired),
                 ending_mode=validated.ending_mode,
             )
             repaired = self._normalize_mainland_scene_slugs(repaired)
             try:
                 repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                    {
-                        key: value
-                        for key, value in repaired.items()
-                        if key != "_meta"
-                    }
+                    draft_contract.without_metadata(repaired)
                 )
             except ValidationError as fallback_error:
                 raise InvalidDraftMasterScriptOutputError(
                     "The bounded mainland acceptance fallback did not return a "
                     "complete DraftMasterScript. Invalid fields: "
-                    + ", ".join(self._validation_error_paths(fallback_error))
+                    + ", ".join(draft_contract.validation_error_paths(fallback_error))
                 ) from fallback_error
             metadata = repaired.setdefault("_meta", {})
             if isinstance(metadata, dict):
@@ -4187,8 +3796,8 @@ class ScriptGenerationService:
                 "contract after one combined repair. Invalid fields: "
                 + ", ".join(blocking_language_issues[:12])
             )
-        repaired_characters = self._script_body_character_count(repaired_output)
         repaired_scene_characters = self._script_body_scene_character_counts(repaired_output)
+        repaired_characters = sum(repaired_scene_characters)
         repaired_duration = estimate_screenplay_duration(repaired_output)
         (
             repaired_scene_count,
@@ -4211,9 +3820,9 @@ class ScriptGenerationService:
             and not appears_truncated
             and not duration_issue
         ):
-            if self._screenplay_style_lock_signature(
-                repaired_output
-            ) != self._screenplay_style_lock_signature(validated):
+            if draft_contract.body_lock_signature(
+                repaired_output, allow_dialogue_changes=False
+            ) != draft_contract.body_lock_signature(validated, allow_dialogue_changes=False):
                 raise InvalidDraftMasterScriptOutputError(
                     "The combined screenplay repair changed protected story or dialogue fields."
                 )
@@ -4222,14 +3831,14 @@ class ScriptGenerationService:
             and not language_issues
             and not screenplay_issues
         ):
-            if self._script_body_lock_signature(
+            if draft_contract.body_lock_signature(
                 repaired_output
-            ) != self._script_body_lock_signature(validated):
+            ) != draft_contract.body_lock_signature(validated):
                 raise InvalidDraftMasterScriptOutputError(
                     "The combined completion repair changed protected story or scene fields."
                 )
 
-        self._merge_output_metadata(source=output, target=repaired)
+        draft_contract.merge_output_metadata(source=output, target=repaired)
         metadata = repaired.get("_meta")
         if isinstance(metadata, dict):
             metadata["mainland_acceptance_repaired"] = True
@@ -4550,18 +4159,14 @@ class ScriptGenerationService:
                 ending_mode=self._coerce_ending_mode(output.get("ending_mode")),
             )
             repair_patch = LLMContinuityRepairPatch.model_validate(
-                {
-                    key: value
-                    for key, value in normalized_patch.items()
-                    if key != "_meta"
-                }
+                draft_contract.without_metadata(normalized_patch)
             )
         except ValidationError as error:
             raise InvalidDraftMasterScriptOutputError(
                 "The bounded continuity repair did not return a valid local patch."
             ) from error
         repaired = self._apply_continuity_repair_patch(output, repair_patch)
-        self._merge_output_metadata(source=patch_payload, target=repaired)
+        draft_contract.merge_output_metadata(source=patch_payload, target=repaired)
         metadata = repaired.get("_meta")
         if isinstance(metadata, dict):
             metadata["continuity_auto_repaired"] = True
@@ -4579,11 +4184,7 @@ class ScriptGenerationService:
         output: dict[str, object],
         repair_patch: LLMContinuityRepairPatch,
     ) -> dict[str, object]:
-        repaired = {
-            key: value
-            for key, value in output.items()
-            if key != "_meta"
-        }
+        repaired = draft_contract.without_metadata(output)
         raw_scenes = repaired.get("scenes")
         if not isinstance(raw_scenes, list):
             raise InvalidDraftMasterScriptOutputError(
@@ -4641,9 +4242,7 @@ class ScriptGenerationService:
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
         self._emit_progress(progress_callback, "stage", stage="checking_language")
-        validation_payload = {
-            key: value for key, value in output.items() if key != "_meta"
-        }
+        validation_payload = draft_contract.without_metadata(output)
         try:
             validated = LLMGeneratedDraftMasterScript.model_validate(validation_payload)
         except ValidationError:
@@ -4675,12 +4274,12 @@ class ScriptGenerationService:
                 error=error,
             )
         repaired = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(repaired),
+            draft_contract.unwrap_response_envelope(repaired),
             ending_mode=validated.ending_mode,
         )
         try:
             repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                {key: value for key, value in repaired.items() if key != "_meta"}
+                draft_contract.without_metadata(repaired)
             )
         except ValidationError as error:
             raise InvalidDraftMasterScriptOutputError(
@@ -4707,7 +4306,7 @@ class ScriptGenerationService:
         self._emit_progress(progress_callback, "stage", stage="validating_structure")
         resolved_ending_mode = self._coerce_ending_mode(ending_mode)
         normalized_output = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(output),
+            draft_contract.unwrap_response_envelope(output),
             ending_mode=(
                 resolved_ending_mode
                 if ending_mode is not None
@@ -4722,9 +4321,7 @@ class ScriptGenerationService:
             normalized_output,
             resolved_ending_mode,
         )
-        normalized_payload = {
-            key: value for key, value in normalized_output.items() if key != "_meta"
-        }
+        normalized_payload = draft_contract.without_metadata(normalized_output)
         try:
             LLMGeneratedDraftMasterScript.model_validate(normalized_payload)
             return normalized_output
@@ -4741,11 +4338,7 @@ class ScriptGenerationService:
                 reconciled_output,
                 resolved_ending_mode,
             )
-            reconciled_payload = {
-                key: value
-                for key, value in reconciled_output.items()
-                if key != "_meta"
-            }
+            reconciled_payload = draft_contract.without_metadata(reconciled_output)
             try:
                 LLMGeneratedDraftMasterScript.model_validate(reconciled_payload)
             except ValidationError:
@@ -4755,13 +4348,13 @@ class ScriptGenerationService:
                 if isinstance(metadata, dict):
                     metadata["draft_contract_root_reconciled_locally"] = True
                 return reconciled_output
-            repair_fields = self._draft_contract_repair_fields(first_error)
-            initial_shape = self._draft_payload_diagnostic(normalized_payload)
+            repair_fields = draft_contract.contract_repair_fields(first_error)
+            initial_shape = draft_contract.payload_diagnostic(normalized_payload)
             logger.warning(
                 "Draft contract requires bounded repair shape=%s fields=%s errors=%s",
                 initial_shape,
                 repair_fields,
-                self._validation_error_paths(first_error),
+                draft_contract.validation_error_paths(first_error),
             )
             repair_started_at = time.perf_counter()
             model_pass_count = 0
@@ -4770,7 +4363,7 @@ class ScriptGenerationService:
             fragment_merged = False
             second_error = first_error
 
-            if self._should_attempt_draft_contract_patch(normalized_payload):
+            if draft_contract.should_attempt_contract_patch(normalized_payload):
                 self._emit_progress(
                     progress_callback,
                     "stage",
@@ -4785,7 +4378,7 @@ class ScriptGenerationService:
                             repair_fields=repair_fields,
                         ),
                         strategy=self._with_repair_output_budget(strategy),
-                        output_schema=self._build_draft_contract_repair_schema(
+                        output_schema=draft_contract.build_contract_repair_schema(
                             repair_fields
                         ),
                         on_delta=lambda delta, reset: self._emit_progress(
@@ -4818,10 +4411,10 @@ class ScriptGenerationService:
                         if isinstance(adapter_pass_count, int) and adapter_pass_count > 1:
                             model_pass_count += adapter_pass_count - 1
                     repair_fragment = self._normalize_draft_fragment_contract(
-                        self._unwrap_draft_response_envelope(raw_repair),
+                        draft_contract.unwrap_response_envelope(raw_repair),
                         ending_mode=resolved_ending_mode,
                     )
-                    recovered = self._merge_draft_contract_repair_fragment(
+                    recovered = draft_contract.merge_contract_repair_fragment(
                         normalized_output,
                         repair_fragment,
                     )
@@ -4836,11 +4429,7 @@ class ScriptGenerationService:
                     )
                     try:
                         LLMGeneratedDraftMasterScript.model_validate(
-                            {
-                                key: value
-                                for key, value in candidate.items()
-                                if key != "_meta"
-                            }
+                            draft_contract.without_metadata(candidate)
                         )
                         fragment_merged = recovered is not None
                     except ValidationError as error:
@@ -4854,7 +4443,7 @@ class ScriptGenerationService:
                     round((time.perf_counter() - repair_started_at) * 1000),
                     initial_shape,
                     repair_fields,
-                    self._validation_error_paths(second_error),
+                    draft_contract.validation_error_paths(second_error),
                 )
                 self._emit_progress(
                     progress_callback,
@@ -4925,13 +4514,13 @@ class ScriptGenerationService:
                     if isinstance(adapter_pass_count, int) and adapter_pass_count > 1:
                         model_pass_count += adapter_pass_count - 1
                 fallback_fragment = self._normalize_draft_fragment_contract(
-                    self._unwrap_draft_response_envelope(raw_fallback),
+                    draft_contract.unwrap_response_envelope(raw_fallback),
                     ending_mode=resolved_ending_mode,
                 )
                 fallback_candidates: list[tuple[dict[str, object], bool]] = [
                     (fallback_fragment, False)
                 ]
-                merged_fallback = self._merge_draft_contract_repair_fragment(
+                merged_fallback = draft_contract.merge_contract_repair_fragment(
                     normalized_output,
                     fallback_fragment,
                 )
@@ -4950,11 +4539,7 @@ class ScriptGenerationService:
                     )
                     try:
                         LLMGeneratedDraftMasterScript.model_validate(
-                            {
-                                key: value
-                                for key, value in fallback_candidate.items()
-                                if key != "_meta"
-                            }
+                            draft_contract.without_metadata(fallback_candidate)
                         )
                     except ValidationError as error:
                         fallback_error = error
@@ -4971,9 +4556,9 @@ class ScriptGenerationService:
                         "bounded structure recovery. "
                         f"Initial payload: {initial_shape}. "
                         "Fallback payload: "
-                        f"{self._draft_payload_diagnostic(fallback_fragment)}. "
+                        f"{draft_contract.payload_diagnostic(fallback_fragment)}. "
                         "Invalid paths: "
-                        + ", ".join(self._validation_error_paths(fallback_error))
+                        + ", ".join(draft_contract.validation_error_paths(fallback_error))
                     ) from fallback_error
                 metadata = candidate.setdefault("_meta", {})
                 if isinstance(metadata, dict):
@@ -4984,11 +4569,11 @@ class ScriptGenerationService:
                 round((time.perf_counter() - repair_started_at) * 1000),
                 repair_fields,
                 model_pass_count,
-                self._draft_payload_diagnostic(candidate),
+                draft_contract.payload_diagnostic(candidate),
             )
-            self._merge_output_metadata(source=normalized_output, target=candidate)
+            draft_contract.merge_output_metadata(source=normalized_output, target=candidate)
             if repair_fragment is not None:
-                self._merge_output_metadata(source=repair_fragment, target=candidate)
+                draft_contract.merge_output_metadata(source=repair_fragment, target=candidate)
             metadata = candidate.setdefault("_meta", {})
             if isinstance(metadata, dict):
                 metadata["draft_contract_fragment_merged"] = fragment_merged
@@ -4996,266 +4581,6 @@ class ScriptGenerationService:
                 metadata["draft_contract_model_pass_count"] = model_pass_count
                 metadata["draft_contract_initial_payload_shape"] = initial_shape
             return candidate
-
-    @classmethod
-    def _unwrap_draft_response_envelope(
-        cls,
-        output: dict[str, object],
-    ) -> dict[str, object]:
-        """Unwrap provider envelopes only when the nested object is more script-like."""
-
-        inherited_metadata = output.get("_meta")
-        root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
-        output_keys = {key for key in output if key != "_meta"}
-        best_value = output
-        best_coverage = len(output_keys & root_fields)
-        frontier: list[tuple[dict[str, object], int]] = [(output, 0)]
-        while frontier:
-            current, depth = frontier.pop(0)
-            if depth >= 3:
-                continue
-            for envelope_key in DRAFT_RESPONSE_ENVELOPE_KEYS:
-                nested = current.get(envelope_key)
-                if not isinstance(nested, dict):
-                    continue
-                nested_keys = {key for key in nested if key != "_meta"}
-                nested_coverage = len(nested_keys & root_fields)
-                if nested_coverage > best_coverage:
-                    best_value = nested
-                    best_coverage = nested_coverage
-                frontier.append((nested, depth + 1))
-
-        unwrapped = best_value is not output
-        current = deepcopy(best_value)
-        if isinstance(inherited_metadata, dict) or unwrapped:
-            metadata = current.setdefault("_meta", {})
-            if isinstance(metadata, dict):
-                if isinstance(inherited_metadata, dict):
-                    for key, value in inherited_metadata.items():
-                        metadata.setdefault(key, value)
-                if unwrapped:
-                    metadata["draft_response_envelope_unwrapped"] = True
-        return current
-
-    @staticmethod
-    def _should_attempt_draft_contract_patch(
-        payload: dict[str, object],
-    ) -> bool:
-        root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
-        payload_fields = set(payload) & root_fields
-        required_coverage = max(8, round(len(root_fields) * 0.6))
-        return (
-            len(payload_fields) >= required_coverage
-            and isinstance(payload.get("scenes"), (list, dict))
-            and isinstance(payload.get("characters"), (list, dict))
-        )
-
-    @staticmethod
-    def _draft_payload_diagnostic(payload: dict[str, object]) -> str:
-        root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
-        keys = sorted(key for key in payload if key != "_meta")
-        root_coverage = len(set(keys) & root_fields)
-        key_set = set(keys)
-        if not keys:
-            shape = "empty_object"
-        elif {
-            "scene_number",
-            "slug",
-            "purpose",
-        }.issubset(key_set):
-            shape = "scene_fragment"
-        elif {"name", "role", "description"}.issubset(key_set):
-            shape = "character_fragment"
-        elif {"character_name", "current_goal"}.issubset(key_set):
-            shape = "character_state_fragment"
-        elif root_coverage == len(root_fields):
-            shape = "complete_root"
-        elif root_coverage:
-            shape = "partial_root"
-        elif len(keys) == 1 and keys[0] in DRAFT_RESPONSE_ENVELOPE_KEYS:
-            shape = "unresolved_envelope"
-        else:
-            shape = "unknown_object"
-        visible_keys = keys[:16]
-        suffix = ",..." if len(keys) > len(visible_keys) else ""
-        return (
-            f"shape={shape}; root_fields={root_coverage}/{len(root_fields)}; "
-            f"top_level_keys=[{','.join(visible_keys)}{suffix}]"
-        )
-
-    @staticmethod
-    def _validation_error_paths(error: ValidationError) -> list[str]:
-        paths: list[str] = []
-        for item in error.errors(include_url=False, include_context=False):
-            location = item.get("loc")
-            if isinstance(location, tuple) and location:
-                path = ".".join(str(part) for part in location)
-            else:
-                path = "<root>"
-            if path not in paths:
-                paths.append(path)
-        return paths[:24]
-
-    @staticmethod
-    def _draft_contract_repair_fields(error: ValidationError) -> list[str]:
-        root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
-        requested: set[str] = set()
-        root_messages: list[str] = []
-        for item in error.errors(include_url=False, include_context=False):
-            location = item.get("loc")
-            if isinstance(location, tuple) and location:
-                root = location[0]
-                if isinstance(root, str) and root in root_fields:
-                    requested.add(root)
-                    continue
-            root_messages.append(str(item.get("msg") or "").casefold())
-
-        joined_messages = " ".join(root_messages)
-        root_error_targets = (
-            ("scene", "scenes"),
-            ("character state", "character_state_updates"),
-            ("character state evidence", "character_state_updates"),
-            ("character evidence", "character_state_updates"),
-            ("character", "characters"),
-            ("relationship", "relationship_state_updates"),
-            ("continuity", "continuity_state_updates"),
-            ("story line", "story_line_updates"),
-            ("setup", "setup_payoff_updates"),
-            ("payoff", "setup_payoff_updates"),
-            ("hook", "continuation_hook"),
-            ("causal", "scenes"),
-            ("cliffhanger", "scenes"),
-        )
-        for marker, field_name in root_error_targets:
-            if marker in joined_messages:
-                requested.add(field_name)
-        if not requested:
-            # Model-level validators in this contract are scene/ending validators.
-            requested.add("scenes")
-        return [
-            field_name
-            for field_name in LLMGeneratedDraftMasterScript.model_fields
-            if field_name in requested
-        ]
-
-    @staticmethod
-    def _build_draft_contract_repair_schema(
-        repair_fields: list[str],
-    ) -> dict[str, object]:
-        """Build a compact schema so the model cannot guess the patch envelope."""
-
-        full_schema = LLMGeneratedDraftMasterScript.model_json_schema()
-        properties = full_schema.get("properties")
-        if not isinstance(properties, dict):
-            return full_schema
-        selected_properties: dict[str, object] = {}
-        for field_name in repair_fields:
-            field_schema = properties.get(field_name)
-            if not isinstance(field_schema, dict):
-                continue
-            selected_schema = deepcopy(field_schema)
-            # A field is required in this patch even when it is optional in the
-            # complete output. Do not teach the provider to answer with its default.
-            selected_schema.pop("default", None)
-            selected_properties[field_name] = selected_schema
-        if not selected_properties:
-            return full_schema
-        schema: dict[str, object] = {
-            "title": "DraftMasterScriptContractRepairPatch",
-            "type": "object",
-            "properties": selected_properties,
-            "required": list(selected_properties),
-            "additionalProperties": False,
-        }
-        definitions = full_schema.get("$defs")
-        if isinstance(definitions, dict):
-            schema["$defs"] = definitions
-        return schema
-
-    @staticmethod
-    def _merge_draft_contract_repair_fragment(
-        original: dict[str, object],
-        fragment: dict[str, object],
-    ) -> dict[str, object] | None:
-        """Recover providers that return only the corrected nested object."""
-
-        payload = {key: value for key, value in fragment.items() if key != "_meta"}
-        if not payload:
-            return None
-        root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
-        if set(payload).issubset(root_fields):
-            merged = deepcopy(original)
-            merged.update(payload)
-            return merged
-
-        fragment_targets: tuple[tuple[str, tuple[str, ...]], ...] = (
-            ("characters", ("name",)),
-            ("character_state_updates", ("character_name",)),
-            (
-                "relationship_state_updates",
-                ("source_character_name", "target_character_name"),
-            ),
-            ("continuity_state_updates", ("entity_key", "state_domain")),
-            ("story_line_updates", ("story_line_id",)),
-            ("setup_payoff_updates", ("setup_payoff_ref",)),
-            ("scenes", ("scene_number",)),
-        )
-        for field_name, identity_fields in fragment_targets:
-            if not all(field in payload for field in identity_fields):
-                continue
-            current_values = original.get(field_name)
-            if not isinstance(current_values, list):
-                return None
-            merged = deepcopy(original)
-            merged_values = merged.get(field_name)
-            if not isinstance(merged_values, list):
-                return None
-            identity = tuple(
-                str(payload[field]).strip().casefold() for field in identity_fields
-            )
-            replaced = False
-            for index, current in enumerate(merged_values):
-                if not isinstance(current, dict):
-                    continue
-                current_identity = tuple(
-                    str(current.get(field, "")).strip().casefold()
-                    for field in identity_fields
-                )
-                if current_identity == identity:
-                    if field_name == "scenes" and (
-                        "character_actions" in payload or "dialogues" in payload
-                    ) and not {
-                        "slug",
-                        "purpose",
-                        "setting",
-                        "beat_summary",
-                        "emotional_shift",
-                        "emotional_objective",
-                        "turning_point",
-                        "scene_causality",
-                    }.issubset(payload):
-                        if isinstance(current, dict):
-                            current.update(payload)
-                        else:
-                            return None
-                    else:
-                        merged_values[index] = payload
-                    replaced = True
-                    break
-            if not replaced:
-                merged_values.append(payload)
-            return merged
-
-        continuation_hook_fields = {
-            "ending_hook_type",
-            "ending_hook_summary",
-            "next_episode_obligation",
-        }
-        if continuation_hook_fields.issubset(payload):
-            merged = deepcopy(original)
-            merged["continuation_hook"] = payload
-            return merged
-        return None
 
     @classmethod
     def _normalize_mechanical_draft_contract(
@@ -5300,346 +4625,7 @@ class ScriptGenerationService:
             # route a bounded repair without losing the closing contract.
             return normalized
         changed = normalized != output
-        scene_evidence: dict[int, str] = {}
-        for raw_scene in scenes:
-            if not isinstance(raw_scene, dict):
-                continue
-            scene_number = raw_scene.get("scene_number")
-            if not isinstance(scene_number, int):
-                continue
-            evidence_parts = [
-                value
-                for value in (raw_scene.get("character_actions") or [])
-                if isinstance(value, str)
-            ]
-            for dialogue in raw_scene.get("dialogues") or []:
-                if not isinstance(dialogue, dict):
-                    continue
-                evidence_parts.extend(
-                    str(dialogue.get(field_name) or "")
-                    for field_name in ("character_name", "text")
-                )
-            scene_evidence[scene_number] = " ".join(evidence_parts).casefold()
-        scene_numbers = set(scene_evidence)
-        generated_character_names = {
-            str(character.get("name") or "").strip().casefold()
-            for character in (normalized.get("characters") or [])
-            if isinstance(character, dict) and str(character.get("name") or "").strip()
-        }
-
-        def normalized_evidence_numbers(value: object) -> list[int]:
-            values = value if isinstance(value, list) else ([value] if value is not None else [])
-            result: list[int] = []
-            for number in values:
-                if isinstance(number, bool) or not isinstance(number, int):
-                    continue
-                if number in scene_numbers and number not in result:
-                    result.append(number)
-            return result
-
-        # Reconcile evidence-backed ledgers before Pydantic's cross-field
-        # validators run. These are bookkeeping constraints, not creative
-        # decisions, so a bad scene reference must not trigger a full episode
-        # rewrite.
-        character_updates = normalized.get("character_state_updates")
-        if isinstance(character_updates, list):
-            reconciled_updates: list[object] = []
-            removed_character_updates = 0
-            seen_character_names: set[str] = set()
-            for update in character_updates:
-                if not isinstance(update, dict):
-                    removed_character_updates += 1
-                    continue
-                name = str(update.get("character_name") or "").strip().casefold()
-                if (
-                    not name
-                    or name not in generated_character_names
-                    or name in seen_character_names
-                ):
-                    removed_character_updates += 1
-                    continue
-                visible_numbers = [
-                    number
-                    for number in normalized_evidence_numbers(update.get("evidence_scene_numbers"))
-                    if name in scene_evidence[number]
-                ]
-                if visible_numbers:
-                    if visible_numbers != update.get("evidence_scene_numbers"):
-                        update["evidence_scene_numbers"] = visible_numbers
-                        changed = True
-                    reconciled_updates.append(update)
-                    seen_character_names.add(name)
-                else:
-                    # The body does not visibly support this ledger row. Keep
-                    # the screenplay and omit only the unsupported memory row.
-                    removed_character_updates += 1
-            if len(reconciled_updates) != len(character_updates):
-                normalized["character_state_updates"] = reconciled_updates
-                changed = True
-            if not reconciled_updates and character_updates:
-                # The schema requires one state row. Use the first generated
-                # character and make the first scene visibly establish presence
-                # rather than allowing an impossible root validation failure.
-                first_character = normalized.get("characters")
-                first_character_name = (
-                    str(first_character[0].get("name") or "").strip()
-                    if isinstance(first_character, list)
-                    and first_character
-                    and isinstance(first_character[0], dict)
-                    else "主角"
-                )
-                first_scene = scenes[0]
-                if isinstance(first_scene, dict):
-                    actions = first_scene.setdefault("character_actions", [])
-                    if isinstance(actions, list):
-                        actions.append(f"{first_character_name}在场并观察局势。")
-                    first_scene_number = first_scene.get("scene_number", 1)
-                    template = next(
-                        (item for item in character_updates if isinstance(item, dict)),
-                        {},
-                    )
-                    template = deepcopy(template)
-                    template.setdefault("current_goal", "推进本集目标并处理当前压力。")
-                    template.setdefault("emotional_state", "承受当前事件带来的压力。")
-                    template.setdefault("change_summary", "本集行动推动其状态发生变化。")
-                    template.setdefault("change_cause", "本集可见行动推动状态变化。")
-                    template["character_name"] = first_character_name
-                    template["evidence_scene_numbers"] = [first_scene_number]
-                    normalized["character_state_updates"] = [template]
-                    changed = True
-            if removed_character_updates:
-                metadata = normalized.setdefault("_meta", {})
-                if isinstance(metadata, dict):
-                    metadata["unsupported_character_state_updates_removed"] = removed_character_updates
-
-        # All evidence lists must point at this episode's actual scenes.
-        for collection_name in (
-            "continuity_state_updates",
-            "story_line_updates",
-            "setup_payoff_updates",
-        ):
-            collection = normalized.get(collection_name)
-            if not isinstance(collection, list):
-                continue
-            retained_updates: list[object] = []
-            seen_keys: set[object] = set()
-            removed_updates = 0
-            for update in collection:
-                if not isinstance(update, dict):
-                    removed_updates += 1
-                    continue
-                filtered = normalized_evidence_numbers(update.get("evidence_scene_numbers"))
-                if filtered:
-                    if filtered != update.get("evidence_scene_numbers"):
-                        update["evidence_scene_numbers"] = filtered
-                        changed = True
-                else:
-                    removed_updates += 1
-                    continue
-                if collection_name == "continuity_state_updates":
-                    entity_key = str(update.get("entity_key") or "").strip().casefold()
-                    state_domain = str(update.get("state_domain") or "").strip().casefold()
-                    key = (
-                        entity_key,
-                        state_domain,
-                    )
-                elif collection_name == "story_line_updates":
-                    key = str(update.get("story_line_id") or "").strip().casefold()
-                else:
-                    key = str(update.get("setup_payoff_ref") or "").strip().casefold()
-                if (
-                    not key
-                    or (
-                        collection_name == "continuity_state_updates"
-                        and (not key[0] or not key[1])
-                    )
-                    or key in seen_keys
-                ):
-                    removed_updates += 1
-                    continue
-                seen_keys.add(key)
-                retained_updates.append(update)
-            if len(retained_updates) != len(collection):
-                normalized[collection_name] = retained_updates
-                changed = True
-            if removed_updates:
-                metadata = normalized.setdefault("_meta", {})
-                if isinstance(metadata, dict):
-                    metadata[f"unsupported_{collection_name}_removed"] = removed_updates
-
-        continuity_updates = normalized.get("continuity_state_updates")
-        if isinstance(continuity_updates, list):
-            character_states = {
-                str(update.get("character_name") or "").strip().casefold(): update
-                for update in (normalized.get("character_state_updates") or [])
-                if isinstance(update, dict)
-            }
-            retained_continuity: list[object] = []
-            removed_death_updates = 0
-            for update in continuity_updates:
-                if (
-                    isinstance(update, dict)
-                    and str(update.get("entity_type") or "").strip().casefold() == "character"
-                    and str(update.get("transition") or "").strip().casefold() == "died"
-                ):
-                    character_state = character_states.get(
-                        str(update.get("entity_name") or "").strip().casefold()
-                    )
-                    if not character_state or character_state.get("life_status") != "dead":
-                        removed_death_updates += 1
-                        continue
-                retained_continuity.append(update)
-            if removed_death_updates:
-                normalized["continuity_state_updates"] = retained_continuity
-                metadata = normalized.setdefault("_meta", {})
-                if isinstance(metadata, dict):
-                    metadata["unsupported_continuity_death_updates_removed"] = removed_death_updates
-                changed = True
-
-        hook = normalized.get("continuation_hook")
-        if isinstance(hook, dict):
-            evidence = hook.get("response_evidence_scene_numbers")
-            if not isinstance(evidence, list):
-                evidence = [evidence] if evidence is not None else []
-            filtered_evidence = normalized_evidence_numbers(evidence)
-            if filtered_evidence != evidence:
-                hook["response_evidence_scene_numbers"] = filtered_evidence
-                changed = True
-            if not str(hook.get("previous_hook_response") or "").strip():
-                for field_name in ("responds_to_episode", "response_evidence_scene_numbers"):
-                    if hook.get(field_name):
-                        hook[field_name] = None if field_name == "responds_to_episode" else []
-                        changed = True
-
-        payoff_updates = normalized.get("setup_payoff_updates")
-        if isinstance(payoff_updates, list):
-            for update in payoff_updates:
-                if not isinstance(update, dict):
-                    continue
-                action = str(update.get("action") or "").strip().casefold()
-                status = str(update.get("status") or "").strip().casefold()
-                if action == "payoff" and status != "paid_off":
-                    update["status"] = "paid_off"
-                    changed = True
-                elif status == "paid_off" and action != "payoff":
-                    update["action"] = "payoff"
-                    changed = True
-                elif action in {"partial_payoff", "reinforce", "defer"} and status == "setup":
-                    update["status"] = "active"
-                    changed = True
-
-        story_updates = normalized.get("story_line_updates")
-        if isinstance(story_updates, list):
-            for update in story_updates:
-                if not isinstance(update, dict):
-                    continue
-                alignment = str(update.get("planned_alignment") or "aligned").strip().casefold()
-                if alignment != "aligned" and not str(update.get("alignment_note") or "").strip():
-                    update["alignment_note"] = "本集正文已给出对应推进证据。"
-                    changed = True
-
-        relationship_updates = normalized.get("relationship_state_updates")
-        if isinstance(relationship_updates, list):
-            supported_updates: list[object] = []
-            removed_updates = 0
-            seen_pairs: set[tuple[str, str]] = set()
-            for update in relationship_updates:
-                if not isinstance(update, dict):
-                    removed_updates += 1
-                    continue
-                source_name = str(
-                    update.get("source_character_name") or ""
-                ).strip().casefold()
-                target_name = str(
-                    update.get("target_character_name") or ""
-                ).strip().casefold()
-                evidence_numbers = normalized_evidence_numbers(update.get("evidence_scene_numbers"))
-                pair = tuple(sorted((source_name, target_name)))
-                if (
-                    not source_name
-                    or not target_name
-                    or source_name == target_name
-                    or source_name not in generated_character_names
-                    or target_name not in generated_character_names
-                    or not evidence_numbers
-                    or pair in seen_pairs
-                    or any(
-                        source_name not in scene_evidence[number]
-                        or target_name not in scene_evidence[number]
-                        for number in evidence_numbers
-                    )
-                ):
-                    removed_updates += 1
-                    continue
-                if evidence_numbers != update.get("evidence_scene_numbers"):
-                    update["evidence_scene_numbers"] = evidence_numbers
-                    changed = True
-                seen_pairs.add(pair)
-                supported_updates.append(update)
-            if len(supported_updates) != len(relationship_updates):
-                normalized["relationship_state_updates"] = supported_updates
-                changed = True
-            if removed_updates:
-                metadata = normalized.setdefault("_meta", {})
-                if isinstance(metadata, dict):
-                    metadata["unsupported_relationship_updates_removed"] = (
-                        removed_updates
-                    )
-        prior_scene_numbers: list[int] = []
-        for index, raw_scene in enumerate(scenes):
-            if not isinstance(raw_scene, dict):
-                continue
-            scene_number = raw_scene.get("scene_number")
-            causality = raw_scene.get("scene_causality")
-            if not isinstance(causality, dict):
-                goal_text = str(
-                    raw_scene.get("purpose")
-                    or raw_scene.get("beat_summary")
-                    or "推进本集目标。"
-                )
-                conflict_text = str(
-                    raw_scene.get("beat_summary") or "当前目标受到阻碍。"
-                )
-                outcome_text = str(
-                    raw_scene.get("turning_point")
-                    or raw_scene.get("beat_summary")
-                    or "局势发生新的变化。"
-                )
-                if outcome_text.strip().casefold() == goal_text.strip().casefold():
-                    outcome_text += " 局势因此发生变化。"
-                causality = {
-                    "goal": goal_text,
-                    "conflict": conflict_text,
-                    "outcome": outcome_text,
-                    "caused_by_scene_number": None,
-                    "causal_link": None,
-                }
-                raw_scene["scene_causality"] = causality
-                changed = True
-            if isinstance(causality, dict):
-                if index == 0:
-                    if causality.get("caused_by_scene_number") is not None:
-                        causality["caused_by_scene_number"] = None
-                        changed = True
-                    if causality.get("causal_link") is not None:
-                        causality["causal_link"] = None
-                        changed = True
-                elif prior_scene_numbers:
-                    predecessor = causality.get("caused_by_scene_number")
-                    if predecessor not in prior_scene_numbers:
-                        causality["caused_by_scene_number"] = prior_scene_numbers[-1]
-                        changed = True
-                    if not str(causality.get("causal_link") or "").strip():
-                        causality["causal_link"] = "上一场结果直接造成这一场的新目标与压力。"
-                        changed = True
-                if (
-                    causality.get("caused_by_scene_number") is not None
-                    and not str(causality.get("causal_link") or "").strip()
-                ):
-                    causality["causal_link"] = "上一场结果直接造成这一场的新目标与压力。"
-                    changed = True
-            if isinstance(scene_number, int):
-                prior_scene_numbers.append(scene_number)
+        changed |= reconcile_draft_evidence(normalized, scenes=scenes)
         final_scene = scenes[-1]
         if (
             ending_mode_requires_hook(resolved_ending_mode)
@@ -5667,1003 +4653,7 @@ class ScriptGenerationService:
         cls._normalize_draft_scalar_contracts(normalized, ending_mode=ending_mode)
         return normalized
 
-    @staticmethod
-    def _normalize_draft_scalar_contracts(
-        output: dict[str, object],
-        *,
-        ending_mode: EndingMode | str | None = None,
-    ) -> None:
-        """Normalize unambiguous scalar spellings used by screenplay providers."""
-
-        try:
-            resolved_ending_mode = EndingMode(
-                ending_mode
-                if ending_mode is not None
-                else output.get("ending_mode") or DEFAULT_ENDING_MODE.value
-            )
-        except (TypeError, ValueError):
-            resolved_ending_mode = DEFAULT_ENDING_MODE
-
-        def parse_int(value: object) -> int | None:
-            if isinstance(value, bool):
-                return None
-            if isinstance(value, int):
-                return value
-            if isinstance(value, float):
-                return int(value) if value.is_integer() else None
-            if not isinstance(value, str):
-                return None
-            match = re.search(r"[-+]?\d+(?:\.\d+)?", value.replace(",", ""))
-            if match is not None:
-                number = float(match.group())
-                return int(number) if number.is_integer() else None
-            chinese_match = re.search(r"[零〇一二三四五六七八九十百千万两]+", value)
-            if chinese_match is None:
-                return None
-            token = chinese_match.group()
-            digits = {
-                "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
-                "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
-            }
-            if not any(character in token for character in "十百千万"):
-                return int("".join(str(digits[character]) for character in token))
-            number = 0
-            total = 0
-            for character in token:
-                if character in digits:
-                    number = digits[character]
-                    continue
-                unit = {"十": 10, "百": 100, "千": 1_000, "万": 10_000}[character]
-                if unit == 10_000:
-                    total = (total + number) * unit
-                else:
-                    total += (number or 1) * unit
-                number = 0
-            return total + number
-
-        def normalize_enum(
-            target: dict[str, object],
-            field_name: str,
-            aliases: dict[str, str],
-        ) -> None:
-            value = target.get(field_name)
-            if not isinstance(value, str):
-                return
-            normalized_value = value.strip().casefold().replace(" ", "_")
-            if normalized_value in aliases:
-                target[field_name] = aliases[normalized_value]
-                return
-            # GLM occasionally adds a short qualifier (for example
-            # "world fact" or "supporting person") instead of returning the
-            # exact enum token. These mappings are mechanical and do not alter
-            # the event, only the transport spelling of a typed field.
-            compact = re.sub(r"[\s_、，,。:：()（）/\\-]+", "", normalized_value)
-            if field_name == "entity_type":
-                fuzzy_aliases = (
-                    (("character", "person", "people", "human", "role", "人物", "角色", "人"), "character"),
-                    (("item", "object", "thing", "prop", "物品", "道具", "物件"), "item"),
-                    (("location", "place", "space", "room", "地点", "场所", "位置", "空间"), "location"),
-                    (("organization", "organisation", "company", "group", "机构", "组织", "公司", "团体"), "organization"),
-                    (("environment", "world", "weather", "setting", "环境", "世界", "天气"), "environment"),
-                    (("society", "social", "社会", "社会关系"), "society"),
-                    (("time", "date", "timeline", "时间", "时点", "日期"), "time"),
-                )
-                for markers, canonical in fuzzy_aliases:
-                    if any(marker in compact for marker in markers):
-                        target[field_name] = canonical
-                        return
-                # Information/evidence is represented by the concrete carrier
-                # in this contract. When the model emits only the abstract
-                # concept, ``item`` is the least destructive canonical type.
-                if any(marker in compact for marker in ("information", "evidence", "clue", "document", "信息", "证据", "线索", "资料")):
-                    target[field_name] = "item"
-                    return
-                # Final deterministic transport fallback. The model is free to
-                # describe a continuity entity in natural language, but the
-                # persisted contract has only seven concrete carriers. Infer
-                # the carrier from stable identifiers before defaulting to the
-                # least destructive concrete carrier (item).
-                identity_text = " ".join(
-                    str(target.get(key) or "").casefold()
-                    for key in ("entity_key", "entity_name", "current_state")
-                )
-                identity_compact = re.sub(r"[\s_、，,。:：()（）/\\-]+", "", identity_text)
-                inferred_aliases = (
-                    (("character", "person", "people", "human", "人物", "角色", "人物状态", "角色状态"), "character"),
-                    (("location", "place", "room", "scene", "地点", "场所", "房间", "地址"), "location"),
-                    (("organization", "organisation", "company", "group", "机构", "组织", "公司", "团体"), "organization"),
-                    (("environment", "world", "weather", "setting", "环境", "世界", "天气"), "environment"),
-                    (("society", "social", "社会"), "society"),
-                    (("time", "date", "timeline", "时间", "日期", "时点"), "time"),
-                )
-                for markers, canonical in inferred_aliases:
-                    if any(marker in identity_compact for marker in markers):
-                        target[field_name] = canonical
-                        return
-                if compact or target.get("entity_key"):
-                    target[field_name] = "item"
-                    return
-            if field_name == "state_domain":
-                if any(marker in compact for marker in ("physical", "physicalstate", "物理", "物理状态", "外观")):
-                    target[field_name] = "condition"
-                    return
-                fuzzy_aliases = (
-                    (("intelligence", "information", "awareness", "intel", "情报", "信息", "认知"), "knowledge"),
-                    (("mobilization", "readiness", "operational", "activation", "动员", "战备", "就绪"), "condition"),
-                    (("funding", "budget", "money", "supply", "资金", "预算", "物资"), "resource"),
-                    (("relationship", "membership", "alliance", "关系", "成员", "联盟"), "affiliation"),
-                )
-                for markers, canonical in fuzzy_aliases:
-                    if any(marker in compact for marker in markers):
-                        target[field_name] = canonical
-                        return
-                # The concrete state remains in current_state/change_cause.
-                # Falling back to the neutral condition bucket repairs only
-                # an unsupported classification label.
-                if compact or target.get("entity_key"):
-                    target[field_name] = "condition"
-                    return
-            if field_name == "life_status" and any(
-                marker in compact
-                for marker in ("健康", "安全", "存活", "活着", "正常", "行动")
-            ):
-                target[field_name] = "alive"
-                return
-            if field_name == "transition":
-                transition_aliases = (
-                    (("establish", "established", "create", "created", "confirm", "confirmed", "建立", "确立", "确认"), "established"),
-                    (("resolve", "resolved", "settle", "settled", "close", "closed", "解决", "完成", "收束"), "resolved"),
-                    (("acquire", "acquired", "discover", "discovered", "reveal", "revealed", "learned", "unlocked", "获得", "发现", "揭示", "查明", "解锁"), "acquired"),
-                    (("lose", "lost", "missing", "disconnected", "失去", "丢失", "失联", "断联"), "lost"),
-                    (("move", "moved", "relocate", "relocated", "leave", "left", "离开", "移动", "转移"), "moved"),
-                    (("transfer", "transferred", "交换", "转交"), "transferred"),
-                    (("destroy", "destroyed", "break", "broken", "销毁", "摧毁", "损毁", "破坏"), "destroyed"),
-                    (("die", "died", "death", "dead", "死亡", "身亡"), "died"),
-                    (("recover", "recovered", "repair", "repaired", "restore", "restored", "恢复", "修复", "重建"), "recovered"),
-                )
-                for markers, canonical in transition_aliases:
-                    if any(marker in compact for marker in markers):
-                        target[field_name] = canonical
-                        return
-                # Unknown short labels still describe a state change; this is
-                # the least lossy canonical transition and avoids a whole
-                # episode regeneration for provider-specific wording.
-                if compact:
-                    target[field_name] = "changed"
-                    return
-            if field_name == "persistence":
-                if any(marker in compact for marker in ("temporary", "singleuse", "shortterm", "临时", "短暂", "一次性")):
-                    target[field_name] = "temporary"
-                    return
-                if any(marker in compact for marker in ("permanent", "lasting", "enduring", "longterm", "永久", "长期", "持久")):
-                    target[field_name] = "permanent"
-                    return
-                if compact:
-                    target[field_name] = "ongoing"
-                    return
-
-        tone_aliases = {
-            "intense": "intense",
-            "紧张": "intense",
-            "紧张激烈": "intense",
-            "冷峻克制，带爽感": "intense",
-            "冷峻克制带爽感": "intense",
-            "紧张、爽感": "intense",
-            "冷峻": "intense",
-            "冷峻克制": "intense",
-            "melodramatic": "melodramatic",
-            "情节剧": "melodramatic",
-            "强情节": "melodramatic",
-            "狗血": "melodramatic",
-            "suspenseful": "suspenseful",
-            "悬疑": "suspenseful",
-            "悬念": "suspenseful",
-            "emotional": "emotional",
-            "情感": "emotional",
-            "情感向": "emotional",
-            "温情": "emotional",
-            "冷峻而温情": "emotional",
-            "冷峻温情": "emotional",
-        }
-        normalize_enum(output, "tone", tone_aliases)
-        tone = output.get("tone")
-        if isinstance(tone, str) and tone not in {
-            "intense",
-            "melodramatic",
-            "suspenseful",
-            "emotional",
-        }:
-            compact_tone = re.sub(r"[\s、，,。]+", "", tone.casefold())
-            if any(marker in compact_tone for marker in ("悬疑", "悬念", "惊悚", "谜")):
-                output["tone"] = "suspenseful"
-            elif any(marker in compact_tone for marker in ("温情", "情感", "感人", "治愈")):
-                output["tone"] = "emotional"
-            elif any(marker in compact_tone for marker in ("狗血", "强情节", "抓马", "虐恋")):
-                output["tone"] = "melodramatic"
-            elif re.search(r"[\u4e00-\u9fff]", compact_tone):
-                # Free-form Chinese tone descriptions most commonly describe
-                # dramatic pressure. This enum mapping changes no story content.
-                output["tone"] = "intense"
-        duration = parse_int(output.get("target_duration_seconds"))
-        if duration is not None:
-            output["target_duration_seconds"] = duration
-
-        language = str(output.get("language") or "").casefold()
-        is_chinese = language.startswith(("zh", "中文", "简体", "中国"))
-        defaults = {
-            "character_role": "配角" if is_chinese else "Supporting character",
-            "character_description": "参与本集行动并受到事件影响的角色。"
-            if is_chinese
-            else "A character involved in this episode's action and consequences.",
-            "character_motivation": "推动当前行动并完成本集目标。"
-            if is_chinese
-            else "Advance the current action and fulfill this episode's goal.",
-            "current_goal": "推进本集目标并处理当前压力。"
-            if is_chinese
-            else "Advance the episode goal and handle the current pressure.",
-            "emotional_state": "承受当前事件带来的压力。"
-            if is_chinese
-            else "Under pressure from the current events.",
-            "change_summary": "本集事件改变了角色的处境。"
-            if is_chinese
-            else "The episode changes the character's situation.",
-            "change_cause": "由本集已发生的行动和结果造成。"
-            if is_chinese
-            else "Caused by the actions and outcomes shown in this episode.",
-        }
-
-        # Providers occasionally collapse a one-item collection into an object.
-        # Wrap root collections before applying item-level compatibility defaults
-        # so the same normalization path handles both list and single-object output.
-        for field_name in (
-            "characters",
-            "character_state_updates",
-            "relationship_state_updates",
-            "continuity_state_updates",
-            "story_line_updates",
-            "setup_payoff_updates",
-            "scenes",
-        ):
-            value = output.get(field_name)
-            if isinstance(value, dict):
-                output[field_name] = [value]
-
-        # Providers sometimes return a legacy state_before/state_after pair or
-        # omit mechanical fields that can be reconstructed from the same item.
-        # Fill only deterministic contract fields so the narrative is preserved
-        # and a whole-episode repair call is avoided.
-        characters = output.get("characters")
-        if isinstance(characters, list):
-            normalized_characters: list[object] = []
-            for item in characters:
-                if isinstance(item, str) and item.strip():
-                    item = {
-                        "name": item.strip(),
-                        "role": defaults["character_role"],
-                        "description": defaults["character_description"],
-                        "motivation": defaults["character_motivation"],
-                    }
-                normalized_characters.append(item)
-                if not isinstance(item, dict):
-                    continue
-                description = str(item.get("description") or "").strip()
-                role = str(item.get("role") or "").strip()
-                motivation = str(
-                    item.get("motivation")
-                    or item.get("goal")
-                    or item.get("desire")
-                    or description
-                    or defaults["character_motivation"]
-                ).strip()
-                if len(role) < 2:
-                    item["role"] = defaults["character_role"]
-                if len(description) < 10:
-                    item["description"] = defaults["character_description"]
-                if (
-                    not str(item.get("motivation") or "").strip()
-                    or len(motivation) < 5
-                ):
-                    item["motivation"] = (
-                        motivation
-                        if len(motivation) >= 5
-                        else defaults["character_motivation"]
-                    )
-            output["characters"] = normalized_characters
-
-        character_updates = output.get("character_state_updates")
-        if isinstance(character_updates, list):
-            character_names = {
-                str(item.get("name") or "").strip()
-                for item in output.get("characters", [])
-                if isinstance(item, dict) and str(item.get("name") or "").strip()
-            }
-            allowed_update_fields = set(CharacterStateUpdate.model_fields)
-            expanded_updates: list[object] = []
-            for item in character_updates:
-                if isinstance(item, dict) and not str(
-                    item.get("character_name") or ""
-                ).strip():
-                    named_states = [
-                        (key, value)
-                        for key, value in item.items()
-                        if key not in allowed_update_fields
-                        and isinstance(value, str)
-                        and value.strip()
-                        and (not character_names or key in character_names)
-                    ]
-                    if named_states:
-                        shared = {
-                            key: value
-                            for key, value in item.items()
-                            if key in allowed_update_fields and key != "character_name"
-                        }
-                        for character_name, state_text in named_states:
-                            expanded = deepcopy(shared)
-                            expanded.update(
-                                {
-                                    "character_name": character_name,
-                                    "current_goal": state_text[:240],
-                                    "emotional_state": state_text[:160],
-                                    "change_summary": state_text[:300],
-                                    "change_cause": defaults["change_cause"],
-                                }
-                            )
-                            expanded_updates.append(expanded)
-                        continue
-                expanded_updates.append(item)
-            output["character_state_updates"] = expanded_updates
-            for item in expanded_updates:
-                if not isinstance(item, dict):
-                    continue
-                before = str(item.pop("state_before", "") or "").strip()
-                after = str(item.pop("state_after", "") or "").strip()
-                if not str(item.get("current_goal") or "").strip():
-                    item["current_goal"] = after or before or defaults["current_goal"]
-                if not str(item.get("emotional_state") or "").strip():
-                    item["emotional_state"] = after or before or defaults["emotional_state"]
-                if not str(item.get("change_summary") or "").strip():
-                    item["change_summary"] = (
-                        f"{before} -> {after}" if before and after else after or before
-                    ) or defaults["change_summary"]
-                if not str(item.get("change_cause") or "").strip():
-                    item["change_cause"] = defaults["change_cause"]
-                evidence = item.get("evidence_scene_numbers")
-                if evidence is None:
-                    raw_scenes = output.get("scenes")
-                    first_scene = (
-                        raw_scenes[0]
-                        if isinstance(raw_scenes, list) and raw_scenes
-                        else None
-                    )
-                    first_number = (
-                        parse_int(first_scene.get("scene_number"))
-                        if isinstance(first_scene, dict)
-                        else None
-                    )
-                    item["evidence_scene_numbers"] = [first_number or 1]
-                elif not isinstance(evidence, list):
-                    item["evidence_scene_numbers"] = [evidence]
-                life_status = str(item.get("life_status") or "").strip().casefold()
-                if life_status not in {"", "alive", "dead", "missing", "unknown"}:
-                    if any(marker in life_status for marker in ("死亡", "已死", "身亡")):
-                        item["life_status"] = "dead"
-                    elif any(marker in life_status for marker in ("失踪", "失联", "下落不明")):
-                        item["life_status"] = "missing"
-                    elif any(
-                        marker in life_status
-                        for marker in ("存活", "活着", "正常", "行动", "在场")
-                    ):
-                        item["life_status"] = "alive"
-
-        # Very short intent labels are mechanically valid in natural language
-        # but violate the structured screenplay contract's minimum length.
-        scenes = output.get("scenes")
-        if isinstance(scenes, list):
-            for scene in scenes:
-                if not isinstance(scene, dict):
-                    continue
-                legacy_aliases = {
-                    "location": "setting",
-                    "summary": "beat_summary",
-                    "beats": "character_actions",
-                    "scene_title": "slug",
-                }
-                for legacy_name, current_name in legacy_aliases.items():
-                    legacy_value = scene.pop(legacy_name, None)
-                    if current_name not in scene and legacy_value is not None:
-                        scene[current_name] = legacy_value
-                dialogues = scene.get("dialogues")
-                if not isinstance(dialogues, list):
-                    continue
-                non_empty_dialogues = [
-                    dialogue
-                    for dialogue in dialogues
-                    if not isinstance(dialogue, dict)
-                    or str(dialogue.get("text") or "").strip()
-                ]
-                if non_empty_dialogues:
-                    dialogues = non_empty_dialogues
-                    scene["dialogues"] = dialogues
-                for dialogue in dialogues:
-                    if not isinstance(dialogue, dict):
-                        continue
-                    intent = str(dialogue.get("intent") or "").strip()
-                    if len(intent) < 3:
-                        dialogue["intent"] = (
-                            "推动当前对白。" if is_chinese else "Advance the dialogue."
-                        )
-
-        def wrap_single_value(target: dict[str, object], field_name: str) -> None:
-            value = target.get(field_name)
-            if value is not None and not isinstance(value, list):
-                target[field_name] = [value]
-
-        scenes = output.get("scenes")
-        scene_number_map: dict[int, int] = {}
-        if isinstance(scenes, list):
-            parsed_numbers = [
-                parse_int(scene.get("scene_number")) if isinstance(scene, dict) else None
-                for scene in scenes
-            ]
-            keep_numbers = (
-                all(number is not None and number > 0 for number in parsed_numbers)
-                and len(set(parsed_numbers)) == len(parsed_numbers)
-            )
-            for index, scene in enumerate(scenes, start=1):
-                if not isinstance(scene, dict):
-                    continue
-                old_number = parsed_numbers[index - 1]
-                new_number = old_number if keep_numbers and old_number is not None else index
-                if old_number is not None:
-                    scene_number_map[old_number] = new_number
-                scene["scene_number"] = new_number
-                wrap_single_value(scene, "character_actions")
-                wrap_single_value(scene, "dialogues")
-                cliffhanger = scene.get("cliffhanger")
-                if isinstance(cliffhanger, str):
-                    normalized_flag = cliffhanger.strip().casefold()
-                    if normalized_flag in {"是", "有", "true", "yes", "1"}:
-                        scene["cliffhanger"] = True
-                    elif normalized_flag in {"否", "无", "false", "no", "0"}:
-                        scene["cliffhanger"] = False
-                causality = scene.get("scene_causality")
-                if isinstance(causality, dict):
-                    predecessor = parse_int(causality.get("caused_by_scene_number"))
-                    if predecessor is not None:
-                        causality["caused_by_scene_number"] = scene_number_map.get(
-                            predecessor,
-                            predecessor,
-                        )
-
-        def normalize_scene_number_list(target: dict[str, object], field_name: str) -> None:
-            values = target.get(field_name)
-            if values is not None and not isinstance(values, list):
-                values = [values]
-                target[field_name] = values
-            if not isinstance(values, list):
-                return
-            normalized_values: list[object] = []
-            for value in values:
-                number = parse_int(value)
-                normalized_values.append(
-                    scene_number_map.get(number, number) if number is not None else value
-                )
-            target[field_name] = normalized_values
-
-        enum_fields_by_collection: dict[
-            str,
-            tuple[tuple[str, dict[str, str]], ...],
-        ] = {
-            "character_state_updates": (
-                (
-                    "life_status",
-                    {
-                        "alive": "alive",
-                        "存活": "alive",
-                        "活着": "alive",
-                        "dead": "dead",
-                        "死亡": "dead",
-                        "已死": "dead",
-                        "missing": "missing",
-                        "失踪": "missing",
-                        "unknown": "unknown",
-                        "未知": "unknown",
-                    },
-                ),
-            ),
-            "relationship_state_updates": (),
-            "continuity_state_updates": (
-                (
-                    "entity_type",
-                    {
-                        "character": "character", "角色": "character", "人物": "character",
-                        "person": "character", "people": "character", "人": "character",
-                        "item": "item", "物品": "item", "道具": "item",
-                        "object": "item", "thing": "item", "物件": "item",
-                        "location": "location", "地点": "location", "场所": "location",
-                        "place": "location", "空间": "location", "房间": "location",
-                        "organization": "organization", "组织": "organization",
-                        "机构": "organization", "company": "organization", "团体": "organization",
-                        "environment": "environment", "环境": "environment",
-                        "world": "environment", "世界": "environment", "天气": "environment",
-                        "society": "society", "社会": "society", "社会关系": "society",
-                        "time": "time", "时间": "time", "时点": "time",
-                    },
-                ),
-                (
-                    "state_domain",
-                    {
-                        "existence": "existence", "存在": "existence",
-                        "life": "life", "生命": "life",
-                        "health": "health", "健康": "health",
-                        "ability": "ability", "能力": "ability",
-                        "condition": "condition", "状态": "condition",
-                        "ownership": "ownership", "所有权": "ownership",
-                        "possession": "possession", "持有": "possession",
-                        "location": "location", "位置": "location",
-                        "access": "access", "权限": "access",
-                        "affiliation": "affiliation", "归属": "affiliation",
-                        "authority": "authority", "权力": "authority",
-                        "identity": "identity", "身份": "identity",
-                        "resource": "resource", "资源": "resource",
-                        "rule": "rule", "规则": "rule",
-                        "schedule": "schedule", "日程": "schedule",
-                        "weather": "weather", "天气": "weather",
-                        "reputation": "reputation", "声誉": "reputation",
-                        "legal_status": "legal_status", "法律状态": "legal_status",
-                        "technology": "technology", "技术": "technology",
-                        "knowledge": "knowledge", "知识": "knowledge", "认知": "knowledge",
-                        "intelligence": "knowledge", "information": "knowledge",
-                        "obligation": "obligation", "义务": "obligation",
-                        "environment": "environment", "环境": "environment",
-                        "mobilization": "condition", "readiness": "condition",
-                    },
-                ),
-                (
-                    "transition",
-                    {
-                        "established": "established", "建立": "established", "确立": "established",
-                        "changed": "changed", "改变": "changed",
-                        "resolved": "resolved", "解决": "resolved",
-                        "acquired": "acquired", "获得": "acquired",
-                        "lost": "lost", "失去": "lost",
-                        "moved": "moved", "移动": "moved",
-                        "transferred": "transferred", "转移": "transferred",
-                        "destroyed": "destroyed", "销毁": "destroyed",
-                        "died": "died", "死亡": "died",
-                        "recovered": "recovered", "恢复": "recovered",
-                        "repaired": "repaired", "修复": "repaired",
-                        "retained": "established", "maintained": "established",
-                        "unchanged": "established", "保持": "established",
-                        "activated": "changed", "triggered": "changed",
-                        "pending": "changed", "escalated": "changed",
-                        "updated": "changed", "激活": "changed", "待定": "changed",
-                        "injured": "changed", "escaped": "moved",
-                        "observed": "established", "impending": "established",
-                        "acquired_information": "acquired",
-                        "disabled": "changed", "restricted": "changed",
-                        "preserved": "established", "maintained": "established",
-                        "discovered": "acquired", "heard": "acquired",
-                    },
-                ),
-                (
-                    "persistence",
-                    {
-                        "temporary": "temporary", "临时": "temporary",
-                        "ongoing": "ongoing", "持续": "ongoing",
-                        "persistent": "ongoing", "indefinite": "ongoing",
-                        "pending": "ongoing",
-                        "permanent": "permanent", "永久": "permanent",
-                        "lasting_mark": "permanent", "destroyed": "permanent",
-                    },
-                ),
-            ),
-            "story_line_updates": (
-                (
-                    "status",
-                    {
-                        "setup": "setup", "铺垫": "setup",
-                        "active": "active", "进行中": "active",
-                        "progressing": "active", "advanced": "active",
-                        "resolved": "resolved", "已解决": "resolved", "收束": "resolved",
-                        "seeded": "setup", "introduced": "setup",
-                    },
-                ),
-                (
-                    "contribution_type",
-                    {
-                        "setup": "setup", "铺垫": "setup",
-                        "progress": "progress", "推进": "progress",
-                        "turning_point": "turning_point", "转折": "turning_point",
-                        "payoff": "payoff", "回收": "payoff",
-                        "resolution": "resolution", "收束": "resolution",
-                        "exposition": "setup", "reveal": "progress",
-                        "development": "progress", "escalation": "progress",
-                        "foundation": "setup", "manifestation": "progress",
-                        "choice": "turning_point",
-                    },
-                ),
-                (
-                    "planned_alignment",
-                    {
-                        "aligned": "aligned", "对齐": "aligned", "一致": "aligned",
-                        "expanded": "expanded", "扩展": "expanded",
-                        "deviated": "deviated", "偏离": "deviated",
-                    },
-                ),
-            ),
-            "setup_payoff_updates": (
-                (
-                    "action",
-                    {
-                        "setup": "setup", "埋设": "setup", "铺垫": "setup",
-                        "reinforce": "reinforce", "加强": "reinforce",
-                        "partial_payoff": "partial_payoff", "部分回收": "partial_payoff",
-                        "payoff": "payoff", "回收": "payoff", "完全回收": "payoff",
-                        "defer": "defer", "延后": "defer",
-                    },
-                ),
-                (
-                    "status",
-                    {
-                        "setup": "setup", "铺垫": "setup",
-                        "active": "active", "进行中": "active",
-                        "partial_payoff": "active", "部分回收": "active",
-                        "reinforced": "active", "加强": "active",
-                        "deferred": "active", "延后": "active",
-                        "established": "setup",
-                        "paid_off": "paid_off", "已回收": "paid_off",
-                    },
-                ),
-            ),
-        }
-        for collection_name, field_specs in enum_fields_by_collection.items():
-            collection = output.get(collection_name)
-            if not isinstance(collection, list):
-                continue
-            for item in collection:
-                if not isinstance(item, dict):
-                    continue
-                for field_name in (
-                    "knowledge_changes",
-                    "health_conditions",
-                    "action_capabilities",
-                    "lasting_marks",
-                    "active_constraints",
-                ):
-                    wrap_single_value(item, field_name)
-                    values = item.get(field_name)
-                    if isinstance(values, list):
-                        item[field_name] = [
-                            value
-                            for value in values
-                            if value is not None
-                            and not (isinstance(value, str) and not value.strip())
-                        ]
-                for field_name, aliases in field_specs:
-                    normalize_enum(item, field_name, aliases)
-                if collection_name == "story_line_updates":
-                    raw_status = str(item.get("status") or "").strip().casefold()
-                    raw_status_compact = re.sub(
-                        r"[\s_、，,。:：()（）/\\-]+",
-                        "",
-                        raw_status,
-                    )
-                    contribution_values = {
-                        "progress": "progress",
-                        "推进": "progress",
-                        "turning_point": "turning_point",
-                        "转折": "turning_point",
-                        "payoff": "payoff",
-                        "回收": "payoff",
-                        "resolution": "resolution",
-                        "收束": "resolution",
-                    }
-                    if raw_status not in {"setup", "铺垫", "active", "进行中", "resolved", "已解决", "收束"}:
-                        if any(marker in raw_status_compact for marker in ("resolution", "resolved", "closed", "complete", "收束", "解决", "完成")):
-                            item["status"] = "resolved"
-                        elif any(marker in raw_status_compact for marker in ("setup", "seed", "seeded", "introduce", "introduced", "foundation", "铺垫", "埋设")):
-                            item["status"] = "setup"
-                        elif raw_status_compact:
-                            item["status"] = "active"
-                        raw_status = raw_status_compact
-                    if raw_status in contribution_values:
-                        contribution_type = str(item.get("contribution_type") or "").strip().casefold()
-                        if contribution_type not in {
-                            "setup", "progress", "turning_point", "payoff", "resolution"
-                        }:
-                            item["contribution_type"] = contribution_values[raw_status]
-                        item["status"] = (
-                            "resolved"
-                            if raw_status in {"resolution", "收束"}
-                            else "active"
-                        )
-                    contribution_type = str(
-                        item.get("contribution_type") or ""
-                    ).strip().casefold()
-                    if contribution_type not in {
-                        "setup",
-                        "progress",
-                        "turning_point",
-                        "payoff",
-                        "resolution",
-                    }:
-                        normalized_status = str(
-                            item.get("status") or "active"
-                        ).strip().casefold()
-                        item["contribution_type"] = {
-                            "setup": "setup",
-                            "resolved": "resolution",
-                        }.get(normalized_status, "progress")
-                elif collection_name == "setup_payoff_updates":
-                    raw_action = str(item.get("action") or "").strip().casefold()
-                    action_compact = re.sub(
-                        r"[\s_、，,。:：()（）/\\-]+",
-                        "",
-                        raw_action,
-                    )
-                    if raw_action not in {
-                        "setup", "埋设", "铺垫", "reinforce", "加强",
-                        "partial_payoff", "部分回收", "payoff", "回收", "完全回收",
-                        "defer", "延后",
-                    }:
-                        if any(marker in action_compact for marker in ("payoff", "paid", "resolve", "回收", "兑现", "完成")):
-                            item["action"] = "payoff"
-                        elif any(marker in action_compact for marker in ("defer", "delay", "postpone", "延后", "推迟")):
-                            item["action"] = "defer"
-                        elif any(marker in action_compact for marker in ("partial", "half", "部分")):
-                            item["action"] = "partial_payoff"
-                        elif action_compact:
-                            item["action"] = "reinforce"
-                    raw_setup_status = str(item.get("status") or "").strip().casefold()
-                    setup_status_compact = re.sub(
-                        r"[\s_、，,。:：()（）/\\-]+",
-                        "",
-                        raw_setup_status,
-                    )
-                    if raw_setup_status not in {
-                        "setup", "铺垫", "active", "进行中", "partial_payoff",
-                        "部分回收", "reinforced", "加强", "deferred", "延后",
-                        "established", "paid_off", "已回收",
-                    } and setup_status_compact:
-                        if any(marker in setup_status_compact for marker in ("paid", "payoff", "resolved", "complete", "回收", "兑现", "完成")):
-                            item["status"] = "paid_off"
-                            item["action"] = "payoff"
-                        elif any(marker in setup_status_compact for marker in ("setup", "seed", "introduced", "铺垫", "埋设")):
-                            item["status"] = "setup"
-                        else:
-                            item["status"] = "active"
-                normalize_scene_number_list(item, "evidence_scene_numbers")
-                knowledge_states = item.get("knowledge_states")
-                if isinstance(knowledge_states, (dict, str)):
-                    knowledge_states = [knowledge_states]
-                    item["knowledge_states"] = knowledge_states
-                if isinstance(knowledge_states, list):
-                    normalized_knowledge_states: list[object] = []
-                    for knowledge_index, knowledge_state in enumerate(knowledge_states):
-                        if (
-                            isinstance(knowledge_state, dict)
-                            and not set(knowledge_state).intersection(
-                                {"knowledge_key", "statement", "status"}
-                            )
-                        ):
-                            for label, raw_state in knowledge_state.items():
-                                label_text = str(label).strip()
-                                state_text = str(raw_state).strip()
-                                if not label_text or not state_text:
-                                    continue
-                                statement = f"{label_text}：{state_text}"[:300]
-                                compact_state = re.sub(
-                                    r"[\s_、，,。:：()（）/\\-]+",
-                                    "",
-                                    state_text.casefold(),
-                                )
-                                if any(
-                                    marker in compact_state
-                                    for marker in ("证伪", "错误", "不成立")
-                                ):
-                                    status = "disproved"
-                                elif any(
-                                    marker in compact_state
-                                    for marker in ("遗忘", "忘记")
-                                ):
-                                    status = "forgotten"
-                                elif any(
-                                    marker in compact_state
-                                    for marker in (
-                                        "怀疑", "未知", "未查明", "未确认", "无实据"
-                                    )
-                                ):
-                                    status = "suspected"
-                                elif any(
-                                    marker in compact_state
-                                    for marker in ("相信", "认为", "推测")
-                                ):
-                                    status = "believed"
-                                else:
-                                    status = "known"
-                                digest = hashlib.sha256(
-                                    f"{label_text}|{statement}".encode("utf-8")
-                                ).hexdigest()[:12]
-                                normalized_knowledge_states.append({
-                                    "knowledge_key": f"generated.knowledge.{digest}",
-                                    "statement": statement,
-                                    "status": status,
-                                })
-                            continue
-                        if isinstance(knowledge_state, str):
-                            statement = knowledge_state.strip()
-                            if statement:
-                                knowledge_state = {
-                                    "knowledge_key": (
-                                        f"episode.knowledge.{knowledge_index + 1}"
-                                    ),
-                                    "statement": statement,
-                                    "status": "known",
-                                }
-                        normalized_knowledge_states.append(knowledge_state)
-                        if isinstance(knowledge_state, dict):
-                            if not str(knowledge_state.get("knowledge_key") or "").strip():
-                                knowledge_state["knowledge_key"] = (
-                                    f"episode.knowledge.{knowledge_index + 1}"
-                                )
-                            if not str(knowledge_state.get("statement") or "").strip():
-                                knowledge_state["statement"] = "本集确认的连续性事实。"
-                            normalize_enum(
-                                knowledge_state,
-                                "status",
-                                {
-                                    "known": "known", "已知": "known", "知道": "known",
-                                    "believed": "believed", "相信": "believed",
-                                    "suspected": "suspected", "怀疑": "suspected",
-                                    "disproved": "disproved", "证伪": "disproved",
-                                    "forgotten": "forgotten", "遗忘": "forgotten",
-                                },
-                            )
-                            if not str(knowledge_state.get("status") or "").strip():
-                                knowledge_state["status"] = "known"
-                    item["knowledge_states"] = normalized_knowledge_states
-                if collection_name == "continuity_state_updates":
-                    entity_key = str(item.get("entity_key") or "").strip()
-                    if entity_key and not re.fullmatch(
-                        r"[a-z0-9_.:-]+",
-                        entity_key,
-                    ):
-                        entity_type = str(item.get("entity_type") or "item").strip()
-                        entity_name = str(item.get("entity_name") or entity_key).strip()
-                        digest = hashlib.sha256(
-                            f"{entity_type}|{entity_name}".encode("utf-8")
-                        ).hexdigest()[:12]
-                        item["entity_key"] = (
-                            f"generated.{entity_type or 'item'}.{digest}"
-                        )
-                if collection_name == "setup_payoff_updates":
-                    setup_payoff_ref = str(
-                        item.get("setup_payoff_ref") or ""
-                    ).strip()
-                    if setup_payoff_ref and not re.fullmatch(
-                        r"[a-zA-Z0-9_.:-]+",
-                        setup_payoff_ref,
-                    ):
-                        identifier = re.match(
-                            r"[a-zA-Z0-9_.:-]+",
-                            setup_payoff_ref,
-                        )
-                        if identifier is not None:
-                            normalized_ref = identifier.group().rstrip(".:-")
-                            if len(normalized_ref) >= 3:
-                                item["setup_payoff_ref"] = normalized_ref
-                        else:
-                            digest = hashlib.sha256(
-                                setup_payoff_ref.encode("utf-8")
-                            ).hexdigest()[:12]
-                            item["setup_payoff_ref"] = (
-                                f"generated.setup_payoff.{digest}"
-                            )
-                    target_episode = parse_int(item.get("target_payoff_episode"))
-                    if target_episode is not None:
-                        item["target_payoff_episode"] = target_episode
-
-        hook = output.get("continuation_hook")
-        if isinstance(hook, str) and hook.strip():
-            summary = hook.strip()[:300]
-            next_question = str(output.get("next_episode_question") or "").strip()
-            if resolved_ending_mode == EndingMode.series_finale:
-                # A legacy string hook is usually a transport alias, not an
-                # author-approved epilogue. Do not let scalar normalization
-                # resurrect a continuation requirement at a series ending.
-                output["continuation_hook"] = None
-            else:
-                output["continuation_hook"] = {
-                    "ending_hook_type": (
-                        "信息悬念"
-                        if ending_mode_requires_hook(resolved_ending_mode)
-                        else "季终收束"
-                    ),
-                    "ending_hook_summary": summary,
-                    "next_episode_obligation": (
-                        next_question[:300]
-                        if next_question
-                        else (
-                            "下一集必须回应本集结尾提出的未解问题。"
-                            if ending_mode_requires_hook(resolved_ending_mode)
-                            else "下一季仅承接已批准的后续入口。"
-                        )
-                    ),
-                }
-        if isinstance(hook, dict):
-            def pop_first_hook_alias(*field_names: str) -> object | None:
-                selected: object | None = None
-                for field_name in field_names:
-                    value = hook.pop(field_name, None)
-                    if selected is None and value not in (None, "", [], {}):
-                        selected = value
-                return selected
-
-            legacy_hook_type = pop_first_hook_alias("hook_type", "type", "ending_type")
-            legacy_summary = pop_first_hook_alias(
-                "hook_description",
-                "hook_summary",
-                "description",
-                "summary",
-                "text",
-                "promise",
-                "ending_hook",
-                "hook_text",
-                "ending_pressure",
-            )
-            legacy_obligation = pop_first_hook_alias(
-                "next_obligation",
-                "next_episode_hook",
-                "next_episode_promise",
-                "obligation",
-            )
-            legacy_evidence = pop_first_hook_alias("response_evidence")
-            legacy_evidence_numbers = pop_first_hook_alias(
-                "evidence_scene_numbers",
-                "response_scene_numbers",
-            )
-            legacy_target_episode = pop_first_hook_alias(
-                "target_episode",
-                "payoff_episode",
-            )
-            hook.pop("source_episode", None)
-            if not str(hook.get("ending_hook_type") or "").strip():
-                hook["ending_hook_type"] = (
-                    str(legacy_hook_type or "").strip() or "因果压力"
-                )
-            if not str(hook.get("ending_hook_summary") or "").strip():
-                hook["ending_hook_summary"] = (
-                    str(legacy_summary or legacy_evidence or "").strip()
-                )
-            if not str(hook.get("next_episode_obligation") or "").strip():
-                hook["next_episode_obligation"] = str(
-                    legacy_obligation or ""
-                ).strip()
-            if (
-                hook.get("response_evidence_scene_numbers") in (None, [])
-                and legacy_evidence_numbers is not None
-            ):
-                hook["response_evidence_scene_numbers"] = legacy_evidence_numbers
-            if hook.get("target_payoff_episode") is None and legacy_target_episode is not None:
-                hook["target_payoff_episode"] = legacy_target_episode
-            normalize_scene_number_list(hook, "response_evidence_scene_numbers")
-            for field_name in ("responds_to_episode", "target_payoff_episode"):
-                number = parse_int(hook.get(field_name))
-                if number is not None:
-                    hook[field_name] = number
-            allowed_hook_fields = {
-                "responds_to_episode",
-                "previous_hook_response",
-                "response_evidence_scene_numbers",
-                "ending_hook_type",
-                "ending_hook_summary",
-                "next_episode_obligation",
-                "target_payoff_episode",
-            }
-            for field_name in list(hook):
-                if field_name not in allowed_hook_fields:
-                    hook.pop(field_name)
+    _normalize_draft_scalar_contracts = staticmethod(normalize_draft_scalar_contracts)
 
     @staticmethod
     def _deduplicate_mechanical_draft_values(output: dict[str, object]) -> None:
@@ -6732,7 +4722,7 @@ class ScriptGenerationService:
     ) -> dict[str, object]:
         self._emit_progress(progress_callback, "stage", stage="checking_screenplay_style")
         validated = LLMGeneratedDraftMasterScript.model_validate(
-            {key: value for key, value in output.items() if key != "_meta"}
+            draft_contract.without_metadata(output)
         )
         issues = draft_screenplay_style_issues(validated)
         if not issues:
@@ -6762,20 +4752,20 @@ class ScriptGenerationService:
                 error=error,
             )
         repaired = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(repaired),
+            draft_contract.unwrap_response_envelope(repaired),
             ending_mode=validated.ending_mode,
         )
         try:
             repaired_output = LLMGeneratedDraftMasterScript.model_validate(
-                {key: value for key, value in repaired.items() if key != "_meta"}
+                draft_contract.without_metadata(repaired)
             )
         except ValidationError as error:
             raise InvalidDraftMasterScriptOutputError(
                 "Screenplay-style repair broke the DraftMasterScript contract."
             ) from error
-        if self._screenplay_style_lock_signature(
-            repaired_output
-        ) != self._screenplay_style_lock_signature(validated):
+        if draft_contract.body_lock_signature(
+            repaired_output, allow_dialogue_changes=False
+        ) != draft_contract.body_lock_signature(validated, allow_dialogue_changes=False):
             raise InvalidDraftMasterScriptOutputError(
                 "Screenplay-style repair changed protected story, dialogue, or scene fields."
             )
@@ -6793,10 +4783,11 @@ class ScriptGenerationService:
                 + ", ".join(language_issues[:12])
             )
 
-        self._merge_output_metadata(source=output, target=repaired)
+        draft_contract.merge_output_metadata(source=output, target=repaired)
         if target_characters is not None:
             guidance = script_body_length_guidance(target_characters)
-            repaired_characters = self._script_body_character_count(repaired_output)
+            repaired_scene_characters = self._script_body_scene_character_counts(repaired_output)
+            repaired_characters = sum(repaired_scene_characters)
             if repaired_characters < guidance.truncation_floor_characters:
                 raise InvalidDraftMasterScriptOutputError(
                     "Screenplay-style repair made the script body appear truncated "
@@ -6806,7 +4797,7 @@ class ScriptGenerationService:
                 repaired,
                 actual_characters=repaired_characters,
                 guidance=guidance,
-                scene_characters=self._script_body_scene_character_counts(repaired_output),
+                scene_characters=repaired_scene_characters,
                 expanded=bool(
                     isinstance(output.get("_meta"), dict)
                     and output["_meta"].get("script_body_expanded")
@@ -6828,10 +4819,10 @@ class ScriptGenerationService:
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
         validated = LLMGeneratedDraftMasterScript.model_validate(
-            {key: value for key, value in output.items() if key != "_meta"}
+            draft_contract.without_metadata(output)
         )
-        actual_characters = self._script_body_character_count(validated)
         scene_characters = self._script_body_scene_character_counts(validated)
+        actual_characters = sum(scene_characters)
         guidance = script_body_length_guidance(target_characters)
         self._emit_progress(
             progress_callback,
@@ -6896,12 +4887,12 @@ class ScriptGenerationService:
             )
             return preserved
         repaired = self._normalize_mechanical_draft_contract(
-            self._unwrap_draft_response_envelope(repaired),
+            draft_contract.unwrap_response_envelope(repaired),
             ending_mode=validated.ending_mode,
         )
         try:
             root_candidate = LLMGeneratedDraftMasterScript.model_validate(
-                {key: value for key, value in repaired.items() if key != "_meta"}
+                draft_contract.without_metadata(repaired)
             )
         except ValidationError:
             root_candidate = None
@@ -6911,7 +4902,7 @@ class ScriptGenerationService:
                 # Keep compatibility with older adapters/checkpoints that return
                 # a complete episode despite the focused patch schema.
                 expanded_payload = repaired
-                self._merge_output_metadata(source=output, target=expanded_payload)
+                draft_contract.merge_output_metadata(source=output, target=expanded_payload)
                 expanded = root_candidate
             else:
                 repair_patch = LLMMainlandBodyRepairPatch.model_validate(
@@ -6935,13 +4926,9 @@ class ScriptGenerationService:
                     output,
                     repair_patch,
                 )
-                self._merge_output_metadata(source=output, target=expanded_payload)
+                draft_contract.merge_output_metadata(source=output, target=expanded_payload)
                 expanded = LLMGeneratedDraftMasterScript.model_validate(
-                    {
-                        key: value
-                        for key, value in expanded_payload.items()
-                        if key != "_meta"
-                    }
+                    draft_contract.without_metadata(expanded_payload)
                 )
         except ValidationError as error:
             raise InvalidDraftMasterScriptOutputError(
@@ -6949,7 +4936,7 @@ class ScriptGenerationService:
             ) from error
         except ValueError as error:
             raise InvalidDraftMasterScriptOutputError(str(error)) from error
-        if self._script_body_lock_signature(expanded) != self._script_body_lock_signature(
+        if draft_contract.body_lock_signature(expanded) != draft_contract.body_lock_signature(
             validated
         ):
             raise InvalidDraftMasterScriptOutputError(
@@ -6963,8 +4950,8 @@ class ScriptGenerationService:
                     "fields: "
                     + ", ".join(language_issues[:12])
                 )
-        expanded_characters = self._script_body_character_count(expanded)
         expanded_scene_characters = self._script_body_scene_character_counts(expanded)
+        expanded_characters = sum(expanded_scene_characters)
         if expanded_characters < guidance.truncation_floor_characters:
             raise InvalidDraftMasterScriptOutputError(
                 "Script body still appears truncated after one bounded completion attempt "
@@ -6979,73 +4966,10 @@ class ScriptGenerationService:
         )
         return expanded_payload
 
-    @staticmethod
-    def _script_body_character_count(script: LLMGeneratedDraftMasterScript) -> int:
-        return sum(ScriptGenerationService._script_body_scene_character_counts(script))
-
-    @staticmethod
-    def _is_chinese_language(language: str) -> bool:
-        normalized = language.strip().lower().replace("_", "-")
-        return normalized.startswith("zh") or any(
-            marker in normalized for marker in ("中文", "简体", "汉语", "普通话")
-        )
-
-    @staticmethod
-    def _script_body_scene_character_counts(
-        script: LLMGeneratedDraftMasterScript,
-    ) -> list[int]:
-        return [
-            sum(
-                1
-                for text in (
-                    *scene.character_actions,
-                    *(dialogue.text for dialogue in scene.dialogues),
-                )
-                for character in unicodedata.normalize("NFKC", text)
-                if unicodedata.category(character)[0] in {"L", "N"}
-            )
-            for scene in script.scenes
-        ]
-
-    @staticmethod
-    def _script_body_lock_signature(
-        script: LLMGeneratedDraftMasterScript,
-    ) -> dict[str, object]:
-        payload = script.model_dump(mode="json")
-        scenes = payload.get("scenes", [])
-        if isinstance(scenes, list):
-            for scene in scenes:
-                if isinstance(scene, dict):
-                    scene.pop("character_actions", None)
-                    scene.pop("body_order", None)
-                    scene.pop("dialogues", None)
-        return payload
-
-    @staticmethod
-    def _screenplay_style_lock_signature(
-        script: LLMGeneratedDraftMasterScript,
-    ) -> dict[str, object]:
-        payload = script.model_dump(mode="json")
-        scenes = payload.get("scenes", [])
-        if isinstance(scenes, list):
-            for scene in scenes:
-                if isinstance(scene, dict):
-                    scene.pop("character_actions", None)
-                    scene.pop("body_order", None)
-        return payload
-
-    @staticmethod
-    def _merge_output_metadata(
-        *,
-        source: dict[str, object],
-        target: dict[str, object],
-    ) -> None:
-        source_metadata = source.get("_meta")
-        target_metadata = target.get("_meta")
-        merged = dict(source_metadata) if isinstance(source_metadata, dict) else {}
-        if isinstance(target_metadata, dict):
-            merged.update(target_metadata)
-        target["_meta"] = merged
+    # Preserve existing helper entry points while metrics live outside the service.
+    _script_body_character_count = staticmethod(screenplay_character_count)
+    _is_chinese_language = staticmethod(is_chinese_language)
+    _script_body_scene_character_counts = staticmethod(screenplay_scene_character_counts)
 
     @staticmethod
     def _record_screenplay_style_metrics(
@@ -7181,99 +5105,15 @@ class ScriptGenerationService:
         progress_callback: Callable[[str, dict[str, object]], None] | None,
         single_non_stream_attempt: bool = False,
     ) -> dict[str, object]:
-        """Recover one malformed post-process response without discarding the draft."""
-
-        if single_non_stream_attempt:
-            with bind_llm_log_context(stage=f"episode_script.{phase}"):
-                return adapter.generate_structured_output(
-                    prompt,
-                    strategy=strategy,
-                    output_schema=output_schema,
-                )
-
-        try:
-            with bind_llm_log_context(stage=f"episode_script.{phase}"):
-                return adapter.generate_structured_output_stream(
-                    prompt,
-                    strategy=strategy,
-                    output_schema=output_schema,
-                    on_delta=lambda delta, reset: self._emit_progress(
-                        progress_callback,
-                        "draft_delta",
-                        delta=delta,
-                        reset=reset,
-                        phase=phase,
-                    ),
-                )
-        except LLMStructuredOutputError as first_error:
-            logger.warning(
-                "Post-process structured stream failed; retrying non-streaming "
-                "phase=%s raw_chars=%d",
-                phase,
-                len(first_error.raw_content or ""),
-            )
-        except LLMRequestError as first_error:
-            if not is_recoverable_llm_request_error(first_error):
-                raise
-            route_failure_categories = tuple(
-                str(value)
-                for value in getattr(first_error, "route_failure_categories", ())
-                if value
-            )
-            stream_termination = str(
-                getattr(first_error, "stream_termination", "") or ""
-            ).casefold()
-            # Once the adapter has exhausted both gateways, repeating the same
-            # repair over non-streaming transport only adds another 2-3 minutes
-            # and cannot recover a response-budget exhaustion. Let the outer
-            # current-episode retry rotate the whole request instead.
-            if (
-                first_error.category
-                in {"failover_exhausted", "script_generation_routes_exhausted"}
-                or getattr(first_error, "stream_fallback_attempted", False)
-                or (
-                    first_error.category == "empty_response"
-                    and any(
-                        marker in stream_termination
-                        for marker in ("length", "max_output", "max_tokens", "incomplete")
-                    )
-                )
-                or (
-                    route_failure_categories
-                    and all(
-                    category in {"empty_response", "provider_gateway", "timeout", "transport"}
-                    for category in route_failure_categories
-                    )
-                )
-            ):
-                raise
-            logger.warning(
-                "Post-process stream transport failed; retrying non-streaming "
-                "phase=%s category=%s status=%s",
-                phase,
-                first_error.category,
-                first_error.status_code,
-            )
-        recovery_prompt = f"""{prompt}
-
-The previous post-processing transport returned empty, short, truncated, or non-JSON
-content. Return only the complete JSON object required by the supplied schema. Do not
-include analysis, Markdown fences, status text, or an explanation."""
-        try:
-            with bind_llm_log_context(stage=f"episode_script.{phase}.recovery"):
-                return adapter.generate_structured_output(
-                    recovery_prompt,
-                    strategy=strategy,
-                    output_schema=output_schema,
-                )
-        except LLMStructuredOutputError as final_error:
-            if self._structured_output_error_is_transient(final_error):
-                raise LLMRequestError(
-                    "正文后处理响应为空或被截断；可从当前集重新尝试。",
-                    category="empty_response",
-                    recoverable=True,
-                ) from final_error
-            raise
+        return draft_recovery.generate_postprocess_output(
+            adapter=adapter,
+            prompt=prompt,
+            strategy=strategy,
+            output_schema=output_schema,
+            phase=phase,
+            progress_callback=progress_callback,
+            single_non_stream_attempt=single_non_stream_attempt,
+        )
 
     def _run_valid_draft_postprocess_stage(
         self,
@@ -7283,61 +5123,19 @@ include analysis, Markdown fences, status text, or an explanation."""
         operation: Callable[[dict[str, object]], dict[str, object]],
         cancel_event: threading.Event | None = None,
     ) -> dict[str, object]:
-        """Run an enhancement without allowing it to invalidate a complete draft."""
-
-        if cancel_event is not None and cancel_event.is_set():
-            raise LLMRequestCancelledError()
-
         ending_mode = self._coerce_ending_mode(output.get("ending_mode"))
-        checkpoint = self._normalize_mechanical_draft_contract(
-            deepcopy(output),
-            ending_mode=ending_mode,
+
+        def normalize(candidate: dict[str, object]) -> dict[str, object]:
+            candidate = self._normalize_mechanical_draft_contract(candidate, ending_mode=ending_mode)
+            return self._with_authoritative_ending_mode(candidate, ending_mode)
+
+        return draft_recovery.run_valid_draft_postprocess_stage(
+            output=output,
+            phase=phase,
+            operation=operation,
+            normalize=normalize,
+            cancel_event=cancel_event,
         )
-        checkpoint = self._with_authoritative_ending_mode(checkpoint, ending_mode)
-        LLMGeneratedDraftMasterScript.model_validate(
-            {key: value for key, value in checkpoint.items() if key != "_meta"}
-        )
-        try:
-            operation_input = deepcopy(checkpoint)
-            candidate = operation(operation_input)
-            if cancel_event is not None and cancel_event.is_set():
-                raise LLMRequestCancelledError()
-            candidate = self._normalize_mechanical_draft_contract(
-                self._unwrap_draft_response_envelope(candidate),
-                ending_mode=ending_mode,
-            )
-            candidate = self._with_authoritative_ending_mode(candidate, ending_mode)
-            LLMGeneratedDraftMasterScript.model_validate(
-                {key: value for key, value in candidate.items() if key != "_meta"}
-            )
-            checkpoint_body = {
-                key: value for key, value in checkpoint.items() if key != "_meta"
-            }
-            candidate_body = {
-                key: value for key, value in candidate.items() if key != "_meta"
-            }
-            if candidate_body == checkpoint_body:
-                self._merge_output_metadata(source=candidate, target=output)
-                return output
-            return candidate
-        except LLMRequestError as error:
-            if not is_recoverable_llm_request_error(error):
-                raise
-            return self._preserve_valid_draft_after_postprocess_failure(
-                checkpoint,
-                phase=phase,
-                error=error,
-            )
-        except (
-            LLMStructuredOutputError,
-            InvalidDraftMasterScriptOutputError,
-            ValidationError,
-        ) as error:
-            return self._preserve_valid_draft_after_postprocess_failure(
-                checkpoint,
-                phase=phase,
-                error=error,
-            )
 
     @classmethod
     def _preserve_valid_draft_after_postprocess_failure(
@@ -7347,34 +5145,7 @@ include analysis, Markdown fences, status text, or an explanation."""
         phase: str,
         error: Exception,
     ) -> dict[str, object]:
-        """Keep a contract-valid draft when an optional enhancement transport fails."""
-
-        preserved = deepcopy(output)
-        metadata = preserved.setdefault("_meta", {})
-        if isinstance(metadata, dict):
-            phases = metadata.setdefault("deferred_postprocess_phases", [])
-            if isinstance(phases, list) and phase not in phases:
-                phases.append(phase)
-            if isinstance(error, LLMStructuredOutputError):
-                diagnostic = cls._structured_failure_diagnostic(
-                    phase=phase,
-                    error=error,
-                )
-            elif isinstance(error, LLMRequestError):
-                diagnostic = cls._request_failure_diagnostic(
-                    phase=phase,
-                    error=error,
-                )
-            else:
-                diagnostic = (
-                    f"{phase}(error_type={type(error).__name__}; "
-                    f"error={str(error)[:600]})"
-                )
-            diagnostics = metadata.setdefault("deferred_postprocess_diagnostics", [])
-            if isinstance(diagnostics, list):
-                diagnostics.append(diagnostic)
-            metadata["postprocess_failure_preserved_valid_draft"] = True
-        return preserved
+        return draft_recovery.preserve_valid_draft_after_postprocess_failure(output, phase=phase, error=error)
 
     def _generate_initial_draft_output(
         self,
@@ -7385,6 +5156,26 @@ include analysis, Markdown fences, status text, or an explanation."""
         progress_callback: Callable[[str, dict[str, object]], None] | None,
         cancel_event: threading.Event | None = None,
     ) -> dict[str, object]:
+        try:
+            with deadline_scope(self._initial_generation_timeout_seconds, scope="initial_generation"):
+                result = self._generate_initial_draft_attempts(
+                    prompt=prompt, compact_recovery_prompt=compact_recovery_prompt,
+                    strategy=strategy, progress_callback=progress_callback, cancel_event=cancel_event,
+                )
+                check_deadline()
+                return result
+        except LLMDeadlineExceeded as error:
+            raise deadline_request_error(error) from error
+
+    def _generate_initial_draft_attempts(
+        self,
+        *,
+        prompt: str,
+        compact_recovery_prompt: str | None,
+        strategy: GenerationStrategy,
+        progress_callback: Callable[[str, dict[str, object]], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> dict[str, object]:
         schema = self._initial_draft_output_schema()
         model_pass_count = 0
         last_error: LLMStructuredOutputError | None = None
@@ -7393,6 +5184,7 @@ include analysis, Markdown fences, status text, or an explanation."""
         reasoning_length_exhausted = False
         failure_diagnostics: list[str] = []
         for attempt in range(1, INITIAL_DRAFT_GENERATION_MAX_ATTEMPTS + 1):
+            check_deadline()
             primary_attempt_count = attempt
             attempt_started_at = time.perf_counter()
             if attempt > 1:
@@ -7620,11 +5412,7 @@ include analysis, Markdown fences, status text, or an explanation."""
                             )
                             metadata["initial_generation_attempt_count"] = attempt
                             metadata["initial_generation_retried"] = attempt > 1
-                        preview = {
-                            key: value
-                            for key, value in repaired.items()
-                            if key != "_meta"
-                        }
+                        preview = draft_contract.without_metadata(repaired)
                         self._emit_progress(
                             progress_callback,
                             "draft_delta",
@@ -7664,6 +5452,7 @@ include analysis, Markdown fences, status text, or an explanation."""
             "stage",
             stage="recovering_model_regeneration",
         )
+        check_deadline()
         model_pass_count += 1
         try:
             if cancel_event is not None and cancel_event.is_set():
@@ -7790,7 +5579,7 @@ include analysis, Markdown fences, status text, or an explanation."""
             metadata["initial_generation_failure_diagnostics"] = failure_diagnostics
             if reasoning_length_exhausted and compact_recovery_prompt:
                 metadata["initial_generation_compact_recovery_used"] = True
-        preview = {key: value for key, value in fallback.items() if key != "_meta"}
+        preview = draft_contract.without_metadata(fallback)
         self._emit_progress(
             progress_callback,
             "draft_delta",
@@ -7800,15 +5589,7 @@ include analysis, Markdown fences, status text, or an explanation."""
         )
         return fallback
 
-    @staticmethod
-    def _request_failure_diagnostic(
-        *,
-        phase: str,
-        error: LLMRequestError,
-    ) -> str:
-        status = error.status_code if error.status_code is not None else "none"
-        category = re.sub(r"[^a-zA-Z0-9_.-]+", "_", error.category)[:80]
-        return f"{phase}: request_category={category or 'unknown'}; status={status}"
+    _request_failure_diagnostic = staticmethod(draft_recovery.request_failure_diagnostic)
 
     @staticmethod
     def _with_episode_output_budget(
@@ -7934,107 +5715,10 @@ include analysis, Markdown fences, status text, or an explanation."""
             return strategy
         return strategy.model_copy(update={"max_tokens": output_tokens})
 
-    @staticmethod
-    def _structured_failure_diagnostic(
-        *,
-        phase: str,
-        error: LLMStructuredOutputError,
-    ) -> str:
-        raw_content = (error.raw_content or "").strip()
-        diagnostics = (
-            f"{phase}(error={str(error).strip() or type(error).__name__},"
-            f" raw_chars={len(raw_content)})"
-        )
-        json_position = (
-            f"json_error=line:{error.json_error_line},column:{error.json_error_column},"
-            f"position:{error.json_error_position}"
-            if error.json_error_line is not None
-            else None
-        )
-        termination = (
-            f"stream_termination={error.stream_termination}"
-            if error.stream_termination
-            else None
-        )
-        details = "; ".join(
-            value for value in (json_position, termination) if value
-        )
-        return f"{diagnostics[:-1]}; {details})" if details else diagnostics
-
-    @staticmethod
-    def _structured_output_error_is_transient(
-        error: LLMStructuredOutputError,
-    ) -> bool:
-        """Distinguish provider transport exhaustion from semantic bad JSON."""
-
-        if error.empty_response or error.empty_response_retry_attempted:
-            return True
-        raw_content = (error.raw_content or "").strip()
-        termination = str(error.stream_termination or "").casefold()
-        if raw_content:
-            # A non-empty malformed body still has useful material for the
-            # bounded JSON repair path. Only an actual broken stream marker,
-            # rather than a normal token-limit diagnostic, should bypass it.
-            return any(
-                marker in termination
-                for marker in ("ended_without_terminal_event", "unexpected_eof")
-            )
-        return any(
-            marker in termination
-            for marker in (
-                "length",
-                "max_output",
-                "max_tokens",
-                "token_limit",
-                "incomplete",
-                "truncated",
-                "ended_without_terminal_event",
-                "unexpected_eof",
-            )
-        )
-
-    @staticmethod
-    def _is_reasoning_length_exhaustion(error: Exception) -> bool:
-        if bool(getattr(error, "reasoning_length_exhausted", False)):
-            return True
-        termination = str(
-            getattr(error, "stream_termination", "") or ""
-        ).casefold()
-        reasoning_characters = getattr(error, "reasoning_characters", 0)
-        empty_response = (
-            isinstance(error, LLMRequestError)
-            and error.category in {"empty_response", "failover_exhausted"}
-        ) or (
-            isinstance(error, LLMStructuredOutputError)
-            and error.empty_response
-        )
-        return (
-            empty_response
-            and isinstance(reasoning_characters, int)
-            and reasoning_characters > 0
-            and any(
-                marker in termination
-                for marker in ("length", "max_output", "max_tokens", "token")
-            )
-        )
-
-    @classmethod
-    def _exception_chain_has_transient_llm_failure(
-        cls,
-        error: Exception,
-    ) -> bool:
-        current: BaseException | None = error
-        visited: set[int] = set()
-        for _ in range(8):
-            if current is None or id(current) in visited:
-                break
-            visited.add(id(current))
-            if isinstance(current, LLMRequestError):
-                return is_recoverable_llm_request_error(current)
-            if isinstance(current, LLMStructuredOutputError):
-                return cls._structured_output_error_is_transient(current)
-            current = current.__cause__ or current.__context__
-        return False
+    _structured_failure_diagnostic = staticmethod(draft_recovery.structured_failure_diagnostic)
+    _structured_output_error_is_transient = staticmethod(draft_recovery.structured_output_error_is_transient)
+    _is_reasoning_length_exhaustion = staticmethod(draft_recovery.is_reasoning_length_exhaustion)
+    _exception_chain_has_transient_llm_failure = staticmethod(draft_recovery.exception_chain_has_transient_llm_failure)
 
     @staticmethod
     def _build_initial_draft_regeneration_prompt(*, prompt: str) -> str:
@@ -8192,8 +5876,8 @@ body_order必须用action:0、dialogue:0这类零基引用保存动作与对白�
     ) -> str:
         return f"""{original_prompt}
 
-上一份局部补丁虽然完成了数量调整，但破坏了正文与人物状态证据之间的交叉合同。
-请重新返回一份完整替代补丁，继续满足同样的台词、镜头、场景和时长要求，并确保每场
+上一份局部补丁未通过下方校验。请根据实际错误修正数量、字段或人物状态证据，
+重新返回一份完整替代补丁，继续满足同样的台词、镜头、场景和时长要求，并确保每场
 required_visible_characters中的人物在对应场景正文里被明确点名、可见参与。不要修改或返回
 任何人物状态、关系、剧情线、伏笔或连续性账本字段。
 
@@ -8353,8 +6037,9 @@ Return exactly one complete JSON object matching the authoritative response sche
         ):
             tasks.append(
                 f"预计成片约 {duration_estimate.total_seconds} 秒，不足75秒；只在原场景中补足"
-                "尚未充分展开的压力-行动-回报-升级循环，以可拍动作、人物反应、潜台词交锋"
-                f"和事件后果使局势真正变化并接近{target_duration}秒。少用空镜，不得拆分或改写同一动作凑时长。"
+                "尚未充分展开的行动、反应、情绪和后果，沿用批准的单集节奏与场景职责，"
+                f"使已有观看价值充分呈现并接近{target_duration}秒；不强制反转或固定循环。"
+                "少用空镜，不得拆分或改写同一动作凑时长。"
             )
         elif (
             duration_issue
@@ -8429,8 +6114,9 @@ Return exactly one complete JSON object matching the authoritative response sche
         ):
             tasks.append(
                 f"当前预计成片约 {duration_estimate.total_seconds} 秒，不足75秒。保持原剧情和"
-                "场景不变，补足尚未充分展开的压力-行动-回报-升级循环，以可拍动作、人物反应、"
-                f"潜台词交锋和事件后果使局势真正变化并接近{target_duration}秒。少用空镜，不得重复凑时长。"
+                "场景不变，沿用批准的单集节奏与场景职责，补足原稿尚未充分展开的可拍动作、"
+                f"人物反应、情绪和事件后果，使已有观看价值充分呈现并接近{target_duration}秒；"
+                "不强制反转或固定循环。少用空镜，不得重复凑时长。"
             )
         elif (
             duration_issue
@@ -8718,7 +6404,7 @@ Return one corrected JSON object only. Do not use Markdown fences or explanatory
         return provider == "mock"
 
     def _resolve_tone(self, tone: str) -> ScriptTone:
-        normalized = tone.strip().lower()
+        normalized = normalize_script_tone(tone.strip().lower())
         if normalized in ScriptTone._value2member_map_:
             return ScriptTone(normalized)
         raise InvalidDraftMasterScriptOutputError(

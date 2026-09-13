@@ -67,7 +67,7 @@ test("selected planning text exposes a native selection toolbar without a new ed
 test("selection references survive composer focus and are consumed only when sent", async () => {
   const bible = await source("components/story-bible-panel.tsx");
   const tree = await source("components/story-plan-node-panel.tsx");
-  const script = await source("components/script-workspace.tsx");
+  const authorWorkflow = await source("components/use-script-author-workflow.ts");
 
   assert.match(
     bible,
@@ -78,8 +78,8 @@ test("selection references survive composer focus and are consumed only when sen
     /quote: selectionOverride,[\s\S]*?setDocumentSelection\(\(current\) => current === selectionOverride \? null : current\);[\s\S]*?modifyStoryPlanNode\(/,
   );
   assert.match(
-    script,
-    /quote: selectionOverride,[\s\S]*?setScriptDocumentSelection\(\(current\) => current === selectionOverride \? null : current\);[\s\S]*?modifyEpisodeDraft\(/,
+    authorWorkflow,
+    /selection: current\.selection === selectionOverride \? null : current\.selection,[\s\S]*?quote: selectionOverride[\s\S]*?modifyEpisodeDraft\(/,
   );
 
   const storyBibleRequest = bible.slice(

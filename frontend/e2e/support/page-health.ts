@@ -1,4 +1,4 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Page, type Request, type TestInfo } from "@playwright/test";
 
 export interface PerformanceBudget {
   domContentLoadedMs: number;
@@ -24,24 +24,55 @@ export function monitorPageHealth(page: Page) {
   const pageErrors: string[] = [];
   const failedRequests: string[] = [];
   const serverErrors: string[] = [];
+  const componentResponses = new WeakSet<Request>();
 
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("requestfailed", (request) => {
+    const url = new URL(request.url());
+    // Route changes can cancel an already successful component stream or prefetch.
+    if (request.failure()?.errorText === "net::ERR_ABORTED"
+      && request.method() === "GET"
+      && request.headers().rsc === "1"
+      && url.searchParams.has("_rsc")
+      && url.origin === new URL(page.url()).origin
+      && !url.pathname.startsWith("/api/")
+      && (request.headers()["next-router-prefetch"] === "1" || componentResponses.has(request))) {
+      return;
+    }
     failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? "failed"}`);
   });
   page.on("response", (response) => {
+    if (response.ok() && response.headers()["content-type"]?.includes("text/x-component")) {
+      componentResponses.add(response.request());
+    }
     if (response.status() >= 500) {
       serverErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
     }
   });
 
   return {
-    assertHealthy() {
+    assertHealthy({ expectedServerErrors = [] }: { expectedServerErrors?: string[] } = {}) {
       expect(pageErrors, "page JavaScript errors").toEqual([]);
       expect(failedRequests, "failed browser requests").toEqual([]);
-      expect(serverErrors, "HTTP 5xx responses").toEqual([]);
+      expect(serverErrors, "HTTP 5xx responses").toEqual(expectedServerErrors);
     },
   };
+}
+
+export async function assertPageFitsViewport(page: Page, testInfo: TestInfo): Promise<void> {
+  const metrics = await page.evaluate(() => ({
+    viewportWidth: document.documentElement.clientWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body.scrollWidth,
+    pixelRatio: window.devicePixelRatio,
+  }));
+  await testInfo.attach("viewport-layout.json", {
+    body: Buffer.from(`${JSON.stringify(metrics, null, 2)}\n`),
+    contentType: "application/json",
+  });
+  const viewportWidth = page.viewportSize()?.width ?? metrics.viewportWidth;
+  expect(metrics.documentWidth, "document must not overflow the viewport horizontally").toBeLessThanOrEqual(viewportWidth);
+  expect(metrics.bodyWidth, "body must not overflow the viewport horizontally").toBeLessThanOrEqual(viewportWidth);
 }
 
 export async function assertPerformanceBudget(

@@ -8,9 +8,25 @@ Script Engine 的当前唯一产品目标是稳定产出优质、结构化、可
 
 当前 `cn_mainland` 市场的输出语言固定为中文。Frontend 隐藏语言选择，Project Provider、持久化恢复和 Generation Client 均将大陆项目归一化为 `output_language=zh`；海外开关关闭时，浏览器曾保存的英文界面偏好不得覆盖当前市场。`BilingualScriptView` 与英文源产物继续保留为停用兼容能力，不进入当前大陆项目界面。
 
-当前正文采用强制双模型分工：`LLM_SCRIPT_*` 由 DeepSeek 承载完整 Draft 与初始长响应，`LLM_SCRIPT_REPAIR_*` 继续由 DeepSeek 处理 JSON、结构、格式、时长、连续性和有界重新生成；完整 Draft 通过结构与连续性校验后，`LLM_SCRIPT_EDITOR_*` 指向 GPT，对全部场景执行一次有界成片终审。GPT 只返回 `scene_number`、`character_actions` 与 `dialogues`，服务端合并回 DeepSeek Draft；场景标题、剧情职责、人物与关系状态、剧情线、伏笔及连续性字段均不可由 GPT 修改。终审结果必须继续满足当前 75–115 秒范围，未达到时最多执行一次定向修正。`SCRIPT_GPT_POST_EDIT_ENABLED=true` 时 GPT 阶段为正式正文必经步骤；旧 Creative Deepening 仍保持关闭，不承担终审职责。
+当前正文采用一次生成优先的分工：`LLM_SCRIPT_*` 负责生成完整 Draft，Prompt 直接携带正文、对白、数量、语言和连续性合同；`LLM_SCRIPT_REPAIR_*` 只在 JSON、结构、格式、时长、语言或硬性契约失败时执行有界修复。正文生成后先运行本地连续性和交付门禁，检查通过就直接接受，不调用第二个模型。发现硬性连续性冲突时，连续性角色只返回局部修复；海外对白对照缺失时，才执行局部语言字段修复。
 
-正文链路不继承 `LLM_STORY_ARCHITECT_*`，DeepSeek 使用 Chat Completions `json_object`，Prompt 同时携带完整 JSON 外形，并由本地 Pydantic 契约校验。GPT 编辑器使用独立 OpenAI-compatible Responses 配置与精简场景补丁 Schema，避免第二个模型重新生成十九字段根对象。供应商的账户级并发、额度或网关限制仍可能成为实际瓶颈；本地全局并发仍由现有任务队列控制，不把 DeepSeek 与 GPT 的上限叠加计算。
+## 对话式修改模型路由
+
+总纲、剧情树和分集规划的对话式修改统一使用 `LLM_PLANNING_EDITOR`（`deepseek-v4-pro`）。正文修改按发行市场路由：大陆使用 `LLM_CN_SCRIPT_CONVERSATION_EDITOR`（`deepseek-v4-pro`），海外使用 `LLM_OVERSEAS_SCRIPT_CONVERSATION_EDITOR`（`gemini-3.6-flash`）。正文生成、结构修复和对话修改都在请求边界绑定发行市场；嵌套的数量/结构修复不会因提示词缺少市场字段而误走大陆线路。
+
+最开始的 Grill Me 灵感对话使用 `gpt-6-astra`。所有实际配置为 `gpt-6-astra` 的角色都会自动挂接 `LLM_ASTRA_FALLBACK`（`deepseek-v4-pro`）。主线请求可恢复失败后切换；Astra 默认不重试，长规划单次请求等待上限 120 秒、Grill Me 45 秒，均包括该请求的网络重试和流式接收时间。这里是请求累计时限，不是首字或空闲时限，也不是整个业务阶段的总耗时；DeepSeek Pro 有独立的 300 秒默认请求预算，外层任务预算仍可提前终止它。
+
+一次网络、空响应或请求超时会使对应主线路进入 600 秒冷却期，期间同一服务实例直接使用 DeepSeek Pro；冷却后下一次调用重新尝试 Astra。普通结构错误可切备用，但不单独触发冷却。取消和更外层的任务总预算耗尽仍然停止执行，不会启动备用请求。
+
+等待上限用 `LLM_<角色>_REQUEST_DEADLINE_SECONDS` 配置；通用入口读取 `LLM_OUTLINE_REQUEST_DEADLINE_SECONDS`，兼容 `LLM_REQUEST_DEADLINE_SECONDS`。角色可用 `FAILOVER_FAILURE_THRESHOLD` / `FAILOVER_COOLDOWN_SECONDS` 覆盖切换阈值和冷却时间，共享默认分别来自 `LLM_ASTRA_FALLBACK_FAILOVER_FAILURE_THRESHOLD` 和 `LLM_ASTRA_FAILOVER_COOLDOWN_SECONDS`。DeepSeek Pro 备用必须包含完整模型、网关和凭据；缺失或误指向 Astra 时保留主线并记录配置警告，不递归构建、不混用主线密钥。
+
+分集规划批次使用流式原生 JSON，经本地合同校验后保存。`LLM_EPISODE_PLAN_CHUNK_SIZE` 控制一次生成 1–6 集，当前配置为 3；不设置时兼容旧的 6 集批次。该参数不改变完整叶节点的 8–12 集范围、前序上下文或人工确认门禁。
+
+整集正文修改与选中文字修改都走独立对话编辑器，修改候选及其有界修复仍经过原有合同检查与人工确认。请求上下文中的发行市场优先于提示词内容；只有未绑定上下文的兼容调用才解析提示中的市场标记。未显式注入新编辑器的旧服务构造方式继续使用原角色。
+
+`LLM_SCRIPT_EDITOR_*` 是可选的质量门禁编辑器，不是正文必经阶段。`SCRIPT_GPT_POST_EDIT_ENABLED=false`（默认）时不执行 GPT 编辑；设为 `true` 时仍先由本地 `ScriptPostEditor.assess_source` 判断是否需要编辑，检查通过直接跳过，只有存在明确问题才调用有界编辑。旧 Creative Deepening 仍保持关闭，不承担终审职责。
+
+正文链路不继承 `LLM_STORY_ARCHITECT_*`，正文市场路由使用大陆 `deepseek-v4-pro` 或海外 `gemini-3.6-flash` 的 Chat Completions 配置；轻量输入分类、事实提取与独立对白翻译使用 DeepSeek v4 Flash。Prompt 同时携带完整 JSON 外形，并由本地 Pydantic 契约校验。GPT 编辑器使用独立 OpenAI-compatible Responses 配置与精简场景补丁 Schema，避免第二个模型重新生成十九字段根对象。供应商的账户级并发、额度或网关限制仍可能成为实际瓶颈；本地全局并发仍由现有任务队列控制，不把不同市场的上限叠加计算。
 
 `RealLLMAdapter` 当前兼容 `chat_completions` 与 `responses` 两种 OpenAI-compatible wire API，由 `LLM_WIRE_API` 显式选择。Responses 模式可通过 optional `LLM_REASONING_EFFORT=low|medium|high` 传递推理强度，并发送 `text.format` JSON Schema；具体网关和模型可能只提供 JSON mode 而不执行 OpenAI 原生 constrained decoding。Story Bible 因此同时在 Prompt 中携带权威 Schema、执行本地 Pydantic 校验、过滤不属于正式契约的输入元数据，并最多执行一次格式修复、一次中文语言修复和一次人物引用一致性修复，每类修复各自有界。Base URL 必须包含供应商实际 API 前缀，适配器只追加 `/chat/completions` 或 `/responses`，不会猜测或自动补 `/v1`。
 
@@ -27,12 +43,7 @@ Script Engine 的当前唯一产品目标是稳定产出优质、结构化、可
 
 作为 `MasterScript` 的组成结构存在。
 
-以下能力当前只保留接口与扩展位置：
-
-- Storyboard
-- Voice
-- Animation
-- Video Composition
+正文之后的 Storyboard、视觉／资产文字设计、图片／视频 Prompt Pack 和前期交付包已纳入下一阶段方案，尚未实现，见 [44_PREPRODUCTION_STORYBOARD_PLAN.md](44_PREPRODUCTION_STORYBOARD_PLAN.md)。它们从剧本派生并拥有独立版本，不改变 Script Engine 输出正文的职责。实际 Voice、Animation、Video Composition 及图片／视频生成由下游团队承担。
 
 ## 当前推荐流程
 
@@ -282,7 +293,7 @@ Phase 1 当前状态：
 - 当前阶段仍由前端调用现有单集 API；已批准 Episode Plan 范围内的正文按集号串行生成，每集完成后更新连续性上下文再进入下一集。相邻正文不得并行调用；未来只有不存在因果依赖的独立任务经过显式依赖分析后才可并行。项目状态先写 IndexedDB，再同步 PostgreSQL Project + Workspace Snapshot。用户确认稿、规则修订稿和终稿另存 immutable Episode Artifact；后台 Job 与断点重试尚未接入
 - 每集保持独立编辑、确认、候选、Revision 与 Finalization 状态；确认后的手动稿先重新 QC，再允许进入受控质量链
 - Frontend 使用现有 `revise-draft` 和 `master-scripts/finalize` 步骤 API 完成受控质量链，不改变 Script Engine 契约
-- 项目与本地编辑版本存在 IndexedDB，并在数据库可用时同步版本化 Workspace Snapshot；ContentSpec 已在配置 PostgreSQL 时持久化，Prompt、Strategy 等部分历史仓储仍为进程内实现，不能宣称整个系统已经全部 durable
+- 项目与本地编辑版本存在 IndexedDB，并在数据库可用时同步版本化 Workspace Snapshot。配置 `DATABASE_URL` 后，ContentSpec 和七类模块文档仓储均持久化到 SQLite/PostgreSQL；Prompt、Strategy、Asset、OntologyNode、PlatformProfile、MasterScript 与 OrchestrationPlan 使用 `module_documents`，无数据库的显式测试环境仍可使用内存模式。此能力不代表后台 worker 已实现
 
 ### Long-Story Contract Foundation
 
@@ -649,6 +660,8 @@ Frontend 本地项目已支持可编辑的故事线与人物关系视图：
 
 ## Production Handoff
 
+范围更新（2026-09-08，D-027）：本团队负责把正式剧本派生为分镜、文字资产设计和图片／视频提示词，再导出前期制作包；下游负责实际媒体生成。以下 mapper 名称是历史扩展方向，不代表已存在 API。具体输入快照、来源校验、锁定与交付规则以 [44 号方案](44_PREPRODUCTION_STORYBOARD_PLAN.md) 为准。
+
 未来下游模块的输入需求可能变化，因此不应为了某个下游模块直接修改 Final `MasterScript`。
 
 当前应预留以下 mapper：
@@ -660,7 +673,7 @@ Frontend 本地项目已支持可编辑的故事线与人物关系视图：
 
 当前原则：
 
-- 下游 mapper 应消费 `ScriptGenerationResult`
+- 正式 `ScriptGenerationResult` Facade 尚未实现；前期制作实施时先通过 mapper 读取当前可用的正式剧本快照与来源，未来兼容统一 Result，不能以虚构 Facade 为前置条件
 - 下游 mapper 负责生成各自模块的请求对象
 - Final `MasterScript` 保持面向剧本生产的稳定数据契约
 - Phase 2 功能当前只做结构预留，不实现真实视频链路
@@ -686,7 +699,7 @@ Model-Independent Production Package 可派生：
 
 Seedance Adapter 只负责把模型无关 Package 转换为 Seedance 支持的 Prompt 结构、参考素材要求、镜头限制和模型专用负面提示。Seedance 版本变化不应迫使 Final `MasterScript` 或 Script Generation 主链路修改。
 
-当前状态：deferred, not implemented。当前不创建 Production Package 模型、Adapter、API、工作流或测试。
+当前状态：方案已纳入、运行能力未实现。此前一律 deferred 的范围按 D-027 更新为三期前期制作计划；本次文档整合不创建 Production Package 模型、Adapter、API 或工作流。上述 Seedance Adapter 仅表示可替换的格式适配方向，不授权本系统执行真实视频生成。
 
 ### FinalMasterScript Future Compatibility Review
 

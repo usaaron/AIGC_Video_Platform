@@ -3,6 +3,19 @@ import test from "node:test";
 
 import { userFacingError, visibleApiError } from "../lib/api-error.ts";
 
+test("storyboard conflicts retain actionable messages without exposing unknown errors", () => {
+  for (const message of [
+    "分镜版本已变化，请重新加载。",
+    "本场包含已锁定镜头，请先解锁需要重编的场景。",
+    "请先采用或放弃当前候选。",
+  ]) {
+    assert.equal(visibleApiError(message, 409), message);
+    assert.equal(visibleApiError(message, 409, "overseas"), message);
+  }
+  const internal = "分镜版本已变化，请重新加载。 SQL credentials=private";
+  assert.doesNotMatch(visibleApiError(internal, 409), /SQL|credentials|private/);
+});
+
 test("planning errors keep technical provider details out of the user interface", () => {
   assert.match(
     visibleApiError("LLM request timed out", 503),
@@ -55,4 +68,17 @@ test("user-facing errors preserve sanitized API diagnoses", () => {
     userFacingError(new Error("DATABASE_URL is missing"), "创作方向候选生成失败。"),
     "创作方向候选生成失败。",
   );
+});
+
+test("candidate errors explain the actual recovery without exposing arbitrary server details", () => {
+  const messages = [
+    "本次方案生成超时，已有方案和答案已保留，请重新获取。",
+    "本次没有生成有效候选，已有方案和答案已保留，请重新获取。",
+    "本次候选与已展示方案重复或数量不足，已有方案和答案已保留，请换一批。",
+  ];
+  for (const message of messages) {
+    assert.equal(visibleApiError(message, 422), message);
+    assert.equal(visibleApiError(message, 422, "overseas"), message);
+  }
+  assert.doesNotMatch(visibleApiError(`${messages[0]} secret_details`, 422), /secret_details/);
 });

@@ -8,6 +8,7 @@ export interface DocumentOutlineEntry {
   meta?: string;
   depth?: number;
   disabled?: boolean;
+  isCurrent?: boolean;
   status?: "queued" | "active" | "completed" | "failed";
   statusLabel?: string;
 }

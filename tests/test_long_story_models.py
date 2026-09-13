@@ -160,6 +160,55 @@ def build_scene_execution_plan() -> list[dict[str, object]]:
     ]
 
 
+def build_dramatic_unit() -> dict[str, str]:
+    return {
+        "trigger": "The witness refuses to leave without the original ledger.",
+        "choice": "Mara leaves her escape key with the witness and goes back alone.",
+        "visible_consequence": "The witness can escape, but Mara loses her only way out.",
+        "change_type": "resources and trust",
+        "evidence_hint": "The key changes hands before the witness opens the gate.",
+    }
+
+
+def test_episode_plan_generation_preserves_optional_dramatic_design() -> None:
+    legacy = EpisodePlanGenerationItem.model_validate(build_episode_plan_generation_item())
+    assert legacy.dramatic_units == []
+    assert legacy.protagonist_cost is None
+
+    payload = {
+        **build_episode_plan_generation_item(),
+        "dramatic_units": [build_dramatic_unit()],
+        "protagonist_cost": "Mara gives up her only escape route to earn the witness's trust.",
+    }
+    item = EpisodePlanGenerationItem.model_validate(payload)
+    serialized = item.model_dump(mode="json")
+
+    assert serialized["dramatic_units"] == payload["dramatic_units"]
+    assert serialized["protagonist_cost"] == payload["protagonist_cost"]
+    assert EpisodePlanGenerationItem.model_validate_json(item.model_dump_json()) == item
+
+
+@pytest.mark.parametrize(
+    ("updates", "error_field"),
+    [
+        ({"dramatic_units": [{"trigger": "The witness refuses to leave."}]}, "choice"),
+        ({"dramatic_units": [{**build_dramatic_unit(), "visible_consequence": ""}]}, "visible_consequence"),
+        ({"dramatic_units": [{**build_dramatic_unit(), "change_type": ""}]}, "change_type"),
+        ({"dramatic_units": [{**build_dramatic_unit(), "unknown_field": "unreviewed"}]}, "unknown_field"),
+        ({"dramatic_units": [build_dramatic_unit()] * 8}, "dramatic_units"),
+        ({"protagonist_cost": ""}, "protagonist_cost"),
+    ],
+)
+def test_episode_plan_generation_rejects_malformed_dramatic_design(
+    updates: dict[str, object], error_field: str,
+) -> None:
+    with pytest.raises(ValidationError, match=error_field):
+        EpisodePlanGenerationItem.model_validate({
+            **build_episode_plan_generation_item(),
+            **updates,
+        })
+
+
 def test_episode_plan_scene_execution_plan_enforces_episode_budgets() -> None:
     payload = {
         **build_episode_plan_generation_item(),
@@ -435,6 +484,26 @@ def test_story_stage_and_episode_plan_support_reviewable_hierarchy() -> None:
     assert episode.stage_id == stage.stage_id
     assert episode.model_dump(mode="json")["status"] == "draft"
     assert episode.source_turning_points == []
+    assert episode.dramatic_units == []
+    assert episode.protagonist_cost is None
+
+    dramatic_design = {
+        "dramatic_units": [build_dramatic_unit()],
+        "protagonist_cost": "Mara loses her escape route while the witness keeps the key.",
+    }
+    reviewed = EpisodePlan.model_validate({
+        **episode.model_dump(mode="json"),
+        **dramatic_design,
+    })
+    restored = EpisodePlan.model_validate_json(reviewed.model_dump_json())
+    assert restored.model_dump(mode="json")["dramatic_units"] == dramatic_design["dramatic_units"]
+    assert restored.protagonist_cost == dramatic_design["protagonist_cost"]
+
+    with pytest.raises(ValidationError, match="choice"):
+        EpisodePlan.model_validate({
+            **episode.model_dump(mode="json"),
+            "dramatic_units": [{"trigger": "The witness refuses to leave."}],
+        })
 
 
 def test_story_stage_rejects_reversed_episode_range() -> None:

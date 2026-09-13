@@ -23,12 +23,16 @@ import {
 } from "react";
 
 import { CloseIcon } from "@/components/icons";
+import { AuthorConflictDialog } from "@/components/author-conflict-dialog";
+import { useScriptAuthorWorkflow } from "@/components/use-script-author-workflow";
 import type { DocumentOutlineEntry } from "@/components/document-outline";
+import { EpisodeQualityReviewPanel } from "@/components/episode-quality-review-panel";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
+import { useScriptGenerationRecovery } from "@/components/use-script-generation-recovery";
+import { ScriptDraftSaveError, useScriptDraftEditing } from "@/components/use-script-draft-editing";
 import {
   PlanningCanvasCopilot,
   type PlanningCanvasAction,
-  type PlanningCanvasMessage,
 } from "@/components/planning-canvas-copilot";
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { SectionHelp } from "@/components/section-help";
@@ -45,10 +49,12 @@ import {
   deepenEpisodeDraft,
   generateSingleEpisode,
   prepareEpisodeGenerationRuntime,
-  modifyEpisodeDraft,
   reviewEpisodeDraft,
 } from "@/lib/generation-client";
-import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
+import {
+  episodeHasSavedDraft, episodeIsLocked, normalizeEpisodeLifecycle,
+  parseWorkingDraft, resolveSavedDraft, resolveWorkingDraft, type ScriptDraftUpdater,
+} from "@/lib/script-draft-state";
 import { safeFilename } from "@/lib/filename";
 import { draftMetadataBoolean, draftMetadataNumber } from "@/lib/draft-metadata";
 import {
@@ -61,36 +67,25 @@ import {
 } from "@/lib/generation-stream";
 import type { EpisodeStreamProgress } from "@/lib/generation-stream";
 import {
-  automaticGenerationRecoveryDelayMs,
   completeRecoveryEpisode,
   continuePausedGenerationRecoveryTask,
   createGenerationRecoveryTask,
-  episodeGenerationAgentRequestId,
   failGenerationRecoveryTask,
   finishGenerationRecoveryTask,
   firstMissingRecoveryEpisode,
-  pauseGenerationRecoveryTask,
   resumeGenerationRecoveryTask,
-  shouldAutoResumeGenerationRecovery,
-  shouldAutomaticallyContinueScriptGeneration,
 } from "@/lib/generation-recovery";
-import {
-  generateWithAutomaticTransientRetry,
-} from "@/lib/generation-retry";
+import { createScriptGenerationSession, GenerationSessionError } from "@/lib/script-generation-session";
+import { createGenerationResultCommitter } from "@/lib/generation-result-committer";
 import {
   beginScriptGenerationTask,
   completeScriptGenerationTask,
   failScriptGenerationTask,
-  isScriptGenerationAbortError,
-  isScriptGenerationPauseRequested,
-  isScriptGenerationPauseAbort,
   isScriptGenerationRunning,
-  registerScriptGenerationAbortController,
   requestScriptGenerationPause,
   resumeScriptGenerationTask,
   updateScriptGenerationProgress,
   useScriptGenerationTask,
-  waitForScriptGenerationResume,
   type ScriptGenerationTaskSnapshot,
 } from "@/lib/script-generation-background";
 import {
@@ -113,7 +108,6 @@ import {
   episodeGenerationInstruction,
   episodeGenerationLedgerPlan,
   nextApprovedScriptLeafRange,
-  nextReadyScriptPartEpisode,
   plannedEpisodeBodyReference,
   plannedEpisodeDurationSeconds,
   plannedEpisodeShotCount,
@@ -140,85 +134,26 @@ import {
 } from "@/lib/episode-delivery-confirmation";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
-  saveEpisodeArtifactOnServer,
-  saveGenerationTaskOnServer,
 } from "@/lib/project-sync";
 import {
   loadEpisodePlans,
   loadStoryBible,
   loadActiveStoryPlanNodes,
   storyBibleIdForProject,
-  type StoryBibleSelectionContext,
 } from "@/lib/story-planning-client";
-import { isRequestAborted, userFacingError } from "@/lib/api-error";
+import { userFacingError } from "@/lib/api-error";
 import type {
   EpisodeWorkspace,
   GeneratedDraft,
-  GenerationBatchRecord,
   GenerationRecoveryTask,
   ScriptProject,
 } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 import { canonicalCharacterNameMap } from "@/lib/canonical-character-names";
-import {
-  loadWorkspaceChatMessages,
-  saveWorkspaceChatMessages,
-} from "@/lib/workspace-section-memory";
 
 type WorkspaceDocumentView = "current" | "modification" | "deepening" | "revised" | "final";
 type SeriesExportMode = "episodes" | "collection";
-type ScriptDraftUpdater = (draft: GeneratedDraft) => GeneratedDraft;
-
-function normalizeEpisodeLifecycle(episode: EpisodeWorkspace): EpisodeWorkspace {
-  const lockedAt = episode.lockedAt
-    ?? (episode.status === "final" || episode.artifactRefs?.final
-      ? episode.confirmedAt ?? episode.updatedAt
-      : undefined);
-  if (lockedAt) {
-    const confirmedDraftJson = episode.confirmedDraftJson ?? episode.workingDraftJson;
-    const lockedStatus = episode.status === "final"
-      || Boolean(episode.finalizationResult?.master_script)
-      || Boolean(episode.artifactRefs?.final)
-      ? "final"
-      : "confirmed";
-    if (
-      episode.status === lockedStatus
-      && episode.lockedAt === lockedAt
-      && episode.confirmedDraftJson === confirmedDraftJson
-      && !episode.hasLocalDraftEdits
-      && !episode.modificationCandidate
-    ) return episode;
-    return {
-      ...episode,
-      status: lockedStatus,
-      confirmedDraftJson,
-      confirmedAt: episode.confirmedAt ?? lockedAt,
-      lockedAt,
-      hasLocalDraftEdits: false,
-      modificationCandidate: undefined,
-    };
-  }
-  const status = episode.hasLocalDraftEdits || episode.modificationCandidate
-    ? "editing"
-    : "saved";
-  return episode.status === status && !episode.lockedAt
-    ? episode
-    : { ...episode, status, lockedAt: undefined };
-}
-
-function episodeIsLocked(episode: EpisodeWorkspace): boolean {
-  return Boolean(normalizeEpisodeLifecycle(episode).lockedAt);
-}
-
-function episodeHasSavedDraft(episode: EpisodeWorkspace): boolean {
-  const normalized = normalizeEpisodeLifecycle(episode);
-  return (
-    normalized.status === "saved"
-      || normalized.status === "confirmed"
-      || normalized.status === "final"
-  ) && !normalized.deepeningRun?.candidate_draft_master_script;
-}
 
 function isPlannedEpisodeNumber(episodeNumber: number, episodeCount: number): boolean {
   return Number.isSafeInteger(episodeNumber)
@@ -451,19 +386,15 @@ export function ScriptWorkspace() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getProject, isReady, updateProject } = useProjects();
+  const projectStore = useProjects();
+  const { getProject, isReady, updateProject } = projectStore;
   const { locale, t } = useLocale();
   const project = getProject(params.projectId);
   const backgroundScriptTask = useScriptGenerationTask(params.projectId);
   const [activeEpisodeNumber, setActiveEpisodeNumber] = useState(project?.activeEpisodeNumber ?? 1);
   const [selectedDocumentView, setSelectedDocumentView] = useState<WorkspaceDocumentView>("current");
   const [message, setMessage] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"save" | "confirm" | "modify" | "deepen" | "batch" | "finalize" | null>(null);
-  const [scriptChatInstruction, setScriptChatInstruction] = useState("");
-  const [scriptDocumentSelection, setScriptDocumentSelection] = useState<StoryBibleSelectionContext | null>(null);
-  const [scriptChatMessages, setScriptChatMessages] = useState<PlanningCanvasMessage[]>(() => (
-    loadWorkspaceChatMessages(params.projectId, "script") as PlanningCanvasMessage[]
-  ));
+  const [workspaceBusyAction, setBusyAction] = useState<"save" | "confirm" | "modify" | "deepen" | "batch" | "finalize" | null>(null);
   const [workspaceView, setWorkspaceView] = useState<"script" | "continuity">(
     searchParams.get("view") === "continuity" ? "continuity" : "script",
   );
@@ -492,27 +423,13 @@ export function ScriptWorkspace() {
   const [activeScriptOutlineId, setActiveScriptOutlineId] = useState(
     `script-episode-${project?.activeEpisodeNumber ?? 1}`,
   );
-  const finalizedRecoveryJobs = useRef(new Set<string>());
-  const autoResumedRecoveryAttempts = useRef(new Set<string>());
-  const automaticallyStartedScriptParts = useRef(new Set<string>());
-  const pendingInlineDraftsRef = useRef(new Map<number, GeneratedDraft>());
-  const candidateBaseInlineEditsRef = useRef(new Set<number>());
+  const draftEditing = useScriptDraftEditing({ projectId: params.projectId, getProject, updateProject });
+  const { pendingInlineDraftsRef, candidateBaseInlineEditsRef } = draftEditing;
   const deliveryValidationCacheRef = useRef<{
     project: ScriptProject;
     confirmation: unknown;
     value: boolean;
   } | null>(null);
-  const generateNextStageRef = useRef<(
-    instruction?: string,
-    requestedRange?: { startEpisode: number; endEpisode: number },
-  ) => Promise<void>>(async () => undefined);
-  const scriptModificationAbortControllerRef = useRef<AbortController | null>(null);
-
-  useEffect(() => () => scriptModificationAbortControllerRef.current?.abort(), []);
-
-  useEffect(() => {
-    saveWorkspaceChatMessages(params.projectId, "script", scriptChatMessages);
-  }, [params.projectId, scriptChatMessages]);
 
   useEffect(() => {
     if (!project?.episodes.length) return;
@@ -522,6 +439,18 @@ export function ScriptWorkspace() {
   }, [project?.episodes, project?.id]);
 
   const episode = project?.episodes.find((item) => item.episodeNumber === activeEpisodeNumber);
+  const authorWorkflow = useScriptAuthorWorkflow({
+    projectId: params.projectId, episode, projectStore, draftEditing,
+    onMessage: setMessage, onViewChange: setSelectedDocumentView, t,
+  });
+  const {
+    conflictOpen: authorConflictOpen, conflictBusy: authorConflictBusy, error: authorConflictError,
+    instruction: scriptChatInstruction, selection: scriptDocumentSelection, messages: scriptChatMessages,
+    setInstruction: setScriptChatInstruction, setSelection: setScriptDocumentSelection,
+    requestModification, applyModification, deferAuthorConflict, withdrawAuthorConflict,
+    recheckAuthorConflict, confirmAuthorConflict, pauseScriptModification, editScriptChatMessage,
+  } = authorWorkflow;
+  const busyAction = workspaceBusyAction ?? authorWorkflow.busyAction;
   const generationIntent = searchParams.get("generate") === "1";
   const scriptAccessible = project ? workspaceSectionAccess(project).script : false;
   const requestedStart = Number(searchParams.get("start"));
@@ -542,61 +471,6 @@ export function ScriptWorkspace() {
       : `/projects/${project.id}/planning`;
     router.replace(destination);
   }, [isReady, project?.id, router, scriptAccessible]);
-
-  useEffect(() => {
-    if (
-      !project
-      || !scriptAccessible
-    ) return;
-    const nextEpisode = nextReadyScriptPartEpisode(
-      project.episodes.map((item) => item.episodeNumber),
-      project.episodePlansReadyThrough ?? 0,
-      project.generationSettings.episodeCount,
-    );
-    if (!shouldAutomaticallyContinueScriptGeneration({
-      planningPhase: project.planningSession?.phase,
-      planningStatus: project.planningSession?.status,
-      existingEpisodeCount: project.episodes.length,
-      nextReadyEpisode: nextEpisode,
-      generationIntent,
-      busy: busyAction !== null,
-      browserTaskStatus: backgroundScriptTask?.status,
-      recoveryTaskStatus: project.activeGenerationTask?.status,
-    })) return;
-
-    const attemptKey = [
-      project.id,
-      project.storyBibleVersion ?? "legacy",
-      project.episodePlansReadyThrough ?? 0,
-      nextEpisode,
-    ].join(":");
-    if (automaticallyStartedScriptParts.current.has(attemptKey)) return;
-    automaticallyStartedScriptParts.current.add(attemptKey);
-
-    let launched = false;
-    const timer = window.setTimeout(() => {
-      launched = true;
-      void generateNextStageRef.current();
-    }, 500);
-    return () => {
-      window.clearTimeout(timer);
-      if (!launched) automaticallyStartedScriptParts.current.delete(attemptKey);
-    };
-  }, [
-    backgroundScriptTask?.status,
-    busyAction,
-    generationIntent,
-    project?.activeGenerationTask?.jobId,
-    project?.activeGenerationTask?.status,
-    project?.episodePlansReadyThrough,
-    project?.episodes.length,
-    project?.generationSettings.episodeCount,
-    project?.id,
-    project?.planningSession?.phase,
-    project?.planningSession?.status,
-    project?.storyBibleVersion,
-    scriptAccessible,
-  ]);
 
   useEffect(() => {
     if (!project?.episodes.length) return;
@@ -641,61 +515,18 @@ export function ScriptWorkspace() {
     project?.storyLines.length,
   ]);
 
-  useEffect(() => {
-    const task = project?.activeGenerationTask;
-    if (!project || !task || task.status === "completed") return;
-    if (finalizedRecoveryJobs.current.has(task.jobId)) return;
-    const missingEpisode = firstMissingRecoveryEpisode(
-      task,
-      project.episodes.map((item) => item.episodeNumber),
-    );
-    if (missingEpisode !== null) return;
-    finalizedRecoveryJobs.current.add(task.jobId);
-    const completedTask = finishGenerationRecoveryTask(task);
-    updateProject(project.id, { activeGenerationTask: completedTask });
-    void saveGenerationTaskOnServer(project.id, completedTask)
-      .finally(() => updateProject(project.id, { activeGenerationTask: undefined }));
-  }, [project, updateProject]);
-
-  useEffect(() => {
-    const task = project?.activeGenerationTask;
-    if (
-      !project
-      || !scriptAccessible
-      || !shouldAutoResumeGenerationRecovery(
-        task,
-        project.episodes.map((item) => item.episodeNumber),
-        backgroundScriptTask?.status,
-        project.planningSession?.status,
-      )
-    ) return;
-
-    const recoveryAttemptKey = `${task.jobId}:${task.attemptCount}`;
-    if (autoResumedRecoveryAttempts.current.has(recoveryAttemptKey)) return;
-    autoResumedRecoveryAttempts.current.add(recoveryAttemptKey);
-    let launched = false;
-    const timer = window.setTimeout(() => {
-      launched = true;
-      void generateNextStageRef.current(task.instruction ?? "", {
-        startEpisode: task.startEpisode,
-        endEpisode: task.endEpisode,
-      });
-    }, automaticGenerationRecoveryDelayMs(task));
-    return () => {
-      window.clearTimeout(timer);
-      if (!launched) autoResumedRecoveryAttempts.current.delete(recoveryAttemptKey);
-    };
-  }, [
-    backgroundScriptTask?.status,
-    project?.activeGenerationTask?.attemptCount,
-    project?.activeGenerationTask?.jobId,
-    project?.activeGenerationTask?.lastError,
-    project?.activeGenerationTask?.status,
-    project?.episodes.length,
-    project?.id,
-    project?.planningSession?.status,
+  const generateNextStageRef = useScriptGenerationRecovery({
+    project,
     scriptAccessible,
-  ]);
+    generationIntent,
+    busy: busyAction !== null,
+    browserTaskStatus: backgroundScriptTask?.status,
+    updateProject,
+    onResumeInitial: (task) => {
+      setGenerationIntentConsumed(false);
+      router.replace(`/projects/${params.projectId}/workspace?generate=1&start=${task.startEpisode}&end=${task.endEpisode}`);
+    },
+  });
 
   if (!isReady) {
     return <main className="centered-state"><div className="loading-mark" /><p>{t("project.opening")}</p></main>;
@@ -710,7 +541,7 @@ export function ScriptWorkspace() {
     requestedLeafRange
     && project.episodes.length === 0
     && generationIntentConsumed
-    && project.status === "generating"
+    && (generationIntent || project.status === "generating")
   ) {
     return (
       <InitialScriptBatchLauncher
@@ -785,7 +616,7 @@ export function ScriptWorkspace() {
       )
     : null;
   const currentDraft = resolveWorkingDraft(currentEpisode);
-  const modificationDraft = currentEpisode.modificationCandidate?.candidate_generation_run.draft_master_script ?? null;
+  const modificationDraft = currentEpisode.modificationCandidate?.candidate_generation_run?.draft_master_script ?? null;
   const deepeningRun = currentEpisode.deepeningRun ?? currentEpisode.generationRun.creative_deepening_run ?? null;
   const deepeningDraft = deepeningRun?.candidate_valid_for_comparison
     ? deepeningRun.candidate_draft_master_script ?? null
@@ -897,64 +728,20 @@ export function ScriptWorkspace() {
         .replace("{estimated}", numberFormatter.format(seriesTextMetrics.estimatedEpisodesToTarget));
 
   function hasCurrentEpisodeInlineEdits(): boolean {
-    return pendingInlineDraftsRef.current.has(currentEpisode.episodeNumber)
-      || candidateBaseInlineEditsRef.current.has(currentEpisode.episodeNumber);
+    return draftEditing.hasInlineEdits(currentEpisode.episodeNumber);
   }
 
   function replaceEpisode(
     patch: Partial<EpisodeWorkspace>,
-    projectPatch: Record<string, unknown> = {},
-    options: { skipContinuitySync?: boolean } = {},
+    skipContinuitySync = false,
   ) {
-    const now = new Date().toISOString();
-    const episodes = currentProject.episodes.map((item) => item.episodeNumber === currentEpisode.episodeNumber
-      ? { ...item, ...patch, updatedAt: now }
-      : item);
-    const continuityPatch = options.skipContinuitySync
-      ? {}
-      : synchronizeContinuity(
-          currentProject.creativePrompt,
-          currentProject.characters,
-          episodes,
-          currentProject.storyLines,
-          currentProject.characterRelationships,
-          currentProject.continuityStates,
-        );
-    updateProject(currentProject.id, {
-      episodes,
-      ...continuityPatch,
-      ...projectPatch,
-    });
+    void draftEditing.replaceEpisode(currentEpisode.episodeNumber, patch, skipContinuitySync);
   }
 
   function updateCurrentDraft(update: ScriptDraftUpdater) {
     if (!scriptInlineEditingEnabled) return;
-    const episodeNumber = currentEpisode.episodeNumber;
-    const sourceDraft = pendingInlineDraftsRef.current.get(episodeNumber) ?? currentDraft;
-    const nextDraft = update(sourceDraft);
-    if (JSON.stringify(nextDraft) === JSON.stringify(sourceDraft)) return;
-    pendingInlineDraftsRef.current.set(episodeNumber, nextDraft);
+    draftEditing.updateDraft(currentEpisode.episodeNumber, update);
     setMessage(null);
-    void updateProject(currentProject.id, (latestProject) => ({
-      episodes: latestProject.episodes.map((item) => item.episodeNumber === episodeNumber
-        ? {
-            ...item,
-            status: "editing",
-            generationRun: {
-              ...item.generationRun,
-              draft_master_script: nextDraft,
-            },
-            workingDraftJson: JSON.stringify(nextDraft, null, 2),
-            confirmedDraftJson: undefined,
-            hasLocalDraftEdits: true,
-            confirmedAt: undefined,
-            lockedAt: undefined,
-            revisionRun: undefined,
-            finalizationResult: undefined,
-            updatedAt: new Date().toISOString(),
-          }
-        : item),
-    }));
   }
 
   async function saveCurrentDraft() {
@@ -964,63 +751,12 @@ export function ScriptWorkspace() {
       || currentEpisode.modificationCandidate
       || currentEpisode.deepeningRun?.candidate_draft_master_script
     ) return;
-    const editedDraft = pendingInlineDraftsRef.current.get(currentEpisode.episodeNumber)
-      ?? currentDraft;
     setBusyAction("save");
     setMessage(null);
     try {
-      const artifactRef = await saveEpisodeArtifactOnServer({
-        project: currentProject,
-        episodeNumber: currentEpisode.episodeNumber,
-        artifactKind: "draft",
-        memoryLayer: "provisional",
-        contentSchemaVersion: "draft_master_script.v1",
-        contentPayload: editedDraft,
-        lineageRefs: {
-          draft_master_script_id: editedDraft.id,
-          generation_strategy_id: currentEpisode.generationRun.generation_strategy_id,
-        },
-      });
-      const saved = await updateProject(currentProject.id, (latestProject) => {
-        const now = new Date().toISOString();
-        const episodes = latestProject.episodes.map((item) => item.episodeNumber === currentEpisode.episodeNumber
-          ? {
-              ...item,
-              status: "saved" as const,
-              generationRun: {
-                ...item.generationRun,
-                draft_master_script: editedDraft,
-              },
-              workingDraftJson: JSON.stringify(editedDraft, null, 2),
-              confirmedDraftJson: undefined,
-              hasLocalDraftEdits: false,
-              modificationCandidate: undefined,
-              confirmedAt: undefined,
-              lockedAt: undefined,
-              deepeningRun: undefined,
-              revisionRun: undefined,
-              finalizationResult: undefined,
-              artifactRefs: artifactRef
-                ? { ...item.artifactRefs, draft: artifactRef }
-                : item.artifactRefs,
-              updatedAt: now,
-            }
-          : item);
-        return {
-          episodes,
-          ...synchronizeContinuity(
-            latestProject.creativePrompt,
-            latestProject.characters,
-            episodes,
-            latestProject.storyLines,
-            latestProject.characterRelationships,
-            latestProject.continuityStates,
-          ),
-        };
-      });
-      if (!saved) throw new Error(t("workspace.saveFailed"));
-      pendingInlineDraftsRef.current.delete(currentEpisode.episodeNumber);
-      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+      const save = draftEditing.saveDraft(currentEpisode.episodeNumber);
+      if (!save) return;
+      const artifactRef = await save;
       setMessage(artifactRef
         ? t("workspace.episodeSaved")
         : `${t("workspace.episodeSaved")} ${t("workspace.artifactSaveWarning")}`);
@@ -1037,90 +773,6 @@ export function ScriptWorkspace() {
     setActiveEpisodeNumber(number);
     updateProject(currentProject.id, { activeEpisodeNumber: number });
   }
-
-  async function requestModification(
-    instructionOverride?: string,
-    selectionOverride: StoryBibleSelectionContext | null = scriptDocumentSelection,
-  ) {
-    if (currentEpisodeLocked) return;
-    const submittedInstruction = (instructionOverride ?? scriptChatInstruction).trim();
-    if (!submittedInstruction) return;
-    if (currentEpisodeHasDirectEdits) {
-      candidateBaseInlineEditsRef.current.add(currentEpisode.episodeNumber);
-    } else {
-      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
-    }
-    const controller = new AbortController();
-    scriptModificationAbortControllerRef.current = controller;
-    setBusyAction("modify");
-    setMessage(null);
-    setScriptChatInstruction("");
-    setScriptChatMessages((current) => [
-      ...current,
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        text: submittedInstruction,
-        quote: selectionOverride,
-      },
-    ]);
-    setScriptDocumentSelection((current) => current === selectionOverride ? null : current);
-    try {
-      const latestDraft = pendingInlineDraftsRef.current.get(currentEpisode.episodeNumber)
-        ?? currentDraft;
-      const result = await modifyEpisodeDraft(
-        currentEpisode.generationRun,
-        latestDraft,
-        submittedInstruction,
-        controller.signal,
-        selectionOverride,
-        currentProject,
-      );
-      replaceEpisode({
-        status: "editing",
-        hasLocalDraftEdits: true,
-        modificationCandidate: result,
-      }, {}, { skipContinuitySync: true });
-      setSelectedDocumentView("modification");
-      setScriptChatInstruction("");
-      setScriptChatMessages((current) => [
-        ...current,
-        { id: `assistant-${Date.now()}`, role: "assistant", text: "已生成正文修改候选，请在正文区审阅后确认采用。" },
-      ]);
-      setMessage(t("workspace.modificationReady"));
-    } catch (error) {
-      if (isRequestAborted(error, controller.signal)) {
-        setScriptChatMessages((current) => [
-          ...current,
-          { id: `assistant-paused-${Date.now()}`, role: "assistant", text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。" },
-        ]);
-      } else {
-        setMessage(formatWorkflowError(error, t, "workspace.modificationFailed"));
-      }
-    } finally {
-      if (scriptModificationAbortControllerRef.current === controller) {
-        scriptModificationAbortControllerRef.current = null;
-      }
-      setBusyAction(null);
-    }
-  }
-
-  function pauseScriptModification() {
-    scriptModificationAbortControllerRef.current?.abort();
-  }
-
-  function editScriptChatMessage(
-    messageId: string,
-    text: string,
-    quote?: StoryBibleSelectionContext | null,
-  ) {
-    setScriptChatMessages((current) => {
-      const messageIndex = current.findIndex((item) => item.id === messageId);
-      return messageIndex >= 0 ? current.slice(0, messageIndex) : current;
-    });
-    void requestModification(text, quote ?? null);
-  }
-
   function submitScriptChat() {
     void requestModification(scriptChatInstruction);
   }
@@ -1157,53 +809,6 @@ export function ScriptWorkspace() {
     });
   }
 
-  async function applyModification() {
-    if (!currentEpisode.modificationCandidate || currentEpisodeLocked) return;
-    const candidateRun = currentEpisode.modificationCandidate.candidate_generation_run;
-    setBusyAction("save");
-    setMessage(null);
-    try {
-      const draftJson = JSON.stringify(candidateRun.draft_master_script, null, 2);
-      const artifactRef = await saveEpisodeArtifactOnServer({
-        project: currentProject,
-        episodeNumber: currentEpisode.episodeNumber,
-        artifactKind: "draft",
-        memoryLayer: "provisional",
-        contentSchemaVersion: "draft_master_script.v1",
-        contentPayload: candidateRun.draft_master_script,
-        lineageRefs: {
-          draft_master_script_id: candidateRun.draft_master_script.id,
-          generation_strategy_id: candidateRun.generation_strategy_id,
-        },
-      });
-      replaceEpisode({
-        status: "saved",
-        generationRun: candidateRun,
-        workingDraftJson: draftJson,
-        confirmedDraftJson: undefined,
-        hasLocalDraftEdits: false,
-        modificationCandidate: undefined,
-        confirmedAt: undefined,
-        lockedAt: undefined,
-        deepeningRun: undefined,
-        revisionRun: undefined,
-        finalizationResult: undefined,
-        artifactRefs: artifactRef
-          ? { ...currentEpisode.artifactRefs, draft: artifactRef }
-          : currentEpisode.artifactRefs,
-      });
-      pendingInlineDraftsRef.current.delete(currentEpisode.episodeNumber);
-      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
-      setSelectedDocumentView("current");
-      setMessage(artifactRef
-        ? t("workspace.modificationApplied")
-        : `${t("workspace.modificationApplied")} ${t("workspace.artifactSaveWarning")}`);
-    } catch (error) {
-      setMessage(formatWorkflowError(error, t, "workspace.saveFailed"));
-    } finally {
-      setBusyAction(null);
-    }
-  }
 
   async function requestDeepening() {
     if (currentEpisodeLocked) return;
@@ -1248,35 +853,11 @@ export function ScriptWorkspace() {
     if (!deepeningDraft || currentEpisodeLocked) return;
     setBusyAction("save");
     try {
+      const sourceProject = getProject(currentProject.id) ?? currentProject;
+      const sourceEpisode = sourceProject.episodes.find((item) => item.episodeNumber === currentEpisode.episodeNumber);
+      if (!sourceEpisode) return;
       const reviewedRun = await reviewEpisodeDraft(currentEpisode.generationRun, deepeningDraft);
-      const draftJson = JSON.stringify(reviewedRun.draft_master_script, null, 2);
-      const artifactRef = await saveEpisodeArtifactOnServer({
-        project: currentProject,
-        episodeNumber: currentEpisode.episodeNumber,
-        artifactKind: "draft",
-        memoryLayer: "provisional",
-        contentSchemaVersion: "draft_master_script.v1",
-        contentPayload: reviewedRun.draft_master_script,
-        lineageRefs: {
-          draft_master_script_id: reviewedRun.draft_master_script.id,
-          generation_strategy_id: reviewedRun.generation_strategy_id,
-        },
-      });
-      replaceEpisode({
-        status: "saved",
-        generationRun: reviewedRun,
-        workingDraftJson: draftJson,
-        confirmedDraftJson: undefined,
-        hasLocalDraftEdits: false,
-        confirmedAt: undefined,
-        lockedAt: undefined,
-        deepeningRun: undefined,
-        artifactRefs: artifactRef
-          ? { ...currentEpisode.artifactRefs, draft: artifactRef }
-          : currentEpisode.artifactRefs,
-      });
-      pendingInlineDraftsRef.current.delete(currentEpisode.episodeNumber);
-      candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber);
+      const artifactRef = await draftEditing.persistReviewedDraft(sourceProject, sourceEpisode, reviewedRun);
       setSelectedDocumentView("current");
       setMessage(artifactRef
         ? t("workspace.deepeningApplied")
@@ -1387,37 +968,19 @@ export function ScriptWorkspace() {
       ) + 1
     );
     const requestedEpisodeCount = batchRange.endEpisode - batchRange.startEpisode + 1;
-    const createdAt = new Date().toISOString();
     const generatedEpisodes: EpisodeWorkspace[] = [];
-    const batchRecordId = `batch-${currentProject.id}-${batchNumber}`;
     let activeStreamingEpisode = batchRange.startEpisode;
-    let recoveryTask: GenerationRecoveryTask | undefined;
-    const persistRecoveryTask = async (task: GenerationRecoveryTask) => {
-      recoveryTask = task;
-      try {
-        const savedTask = await saveGenerationTaskOnServer(currentProject.id, task);
-        recoveryTask = savedTask;
-      } catch {
-        recoveryTask = { ...task, serverBacked: false };
-      }
-      // The task endpoint is the durable fine-grained checkpoint. Persist the
-      // resulting task snapshot to the large workspace only once per boundary.
-      await updateProject(currentProject.id, { activeGenerationTask: recoveryTask });
-    };
-    const pauseAtEpisodeBoundary = async () => {
-      if (!isScriptGenerationPauseRequested(currentProject.id)) return;
-      if (recoveryTask && recoveryTask.status !== "paused") {
-        await persistRecoveryTask(pauseGenerationRecoveryTask(recoveryTask));
-      }
-      setMessage(t("workspace.generationPaused"));
-      const didPause = await waitForScriptGenerationResume(currentProject.id);
-      if (didPause && recoveryTask?.status === "paused") {
-        await persistRecoveryTask(
-          continuePausedGenerationRecoveryTask(recoveryTask),
-        );
-        setMessage(t("workspace.generationResumed"));
-      }
-    };
+    const session = createScriptGenerationSession({
+      projectId: currentProject.id, getProject, updateProject,
+      onPauseChange: (paused) => setMessage(t(paused ? "workspace.generationPaused" : "workspace.generationResumed")),
+      onAutomaticRetry: (episodeNumber, { nextAttempt, maxAttempts }) => {
+        setStreamBatch((current) => markEpisodeAutomaticRetry(current, episodeNumber));
+        setMessage(t("workspace.stream.autoRetrying")
+          .replace("{episode}", String(episodeNumber))
+          .replace("{attempt}", String(nextAttempt))
+          .replace("{max}", String(maxAttempts)));
+      },
+    });
     setStreamBatch(createEpisodeStreamBatch(
       batchRange.startEpisode,
       batchRange.endEpisode,
@@ -1455,7 +1018,7 @@ export function ScriptWorkspace() {
       const constraintsByNumber = new Map(
         generationConstraints.map((constraint) => [constraint.episodeNumber, constraint]),
       );
-      recoveryTask = recoveryCandidate
+      const recoveryTask = recoveryCandidate
         ? recoveryCandidate.status === "paused"
           ? continuePausedGenerationRecoveryTask(recoveryCandidate)
           : resumeGenerationRecoveryTask(recoveryCandidate)
@@ -1469,52 +1032,13 @@ export function ScriptWorkspace() {
             )),
             instruction: optionalInstruction,
           });
-      await persistRecoveryTask(recoveryTask);
-      const persistGeneratedEpisodes = async (completed: boolean) => {
-        const episodes = mergeEpisodesByNumber(
-          orderedExistingEpisodes,
-          generatedEpisodes,
-        );
-        const taskStart = recoveryTask?.startEpisode ?? batchRange.startEpisode;
-        const taskEnd = recoveryTask?.endEpisode ?? batchRange.endEpisode;
-        const generatedInTask = episodes.filter((item) => (
-          item.episodeNumber >= taskStart && item.episodeNumber <= taskEnd
-        )).length;
-        const batchRecord: GenerationBatchRecord = {
-          id: batchRecordId,
-          batchNumber,
-          startEpisode: taskStart,
-          endEpisode: taskEnd,
-          requestedEpisodeCount: taskEnd - taskStart + 1,
-          generatedEpisodeCount: generatedInTask,
-          instruction: optionalInstruction.trim() || undefined,
-          status: completed ? "completed" : "partial",
-          createdAt,
-          ...(completed ? { completedAt: new Date().toISOString() } : {}),
-        };
-        const saved = await updateProject(currentProject.id, {
-          episodes,
-          generationBatches: [
-            ...currentProject.generationBatches.filter((batch) => batch.id !== batchRecordId),
-            batchRecord,
-          ],
-          ...synchronizeContinuity(
-            currentProject.creativePrompt,
-            currentProject.characters,
-            episodes,
-            currentProject.storyLines,
-            currentProject.characterRelationships,
-            currentProject.continuityStates,
-          ),
-          status: "draft",
-        });
-        if (!saved) {
-          throw Object.assign(
-            new Error("Generated episode content could not be saved locally."),
-            { retryable: false, failureClass: "persistence" },
-          );
-        }
-      };
+      await session.checkpoint(recoveryTask);
+      const resultCommitter = createGenerationResultCommitter({
+        project: currentProject,
+        updateProject,
+        getTask: () => session.task,
+        initial: false,
+      });
       const generateEpisode = async (
         episodeNumber: number,
         continuityEpisodes: EpisodeWorkspace[],
@@ -1632,61 +1156,9 @@ export function ScriptWorkspace() {
       ).filter((episodeNumber) => (
         !orderedExistingEpisodes.some((episode) => episode.episodeNumber === episodeNumber)
       ));
-      const generateEpisodeWithRetry = async (
-        episodeNumber: number,
-        continuityEpisodes: EpisodeWorkspace[],
-      ): Promise<EpisodeWorkspace> => {
-        const agentRequestId = recoveryTask
-          ? episodeGenerationAgentRequestId(recoveryTask, episodeNumber)
-          : `agent-request.${crypto.randomUUID()}`;
-        while (true) {
-          const controller = new AbortController();
-          const unregister = registerScriptGenerationAbortController(
-            currentProject.id,
-            controller,
-          );
-          try {
-            return await generateWithAutomaticTransientRetry({
-              signal: controller.signal,
-              generate: () => generateEpisode(
-                episodeNumber,
-                continuityEpisodes,
-                agentRequestId,
-                controller.signal,
-              ),
-              onAutomaticRetry: ({ nextAttempt, maxAttempts }) => {
-                setStreamBatch((current) => markEpisodeAutomaticRetry(
-                  current,
-                  episodeNumber,
-                ));
-                setMessage(t("workspace.stream.autoRetrying")
-                  .replace("{episode}", String(episodeNumber))
-                  .replace("{attempt}", String(nextAttempt))
-                  .replace("{max}", String(maxAttempts)));
-              },
-            });
-          } catch (error) {
-            if (
-              !isScriptGenerationAbortError(error)
-              || (
-                !isScriptGenerationPauseRequested(currentProject.id)
-                && !isScriptGenerationPauseAbort(controller.signal)
-              )
-            ) {
-              throw error;
-            }
-            // The current request was deliberately stopped. Wait for the
-            // shared pause gate, then retry this same episode with a fresh
-            // controller and the same stable Agent request id.
-            await pauseAtEpisodeBoundary();
-          } finally {
-            unregister();
-          }
-        }
-      };
       const generationWindows = buildEpisodeGenerationWindows(episodeNumbers);
       for (const windowEpisodeNumbers of generationWindows) {
-        await pauseAtEpisodeBoundary();
+        await session.pauseAtBoundary();
         activeStreamingEpisode = windowEpisodeNumbers[0];
         setMessage(t("workspace.batchProgress")
           .replace(
@@ -1697,9 +1169,9 @@ export function ScriptWorkspace() {
 
         const continuityEpisodes = [...orderedExistingEpisodes, ...generatedEpisodes];
         const windowResults = await Promise.allSettled(
-          windowEpisodeNumbers.map((episodeNumber) => generateEpisodeWithRetry(
+          windowEpisodeNumbers.map((episodeNumber) => session.generateEpisode(
             episodeNumber,
-            continuityEpisodes,
+            (requestId, signal) => generateEpisode(episodeNumber, continuityEpisodes, requestId, signal),
           )),
         );
         let firstFailure: { episodeNumber: number; reason: unknown } | undefined;
@@ -1718,12 +1190,8 @@ export function ScriptWorkspace() {
           }
           generatedEpisodes.push(result.value);
           generatedEpisodes.sort((left, right) => left.episodeNumber - right.episodeNumber);
-          await persistGeneratedEpisodes(false);
-          if (recoveryTask) {
-            await persistRecoveryTask(
-              completeRecoveryEpisode(recoveryTask, episodeNumber),
-            );
-          }
+          await resultCommitter.commitEpisode(result.value);
+          await session.checkpoint((task) => completeRecoveryEpisode(task, episodeNumber));
         }
         if (firstFailure) {
           activeStreamingEpisode = firstFailure.episodeNumber;
@@ -1731,29 +1199,19 @@ export function ScriptWorkspace() {
         }
       }
       generatedEpisodes.sort((left, right) => left.episodeNumber - right.episodeNumber);
-      await persistGeneratedEpisodes(true);
-      if (recoveryTask) {
-        await persistRecoveryTask(finishGenerationRecoveryTask(recoveryTask));
-      }
-      updateProject(currentProject.id, { activeEpisodeNumber: batchRange.startEpisode });
-      updateProject(currentProject.id, { activeGenerationTask: undefined });
-      setActiveEpisodeNumber(batchRange.startEpisode);
+      await resultCommitter.complete();
+      await session.checkpoint(finishGenerationRecoveryTask);
+      await session.clearCheckpoint();
+      setActiveEpisodeNumber(getProject(currentProject.id)?.activeEpisodeNumber ?? batchRange.startEpisode);
       setMessage(t("workspace.batchComplete")
         .replace("{start}", String(batchRange.startEpisode))
         .replace("{end}", String(batchRange.endEpisode)));
     } catch (error) {
       generationFailed = true;
       generationFailure = error;
-      const errorText = userFacingError(error, t("generation.failed"));
-      if (recoveryTask) {
-        await persistRecoveryTask(
-          failGenerationRecoveryTask(
-            recoveryTask,
-            activeStreamingEpisode,
-            errorText,
-          ),
-        );
-      }
+      const errorText = formatWorkflowError(error, t, "generation.failed");
+      await session.checkpoint((task) => failGenerationRecoveryTask(task, activeStreamingEpisode, errorText))
+        .catch(() => undefined);
       setStreamBatch((current) => failEpisodeStream(
         current,
         activeStreamingEpisode,
@@ -2028,6 +1486,18 @@ export function ScriptWorkspace() {
 
   return (
     <main className="script-workspace is-unified page-reveal">
+      {authorConflictOpen && currentEpisode.pendingAuthorConflict && !currentEpisode.pendingAuthorConflict.resolved ? (
+        <AuthorConflictDialog
+          busy={authorConflictBusy || busyAction === "modify"}
+          error={authorConflictError}
+          key={currentEpisode.pendingAuthorConflict.review.review_id}
+          onConfirm={confirmAuthorConflict}
+          onDefer={deferAuthorConflict}
+          onRecheck={recheckAuthorConflict}
+          onWithdraw={withdrawAuthorConflict}
+          pending={currentEpisode.pendingAuthorConflict}
+        />
+      ) : null}
       <AutoStartDirectGeneration
         enabled={generationIntent && !generationIntentConsumed && Boolean(requestedLeafRange)}
         onConsume={() => {
@@ -2119,13 +1589,30 @@ export function ScriptWorkspace() {
             <div className="candidate-decision-bar">
               <div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "modification"} onClick={() => setSelectedDocumentView("modification")} type="button">{t("workspace.aiCandidate")}</button></div>
               <span>{currentEpisode.modificationCandidate?.instruction}</span>
-              <div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyModification()} type="button">{busyAction === "save" ? t("workspace.saving") : t("workspace.applyCandidate")}</button><button className="outline-action" disabled={busyAction === "save"} onClick={() => { const hasInlineEdits = hasCurrentEpisodeInlineEdits(); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", hasLocalDraftEdits: hasInlineEdits, modificationCandidate: undefined }, {}, { skipContinuitySync: true }); setSelectedDocumentView("current"); }} type="button">{t("workspace.discardCandidate")}</button></div>
+              <div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyModification()} type="button">{busyAction === "save" ? t("workspace.saving") : t("workspace.applyCandidate")}</button><button className="outline-action" disabled={busyAction === "save"} onClick={() => { const hasInlineEdits = hasCurrentEpisodeInlineEdits(); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", hasLocalDraftEdits: hasInlineEdits, modificationCandidate: undefined }, true); setSelectedDocumentView("current"); }} type="button">{t("workspace.discardCandidate")}</button></div>
+            </div>
+          ) : null}
+          {currentEpisode.pendingAuthorConflict && !currentEpisode.pendingAuthorConflict.resolved ? (
+            <div className="candidate-decision-bar" role="status">
+              <span>有一项剧情修改等待处理：{currentEpisode.pendingAuthorConflict.review.user_goal}</span>
+              <button className="outline-action" disabled={Boolean(busyAction) || authorConflictBusy} onClick={authorWorkflow.openConflict} type="button">查看冲突与影响</button>
+            </div>
+          ) : currentEpisode.pendingAuthorConflict?.resolved?.project_id ? (
+            <div className="candidate-decision-bar">
+              <span>这次上游修改已建立新修订版本，原稿保留在当前项目。</span>
+              <a className="outline-action" href={`/projects/${currentEpisode.pendingAuthorConflict.resolved.project_id}/planning`}>打开修订版本</a>
             </div>
           ) : null}
           {currentEpisode.deepeningRun && deepeningDraft ? (
             <div className="candidate-decision-bar"><div aria-label={t("workspace.compareCandidate")} className="candidate-preview-switch" role="group"><button aria-pressed={selectedDocumentView === "current"} onClick={() => setSelectedDocumentView("current")} type="button">{t("workspace.currentScript")}</button><button aria-pressed={selectedDocumentView === "deepening"} onClick={() => setSelectedDocumentView("deepening")} type="button">{t("workspace.version.deepening")}</button></div><span>{deepeningRun?.comparison_metadata?.summary ?? t("workspace.deepeningReady")}</span><div className="candidate-decision-actions"><button className="primary-action" disabled={busyAction === "save"} onClick={() => void applyDeepening()} type="button">{t("workspace.applyDeepening")}</button><button className="outline-action" onClick={() => { const hasInlineEdits = hasCurrentEpisodeInlineEdits(); candidateBaseInlineEditsRef.current.delete(currentEpisode.episodeNumber); replaceEpisode({ status: hasInlineEdits ? "editing" : "saved", deepeningRun: undefined, hasLocalDraftEdits: hasInlineEdits }); setSelectedDocumentView("current"); }} type="button">{t("workspace.keepCurrent")}</button></div></div>
           ) : null}
           {message ? <div className="inline-notice">{message}</div> : null}
+
+          <EpisodeQualityReviewPanel
+            draft={displayedDraft}
+            stale={selectedDocumentView === "current" && currentEpisodeHasDirectEdits}
+            t={t}
+          />
 
           <ScriptDocumentWithDialoguePair
             characterNameMap={projectCharacterNameMap}
@@ -2395,7 +1882,7 @@ function ScriptLiveGenerationPreview({
     return () => window.clearInterval(timer);
   }, [item?.status]);
   if (!item) {
-    return <section className="script-live-generation-preview is-empty"><p>{t("workspace.stream.waitingForText")}</p></section>;
+    return <section className="script-live-generation-preview is-empty"><p>{t("workspace.stream.notStarted")}</p></section>;
   }
   const title = projectEpisodeTitle(project, item.episodeNumber);
   const visibleCharacters = item.actualCharacters ?? countEffectiveCharacters(item.preview);
@@ -2646,6 +2133,7 @@ function InitialScriptBatchLauncher({
     patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
   ) => Promise<boolean>;
 }) {
+  const { getProject } = useProjects();
   const started = useRef(false);
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("");
@@ -2660,41 +2148,6 @@ function InitialScriptBatchLauncher({
     const active = streamBatch.find((item) => item.status === "active");
     if (active) setSelectedEpisodeNumber(active.episodeNumber);
   }, [streamBatch]);
-  async function commitEpisodes(
-    generatedEpisodes: EpisodeWorkspace[],
-    batchRecord: GenerationBatchRecord,
-    keepGenerating = false,
-  ) {
-    const episodeSnapshot = [...generatedEpisodes];
-    const firstRun = episodeSnapshot[0].generationRun;
-    const saved = await updateProject(project.id, {
-      episodes: episodeSnapshot,
-      generationBatches: [batchRecord],
-      activeEpisodeNumber: generatedEpisodes[0].episodeNumber,
-      ...synchronizeContinuity(
-        project.creativePrompt,
-        project.characters,
-        episodeSnapshot,
-        project.storyLines,
-        project.characterRelationships,
-        project.continuityStates,
-      ),
-      generationRun: firstRun,
-      revisionRun: undefined,
-      finalizationResult: undefined,
-      workingDraftJson: generatedEpisodes[0].workingDraftJson,
-      hasLocalDraftEdits: false,
-      contentSpecId: firstRun.content_spec_id ?? project.contentSpecId,
-      status: keepGenerating ? "generating" : "draft",
-    });
-    if (!saved) {
-      throw Object.assign(
-        new Error("Generated episode content could not be saved locally."),
-        { retryable: false, failureClass: "persistence" },
-      );
-    }
-  }
-
   async function generateInitialBatch() {
     setBusy(true);
     setErrorMessage(null);
@@ -2761,36 +2214,25 @@ function InitialScriptBatchLauncher({
     let generationFailed = false;
     let generationFailure: unknown;
     const requestedEpisodeCount = batchRange.endEpisode - batchRange.startEpisode + 1;
-    const createdAt = new Date().toISOString();
     const generatedEpisodes: EpisodeWorkspace[] = [];
     let activeStreamingEpisode = batchRange.startEpisode;
-    let recoveryTask: GenerationRecoveryTask | undefined;
-    const persistRecoveryTask = async (task: GenerationRecoveryTask) => {
-      recoveryTask = task;
-      try {
-        const savedTask = await saveGenerationTaskOnServer(project.id, task);
-        recoveryTask = savedTask;
-      } catch {
-        recoveryTask = { ...task, serverBacked: false };
-      }
-      // Avoid uploading the multi-megabyte workspace before and after the
-      // lightweight server checkpoint for the same logical state transition.
-      await updateProject(project.id, { activeGenerationTask: recoveryTask });
-    };
-    const pauseAtEpisodeBoundary = async () => {
-      if (!isScriptGenerationPauseRequested(project.id)) return;
-      if (recoveryTask && recoveryTask.status !== "paused") {
-        await persistRecoveryTask(pauseGenerationRecoveryTask(recoveryTask));
-      }
-      setMessage(t("workspace.generationPaused"));
-      const didPause = await waitForScriptGenerationResume(project.id);
-      if (didPause && recoveryTask?.status === "paused") {
-        await persistRecoveryTask(
-          continuePausedGenerationRecoveryTask(recoveryTask),
-        );
-        setMessage(t("workspace.generationResumed"));
-      }
-    };
+    const session = createScriptGenerationSession({
+      projectId: project.id, getProject, updateProject,
+      onPauseChange: (paused) => setMessage(t(paused ? "workspace.generationPaused" : "workspace.generationResumed")),
+      onAutomaticRetry: (episodeNumber, { nextAttempt, maxAttempts }) => {
+        setStreamBatch((current) => markEpisodeAutomaticRetry(current, episodeNumber));
+        setMessage(t("workspace.stream.autoRetrying")
+          .replace("{episode}", String(episodeNumber))
+          .replace("{attempt}", String(nextAttempt))
+          .replace("{max}", String(maxAttempts)));
+      },
+    });
+    const resultCommitter = createGenerationResultCommitter({
+      project,
+      updateProject,
+      getTask: () => session.task,
+      initial: true,
+    });
     setStreamBatch(createEpisodeStreamBatch(
       batchRange.startEpisode,
       batchRange.endEpisode,
@@ -2832,7 +2274,7 @@ function InitialScriptBatchLauncher({
         && project.activeGenerationTask.endEpisode === batchRange.endEpisode
         ? project.activeGenerationTask
         : undefined;
-      recoveryTask = recoveryCandidate
+      const recoveryTask = recoveryCandidate
         ? recoveryCandidate.status === "paused"
           ? continuePausedGenerationRecoveryTask(recoveryCandidate)
           : resumeGenerationRecoveryTask(recoveryCandidate)
@@ -2845,7 +2287,7 @@ function InitialScriptBatchLauncher({
               ?? `episode-plan.runtime.${constraint.episodeNumber}`
             )),
           });
-      await persistRecoveryTask(recoveryTask);
+      await session.checkpoint(recoveryTask);
       const generateInitialEpisode = async (
         episodeNumber: number,
         continuityEpisodes: EpisodeWorkspace[],
@@ -2962,58 +2404,9 @@ function InitialScriptBatchLauncher({
       ).filter((episodeNumber) => (
         !project.episodes.some((episode) => episode.episodeNumber === episodeNumber)
       ));
-      const generateInitialEpisodeWithRetry = async (
-        episodeNumber: number,
-        continuityEpisodes: EpisodeWorkspace[],
-      ): Promise<EpisodeWorkspace> => {
-        const agentRequestId = recoveryTask
-          ? episodeGenerationAgentRequestId(recoveryTask, episodeNumber)
-          : `agent-request.${crypto.randomUUID()}`;
-        while (true) {
-          const controller = new AbortController();
-          const unregister = registerScriptGenerationAbortController(
-            project.id,
-            controller,
-          );
-          try {
-            return await generateWithAutomaticTransientRetry({
-              signal: controller.signal,
-              generate: () => generateInitialEpisode(
-                episodeNumber,
-                continuityEpisodes,
-                agentRequestId,
-                controller.signal,
-              ),
-              onAutomaticRetry: ({ nextAttempt, maxAttempts }) => {
-                setStreamBatch((currentBatch) => markEpisodeAutomaticRetry(
-                  currentBatch,
-                  episodeNumber,
-                ));
-                setMessage(t("workspace.stream.autoRetrying")
-                  .replace("{episode}", String(episodeNumber))
-                  .replace("{attempt}", String(nextAttempt))
-                  .replace("{max}", String(maxAttempts)));
-              },
-            });
-          } catch (error) {
-            if (
-              !isScriptGenerationAbortError(error)
-              || (
-                !isScriptGenerationPauseRequested(project.id)
-                && !isScriptGenerationPauseAbort(controller.signal)
-              )
-            ) {
-              throw error;
-            }
-            await pauseAtEpisodeBoundary();
-          } finally {
-            unregister();
-          }
-        }
-      };
       const generationWindows = buildEpisodeGenerationWindows(episodeNumbers);
       for (const windowEpisodeNumbers of generationWindows) {
-        await pauseAtEpisodeBoundary();
+        await session.pauseAtBoundary();
         activeStreamingEpisode = windowEpisodeNumbers[0];
         setMessage(
           t("generation.progress")
@@ -3025,9 +2418,9 @@ function InitialScriptBatchLauncher({
         );
         const continuityEpisodes = [...generatedEpisodes];
         const windowResults = await Promise.allSettled(
-          windowEpisodeNumbers.map((episodeNumber) => generateInitialEpisodeWithRetry(
+          windowEpisodeNumbers.map((episodeNumber) => session.generateEpisode(
             episodeNumber,
-            continuityEpisodes,
+            (requestId, signal) => generateInitialEpisode(episodeNumber, continuityEpisodes, requestId, signal),
           )),
         );
         let firstFailure: { episodeNumber: number; reason: unknown } | undefined;
@@ -3046,75 +2439,33 @@ function InitialScriptBatchLauncher({
           }
           generatedEpisodes.push(result.value);
           generatedEpisodes.sort((left, right) => left.episodeNumber - right.episodeNumber);
-          await commitEpisodes(generatedEpisodes, {
-            id: `batch-${project.id}-1`,
-            batchNumber: 1,
-            startEpisode: batchRange.startEpisode,
-            endEpisode: batchRange.endEpisode,
-            requestedEpisodeCount,
-            generatedEpisodeCount: generatedEpisodes.length,
-            status: "partial",
-            createdAt,
-          }, true);
-          if (recoveryTask) {
-            await persistRecoveryTask(
-              completeRecoveryEpisode(recoveryTask, episodeNumber),
-            );
-          }
+          await resultCommitter.commitEpisode(result.value);
+          await session.checkpoint((task) => completeRecoveryEpisode(task, episodeNumber));
         }
         if (firstFailure) {
           activeStreamingEpisode = firstFailure.episodeNumber;
           throw firstFailure.reason;
         }
       }
-      if (recoveryTask) {
-        await persistRecoveryTask(finishGenerationRecoveryTask(recoveryTask));
-      }
-      await commitEpisodes(generatedEpisodes, {
-        id: `batch-${project.id}-1`,
-        batchNumber: 1,
-        startEpisode: batchRange.startEpisode,
-        endEpisode: batchRange.endEpisode,
-        requestedEpisodeCount,
-        generatedEpisodeCount: generatedEpisodes.length,
-        status: "completed",
-        createdAt,
-        completedAt: new Date().toISOString(),
-      });
-      updateProject(project.id, { activeGenerationTask: undefined });
+      await resultCommitter.complete();
+      await session.checkpoint(finishGenerationRecoveryTask);
+      await session.clearCheckpoint();
       onClearIntent();
     } catch (error) {
       generationFailed = true;
       generationFailure = error;
-      const errorText = userFacingError(error, t("generation.failed"));
-      if (recoveryTask) {
-        await persistRecoveryTask(
-          failGenerationRecoveryTask(
-            recoveryTask,
-            activeStreamingEpisode,
-            errorText,
-          ),
-        );
-      }
+      const errorText = formatWorkflowError(error, t, "generation.failed");
+      await session.checkpoint((task) => failGenerationRecoveryTask(task, activeStreamingEpisode, errorText))
+        .catch(() => undefined);
       setStreamBatch((currentBatch) => failEpisodeStream(
         currentBatch,
         activeStreamingEpisode,
         errorText,
       ));
+      await resultCommitter.partial().catch(() => undefined);
       if (generatedEpisodes.length) {
-        await commitEpisodes(generatedEpisodes, {
-          id: `batch-${project.id}-1`,
-          batchNumber: 1,
-          startEpisode: batchRange.startEpisode,
-          endEpisode: batchRange.endEpisode,
-          requestedEpisodeCount,
-          generatedEpisodeCount: generatedEpisodes.length,
-          status: "partial",
-          createdAt,
-        });
         onClearIntent();
       } else {
-        updateProject(project.id, { status: "idea" });
         setErrorMessage(errorText);
       }
     } finally {
@@ -3244,6 +2595,10 @@ function ScriptDocument({
           <p data-script-field="本集钩子（hook）"><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => ({ ...current, hook: value }))} source={draft.hook} /></p>
           <strong>{t("workspace.synopsis")}</strong>
           <p data-script-field="剧情梗概（synopsis）"><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => ({ ...current, synopsis: value }))} source={draft.synopsis} /></p>
+          <strong>本集出场人物</strong>
+          <p data-script-field="本集出场人物（episode_cast）">{(draft.episode_cast ?? draft.scenes.flatMap((scene) => scene.character_refs ?? scene.dialogues.map((line) => line.chinese_character_name || line.character_name))).filter(Boolean).join("、") || "待补充"}</p>
+          <strong>使用场地</strong>
+          <p data-script-field="使用场地（locations）">{(draft.locations ?? draft.scenes.map((scene) => scene.content_manifest?.location ?? scene.scene_heading ?? scene.setting_hint ?? scene.setting ?? scene.slug)).filter(Boolean).join("、") || "待补充"}</p>
           <strong>{t("workspace.nextQuestion")}</strong>
           <p data-script-field="下集问题（next_episode_question）"><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => ({ ...current, next_episode_question: value || null }))} source={draft.next_episode_question ?? ""} /></p>
         </section>
@@ -3273,14 +2628,13 @@ function ScriptDocument({
               <summary>{t("workspace.productionNotes")}</summary>
               <div className="script-notes-help"><SectionHelp content={t("guide.productionNotes")} label={t("guide.openHelp")} /></div>
               {scene.setting_hint ? <p className="scene-setting" data-script-field={`第${scene.scene_number}场场景标识（scenes.${sceneIndex}.slug）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, slug: value })))} source={scene.slug} /></p> : null}
-              <p className="scene-purpose" data-script-field={`第${scene.scene_number}场目的（scenes.${sceneIndex}.purpose）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, purpose: value })))} source={scene.purpose} /></p>
-              <p data-script-field={`第${scene.scene_number}场剧情节拍（scenes.${sceneIndex}.beat_summary）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => ({ ...draftScene, beat_summary: value })))} source={scene.beat_summary} /></p>
-              {scene.scene_causality ? (
-                <dl className="scene-causality">
-                  <div><dt>{t("workspace.goal")}</dt><dd data-script-field={`第${scene.scene_number}场目标（scenes.${sceneIndex}.scene_causality.goal）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, goal: value } } : draftScene))} source={scene.scene_causality.goal} /></dd></div>
-                  <div><dt>{t("workspace.conflict")}</dt><dd data-script-field={`第${scene.scene_number}场冲突（scenes.${sceneIndex}.scene_causality.conflict）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, conflict: value } } : draftScene))} source={scene.scene_causality.conflict} /></dd></div>
-                  <div><dt>{t("workspace.outcome")}</dt><dd data-script-field={`第${scene.scene_number}场结果（scenes.${sceneIndex}.scene_causality.outcome）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, outcome: value } } : draftScene))} source={scene.scene_causality.outcome} /></dd></div>
-                  {scene.scene_causality.causal_link ? <div><dt>{t("workspace.causalLink")}</dt><dd data-script-field={`第${scene.scene_number}场因果衔接（scenes.${sceneIndex}.scene_causality.causal_link）`}><ScriptInlineText editable={editable} onChange={(value) => onDraftChange((current) => updateDraftScene(current, sceneIndex, (draftScene) => draftScene.scene_causality ? { ...draftScene, scene_causality: { ...draftScene.scene_causality, causal_link: value || null } } : draftScene))} source={scene.scene_causality.causal_link} /></dd></div> : null}
+              {scene.content_manifest ? (
+                <dl className="scene-content-index">
+                  <div><dt>出场人物</dt><dd data-script-field={`第${scene.scene_number}场出场人物（scenes.${sceneIndex}.character_refs）`}>{scene.content_manifest.character_refs.join("、") || "待补充"}</dd></div>
+                  <div><dt>场景任务</dt><dd data-script-field={`第${scene.scene_number}场任务（scenes.${sceneIndex}.content_manifest.objective）`}>{scene.content_manifest.objective}</dd></div>
+                  <div><dt>主要阻力</dt><dd data-script-field={`第${scene.scene_number}场阻力（scenes.${sceneIndex}.content_manifest.conflict）`}>{scene.content_manifest.conflict}</dd></div>
+                  <div><dt>场景结果</dt><dd data-script-field={`第${scene.scene_number}场结果（scenes.${sceneIndex}.content_manifest.outcome）`}>{scene.content_manifest.outcome}</dd></div>
+                  <div><dt>必要道具</dt><dd data-script-field={`第${scene.scene_number}场道具（scenes.${sceneIndex}.content_manifest.props）`}>{scene.content_manifest.props.join("、") || "无特别道具"}</dd></div>
                 </dl>
               ) : null}
             </details>
@@ -3372,24 +2726,6 @@ function ScriptInlineText({
   );
 }
 
-function resolveWorkingDraft(episode: EpisodeWorkspace): GeneratedDraft {
-  if (episodeIsLocked(episode)) {
-    return episode.finalizationResult?.master_script
-      ?? parseWorkingDraft(episode.confirmedDraftJson)
-      ?? parseWorkingDraft(episode.workingDraftJson)
-      ?? episode.generationRun.draft_master_script;
-  }
-  return episode.finalizationResult?.master_script
-    ?? parseWorkingDraft(episode.workingDraftJson)
-    ?? parseWorkingDraft(episode.confirmedDraftJson)
-    ?? episode.generationRun.draft_master_script;
-}
-
-function resolveSavedDraft(episode: EpisodeWorkspace): GeneratedDraft | null {
-  if (!episodeHasSavedDraft(episode)) return null;
-  return resolveWorkingDraft(episode);
-}
-
 async function confirmLatestSeriesDelivery(
   projectId: string,
   updateProject: (
@@ -3464,18 +2800,6 @@ function collectProjectOverseasCharacterNames(
   return names;
 }
 
-function mergeEpisodesByNumber(
-  existingEpisodes: EpisodeWorkspace[],
-  generatedEpisodes: EpisodeWorkspace[],
-): EpisodeWorkspace[] {
-  const episodes = new Map<number, EpisodeWorkspace>();
-  for (const episode of existingEpisodes) episodes.set(episode.episodeNumber, episode);
-  for (const episode of generatedEpisodes) episodes.set(episode.episodeNumber, episode);
-  return [...episodes.values()].sort(
-    (left, right) => left.episodeNumber - right.episodeNumber,
-  );
-}
-
 function scriptBodyTargetCharacters(draft: GeneratedDraft): number | null {
   const target = draftMetadataNumber(
     draft,
@@ -3508,19 +2832,13 @@ function generationPerformanceDetails(draft: GeneratedDraft): {
   };
 }
 
-function parseWorkingDraft(value?: string): GeneratedDraft | null {
-  return parseGeneratedDraft(value, {
-    requireTitle: true,
-    requireCompleteScenes: true,
-  });
-}
-
 function formatWorkflowError(
   error: unknown,
   t: (key: string) => string,
   fallbackKey: string,
 ): string {
-  return userFacingError(error, t(fallbackKey));
+  return error instanceof ScriptDraftSaveError || error instanceof GenerationSessionError
+    ? error.message : userFacingError(error, t(fallbackKey));
 }
 
 function downloadFile(content: string, filename: string, type: string) {

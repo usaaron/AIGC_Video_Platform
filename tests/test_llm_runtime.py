@@ -1,15 +1,20 @@
+import os
+
 import pytest
 
 from app import dependencies
 from app.llm_runtime import (
     _build_explicit_episode_alternate,
+    _build_role_adapter_from_env,
     build_continuity_llm_adapter_from_env,
     build_creative_llm_adapter_from_env,
     build_dialogue_polish_adapter_from_env,
     build_episode_plan_llm_adapter_from_env,
+    build_input_readiness_llm_adapter_from_env,
     build_llm_adapter_from_env,
     build_market_routed_role_adapter_from_env,
     build_planning_llm_adapter_from_env,
+    build_planning_editor_llm_adapter_from_env,
     build_script_fallback_llm_adapter_from_env,
     build_script_editor_llm_adapter_from_env,
     build_script_generation_adapter,
@@ -62,6 +67,160 @@ def test_llm_runtime_builds_real_adapter(monkeypatch: pytest.MonkeyPatch) -> Non
     assert adapter.get_model_info().provider == "openai_compatible"
     assert config.wire_api == "responses"
     assert config.reasoning_effort == "medium"
+
+
+def test_astra_runtime_automatically_uses_deepseek_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "gpt-6-astra")
+    monkeypatch.setenv("LLM_API_KEY", "astra-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://astra.example/v1")
+    monkeypatch.setenv("LLM_WIRE_API", "responses")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_BASE_URL", "https://deepseek.example/v1")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_WIRE_API", "chat_completions")
+
+    adapter = build_llm_adapter_from_env()
+
+    assert isinstance(adapter, ModelFailoverLLMAdapter)
+    assert adapter._primary.get_model_info().model_name == "gpt-6-astra"
+    assert adapter._fallback.get_model_info().model_name == "deepseek-v4-pro"
+    assert adapter._circuit_failure_threshold == 1
+    assert adapter._circuit_cooldown_seconds == 600
+    assert adapter._primary._request_deadline_seconds == 120
+
+
+def test_grill_me_astra_route_uses_short_interactive_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for prefix in ("LLM_CN_INSPIRATION", "LLM_ASTRA_FALLBACK"):
+        monkeypatch.setenv(f"{prefix}_PROVIDER", "openai_compatible")
+        monkeypatch.setenv(f"{prefix}_API_KEY", f"{prefix.lower()}-key")
+        monkeypatch.setenv(f"{prefix}_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("LLM_CN_INSPIRATION_MODEL", "gpt-6-astra")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_CN_INSPIRATION_WIRE_API", "responses")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_WIRE_API", "chat_completions")
+
+    route = build_market_routed_role_adapter_from_env(
+        "INSPIRATION",
+        fallback=MockLLMAdapter(),
+        default_timeout_seconds=60,
+        default_max_retries=0,
+    )
+
+    assert isinstance(route, MarketRoutedLLMAdapter)
+    assert isinstance(route._mainland, ModelFailoverLLMAdapter)
+    assert route._mainland._primary._request_deadline_seconds == 45
+
+
+def test_planning_editor_role_uses_deepseek_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PLANNING_EDITOR_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_PLANNING_EDITOR_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_PLANNING_EDITOR_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_PLANNING_EDITOR_BASE_URL", "https://deepseek.example/v1")
+    monkeypatch.setenv("LLM_PLANNING_EDITOR_WIRE_API", "chat_completions")
+
+    adapter = build_planning_editor_llm_adapter_from_env()
+
+    assert isinstance(adapter, RealLLMAdapter)
+    assert adapter.get_model_info().model_name == "deepseek-v4-pro"
+    assert adapter._base_url == "https://deepseek.example/v1"
+
+
+@pytest.mark.parametrize("missing", ["MODEL", "BASE_URL", "API_KEY"])
+def test_light_role_never_inherits_unrelated_primary_credentials(monkeypatch, missing):
+    for name in os.environ:
+        if name.startswith("LLM_"):
+            monkeypatch.delenv(name)
+    for suffix, value in {
+        "PROVIDER": "openai_compatible", "MODEL": "deepseek-v4-flash",
+        "API_KEY": "flash-key", "BASE_URL": "https://flash.invalid/v1",
+    }.items():
+        monkeypatch.setenv(f"LLM_INPUT_READINESS_{suffix}", value)
+        monkeypatch.setenv(f"LLM_{suffix}", "generic-value")
+    monkeypatch.delenv(f"LLM_INPUT_READINESS_{missing}")
+    with pytest.raises(MissingLLMConfigurationError, match=missing):
+        build_input_readiness_llm_adapter_from_env()
+
+
+@pytest.fixture
+def astra_environment(monkeypatch):
+    for name in os.environ:
+        if name.startswith("LLM_"):
+            monkeypatch.delenv(name)
+    for prefix, model in (("LLM", "gpt-6-astra"), ("LLM_ASTRA_FALLBACK", "deepseek-v4-pro")):
+        for suffix, value in {
+            "PROVIDER": "openai_compatible", "MODEL": model,
+            "BASE_URL": f"https://{model}.invalid/v1", "API_KEY": f"{model}-key",
+            "WIRE_API": "responses" if model == "gpt-6-astra" else "chat_completions",
+        }.items():
+            monkeypatch.setenv(f"{prefix}_{suffix}", value)
+
+
+@pytest.mark.parametrize("fallback_model", [None, "gpt-6-astra", "unrelated-model"])
+def test_astra_missing_or_invalid_fallback_never_recurses_or_inherits_primary_credentials(
+    monkeypatch, astra_environment, fallback_model, caplog,
+):
+    for name in os.environ:
+        if name.startswith("LLM_ASTRA_FALLBACK_"):
+            monkeypatch.delenv(name)
+    if fallback_model is not None:
+        monkeypatch.setenv("LLM_ASTRA_FALLBACK_MODEL", fallback_model)
+    adapter = build_llm_adapter_from_env()
+    assert isinstance(adapter, RealLLMAdapter)
+    assert "complete deepseek-v4-pro profile is required" in caplog.text
+    assert "gpt-6-astra-key" not in caplog.text
+
+
+def test_astra_reuses_complete_deepseek_profile_without_generic_astra_credentials(
+    monkeypatch, astra_environment,
+):
+    for name in list(os.environ):
+        if name.startswith("LLM_ASTRA_FALLBACK_"):
+            monkeypatch.setenv(name.replace("LLM_ASTRA_FALLBACK", "LLM_CN_SCRIPT"), os.environ[name])
+            monkeypatch.delenv(name)
+    adapter = build_llm_adapter_from_env()
+    assert isinstance(adapter, ModelFailoverLLMAdapter)
+    assert adapter._fallback._base_url == "https://deepseek-v4-pro.invalid/v1"
+    assert adapter._fallback._wire_api == "chat_completions"
+    assert adapter._fallback._client.headers["authorization"] == "Bearer deepseek-v4-pro-key"
+
+
+def test_astra_fallback_without_wire_api_uses_deepseek_protocol(monkeypatch, astra_environment):
+    monkeypatch.delenv("LLM_ASTRA_FALLBACK_WIRE_API")
+    adapter = build_llm_adapter_from_env()
+    assert adapter._primary._wire_api == "responses"
+    assert adapter._fallback._wire_api == "chat_completions"
+
+
+@pytest.mark.parametrize("pooled", [False, True])
+def test_astra_role_overrides_reach_single_failover_wrapper(monkeypatch, astra_environment, pooled):
+    prefix = "LLM_CN_INSPIRATION"
+    monkeypatch.setenv(f"{prefix}_REQUEST_DEADLINE_SECONDS", "23")
+    monkeypatch.setenv(f"{prefix}_FAILOVER_FAILURE_THRESHOLD", "3")
+    monkeypatch.setenv(f"{prefix}_FAILOVER_COOLDOWN_SECONDS", "75")
+    if pooled:
+        monkeypatch.setenv(f"{prefix}_API_KEY_01", "pooled-astra-key")
+    adapter = _build_role_adapter_from_env(
+        prefix, default_model_env="LLM_MODEL", default_timeout_seconds=60, default_max_retries=0,
+    )
+    assert isinstance(adapter, ModelFailoverLLMAdapter)
+    assert isinstance(adapter._primary, PooledLLMAdapter if pooled else RealLLMAdapter)
+    assert adapter._primary._request_deadline_seconds == 23
+    assert adapter._circuit_failure_threshold == 3
+    assert adapter._circuit_cooldown_seconds == 75
+    assert adapter._failover_on_request_deadline is True
+    assert isinstance(adapter._fallback, RealLLMAdapter)
+
+
+def test_astra_outline_respects_deadline_and_circuit_overrides(monkeypatch, astra_environment):
+    monkeypatch.setenv("LLM_OUTLINE_REQUEST_DEADLINE_SECONDS", "70")
+    monkeypatch.setenv("LLM_OUTLINE_FAILOVER_COOLDOWN_SECONDS", "90")
+    adapter = build_llm_adapter_from_env()
+    assert adapter._primary._request_deadline_seconds == 70
+    assert adapter._circuit_cooldown_seconds == 90
 
 
 def test_planning_runtime_uses_independent_fail_fast_limits(
@@ -174,6 +333,7 @@ def test_script_generation_defaults_to_high_reasoning_without_inheriting_plannin
 def test_script_service_uses_script_repair_profile_for_every_recovery_stage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("SCRIPT_GPT_POST_EDIT_ENABLED", raising=False)
     script_adapter = MockLLMAdapter()
     script_repair_adapter = MockLLMAdapter()
     script_editor_adapter = MockLLMAdapter(provider="gpt", model_name="gpt-editor")
@@ -209,7 +369,7 @@ def test_script_service_uses_script_repair_profile_for_every_recovery_stage(
         assert service._contract_fallback_llm_adapter is script_repair_adapter
         assert service._continuity_llm_adapter is continuity_adapter
         assert service._script_editor_llm_adapter is script_editor_adapter
-        assert service._script_editor_enabled is True
+        assert service._script_editor_enabled is False
     finally:
         dependencies._get_script_generation_service.cache_clear()
 
@@ -223,8 +383,8 @@ def test_script_fallback_inherits_configured_script_transport(
     monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
     monkeypatch.setenv("LLM_SCRIPT_PROVIDER", "openai_compatible")
     monkeypatch.setenv("LLM_SCRIPT_MODEL", "glm-5.2")
-    monkeypatch.setenv("LLM_SCRIPT_API_KEY", "glm-key")
-    monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://glm.example")
+    monkeypatch.setenv("LLM_SCRIPT_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://deepseek.example")
     monkeypatch.setenv("LLM_SCRIPT_WIRE_API", "responses")
     monkeypatch.setenv("LLM_SCRIPT_REASONING_EFFORT", "medium")
     monkeypatch.setenv("LLM_SCRIPT_REPAIR_USE_STRICT_SCHEMA", "true")
@@ -235,7 +395,7 @@ def test_script_fallback_inherits_configured_script_transport(
 
     assert isinstance(adapter, RealLLMAdapter)
     assert adapter.get_model_info().model_name == "glm-5.2"
-    assert adapter._base_url == "https://glm.example"
+    assert adapter._base_url == "https://deepseek.example"
     assert adapter._wire_api == "responses"
     assert adapter._reasoning_effort == "medium"
 
@@ -369,8 +529,8 @@ def test_script_runtime_rejects_a_different_alternate_model(
     monkeypatch.setenv("LLM_SCRIPT_API_KEY", "gateway-key")
     monkeypatch.setenv("LLM_SCRIPT_BASE_URL", "https://gateway.example/v1")
     monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_MODEL", "glm-5.2-air")
-    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_API_KEY", "glm-key")
-    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_SCRIPT_ALTERNATE_BASE_URL", "https://deepseek.example/v1")
 
     with pytest.raises(MissingLLMConfigurationError, match="use the same model"):
         build_script_generation_adapter_from_env()
@@ -403,6 +563,34 @@ def test_dialogue_polish_runtime_can_use_an_independent_provider(
     assert adapter._thinking_mode == "disabled"
     assert adapter._use_strict_schema is False
     assert adapter._send_response_format is False
+
+
+def test_dialogue_polish_runtime_uses_market_specific_dialogue_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_MODEL", "legacy-script")
+    monkeypatch.setenv("LLM_API_KEY", "legacy-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://legacy.example/v1")
+    monkeypatch.setenv("LLM_DIALOGUE_MODEL", "generic-dialogue")
+    monkeypatch.setenv("LLM_DIALOGUE_API_KEY", "generic-key")
+    monkeypatch.setenv("LLM_DIALOGUE_BASE_URL", "https://generic.example/v1")
+    monkeypatch.setenv("LLM_CN_DIALOGUE_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_CN_DIALOGUE_MODEL", "cn-dialogue")
+    monkeypatch.setenv("LLM_CN_DIALOGUE_API_KEY", "cn-key")
+    monkeypatch.setenv("LLM_CN_DIALOGUE_BASE_URL", "https://cn-dialogue.example/v1")
+    monkeypatch.setenv("LLM_CN_DIALOGUE_WIRE_API", "responses")
+
+    adapter = build_market_routed_role_adapter_from_env(
+        "DIALOGUE",
+        fallback=build_dialogue_polish_adapter_from_env(),
+        default_timeout_seconds=300,
+        default_max_retries=1,
+    )
+
+    assert isinstance(adapter, MarketRoutedLLMAdapter)
+    assert adapter._mainland.get_model_info().model_name == "cn-dialogue"
+    assert adapter._overseas.get_model_info().model_name == "generic-dialogue"
 
 
 def test_script_editor_runtime_uses_dedicated_gpt_profile(
@@ -447,8 +635,8 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     monkeypatch.setenv("LLM_STORY_BIBLE_WIRE_API", "chat_completions")
     monkeypatch.setenv("LLM_STORY_BIBLE_USE_STRICT_SCHEMA", "false")
     monkeypatch.setenv("LLM_STORY_ARCHITECT_MODEL", "glm-5.2")
-    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "glm-key")
-    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://deepseek.example/v1")
     monkeypatch.setenv("LLM_STORY_ARCHITECT_REASONING_EFFORT", "high")
     monkeypatch.setenv("LLM_EPISODE_PLAN_MODEL", "glm-5.2-roadmap")
     monkeypatch.setenv("LLM_EPISODE_PLAN_REASONING_EFFORT", "medium")
@@ -487,14 +675,14 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     assert story_bible._send_response_format is True
     assert isinstance(architect, RealLLMAdapter)
     assert architect.get_model_info().model_name == "glm-5.2"
-    assert architect._base_url == "https://glm.example/v1"
+    assert architect._base_url == "https://deepseek.example/v1"
     assert architect._reasoning_effort == "high"
     assert architect._retry_empty_response is False
     assert architect._defer_schema_container_repair is True
     assert architect._retry_gateway_stream_as_non_stream is False
     assert isinstance(architect_recovery, RealLLMAdapter)
     assert architect_recovery.get_model_info().model_name == "glm-5.2"
-    assert architect_recovery._base_url == "https://glm.example/v1"
+    assert architect_recovery._base_url == "https://deepseek.example/v1"
     assert architect_recovery._reasoning_effort == "medium"
     assert architect_recovery._thinking_mode == "disabled"
     assert architect_recovery._use_strict_schema is False
@@ -512,11 +700,11 @@ def test_role_adapters_route_each_story_artifact_to_its_configured_model(
     assert episode_plan._fallback._base_url == "https://deepseek.example/v1"
     assert episode_plan._fallback._retry_empty_response is False
     assert script_repair.get_model_info().model_name == "deepseek-v4-flash-repair"
-    assert script_repair._wire_api == "chat_completions"
+    assert script_repair._wire_api == "responses"
     assert script_repair._thinking_mode == "disabled"
     assert script_repair._use_strict_schema is False
     assert continuity.get_model_info().model_name == "glm-5.2-continuity"
-    assert continuity._base_url == "https://glm.example/v1"
+    assert continuity._base_url == "https://deepseek.example/v1"
 
 
 def test_episode_plan_builds_explicit_cross_gateway_chain(
@@ -674,8 +862,8 @@ def test_story_architect_does_not_inherit_script_fallback_route(
     monkeypatch.setenv("LLM_API_KEY", "default-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
     monkeypatch.setenv("LLM_STORY_ARCHITECT_MODEL", "glm-5.2")
-    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "glm-key")
-    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://deepseek.example/v1")
     monkeypatch.setenv("LLM_SCRIPT_REPAIR_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("LLM_SCRIPT_REPAIR_API_KEY", "deepseek-key")
     monkeypatch.setenv("LLM_SCRIPT_REPAIR_BASE_URL", "https://deepseek.example/v1")
@@ -684,7 +872,7 @@ def test_story_architect_does_not_inherit_script_fallback_route(
 
     assert isinstance(adapter, RealLLMAdapter)
     assert adapter.get_model_info().model_name == "glm-5.2"
-    assert adapter._base_url == "https://glm.example/v1"
+    assert adapter._base_url == "https://deepseek.example/v1"
 
 
 def test_story_architect_accepts_explicit_same_model_fallback_gateway(
@@ -695,8 +883,8 @@ def test_story_architect_accepts_explicit_same_model_fallback_gateway(
     monkeypatch.setenv("LLM_API_KEY", "default-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://default.example/v1")
     monkeypatch.setenv("LLM_STORY_ARCHITECT_MODEL", "glm-5.2")
-    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "glm-key")
-    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_STORY_ARCHITECT_BASE_URL", "https://deepseek.example/v1")
     monkeypatch.setenv("LLM_STORY_ARCHITECT_FALLBACK_MODEL", "glm-5.2")
     monkeypatch.setenv("LLM_STORY_ARCHITECT_FALLBACK_API_KEY", "backup-key")
     monkeypatch.setenv(
@@ -721,8 +909,8 @@ def test_invalid_script_repair_profile_does_not_disable_planning_primaries(
 ) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
     monkeypatch.setenv("LLM_MODEL", "glm-5.2")
-    monkeypatch.setenv("LLM_API_KEY", "glm-key")
-    monkeypatch.setenv("LLM_BASE_URL", "https://glm.example/v1")
+    monkeypatch.setenv("LLM_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://deepseek.example/v1")
     monkeypatch.setenv("LLM_REASONING_EFFORT", "high")
     monkeypatch.setenv("LLM_SCRIPT_REPAIR_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("LLM_SCRIPT_REPAIR_API_KEY", "deepseek-key")
@@ -732,10 +920,12 @@ def test_invalid_script_repair_profile_does_not_disable_planning_primaries(
     architect = build_story_architect_llm_adapter_from_env()
     episode_plan = build_episode_plan_llm_adapter_from_env()
 
-    for adapter in (architect, episode_plan):
-        assert isinstance(adapter, RealLLMAdapter)
-        assert adapter.get_model_info().model_name == "glm-5.2"
-        assert adapter._reasoning_effort == "high"
+    assert isinstance(architect, RealLLMAdapter)
+    assert architect.get_model_info().model_name == "glm-5.2"
+    assert architect._reasoning_effort == "high"
+    assert isinstance(episode_plan, RealLLMAdapter)
+    assert episode_plan.get_model_info().model_name == "glm-5.2"
+    assert episode_plan._reasoning_effort == "low"
 
 
 def test_story_bible_inherits_story_architect_profile_before_creative_profile(

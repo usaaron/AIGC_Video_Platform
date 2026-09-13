@@ -32,6 +32,7 @@ from app.modules.script_engine.bilingual_view import (
 from app.modules.orchestrator.service import MissingPlatformProfileError
 from app.modules.script_engine.generation_service import (
     CreativeDeepeningDisabledError,
+    EpisodeExecutionNotReadyError,
     InvalidDraftMasterScriptOutputError,
     InvalidResolvedCreativeContextError,
     MissingContentSpecError,
@@ -40,6 +41,7 @@ from app.modules.script_engine.generation_service import (
     ScriptGenerationService,
 )
 from app.modules.script_engine.continuity_qc import BlockingContinuityConflictError
+from app.modules.script_engine.author_conflicts import AuthorConflictResolutionError
 from app.modules.script_engine.llm_adapter import (
     LLMRequestError,
     LLMRequestCancelledError,
@@ -47,6 +49,7 @@ from app.modules.script_engine.llm_adapter import (
     MissingLLMConfigurationError,
 )
 from app.modules.script_engine.knowledge_bundle import InvalidKnowledgeBundleError
+from app.modules.script_engine.result_projection import compact_generation_payload, compact_generation_result
 from app.modules.script_engine.script_post_editor import InvalidScriptPostEditError
 from app.modules.script_engine.models import (
     BilingualScriptViewRequest,
@@ -111,6 +114,8 @@ def _raise_llm_configuration_unavailable(
 
 
 def _public_llm_request_message(error: LLMRequestError) -> str:
+    if error.category == "deadline":
+        return "本次正文生成已达到累计时限并停止，已保留此前成功保存的内容；请检查模型服务后再重试当前集。"
     if error.status_code == 429:
         return "上游模型当前请求过多，已保留此前成功保存的内容，请稍后继续。"
     if error.category == "empty_response":
@@ -141,6 +146,8 @@ def _public_llm_request_message(error: LLMRequestError) -> str:
 
 
 def _llm_request_is_retryable(error: LLMRequestError) -> bool:
+    if error.category == "deadline":
+        return False
     provider_status = error.status_code
     # The adapter must not repeat a long 524 request on the same route. The
     # browser may, however, make one bounded reconnect with the same stable
@@ -182,7 +189,9 @@ def _raise_llm_upstream_unavailable(error: LLMRequestError) -> NoReturn:
         headers=_generation_failure_headers(
             retryable=retryable,
             failure_class=(
-                "checkpoint_recoverable"
+                "time_budget_exhausted"
+                if error.category == "deadline"
+                else "checkpoint_recoverable"
                 if gateway_deadline
                 else "transient_upstream"
                 if retryable
@@ -193,7 +202,9 @@ def _raise_llm_upstream_unavailable(error: LLMRequestError) -> NoReturn:
                 else "input"
             ),
             error_type=(
-                "provider_gateway_deadline"
+                "local_deadline_exceeded"
+                if error.category == "deadline"
+                else "provider_gateway_deadline"
                 if gateway_deadline
                 else "upstream_unavailable"
                 if retryable
@@ -284,6 +295,7 @@ def generate_script_draft(
         MissingSceneSettingSourceError,
         InvalidResolvedCreativeContextError,
         InvalidKnowledgeBundleError,
+        EpisodeExecutionNotReadyError,
     ) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except (
@@ -337,7 +349,7 @@ def generate_script_draft(
 
     response.headers["X-Agent-Run-ID"] = agent_result.run.run_id
     response.headers["X-Agent-Run-Attempt"] = str(agent_result.run.attempt_count)
-    return ScriptGenerationDraftResponse(data=result)
+    return ScriptGenerationDraftResponse(data=compact_generation_result(result))
 
 
 @router.post(
@@ -416,19 +428,7 @@ def stream_script_draft(
                     runtime_metadata.get("episode_execution_context_saved_characters"),
                     runtime_metadata.get("model_repair_phases"),
                 )
-                result_payload = result.model_dump(mode="json")
-                # The streamed draft already contains the parsed screenplay. The
-                # full prompt and raw model JSON duplicate tens of thousands of
-                # characters in every browser workspace and are not needed for
-                # review, modification, retry, or export. Keep trace metadata and
-                # a schema-valid marker so later source-run requests still validate.
-                prompt_build = result_payload.get("prompt_build_result")
-                if isinstance(prompt_build, dict):
-                    prompt_build["prompt_text"] = (
-                        "Prompt omitted after streamed generation."
-                    )
-                    prompt_build["rendered_variables"] = {}
-                result_payload["llm_raw_output"] = {}
+                result_payload = compact_generation_payload(result)
                 publish("result", {"data": result_payload})
             except LLMRequestCancelledError:
                 logger.info(
@@ -461,13 +461,15 @@ def stream_script_draft(
                     )
                     error_payload.update({
                         "error_type": (
-                            "provider_gateway_deadline"
+                            "local_deadline_exceeded"
+                            if exc.category == "deadline"
+                            else "provider_gateway_deadline"
                             if gateway_deadline
                             else "upstream_unavailable"
                         ),
                         "message": (
                             "GPT正文终审服务暂时未完成本集优化，请从当前失败集重试。"
-                            if in_gpt_edit
+                            if in_gpt_edit and exc.category != "deadline"
                             else _public_llm_request_message(exc)
                         ),
                         "status": exc.status_code or 503,
@@ -612,7 +614,7 @@ def review_script_draft(
     service: ScriptGenerationService = Depends(get_script_generation_service),
 ) -> ScriptDraftReviewResponse:
     try:
-        return ScriptDraftReviewResponse(data=service.review_draft(payload))
+        return ScriptDraftReviewResponse(data=compact_generation_result(service.review_draft(payload)))
     except MissingGenerationStrategyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (
@@ -627,6 +629,7 @@ def review_script_draft(
     response_model=ScriptDraftModificationResponse,
     responses={
         404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
@@ -636,7 +639,9 @@ def modify_script_draft(
     service: ScriptGenerationService = Depends(get_script_generation_service),
 ) -> ScriptDraftModificationResponse:
     try:
-        return ScriptDraftModificationResponse(data=service.modify_draft(payload))
+        return ScriptDraftModificationResponse(data=compact_generation_result(service.modify_draft(payload)))
+    except AuthorConflictResolutionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (
         MissingContentSpecError,
         MissingGenerationStrategyError,
@@ -676,7 +681,7 @@ def deepen_script_draft(
     service: ScriptGenerationService = Depends(get_script_generation_service),
 ) -> ScriptCreativeDeepeningResponse:
     try:
-        return ScriptCreativeDeepeningResponse(data=service.deepen_draft(payload))
+        return ScriptCreativeDeepeningResponse(data=compact_generation_result(service.deepen_draft(payload)))
     except CreativeDeepeningDisabledError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -735,4 +740,4 @@ def revise_draft(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InvalidRevisionPlanError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    return ScriptRevisionResponse(data=result)
+    return ScriptRevisionResponse(data=compact_generation_result(result))

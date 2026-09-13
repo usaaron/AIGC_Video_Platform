@@ -4,11 +4,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   Check,
+  BookOpenText,
+  Clapperboard,
   ChevronRight,
   Circle,
+  FileText,
   List,
   LoaderCircle,
   TriangleAlert,
+  Workflow,
 } from "lucide-react";
 
 import type { DocumentOutlineEntry } from "@/components/document-outline";
@@ -24,10 +28,12 @@ import { useProjects } from "@/providers/project-provider";
 const SECTION_DEFINITIONS: Array<{
   id: WorkspaceSectionId;
   labelKey: string;
+  icon: typeof List;
 }> = [
-  { id: "story-bible", labelKey: "workspaceDirectory.storyBible" },
-  { id: "planning", labelKey: "workspaceDirectory.planning" },
-  { id: "script", labelKey: "workspaceDirectory.script" },
+  { id: "story-bible", labelKey: "workspaceDirectory.storyBible", icon: BookOpenText },
+  { id: "planning", labelKey: "workspaceDirectory.planning", icon: Workflow },
+  { id: "script", labelKey: "workspaceDirectory.script", icon: FileText },
+  { id: "storyboard", labelKey: "workspaceDirectory.storyboard", icon: Clapperboard },
 ];
 
 export function WorkspaceSectionDirectory({
@@ -50,6 +56,7 @@ export function WorkspaceSectionDirectory({
     storyBible: true,
     planning: false,
     script: false,
+    storyboard: false,
   };
   const visibleSections = SECTION_DEFINITIONS.filter((section) => (
     section.id === "story-bible"
@@ -70,6 +77,24 @@ export function WorkspaceSectionDirectory({
 
   return (
     <aside className="document-outline workspace-section-directory">
+      <div className="workspace-mobile-navigation">
+        <nav aria-label={t("workspaceDirectory.label")}>
+          {visibleSections.map(section => <Link key={section.id} aria-current={section.id === activeSection ? "page" : undefined}
+            href={project ? workspaceSectionHref(project, section.id) : `/projects/${projectId}/planning`}>
+            <section.icon aria-hidden="true" size={16} /><span>{t(section.labelKey)}</span>
+          </Link>)}
+        </nav>
+        {!!currentEntries.length && <label>
+          <span>{t(SECTION_DEFINITIONS.find(section => section.id === activeSection)!.labelKey)}</span>
+          <select aria-label={t("workspaceDirectory.jumpTo")} value={activeEntryId ?? ""}
+            onChange={event => { const entry = currentEntries.find(item => item.id === event.target.value); if (entry) onSelect(entry); }}>
+            <option value="" disabled>{t("workspaceDirectory.jumpTo")}</option>
+            {currentEntries.map(entry => <option key={entry.id} value={entry.id} disabled={entry.disabled}>
+              {entry.label}{entry.meta ? " · " + entry.meta : ""}
+            </option>)}
+          </select>
+        </label>}
+      </div>
       <div className="document-outline-heading workspace-section-directory-heading">
         <span><List aria-hidden="true" size={14} />{t("workspaceDirectory.label")}</span>
         {project && access.planning ? (
@@ -103,8 +128,9 @@ export function WorkspaceSectionDirectory({
                   ))}
                   type="button"
                 >
-                  <ChevronRight aria-hidden="true" size={13} />
+                  <section.icon aria-hidden="true" size={16} />
                   <span>{t(section.labelKey)}</span>
+                  <ChevronRight aria-hidden="true" className="workspace-section-chevron" size={14} />
                 </button>
               ) : (
                 <Link
@@ -112,7 +138,7 @@ export function WorkspaceSectionDirectory({
                   className="workspace-section-directory-section"
                   href={sectionHref}
                 >
-                  {isExpandable ? <ChevronRight aria-hidden="true" size={13} /> : null}
+                  <section.icon aria-hidden="true" size={16} />
                   <span>{t(section.labelKey)}</span>
                 </Link>
               )}
@@ -127,7 +153,7 @@ export function WorkspaceSectionDirectory({
                       aria-label={entry.statusLabel
                         ? `${entry.label}，${entry.statusLabel}`
                         : entry.label}
-                      className={`${activeEntryId === entry.id ? "is-active" : ""}${entry.status ? ` has-status is-${entry.status}` : ""}`}
+                      className={`${activeEntryId === entry.id ? "is-active" : ""}${entry.isCurrent ? " is-current" : ""}${entry.depth ? " is-nested" : ""}${entry.status ? ` has-status is-${entry.status}` : ""}`}
                       disabled={entry.disabled}
                       key={entry.id}
                       onClick={() => onSelect(entry)}

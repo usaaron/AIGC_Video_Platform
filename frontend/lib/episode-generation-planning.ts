@@ -5,6 +5,7 @@ import type {
 } from "@/lib/story-planning-client";
 import type {
   EpisodeRoadmapItem,
+  EpisodeDramaticUnit,
   EpisodeSceneExecutionBeat,
   ScriptProject,
   StorylineDuty,
@@ -71,6 +72,8 @@ export interface EpisodeExecutionPlan {
   stage_opposition?: string | null;
   episode_payoff?: string | null;
   pressure_escalation?: string | null;
+  dramatic_units: EpisodeDramaticUnit[];
+  protagonist_cost?: string | null;
   setup_refs: string[];
   payoff_refs: string[];
   exit_state: string;
@@ -84,6 +87,7 @@ export interface EpisodeExecutionPlan {
   next_episode_obligation?: string | null;
   hook_payoff_target_episode?: number | null;
   scene_execution_plan: EpisodeSceneExecutionBeat[];
+  execution_ready?: boolean;
   layer_contracts?: EpisodeThreeLayerContract | null;
 }
 
@@ -155,6 +159,10 @@ export function episodeGenerationExecutionPlan(
     stage_opposition: "stage_opposition" in plan ? plan.stage_opposition : null,
     episode_payoff: "episode_payoff" in plan ? plan.episode_payoff : null,
     pressure_escalation: "pressure_escalation" in plan ? plan.pressure_escalation : null,
+    dramatic_units: "dramatic_units" in plan && Array.isArray(plan.dramatic_units)
+      ? plan.dramatic_units
+      : [],
+    protagonist_cost: "protagonist_cost" in plan ? plan.protagonist_cost?.trim() || null : null,
     setup_refs: plan.setup_refs ?? [],
     payoff_refs: plan.payoff_refs ?? [],
     exit_state: plan.exit_state,

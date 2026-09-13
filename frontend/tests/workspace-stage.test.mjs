@@ -27,6 +27,7 @@ test("workspace sections appear only after their planning checkpoint", () => {
     storyBible: true,
     planning: false,
     script: false,
+    storyboard: false,
   });
   assert.equal(workspaceSectionAccess(project({
     planningSession: { phase: "story_tree", status: "active" },

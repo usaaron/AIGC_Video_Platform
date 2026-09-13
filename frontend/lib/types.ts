@@ -77,6 +77,8 @@ export interface CharacterKnowledgeRecord {
   knowledgeKey: string;
   statement: string;
   status: "known" | "believed" | "suspected" | "disproved" | "forgotten";
+  lastUpdatedEpisode?: number;
+  evidenceSceneNumbers?: number[];
 }
 
 export interface CharacterStateChange {
@@ -204,6 +206,8 @@ export interface ScriptProject {
   inputReadiness?: InputReadinessAnalysis;
   /** Source-grounded episode-plan import remains a reviewable staging draft. */
   episodePlanImportDraft?: EpisodePlanImportDraft;
+  /** Immutable server receipts for author-confirmed source materializations. */
+  episodePlanMaterializations?: EpisodePlanMaterializationReceipt[];
   generationSettings: GenerationSettings;
   episodes: EpisodeWorkspace[];
   generationBatches: GenerationBatchRecord[];
@@ -420,6 +424,7 @@ export interface StoryInspirationMessage {
   role: "assistant" | "user";
   content: string;
   questions: StoryInspirationFrontierQuestion[];
+  candidate_history?: Record<string, string[]>;
   createdAt: string;
 }
 
@@ -487,6 +492,8 @@ export interface GenerationRecoveryTask {
   createdAt: string;
   checkpointedAt: string;
   completedAt?: string;
+  leaseId?: string;
+  leaseExpiresAt?: string;
   serverBacked?: boolean;
 }
 
@@ -495,6 +502,11 @@ export interface EpisodeSceneExecutionBeat {
   scene_heading: string;
   character_refs: string[];
   scene_objective: string;
+  opposition?: string | null;
+  information_shift?: string | null;
+  choice_or_cost?: string | null;
+  evidence_requirements?: string[];
+  forbidden_changes?: string[];
   visible_action: string;
   turn_or_reveal: string;
   dialogue_objective: string;
@@ -592,6 +604,8 @@ export interface EpisodeRoadmapItem {
   stage_opposition: string;
   episode_payoff: string;
   pressure_escalation: string;
+  dramatic_units?: EpisodeDramaticUnit[];
+  protagonist_cost?: string | null;
   setup_refs: string[];
   payoff_refs: string[];
   exit_state: string;
@@ -605,7 +619,37 @@ export interface EpisodeRoadmapItem {
   next_episode_obligation: string;
   hook_payoff_target_episode: number | null;
   scene_execution_plan?: EpisodeSceneExecutionBeat[];
+  execution_ready?: boolean;
   layer_contracts?: EpisodeThreeLayerContract | null;
+}
+
+export interface EpisodePlanMaterializationReceipt {
+  schemaVersion: "episode_plan_materialization.v1";
+  materializationId: string;
+  sourceFingerprint: string;
+  storyBibleId: string;
+  storyBibleVersion: number;
+  status: "draft";
+  episodeNumbers: number[];
+  targetNodeRefs: Array<{
+    nodeId: string;
+    nodeVersion: number;
+    startEpisode: number;
+    endEpisode: number;
+  }>;
+  unresolvedFieldCount: number;
+  roadmapDraftCount: number;
+  previewCreatedAt: string;
+  authorConfirmedAt: string;
+  createdAt: string;
+}
+
+export interface EpisodeDramaticUnit {
+  trigger: string;
+  choice: string;
+  visible_consequence: string;
+  change_type: string;
+  evidence_hint?: string | null;
 }
 
 export type EpisodeStatus =
@@ -626,6 +670,8 @@ export interface EpisodeWorkspace {
   confirmedDraftJson?: string;
   hasLocalDraftEdits: boolean;
   modificationCandidate?: ScriptDraftModificationResult;
+  modificationCandidateSourceSnapshot?: string;
+  pendingAuthorConflict?: PendingAuthorConflict;
   deepeningRun?: CreativeDeepeningRun;
   revisionRun?: ScriptRevisionRun;
   finalizationResult?: MasterScriptFinalizationResult;
@@ -782,21 +828,37 @@ export interface GeneratedSceneCausality {
   causal_link: string | null;
 }
 
+export interface GeneratedSceneContentManifest {
+  location: string;
+  time_of_day: string;
+  character_refs: string[];
+  objective: string;
+  conflict: string;
+  turning_point: string;
+  outcome: string;
+  props: string[];
+  entry_state: string;
+  exit_state: string;
+}
+
 export interface GeneratedScene {
   scene_number: number;
   slug: string;
+  scene_heading?: string | null;
   purpose: string;
   beat_summary: string;
   setting?: string;
   setting_hint?: string;
   emotional_shift?: string;
   emotional_objective?: string;
+  character_refs?: string[];
   character_actions: string[];
   body_order?: Array<`action:${number}` | `dialogue:${number}`>;
   turning_point?: string;
   scene_causality?: GeneratedSceneCausality;
   dialogues: GeneratedDialogue[];
   cliffhanger: boolean;
+  content_manifest?: GeneratedSceneContentManifest | null;
 }
 
 export interface GeneratedDraft {
@@ -805,6 +867,8 @@ export interface GeneratedDraft {
   logline: string;
   synopsis: string;
   hook: string;
+  episode_cast?: string[];
+  locations?: string[];
   target_audience?: string;
   episode_goal?: string;
   language: string;
@@ -970,7 +1034,56 @@ export interface ContinuityQCReport {
 export interface ScriptDraftModificationResult {
   source_draft_master_script_id: string;
   instruction: string;
-  candidate_generation_run: ScriptGenerationRun;
+  candidate_generation_run?: ScriptGenerationRun | null;
+  conflict_review?: AuthorConflictReview | null;
+}
+
+export interface AuthorConflictOption {
+  option_id: string;
+  kind: "bridge" | "revise_upstream";
+  title: string;
+  plan: string;
+  impact: string;
+}
+
+export interface AuthorConflictReview {
+  review_id: string;
+  source_fingerprint: string;
+  instruction: string;
+  user_goal: string;
+  conflicts: Array<{
+    source_ref: string;
+    established_fact: string;
+    requested_change: string;
+    impact: string;
+  }>;
+  options: AuthorConflictOption[];
+  source_story_bible_version?: number | null;
+}
+
+export interface AuthorConflictResolution {
+  review: AuthorConflictReview;
+  option_id: string;
+}
+
+export interface PendingAuthorConflict {
+  review: AuthorConflictReview;
+  source_snapshot: string;
+  selection_context?: {
+    source_field: string;
+    selected_text: string;
+    before_text: string;
+    after_text: string;
+  } | null;
+  selected_option_id?: string;
+  custom_direction?: string;
+  revision_request_id: string;
+  resolved?: {
+    kind: "bridge" | "revise_upstream" | "withdrawn";
+    option_id?: string;
+    project_id?: string;
+    resolved_at: string;
+  };
 }
 
 export interface StoryQCReport {
@@ -1042,6 +1155,7 @@ export type InputReadinessLevel =
 export type InputReadinessStage = "story_bible" | "planning" | "script";
 
 export type InputReadinessCapacityStatus =
+  | "not_estimated"
   | "sufficient"
   | "supplement_recommended"
   | "target_reduce_recommended";
@@ -1069,6 +1183,11 @@ export interface InputReadinessAnalysis {
   requiresUserConfirmation: boolean;
   analysisMethod: "heuristic" | "model_assisted";
   analyzedAt: string;
+  assessmentVersion?: number;
+  knownFacts?: InputSourceFact[];
+  episodeAudit?: InputEpisodeAudit | null;
+  structurallyComplete?: boolean;
+  analysisNotice?: string | null;
   detectedEpisodeCount?: number | null;
   selectedPath?: "recommended" | "full_workflow";
   selectedAt?: string;
@@ -1078,6 +1197,28 @@ export interface InputReadinessAnalysis {
   capacityStatus?: InputReadinessCapacityStatus;
   recommendedTargetTotalCharacters?: number | null;
   supplementQuestions?: string[];
+}
+
+export interface InputSourceFact {
+  field: "story_promise" | "protagonist_and_goal" | "core_obstacle" | "stakes"
+    | "relationship_direction" | "reveal_or_twist" | "ending_direction" | "tone_and_pacing" | "world_setting";
+  sourceId: string;
+  sourceName: string;
+  quote: string;
+  start: number;
+  end: number;
+}
+
+export interface InputEpisodeAudit {
+  targetCount: number;
+  suppliedNumbers: number[];
+  completePlanNumbers: number[];
+  scriptNumbers: number[];
+  missingNumbers: number[];
+  incompleteNumbers: number[];
+  duplicateNumbers: number[];
+  outOfRangeNumbers: number[];
+  unnumberedScript: boolean;
 }
 
 export type TagCategory = "Genre" | "Story Element" | "Emotion" | "Audience" | "My Tags";

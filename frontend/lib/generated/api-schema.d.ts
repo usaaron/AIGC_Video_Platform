@@ -262,6 +262,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hongguo/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Categories */
+        get: operations["get_categories_hongguo_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hongguo/trending-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Trending Tags */
+        get: operations["get_trending_tags_hongguo_trending_tags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ingestion-jobs": {
         parameters: {
             query?: never;
@@ -823,6 +857,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/story-projects/{project_id}/author-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Author Revision */
+        post: operations["create_author_revision_story_projects__project_id__author_revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/story-projects/{project_id}/continuity-ledger/audit": {
         parameters: {
             query?: never;
@@ -902,6 +953,24 @@ export interface paths {
         put?: never;
         /** Generate Creative Directions */
         post: operations["generate_creative_directions_story_projects__project_id__creative_directions_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/story-projects/{project_id}/episode-plan-materializations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Episode Plan Materializations */
+        get: operations["list_episode_plan_materializations_story_projects__project_id__episode_plan_materializations_get"];
+        put?: never;
+        /** Create Episode Plan Materialization */
+        post: operations["create_episode_plan_materialization_story_projects__project_id__episode_plan_materializations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1011,6 +1080,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/story-projects/{project_id}/episodes/{episode_number}/storyboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Storyboard */
+        get: operations["get_storyboard_story_projects__project_id__episodes__episode_number__storyboard_get"];
+        /** Edit Storyboard */
+        put: operations["edit_storyboard_story_projects__project_id__episodes__episode_number__storyboard_put"];
+        /** Start Storyboard */
+        post: operations["start_storyboard_story_projects__project_id__episodes__episode_number__storyboard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/story-projects/{project_id}/episodes/{episode_number}/storyboard/scenes/{scene_number}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Storyboard Scene */
+        post: operations["generate_storyboard_scene_story_projects__project_id__episodes__episode_number__storyboard_scenes__scene_number__generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/story-projects/{project_id}/generation-tasks/recoverable": {
         parameters: {
             query?: never;
@@ -1040,6 +1145,23 @@ export interface paths {
         /** Save Generation Task */
         put: operations["save_generation_task_story_projects__project_id__generation_tasks__job_id__put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/story-projects/{project_id}/generation-tasks/{job_id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim Generation Task */
+        post: operations["claim_generation_task_story_projects__project_id__generation_tasks__job_id__claim_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1776,6 +1898,8 @@ export interface components {
             cliffhanger: string;
             /** Continuity Requirements */
             continuity_requirements?: string[];
+            /** Dramatic Units */
+            dramatic_units?: components["schemas"]["EpisodeDramaticUnit"][];
             /** Emotional Movement */
             emotional_movement: string;
             /** Ending Hook Type */
@@ -1790,6 +1914,11 @@ export interface components {
             episode_number: number;
             /** Episode Payoff */
             episode_payoff?: string | null;
+            /**
+             * Execution Ready
+             * @default false
+             */
+            execution_ready: boolean;
             /** Exit State */
             exit_state: string;
             /** Hook Payoff Target Episode */
@@ -1816,6 +1945,8 @@ export interface components {
             planned_shot_count: number;
             /** Pressure Escalation */
             pressure_escalation?: string | null;
+            /** Protagonist Cost */
+            protagonist_cost?: string | null;
             /** Protagonist Decision */
             protagonist_decision: string;
             /** Reveal */
@@ -1981,6 +2112,92 @@ export interface components {
          * @enum {string}
          */
         AssetType: "story_structure" | "character" | "world" | "action" | "voice" | "camera" | "scene" | "style" | "platform_knowledge";
+        /** AuthorConflictEvidence */
+        AuthorConflictEvidence: {
+            /** Established Fact */
+            established_fact: string;
+            /** Impact */
+            impact: string;
+            /** Requested Change */
+            requested_change: string;
+            /** Source Ref */
+            source_ref: string;
+        };
+        /** AuthorConflictOption */
+        AuthorConflictOption: {
+            /** Impact */
+            impact: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "bridge" | "revise_upstream";
+            /** Option Id */
+            option_id: string;
+            /** Plan */
+            plan: string;
+            /** Title */
+            title: string;
+        };
+        /** AuthorConflictResolution */
+        AuthorConflictResolution: {
+            /** Option Id */
+            option_id: string;
+            review: components["schemas"]["AuthorConflictReview"];
+        };
+        /** AuthorConflictReview */
+        AuthorConflictReview: {
+            /** Conflicts */
+            conflicts?: components["schemas"]["AuthorConflictEvidence"][];
+            /** Instruction */
+            instruction: string;
+            /** Options */
+            options?: components["schemas"]["AuthorConflictOption"][];
+            /** Review Id */
+            review_id: string;
+            /** Source Fingerprint */
+            source_fingerprint: string;
+            /** Source Story Bible Version */
+            source_story_bible_version?: number | null;
+            /** User Goal */
+            user_goal: string;
+        };
+        /** AuthorRevisionRequest */
+        AuthorRevisionRequest: {
+            /** Expected Workspace Revision */
+            expected_workspace_revision: number;
+            /** Instruction */
+            instruction: string;
+            /** Option Id */
+            option_id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Resolution Plan */
+            resolution_plan: string;
+            /** Review Id */
+            review_id: string;
+            /** Source Story Bible Version */
+            source_story_bible_version: number;
+        };
+        /** AuthorRevisionResponse */
+        AuthorRevisionResponse: {
+            data: components["schemas"]["AuthorRevisionResult"];
+        };
+        /** AuthorRevisionResult */
+        AuthorRevisionResult: {
+            /** Project Id */
+            project_id: string;
+            /** Revision */
+            revision: number;
+            story_bible: components["schemas"]["StoryBible-Output"];
+            /** Workspace Payload */
+            workspace_payload: {
+                [key: string]: unknown;
+            };
+        };
         /**
          * BenchmarkDatasetType
          * @enum {string}
@@ -2466,8 +2683,12 @@ export interface components {
         ContinuityFactSource: "user_provided" | "generated" | "system_derived";
         /** ContinuityKnowledgeState */
         ContinuityKnowledgeState: {
+            /** Evidence Scene Numbers */
+            evidence_scene_numbers?: number[];
             /** Knowledge Key */
             knowledge_key: string;
+            /** Source Episode Number */
+            source_episode_number?: number | null;
             /** Statement */
             statement: string;
             /** Status */
@@ -2990,6 +3211,13 @@ export interface components {
         /** CreativeInputReadiness */
         CreativeInputReadiness: {
             analysis_method: components["schemas"]["InputReadinessAnalysisMethod"];
+            /** Analysis Notice */
+            analysis_notice?: string | null;
+            /**
+             * Assessment Version
+             * @default 2
+             */
+            assessment_version: number;
             /** @default sufficient */
             capacity_status: components["schemas"]["InputReadinessCapacityStatus"];
             /** Confidence */
@@ -2998,6 +3226,7 @@ export interface components {
             /** Detected Episode Count */
             detected_episode_count?: number | null;
             detected_level: components["schemas"]["InputReadinessLevel"];
+            episode_audit?: components["schemas"]["InputEpisodeAudit"] | null;
             /**
              * Estimated Supported Characters
              * @default 0
@@ -3005,6 +3234,8 @@ export interface components {
             estimated_supported_characters: number;
             /** Evidence */
             evidence?: string[];
+            /** Known Facts */
+            known_facts?: components["schemas"]["InputSourceFact"][];
             /** Missing Items */
             missing_items?: string[];
             recommended_stage: components["schemas"]["RecommendedWorkflowStage"];
@@ -3027,6 +3258,11 @@ export interface components {
             source_character_count: number;
             /** Source Kinds */
             source_kinds?: components["schemas"]["InputReadinessSourceKind"][];
+            /**
+             * Structurally Complete
+             * @default false
+             */
+            structurally_complete: boolean;
             /** Supplement Questions */
             supplement_questions?: string[];
         };
@@ -3053,6 +3289,11 @@ export interface components {
              * @default 140000
              */
             target_total_characters: number;
+            /**
+             * Use Model
+             * @default true
+             */
+            use_model: boolean;
         };
         /** CreativeInputReadinessResponse */
         CreativeInputReadinessResponse: {
@@ -3377,6 +3618,8 @@ export interface components {
             created_at?: string;
             /** @default serial_hook */
             ending_mode: components["schemas"]["EndingMode"];
+            /** Episode Cast */
+            episode_cast?: string[];
             /** Episode Goal */
             episode_goal: string;
             /** Generation Strategy Id */
@@ -3391,6 +3634,8 @@ export interface components {
             llm_metadata?: {
                 [key: string]: unknown;
             };
+            /** Locations */
+            locations?: string[];
             /** Logline */
             logline?: string | null;
             /** Next Episode Question */
@@ -3430,11 +3675,14 @@ export interface components {
             body_order?: string[];
             /** Character Actions */
             character_actions?: string[];
+            /** Character Refs */
+            character_refs?: string[];
             /**
              * Cliffhanger
              * @default false
              */
             cliffhanger: boolean;
+            content_manifest?: components["schemas"]["SceneContentManifest"] | null;
             /** Dialogue Prompts */
             dialogue_prompts?: string[];
             /** Dialogues */
@@ -3446,6 +3694,8 @@ export interface components {
             /** Purpose */
             purpose: string;
             scene_causality?: components["schemas"]["SceneCausality"] | null;
+            /** Scene Heading */
+            scene_heading?: string | null;
             /** Scene Number */
             scene_number: number;
             /** Setting Hint */
@@ -3606,6 +3856,22 @@ export interface components {
             /** New Fact Ids */
             new_fact_ids?: string[];
         };
+        /**
+         * EpisodeDramaticUnit
+         * @description One observable change that gives an episode its own dramatic shape.
+         */
+        EpisodeDramaticUnit: {
+            /** Change Type */
+            change_type: string;
+            /** Choice */
+            choice: string;
+            /** Evidence Hint */
+            evidence_hint?: string | null;
+            /** Trigger */
+            trigger: string;
+            /** Visible Consequence */
+            visible_consequence: string;
+        };
         /** EpisodeGenerationContext */
         EpisodeGenerationContext: {
             approved_episode_plan?: components["schemas"]["ApprovedEpisodePlanContext"] | null;
@@ -3726,6 +3992,8 @@ export interface components {
             cliffhanger: string;
             /** Continuity Requirements */
             continuity_requirements?: string[];
+            /** Dramatic Units */
+            dramatic_units?: components["schemas"]["EpisodeDramaticUnit"][];
             /** Emotional Movement */
             emotional_movement: string;
             /** @default serial_hook */
@@ -3746,6 +4014,8 @@ export interface components {
             locations?: string[];
             /** Payoff Refs */
             payoff_refs?: string[];
+            /** Protagonist Cost */
+            protagonist_cost?: string | null;
             /** Protagonist Decision */
             protagonist_decision: string;
             /** Reveal */
@@ -3809,6 +4079,8 @@ export interface components {
             cliffhanger: string;
             /** Continuity Requirements */
             continuity_requirements?: string[];
+            /** Dramatic Units */
+            dramatic_units?: components["schemas"]["EpisodeDramaticUnit"][];
             /** Emotional Movement */
             emotional_movement: string;
             /**
@@ -3831,6 +4103,11 @@ export interface components {
             episode_payoff: string;
             /** Episode Title */
             episode_title?: string | null;
+            /**
+             * Execution Ready
+             * @default false
+             */
+            execution_ready: boolean;
             /** Exit State */
             exit_state: string;
             /** Hook Payoff Target Episode */
@@ -3865,6 +4142,8 @@ export interface components {
              * @default 当前结果引出更高一级的因果压力。
              */
             pressure_escalation: string;
+            /** Protagonist Cost */
+            protagonist_cost?: string | null;
             /** Protagonist Decision */
             protagonist_decision: string;
             /** Reveal */
@@ -3950,6 +4229,280 @@ export interface components {
             /** Data */
             data: components["schemas"]["EpisodePlan"][];
         };
+        /** EpisodePlanMaterialization */
+        EpisodePlanMaterialization: {
+            /**
+             * Adapter Version
+             * @constant
+             */
+            adapter_version: "heading-segment-v1";
+            /**
+             * Author Confirmed At
+             * Format: date-time
+             */
+            author_confirmed_at: string;
+            /**
+             * Confirmed By
+             * @default author
+             * @constant
+             */
+            confirmed_by: "author";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Draft Schema Version
+             * @constant
+             */
+            draft_schema_version: "episode_plan_import.v1";
+            /**
+             * Fingerprint Algorithm
+             * @enum {string}
+             */
+            fingerprint_algorithm: "sha256" | "fnv1a32";
+            /** Mappings */
+            mappings: components["schemas"]["EpisodePlanMaterializationMapping"][];
+            /** Materialization Id */
+            materialization_id: string;
+            /**
+             * Preview Created At
+             * Format: date-time
+             */
+            preview_created_at: string;
+            /**
+             * Preview Status
+             * @default staging
+             * @constant
+             */
+            preview_status: "staging";
+            /**
+             * Review Required
+             * @default true
+             * @constant
+             */
+            review_required: true;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "episode_plan_materialization.v1";
+            /** Source Document */
+            source_document: string;
+            /** Source Fingerprint */
+            source_fingerprint: string;
+            /**
+             * Status
+             * @default draft
+             * @constant
+             */
+            status: "draft";
+            /** Story Bible Id */
+            story_bible_id: string;
+            /** Story Bible Version */
+            story_bible_version: number;
+            /** Story Project Id */
+            story_project_id: string;
+            /** Unresolved Fields */
+            unresolved_fields?: components["schemas"]["EpisodePlanMaterializationUnresolved"][];
+        };
+        /**
+         * EpisodePlanMaterializationCreate
+         * @description Author-confirmed, immutable import batch; still draft planning data.
+         */
+        EpisodePlanMaterializationCreate: {
+            /**
+             * Adapter Version
+             * @constant
+             */
+            adapter_version: "heading-segment-v1";
+            /**
+             * Author Confirmed At
+             * Format: date-time
+             */
+            author_confirmed_at: string;
+            /**
+             * Confirmed By
+             * @default author
+             * @constant
+             */
+            confirmed_by: "author";
+            /**
+             * Draft Schema Version
+             * @constant
+             */
+            draft_schema_version: "episode_plan_import.v1";
+            /**
+             * Fingerprint Algorithm
+             * @enum {string}
+             */
+            fingerprint_algorithm: "sha256" | "fnv1a32";
+            /** Mappings */
+            mappings: components["schemas"]["EpisodePlanMaterializationMapping"][];
+            /**
+             * Preview Created At
+             * Format: date-time
+             */
+            preview_created_at: string;
+            /**
+             * Preview Status
+             * @default staging
+             * @constant
+             */
+            preview_status: "staging";
+            /**
+             * Review Required
+             * @default true
+             * @constant
+             */
+            review_required: true;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "episode_plan_materialization.v1";
+            /** Source Document */
+            source_document: string;
+            /** Source Fingerprint */
+            source_fingerprint: string;
+            /** Story Bible Id */
+            story_bible_id: string;
+            /** Story Bible Version */
+            story_bible_version: number;
+            /** Unresolved Fields */
+            unresolved_fields?: components["schemas"]["EpisodePlanMaterializationUnresolved"][];
+        };
+        /** EpisodePlanMaterializationFieldProvenance */
+        EpisodePlanMaterializationFieldProvenance: {
+            /** Episode Number */
+            episode_number: number;
+            /**
+             * Field
+             * @enum {string}
+             */
+            field: "episode_title" | "synopsis" | "episode_goal" | "entry_state" | "central_conflict" | "protagonist_decision" | "reveal" | "emotional_movement" | "stage_opposition" | "episode_payoff" | "pressure_escalation" | "exit_state" | "cliffhanger" | "ending_hook_type" | "next_episode_obligation" | "locations" | "character_refs" | "story_line_refs" | "setup_refs" | "payoff_refs" | "source_turning_points" | "source_unit_story_beats";
+            /** Row Ordinal */
+            row_ordinal: number;
+            /**
+             * Source
+             * @default source
+             * @constant
+             */
+            source: "source";
+            span?: components["schemas"]["EpisodePlanMaterializationSourceSpan"] | null;
+            /** Value */
+            value: string;
+        };
+        /**
+         * EpisodePlanMaterializationFields
+         * @description Source-derived roadmap fields before any approval or prose generation.
+         */
+        EpisodePlanMaterializationFields: {
+            /** Central Conflict */
+            central_conflict?: string | null;
+            /** Character Refs */
+            character_refs?: string[];
+            /** Cliffhanger */
+            cliffhanger?: string | null;
+            /** Emotional Movement */
+            emotional_movement?: string | null;
+            /** Ending Hook Type */
+            ending_hook_type?: string | null;
+            /** Entry State */
+            entry_state?: string | null;
+            /** Episode Goal */
+            episode_goal?: string | null;
+            /** Episode Payoff */
+            episode_payoff?: string | null;
+            /** Episode Title */
+            episode_title?: string | null;
+            /** Exit State */
+            exit_state?: string | null;
+            /** Locations */
+            locations?: string[];
+            /** Next Episode Obligation */
+            next_episode_obligation?: string | null;
+            /** Payoff Refs */
+            payoff_refs?: string[];
+            /** Pressure Escalation */
+            pressure_escalation?: string | null;
+            /** Protagonist Decision */
+            protagonist_decision?: string | null;
+            /** Reveal */
+            reveal?: string | null;
+            /** Setup Refs */
+            setup_refs?: string[];
+            /** Source Turning Points */
+            source_turning_points?: string[];
+            /** Source Unit Story Beats */
+            source_unit_story_beats?: string[];
+            /** Stage Opposition */
+            stage_opposition?: string | null;
+            /** Story Line Refs */
+            story_line_refs?: string[];
+            /** Synopsis */
+            synopsis?: string | null;
+        };
+        /** EpisodePlanMaterializationListResponse */
+        EpisodePlanMaterializationListResponse: {
+            /** Data */
+            data: components["schemas"]["EpisodePlanMaterialization"][];
+        };
+        /** EpisodePlanMaterializationMapping */
+        EpisodePlanMaterializationMapping: {
+            /** Episode Number */
+            episode_number: number;
+            /** Field Provenance */
+            field_provenance?: {
+                [key: string]: components["schemas"]["EpisodePlanMaterializationFieldProvenance"];
+            };
+            fields: components["schemas"]["EpisodePlanMaterializationFields"];
+            /**
+             * Review Required
+             * @default true
+             * @constant
+             */
+            review_required: true;
+            /** Source End */
+            source_end: number;
+            /** Source Raw Text */
+            source_raw_text: string;
+            /** Source Row Ordinal */
+            source_row_ordinal: number;
+            /** Source Start */
+            source_start: number;
+            /** Target Episode End */
+            target_episode_end: number;
+            /** Target Episode Start */
+            target_episode_start: number;
+            /** Target Node Id */
+            target_node_id: string;
+            /** Target Node Version */
+            target_node_version: number;
+            /** Unresolved Fields */
+            unresolved_fields?: ("episode_title" | "synopsis" | "episode_goal" | "entry_state" | "central_conflict" | "protagonist_decision" | "reveal" | "emotional_movement" | "stage_opposition" | "episode_payoff" | "pressure_escalation" | "exit_state" | "cliffhanger" | "ending_hook_type" | "next_episode_obligation" | "locations" | "character_refs" | "story_line_refs" | "setup_refs" | "payoff_refs" | "source_turning_points" | "source_unit_story_beats")[];
+        };
+        /** EpisodePlanMaterializationResponse */
+        EpisodePlanMaterializationResponse: {
+            data: components["schemas"]["EpisodePlanMaterialization"];
+        };
+        /** EpisodePlanMaterializationSourceSpan */
+        EpisodePlanMaterializationSourceSpan: {
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+        };
+        /** EpisodePlanMaterializationUnresolved */
+        EpisodePlanMaterializationUnresolved: {
+            /** Episode Number */
+            episode_number: number;
+            /** Fields */
+            fields: ("episode_title" | "synopsis" | "episode_goal" | "entry_state" | "central_conflict" | "protagonist_decision" | "reveal" | "emotional_movement" | "stage_opposition" | "episode_payoff" | "pressure_escalation" | "exit_state" | "cliffhanger" | "ending_hook_type" | "next_episode_obligation" | "locations" | "character_refs" | "story_line_refs" | "setup_refs" | "payoff_refs" | "source_turning_points" | "source_unit_story_beats")[];
+            /** Row Ordinal */
+            row_ordinal: number;
+        };
         /** EpisodePlanResponse */
         EpisodePlanResponse: {
             data: components["schemas"]["EpisodePlan"];
@@ -4018,12 +4571,22 @@ export interface components {
         EpisodeSceneExecutionBeat: {
             /** Character Refs */
             character_refs: string[];
+            /** Choice Or Cost */
+            choice_or_cost?: string | null;
             /** Dialogue Line Target */
             dialogue_line_target: number;
             /** Dialogue Objective */
             dialogue_objective: string;
+            /** Evidence Requirements */
+            evidence_requirements?: string[];
             /** Exit State */
             exit_state: string;
+            /** Forbidden Changes */
+            forbidden_changes?: string[];
+            /** Information Shift */
+            information_shift?: string | null;
+            /** Opposition */
+            opposition?: string | null;
             /** Scene Heading */
             scene_heading: string;
             /** Scene Number */
@@ -4240,6 +4803,10 @@ export interface components {
             job_id: string;
             /** Last Error */
             last_error?: string | null;
+            /** Lease Expires At */
+            lease_expires_at?: string | null;
+            /** Lease Id */
+            lease_id?: string | null;
             /**
              * Revision
              * @default 1
@@ -4296,6 +4863,12 @@ export interface components {
             model_name: string;
             /** Model Provider */
             model_provider: string;
+            /**
+             * Model Tier
+             * @default strong_planner
+             * @enum {string}
+             */
+            model_tier: "strong_planner" | "fast_executor";
             /** Name */
             name: string;
             /** Output Schema */
@@ -4373,6 +4946,12 @@ export interface components {
             model_name: string;
             /** Model Provider */
             model_provider: string;
+            /**
+             * Model Tier
+             * @default strong_planner
+             * @enum {string}
+             */
+            model_tier: "strong_planner" | "fast_executor";
             /** Name */
             name: string;
             /** Output Schema */
@@ -4438,6 +5017,23 @@ export interface components {
         GenerationTaskCheckpointResponse: {
             data: components["schemas"]["GenerationTaskCheckpoint"] | null;
         };
+        /**
+         * GenerationTaskClaimRequest
+         * @description A bounded worker lease for one resumable generation task.
+         */
+        GenerationTaskClaimRequest: {
+            /** Lease Id */
+            lease_id: string;
+            /**
+             * Lease Ttl Seconds
+             * @default 300
+             */
+            lease_ttl_seconds: number;
+        };
+        /** GenerationTaskClaimResponse */
+        GenerationTaskClaimResponse: {
+            data: components["schemas"]["GenerationTaskCheckpoint"];
+        };
         /** GenerationWorkflowStep */
         GenerationWorkflowStep: {
             /** Description */
@@ -4469,6 +5065,152 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HongguoCategoriesData */
+        HongguoCategoriesData: {
+            /** Categories */
+            categories?: components["schemas"]["HongguoCategory"][];
+            /** Fetched At */
+            fetched_at?: string | null;
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "real" | "comic" | "ai";
+            /** Id */
+            id: string;
+            /**
+             * Last Attempt At
+             * Format: date-time
+             */
+            last_attempt_at: string;
+            /**
+             * Last Attempt Status
+             * @enum {string}
+             */
+            last_attempt_status: "succeeded" | "failed";
+            /**
+             * Next Refresh At
+             * Format: date-time
+             */
+            next_refresh_at: string;
+            /** Next Retry At */
+            next_retry_at?: string | null;
+            /** Source Updated Label */
+            source_updated_label?: string | null;
+            /** Source Url */
+            source_url: string;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "fresh" | "stale" | "unavailable";
+        };
+        /** HongguoCategoriesResponse */
+        HongguoCategoriesResponse: {
+            data: components["schemas"]["HongguoCategoriesData"];
+        };
+        /** HongguoCategory */
+        HongguoCategory: {
+            /** Label */
+            label: string;
+            /** Tag Id */
+            tag_id?: string | null;
+        };
+        /** HongguoSampleWork */
+        HongguoSampleWork: {
+            /** Cover Url */
+            cover_url?: string | null;
+            /** Rank */
+            rank: number;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
+        /** HongguoTagRecommendation */
+        HongguoTagRecommendation: {
+            /** Label */
+            label: string;
+            /**
+             * Rank
+             * @description Derived tag recommendation order, not an official tag rank.
+             */
+            rank: number;
+            /** Ranked Work Count */
+            ranked_work_count: number;
+            /** Raw Labels */
+            raw_labels: string[];
+            /** Sample Works */
+            sample_works?: components["schemas"]["HongguoSampleWork"][];
+            /** Tag Id */
+            tag_id?: string | null;
+            /** Weighted Score */
+            weighted_score: number;
+        };
+        /** HongguoTrendsData */
+        HongguoTrendsData: {
+            /** Fetched At */
+            fetched_at?: string | null;
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "real" | "comic" | "ai";
+            /** Id */
+            id: string;
+            /**
+             * Last Attempt At
+             * Format: date-time
+             */
+            last_attempt_at: string;
+            /**
+             * Last Attempt Status
+             * @enum {string}
+             */
+            last_attempt_status: "succeeded" | "failed";
+            /**
+             * Next Refresh At
+             * Format: date-time
+             */
+            next_refresh_at: string;
+            /** Next Retry At */
+            next_retry_at?: string | null;
+            /**
+             * Pages Fetched
+             * @default 0
+             */
+            pages_fetched: number;
+            /** Recommendations */
+            recommendations?: components["schemas"]["HongguoTagRecommendation"][];
+            /**
+             * Sample Work Count
+             * @default 0
+             */
+            sample_work_count: number;
+            /** Source Updated Label */
+            source_updated_label?: string | null;
+            /** Source Url */
+            source_url: string;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "fresh" | "stale" | "unavailable";
+        };
+        /** HongguoTrendsResponse */
+        HongguoTrendsResponse: {
+            data: components["schemas"]["HongguoTrendsData"];
+        };
         /**
          * IngestionRunStatus
          * @enum {string}
@@ -4479,6 +5221,30 @@ export interface components {
          * @enum {string}
          */
         IngestionScheduleType: "daily" | "weekly" | "custom_cron";
+        /** InputEpisodeAudit */
+        InputEpisodeAudit: {
+            /** Complete Plan Numbers */
+            complete_plan_numbers?: number[];
+            /** Duplicate Numbers */
+            duplicate_numbers?: number[];
+            /** Incomplete Numbers */
+            incomplete_numbers?: number[];
+            /** Missing Numbers */
+            missing_numbers?: number[];
+            /** Out Of Range Numbers */
+            out_of_range_numbers?: number[];
+            /** Script Numbers */
+            script_numbers?: number[];
+            /** Supplied Numbers */
+            supplied_numbers?: number[];
+            /** Target Count */
+            target_count: number;
+            /**
+             * Unnumbered Script
+             * @default false
+             */
+            unnumbered_script: boolean;
+        };
         /**
          * InputReadinessAnalysisMethod
          * @enum {string}
@@ -4488,7 +5254,7 @@ export interface components {
          * InputReadinessCapacityStatus
          * @enum {string}
          */
-        InputReadinessCapacityStatus: "sufficient" | "supplement_recommended" | "target_reduce_recommended";
+        InputReadinessCapacityStatus: "not_estimated" | "sufficient" | "supplement_recommended" | "target_reduce_recommended";
         /** InputReadinessCoverage */
         InputReadinessCoverage: {
             /** Episode Plan */
@@ -4510,6 +5276,24 @@ export interface components {
          * @enum {string}
          */
         InputReadinessSourceKind: "premise" | "story_bible" | "episode_plan" | "script" | "mixed";
+        /** InputSourceFact */
+        InputSourceFact: {
+            /** End */
+            end: number;
+            /**
+             * Field
+             * @enum {string}
+             */
+            field: "story_promise" | "protagonist_and_goal" | "core_obstacle" | "stakes" | "relationship_direction" | "reveal_or_twist" | "ending_direction" | "tone_and_pacing" | "world_setting";
+            /** Quote */
+            quote: string;
+            /** Source Id */
+            source_id: string;
+            /** Source Name */
+            source_name: string;
+            /** Start */
+            start: number;
+        };
         /** KeywordEvidence */
         KeywordEvidence: {
             /** Excerpt */
@@ -4636,6 +5420,8 @@ export interface components {
             created_at?: string;
             /** @default serial_hook */
             ending_mode: components["schemas"]["EndingMode"];
+            /** Episode Cast */
+            episode_cast?: string[];
             /** Episode Goal */
             episode_goal: string;
             /** Hook */
@@ -4645,6 +5431,8 @@ export interface components {
             /** Language */
             language: string;
             lineage: components["schemas"]["FinalMasterScriptLineage"];
+            /** Locations */
+            locations?: string[];
             /** Logline */
             logline?: string | null;
             /** Next Episode Question */
@@ -4721,6 +5509,8 @@ export interface components {
          * @description A bounded, source-linked memory selected for one generation task.
          */
         MemoryCapsule: {
+            /** Active Constraints */
+            active_constraints?: string[];
             /** @default derived */
             authority: components["schemas"]["MemoryAuthority"];
             /** Capsule Id */
@@ -4731,6 +5521,8 @@ export interface components {
             entity_refs?: string[];
             /** Evidence Refs */
             evidence_refs?: string[];
+            /** Knowledge States */
+            knowledge_states?: components["schemas"]["ContinuityKnowledgeState"][];
             /**
              * Mandatory
              * @default false
@@ -5309,6 +6101,74 @@ export interface components {
         /** PlatformProfileResponse */
         PlatformProfileResponse: {
             data: components["schemas"]["PlatformProfile"];
+        };
+        /** PreflightFinding */
+        PreflightFinding: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Scene Number */
+            scene_number?: number | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "error" | "warning" | "info";
+        };
+        /** PreproductionStoryboard */
+        PreproductionStoryboard: {
+            candidate?: components["schemas"]["StoryboardScene"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Episode Number */
+            episode_number: number;
+            /** Findings */
+            findings?: components["schemas"]["PreflightFinding"][];
+            /**
+             * Revision
+             * @default 1
+             */
+            revision: number;
+            /** Scenes */
+            scenes?: components["schemas"]["StoryboardScene"][];
+            /**
+             * Schema Version
+             * @default preproduction_storyboard.v1
+             * @constant
+             */
+            schema_version: "preproduction_storyboard.v1";
+            /** Source Draft */
+            source_draft: {
+                [key: string]: unknown;
+            };
+            /** Source Signature */
+            source_signature: string;
+            /** Stale Scene Numbers */
+            stale_scene_numbers?: number[];
+            /**
+             * Status
+             * @default draft
+             * @enum {string}
+             */
+            status: "draft" | "review" | "source_changed";
+            /** Story Project Id */
+            story_project_id: string;
+            /** Storyboard Id */
+            storyboard_id?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+            /**
+             * Visual Direction
+             * @default
+             */
+            visual_direction: string;
         };
         /** ProfileRule */
         ProfileRule: {
@@ -6201,11 +7061,14 @@ export interface components {
             body_order?: string[];
             /** Character Actions */
             character_actions?: string[];
+            /** Character Refs */
+            character_refs?: string[];
             /**
              * Cliffhanger
              * @default false
              */
             cliffhanger: boolean;
+            content_manifest?: components["schemas"]["SceneContentManifest"] | null;
             /** Dialogues */
             dialogues: components["schemas"]["DialogueLine"][];
             /** Emotional Objective */
@@ -6215,6 +7078,8 @@ export interface components {
             /** Purpose */
             purpose: string;
             scene_causality?: components["schemas"]["SceneCausality"] | null;
+            /** Scene Heading */
+            scene_heading?: string | null;
             /** Scene Number */
             scene_number: number;
             /** Setting */
@@ -6236,6 +7101,49 @@ export interface components {
             goal: string;
             /** Outcome */
             outcome: string;
+        };
+        /**
+         * SceneContentManifest
+         * @description Creator-facing content required to make one scene producible.
+         *
+         *     The manifest is separate from planning and QC fields. It is rendered as a
+         *     compact episode information sheet while the formal screenplay body remains
+         *     action/dialogue only.
+         */
+        SceneContentManifest: {
+            /** Character Refs */
+            character_refs?: string[];
+            /** Conflict */
+            conflict: string;
+            /** Entry State */
+            entry_state: string;
+            /** Exit State */
+            exit_state: string;
+            /** Location */
+            location: string;
+            /** Objective */
+            objective: string;
+            /** Outcome */
+            outcome: string;
+            /** Props */
+            props?: string[];
+            /** Time Of Day */
+            time_of_day: string;
+            /** Turning Point */
+            turning_point: string;
+        };
+        /** SceneDesign */
+        SceneDesign: {
+            /** Action Rhythm */
+            action_rhythm: string;
+            /** Purpose */
+            purpose: string;
+            /** Reveal Order */
+            reveal_order: string;
+            /** Spatial Layout */
+            spatial_layout: string;
+            /** Transition */
+            transition: string;
         };
         /** ScoreBreakdown */
         ScoreBreakdown: {
@@ -6283,9 +7191,12 @@ export interface components {
         ScriptDraftModificationRequest: {
             /** Instruction */
             instruction: string;
+            resolution?: components["schemas"]["AuthorConflictResolution"] | null;
             selection_context?: components["schemas"]["StoryBibleSelectionContext"] | null;
             source_draft_master_script: components["schemas"]["DraftMasterScript"];
             source_generation_run: components["schemas"]["ScriptGenerationDraftRun"];
+            /** Source Story Bible Version */
+            source_story_bible_version?: number | null;
         };
         /** ScriptDraftModificationResponse */
         ScriptDraftModificationResponse: {
@@ -6293,7 +7204,8 @@ export interface components {
         };
         /** ScriptDraftModificationResult */
         ScriptDraftModificationResult: {
-            candidate_generation_run: components["schemas"]["ScriptGenerationDraftRun"];
+            candidate_generation_run?: components["schemas"]["ScriptGenerationDraftRun"] | null;
+            conflict_review?: components["schemas"]["AuthorConflictReview"] | null;
             /** Instruction */
             instruction: string;
             /** Source Draft Master Script Id */
@@ -6957,6 +7869,8 @@ export interface components {
         };
         /** StoryInspirationChatRequest */
         StoryInspirationChatRequest: {
+            /** Candidate Decision Key */
+            candidate_decision_key?: string | null;
             /** Content Spec Id */
             content_spec_id?: string | null;
             /**
@@ -7014,6 +7928,10 @@ export interface components {
         };
         /** StoryInspirationMessage */
         StoryInspirationMessage: {
+            /** Candidate History */
+            candidate_history?: {
+                [key: string]: string[];
+            };
             /** Content */
             content: string;
             /** Questions */
@@ -7683,6 +8601,103 @@ export interface components {
         /** StoryStagePlanResponse */
         StoryStagePlanResponse: {
             data: components["schemas"]["StoryStagePlan"];
+        };
+        /** StoryboardEditRequest */
+        StoryboardEditRequest: {
+            /**
+             * Candidate Action
+             * @default keep
+             * @enum {string}
+             */
+            candidate_action: "keep" | "accept" | "reject";
+            /** Expected Revision */
+            expected_revision: number;
+            /** Scenes */
+            scenes: components["schemas"]["StoryboardScene"][];
+            /**
+             * Visual Direction
+             * @default
+             */
+            visual_direction: string;
+        };
+        /** StoryboardGenerateRequest */
+        StoryboardGenerateRequest: {
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Instruction
+             * @default
+             */
+            instruction: string;
+        };
+        /** StoryboardResponse */
+        StoryboardResponse: {
+            data: components["schemas"]["PreproductionStoryboard"];
+        };
+        /** StoryboardScene */
+        StoryboardScene: {
+            design: components["schemas"]["SceneDesign"];
+            /** Scene Number */
+            scene_number: number;
+            /** Shots */
+            shots: components["schemas"]["StoryboardShot"][];
+            /**
+             * Source Revision
+             * @default 1
+             */
+            source_revision: number;
+            /** Unresolved Questions */
+            unresolved_questions?: string[];
+        };
+        /** StoryboardShot */
+        StoryboardShot: {
+            /** Action Sequence */
+            action_sequence: string[];
+            /** Camera */
+            camera: string;
+            /** Continuity In */
+            continuity_in: string;
+            /** Continuity Out */
+            continuity_out: string;
+            /** Dialogue */
+            dialogue?: string[];
+            /** Duration Seconds */
+            duration_seconds: number;
+            /** Framing */
+            framing: string;
+            /**
+             * Locked
+             * @default false
+             */
+            locked: boolean;
+            /**
+             * Prompt
+             * @default
+             */
+            prompt: string;
+            /** Purpose */
+            purpose: string;
+            /** Shot Id */
+            shot_id?: string;
+            /**
+             * Sound
+             * @default
+             */
+            sound: string;
+            /** Source Refs */
+            source_refs: string[];
+        };
+        /** StoryboardStartRequest */
+        StoryboardStartRequest: {
+            /**
+             * Expected Revision
+             * @default 0
+             */
+            expected_revision: number;
+            /** Source Draft */
+            source_draft: {
+                [key: string]: unknown;
+            };
         };
         /**
          * StorylineDuty
@@ -8538,6 +9553,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_categories_hongguo_categories_get: {
+        parameters: {
+            query?: {
+                format?: "real" | "comic" | "ai";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HongguoCategoriesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HongguoCategoriesResponse"];
+                };
+            };
+        };
+    };
+    get_trending_tags_hongguo_trending_tags_get: {
+        parameters: {
+            query?: {
+                format?: "real" | "comic" | "ai";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HongguoTrendsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HongguoTrendsResponse"];
                 };
             };
         };
@@ -9756,6 +10851,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -10094,6 +11198,41 @@ export interface operations {
             };
         };
     };
+    create_author_revision_story_projects__project_id__author_revisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorRevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorRevisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     audit_continuity_ledger_story_projects__project_id__continuity_ledger_audit_get: {
         parameters: {
             query?: never;
@@ -10345,6 +11484,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+        };
+    };
+    list_episode_plan_materializations_story_projects__project_id__episode_plan_materializations_get: {
+        parameters: {
+            query?: {
+                story_bible_id?: string | null;
+                story_bible_version?: number | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodePlanMaterializationListResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_episode_plan_materialization_story_projects__project_id__episode_plan_materializations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EpisodePlanMaterializationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodePlanMaterializationResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -10680,6 +11915,149 @@ export interface operations {
             };
         };
     };
+    get_storyboard_story_projects__project_id__episodes__episode_number__storyboard_get: {
+        parameters: {
+            query?: {
+                revision?: number | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                episode_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_storyboard_story_projects__project_id__episodes__episode_number__storyboard_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                episode_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryboardEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_storyboard_story_projects__project_id__episodes__episode_number__storyboard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                episode_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryboardStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_storyboard_scene_story_projects__project_id__episodes__episode_number__storyboard_scenes__scene_number__generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                episode_number: number;
+                scene_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryboardGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_recoverable_generation_task_story_projects__project_id__generation_tasks_recoverable_get: {
         parameters: {
             query?: never;
@@ -10784,6 +12162,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenerationTaskCheckpointResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_generation_task_story_projects__project_id__generation_tasks__job_id__claim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerationTaskClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerationTaskClaimResponse"];
                 };
             };
             /** @description Not Found */

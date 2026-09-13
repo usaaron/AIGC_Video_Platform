@@ -11,6 +11,23 @@
 
 ## 当前已实现接口
 
+### 文字分镜 API（2026-09-11）
+
+基础路径：`/story-projects/{project_id}/episodes/{episode_number}/storyboard`。所有返回值包装在 `data` 中，来源/场次和完整字段以生成的 OpenAPI 合同为准。
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `GET` 基础路径，可选 `?revision=N` | 读取最新或不可变历史版本；尚无分镜返回 404 |
+| `POST` 基础路径 | 提交 `source_draft` 和 `expected_revision`，创建或显式更新正文来源；相同来源幂等返回 |
+| `PUT` 基础路径 | 提交完整 `scenes`、`visual_direction`、`expected_revision`，可选 `candidate_action=keep/accept/reject` |
+| `POST` 基础路径下 `/scenes/{scene_number}/generate` | 提交 `expected_revision` 和可选 `instruction`；已有场景生成独立候选，首次编排直接保存草稿 |
+
+项目必须存在，集数不得超过项目范围。过期写入或锁定冲突返回 409，输入或模型结构不合法返回 422，模型配置/请求问题返回 503。生成与编辑不会更改正式叙事 Artifact；单场失败不会删除既有分镜。同步单场请求尚未接入后台 worker；完整前期交付接口仍待实现，见 [55 号记录](55_LIBLIB_STORYBOARD_IMPLEMENTATION.md)。
+
+前端 rewrite 代理等待上限为 660 秒，已用 35 秒隔离响应验证保存、读回、历史及锁定；直接连接 API 的本地启动路径继续可用。
+
+### Script Engine 接口概况
+
 当前 `Script Engine` 的公共 API 仍以内部步骤为主，而不是最终盒子化契约。
 
 当前状态判断：

@@ -220,6 +220,7 @@ def test_frontend_workflow_endpoints_exist_with_expected_http_methods() -> None:
         "/story-projects/{project_id}/planning-session": {"get", "put"},
         "/story-projects/{project_id}/generation-tasks/recoverable": {"get"},
         "/story-projects/{project_id}/generation-tasks/{job_id}": {"get", "put"},
+        "/story-projects/{project_id}/generation-tasks/{job_id}/claim": {"post"},
         "/story-projects/{project_id}/creative-directions/draft": {"post"},
         "/story-projects/{project_id}/story-bibles/draft": {"post"},
         "/story-projects/{project_id}/story-bibles/import-draft": {"post"},

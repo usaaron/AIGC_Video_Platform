@@ -7,13 +7,17 @@ import {
   inputReadinessWorkflowIntent,
   shouldApplyImportedPlanningConstraints,
   shouldApplyImportedStoryBibleConstraints,
+  seedInspirationBriefFromInput,
 } from "../lib/input-readiness-workflow.ts";
+import { EMPTY_INSPIRATION_BRIEF } from "../lib/story-inspiration-session.ts";
 
-function analysis(detectedLevel, selectedPath = "recommended") {
+function analysis(detectedLevel, selectedPath = "recommended", overrides = {}) {
   return {
     schemaVersion: "input_readiness.v1",
     detectedLevel,
-    recommendedStage: detectedLevel === "premise" ? "story_bible" : "planning",
+    recommendedStage: detectedLevel === "premise"
+      ? "story_bible"
+      : detectedLevel === "story_bible" ? "planning" : "script",
     confidence: 0.9,
     coverage: {
       premise: 1,
@@ -27,6 +31,7 @@ function analysis(detectedLevel, selectedPath = "recommended") {
     analysisMethod: "heuristic",
     analyzedAt: "2026-09-01T00:00:00.000Z",
     selectedPath,
+    ...overrides,
   };
 }
 
@@ -58,11 +63,60 @@ test("recommended Story Bible input applies only Story Bible import constraints"
   });
 });
 
-test("recommended episode plans and scripts request both materialization stages", () => {
+test("measured complete episode plans and scripts request both materialization stages", () => {
   for (const level of ["episode_plan", "script"]) {
-    assert.deepEqual(inputReadinessWorkflowIntent(analysis(level)), {
+    assert.deepEqual(inputReadinessWorkflowIntent(analysis(level, "recommended", { assessmentVersion: 2, structurallyComplete: true })), {
       normalizeStoryBible: true,
       prepareCompletePlanning: true,
+    });
+  }
+});
+
+test("legacy or structurally incomplete analyses cannot prepare an entire series", () => {
+  for (const extra of [{}, { assessmentVersion: 2, structurallyComplete: false }]) {
+    assert.equal(inputReadinessWorkflowIntent(analysis("script", "recommended", extra)).prepareCompletePlanning, false);
+  }
+});
+
+test("verified source facts fill blanks without replacing answers or deferred choices", () => {
+  const creativePrompt = "主角保护证人。最终证人独自离开。";
+  const facts = [
+    { field: "protagonist_and_goal", quote: "主角保护证人。", start: 0, end: 7 },
+    { field: "ending_direction", quote: "最终证人独自离开。", start: 7, end: 16 },
+  ].map((fact) => ({ ...fact, sourceId: "creative_prompt", sourceName: "创作输入" }));
+  const project = { creativePrompt, referenceMaterials: [], inputReadiness: { knownFacts: facts } };
+  const seeded = seedInspirationBriefFromInput(project, EMPTY_INSPIRATION_BRIEF);
+  assert.equal(seeded.protagonist_and_goal, facts[0].quote);
+  assert.equal(seeded.ending_direction, facts[1].quote);
+  assert.equal(EMPTY_INSPIRATION_BRIEF.protagonist_and_goal, "");
+  const brief = { ...EMPTY_INSPIRATION_BRIEF, protagonist_and_goal: "改由证人保护主角。",
+    creative_decisions: [{ decision_key: "ending_direction.choice", status: "unresolved" }] };
+  const preserved = seedInspirationBriefFromInput(project, brief);
+  assert.deepEqual(preserved, brief);
+  assert.deepEqual(seedInspirationBriefFromInput({ ...project, creativePrompt: "资料已改写。" }, brief), brief);
+});
+
+test("episode plans still requiring planning do not prepare complete planning artifacts", () => {
+  assert.deepEqual(inputReadinessWorkflowIntent(analysis("episode_plan", "recommended", {
+    recommendedStage: "planning",
+  })), {
+    normalizeStoryBible: true,
+    prepareCompletePlanning: false,
+  });
+});
+
+test("missing imported content blocks complete planning preparation even with a script recommendation", () => {
+  for (const level of ["episode_plan", "script"]) {
+    const project = {
+      inputReadiness: analysis(level, "recommended", {
+        missingItems: ["Episode 3 is missing its ending hook"],
+      }),
+    };
+    assert.equal(shouldApplyImportedStoryBibleConstraints(project), true);
+    assert.equal(shouldApplyImportedPlanningConstraints(project), false);
+    assert.deepEqual(inputReadinessWorkflowIntent(project), {
+      normalizeStoryBible: true,
+      prepareCompletePlanning: false,
     });
   }
 });

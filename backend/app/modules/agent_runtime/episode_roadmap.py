@@ -17,6 +17,7 @@ from app.modules.script_engine.long_story_models import (
     PlanningRevisionMode,
 )
 from app.modules.script_engine.story_planning_service import StoryPlanningService
+from app.modules.script_engine.episode_readiness import episode_execution_readiness_issues
 from app.script_delivery_contract import ending_mode_requires_hook
 
 
@@ -103,6 +104,12 @@ class EpisodeRoadmapAgent:
                 item = EpisodePlanGenerationItem.model_validate(
                     item_payload.get("item", item_payload)
                 )
+                issues = episode_roadmap_quality_issues(item)
+                if issues:
+                    raise AgentOutputRejectedError(
+                        artifact="Replayed episode roadmap item",
+                        issue_codes=issues,
+                    )
                 return EpisodeRoadmapAgentResult(item=item, run=start.record)
             session = start.session
         else:
@@ -257,8 +264,10 @@ def episode_roadmap_quality_issues(
     """Return stable issue codes without model prose or user-visible diagnostics."""
 
     issues: list[str] = []
-    if not item.scene_execution_plan:
-        issues.append("scene_execution_plan_missing")
+    # A roadmap checkpoint must already be executable. Keeping these checks at
+    # the planning boundary prevents an incomplete scene contract from being
+    # accepted and discovered only when the body writer starts.
+    issues.extend(episode_execution_readiness_issues(item))
     if _same_narrative_value(item.entry_state, item.exit_state):
         issues.append("entry_exit_state_duplicated")
 

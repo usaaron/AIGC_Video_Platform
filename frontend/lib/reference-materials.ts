@@ -16,6 +16,8 @@ const PLAIN_TEXT_EXTENSIONS = new Set([
   "txt", "md", "markdown", "json", "csv", "srt",
 ]);
 
+export class ReferenceMaterialError extends Error {}
+
 const PURPOSE_RULES: Record<ReferenceMaterialPurpose, string> = {
   format_template: "只参考版式、字段顺序和剧本结构，不得照搬其中的人物、台词或剧情。",
   story_reference: "作为剧情构思和事实来源使用；与用户当前提示词冲突时，以当前提示词为准。",
@@ -42,7 +44,7 @@ export async function createReferenceMaterial(
     : await file.text();
   const extracted = boundReferenceText(normalizeReferenceText(rawText));
   if (!extracted.text) {
-    throw new Error("文件中没有读取到可用文字，请确认文件不是扫描图片或空文档。");
+    throw new ReferenceMaterialError("文件中没有读取到可用文字，请确认文件不是扫描图片或空文档。");
   }
   return {
     id: crypto.randomUUID(),
@@ -61,18 +63,23 @@ export async function createReferenceMaterial(
 export function validateReferenceFile(file: Pick<File, "name" | "size">): void {
   const extension = fileExtension(file.name);
   if (extension !== "docx" && !PLAIN_TEXT_EXTENSIONS.has(extension)) {
-    throw new Error("暂不支持该文件格式。请上传 DOCX、TXT、MD、JSON、CSV 或 SRT 文件。");
+    throw new ReferenceMaterialError("暂不支持该文件格式。请上传 DOCX、TXT、MD、JSON、CSV 或 SRT 文件。");
   }
   if (file.size > MAX_REFERENCE_FILE_BYTES) {
-    throw new Error("单个参考文件不能超过 8 MB。");
+    throw new ReferenceMaterialError("单个参考文件不能超过 8 MB。");
   }
 }
 
 export async function extractDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
   const { default: JSZip } = await import("jszip");
-  const archive = await JSZip.loadAsync(arrayBuffer);
+  let archive;
+  try {
+    archive = await JSZip.loadAsync(arrayBuffer);
+  } catch {
+    throw new ReferenceMaterialError("DOCX 文件无法解析，请确认文件完整且为有效的 Word 文档。");
+  }
   const documentFile = archive.file("word/document.xml");
-  if (!documentFile) throw new Error("DOCX 文件缺少正文内容，可能已经损坏。");
+  if (!documentFile) throw new ReferenceMaterialError("DOCX 文件缺少正文内容，可能已经损坏。");
   return extractDocxXmlText(await documentFile.async("string"));
 }
 

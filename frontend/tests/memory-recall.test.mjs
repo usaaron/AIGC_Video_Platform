@@ -17,6 +17,26 @@ const baseProject = (overrides = {}) => ({
   ...overrides,
 });
 
+test("a recent meeting deadline survives recall pressure from older inventory", () => {
+  const states = Array.from({ length: 24 }, (_, index) => ({
+    entityKey: `item.record_${index}`, entityType: "item", entityName: `Record ${index}`,
+    stateDomain: "possession", currentState: "Held in the evidence archive. ".repeat(5),
+    persistence: "ongoing", lastUpdatedEpisode: 1, history: [],
+  }));
+  states.push({
+    entityKey: "time.witness_meeting", entityType: "time", entityName: "Witness meeting",
+    stateDomain: "schedule", currentState: "Tomorrow at 09:00 at the station.",
+    futureConstraint: "The meeting is still pending.", persistence: "ongoing",
+    lastUpdatedEpisode: 2, history: [],
+  });
+  const recall = buildEpisodeMemoryRecall(baseProject({ continuityStates: states }), { episodeNumber: 3 });
+  assert.ok(recall.omitted_records.length > 0);
+  const meeting = recall.capsules.find((item) => item.entity_refs.includes("time.witness_meeting"));
+  assert.ok(meeting);
+  assert.match(meeting.summary, /Tomorrow at 09:00/);
+  assert.match(meeting.summary, /still pending/);
+});
+
 test("recall prioritizes focused hard facts and reports missing required refs", () => {
   const recall = buildEpisodeMemoryRecall(baseProject({
     characters: [{

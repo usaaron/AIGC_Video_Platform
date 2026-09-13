@@ -14,6 +14,7 @@ const globalStatus = await readFile(
   new URL("../components/background-generation-status.tsx", import.meta.url),
   "utf8",
 );
+const authorWorkflow = await readFile(new URL("../components/use-script-author-workflow.ts", import.meta.url), "utf8");
 
 test("script workspace uses the shared directory without the legacy episode rail", () => {
   assert.doesNotMatch(workspace, /EpisodeTreeNavigation/);
@@ -43,12 +44,10 @@ test("the current screenplay can be edited inline and saved without episode conf
   assert.match(workspace, /function ScriptInlineText/);
   assert.match(workspace, /contentEditable=\{editable\}/);
   assert.match(workspace, /function updateCurrentDraft\(update: ScriptDraftUpdater\)/);
-  assert.match(workspace, /workingDraftJson: JSON\.stringify\(nextDraft, null, 2\)/);
-  assert.match(workspace, /hasLocalDraftEdits: true/);
+  assert.match(workspace, /draftEditing\.updateDraft\(currentEpisode\.episodeNumber, update\)/);
   assert.match(workspace, /async function saveCurrentDraft\(\)/);
   assert.match(workspace, /workspace\.saveEpisode/);
-  assert.match(workspace, /artifactKind: "draft",\s*memoryLayer: "provisional"/);
-  assert.match(workspace, /pendingInlineDraftsRef\.current\.delete\(currentEpisode\.episodeNumber\)/);
+  assert.match(workspace, /draftEditing\.saveDraft\(currentEpisode\.episodeNumber\)/);
   assert.doesNotMatch(workspace, /async function confirmEpisode\(\)/);
 });
 
@@ -69,8 +68,8 @@ test("inline screenplay editing covers planning notes, actions, dialogue, and Ch
 
 test("AI screenplay actions read the latest unsaved inline draft", () => {
   assert.match(
-    workspace,
-    /const latestDraft = pendingInlineDraftsRef\.current\.get\(currentEpisode\.episodeNumber\)[\s\S]*?modifyEpisodeDraft\(\s*currentEpisode\.generationRun,\s*latestDraft,/,
+    authorWorkflow,
+    /const sourceDraft = pendingInlineDraftsRef\.current\.get\(sourceEpisode\.episodeNumber\)[\s\S]*?modifyEpisodeDraft\(\s*sourceEpisode\.generationRun,\s*sourceDraft,/,
   );
   assert.match(
     workspace,
@@ -84,15 +83,10 @@ test("generated episodes are saved and full-series export waits for every saved 
   assert.match(workspace, /const allPlannedEpisodesSaved =/);
   assert.match(workspace, /seriesExportOpen && allPlannedEpisodesSaved/);
   assert.match(workspace, /allPlannedEpisodesSaved \? <button[\s\S]*?workspace\.exportAll/);
-  assert.match(workspace, /artifactKind: "draft",\s*memoryLayer: "provisional"/);
+  assert.match(workspace, /draftEditing\.persistReviewedDraft\(/);
   assert.doesNotMatch(workspace, /artifactKind: "final",\s*memoryLayer: "canonical"/);
-  assert.doesNotMatch(workspace, /workspace\.generateNextPart/);
-});
-
-test("legacy generated episodes remain editable until an explicit lock exists", () => {
-  assert.match(workspace, /episode\.status === "final" \|\| episode\.artifactRefs\?\.final/);
-  assert.match(workspace, /const status = episode\.hasLocalDraftEdits \|\| episode\.modificationCandidate[\s\S]*?\? "editing"[\s\S]*?: "saved"/);
-  assert.match(workspace, /function resolveSavedDraft/);
+  assert.match(workspace, /const allPlannedEpisodesGenerated =[\s\S]*?contiguousEpisodeCoverageThrough\([\s\S]*?&& !scriptGenerationActive/);
+  assert.match(workspace, /const allPlannedEpisodesSaved = allPlannedEpisodesGenerated[\s\S]*?\.every\(episodeHasSavedDraft\)/);
 });
 
 test("only full-series export consumes the latest saved snapshots", () => {
@@ -106,11 +100,7 @@ test("only full-series export consumes the latest saved snapshots", () => {
   assert.doesNotMatch(seriesExport, /resolveConfirmedDraft\(item\)/);
 });
 
-test("locked episodes display their confirmed snapshot and selections do not cross episodes", () => {
-  assert.match(
-    workspace,
-    /function resolveWorkingDraft[\s\S]*?if \(episodeIsLocked\(episode\)\)[\s\S]*?parseWorkingDraft\(episode\.confirmedDraftJson\)/,
-  );
+test("selections do not cross episodes or edit locked episodes", () => {
   assert.match(
     workspace,
     /function selectEpisode[\s\S]*?setScriptDocumentSelection\(null\);[\s\S]*?setSelectedDocumentView\("current"\)/,
@@ -144,35 +134,33 @@ test("overseas presentation never hydrates legacy episodes", () => {
 });
 
 test("selected screenplay text is carried into the right-side modification chat", () => {
-  assert.match(workspace, /const \[scriptDocumentSelection, setScriptDocumentSelection\]/);
+  assert.match(workspace, /selection: scriptDocumentSelection/);
   assert.match(workspace, /function captureScriptDocumentSelection/);
   assert.match(workspace, /onMouseUp=\{captureScriptDocumentSelection\}/);
   assert.match(workspace, /data-script-field=/);
   assert.match(workspace, /selection=\{currentEpisodeLocked \? null : scriptDocumentSelection\}/);
   assert.match(workspace, /onClearSelection=\{\(\) => setScriptDocumentSelection\(null\)\}/);
   assert.match(
-    workspace,
-    /quote: selectionOverride,[\s\S]*?setScriptDocumentSelection\(\(current\) => current === selectionOverride \? null : current\);/,
+    authorWorkflow,
+    /selection: current\.selection === selectionOverride \? null : current\.selection,[\s\S]*?quote: selectionOverride/,
   );
   assert.match(
-    workspace,
+    authorWorkflow,
     /modifyEpisodeDraft\([\s\S]*?controller\.signal,\s*selectionOverride,/,
   );
   assert.doesNotMatch(workspace, /selection=\{null\}/);
 });
 
 test("unadopted modification candidates skip continuity rebuild until save", () => {
-  assert.match(
-    workspace,
-    /const continuityPatch = options\.skipContinuitySync\s*\? \{\}\s*: synchronizeContinuity\(/,
-  );
-  assert.equal((workspace.match(/skipContinuitySync: true/g) ?? []).length, 2);
+  const requestModification = authorWorkflow.slice(authorWorkflow.indexOf("async function requestModification("), authorWorkflow.indexOf("function pendingConflict("));
+  assert.match(requestModification, /await updateProject\(/);
+  assert.doesNotMatch(requestModification, /synchronizeContinuity\(/);
 
-  const applyModification = workspace.match(
-    /async function applyModification\(\)[\s\S]*?\n  }\n\n  async function requestDeepening/,
+  const applyModification = authorWorkflow.match(
+    /async function applyModification\(\)[\s\S]*?\n  }\n\n  function editScriptChatMessage/,
   )?.[0] ?? "";
   assert.ok(applyModification);
-  assert.match(applyModification, /replaceEpisode\(\{/);
+  assert.match(applyModification, /await draftEditing\.persistReviewedDraft\(/);
   assert.doesNotMatch(applyModification, /skipContinuitySync/);
 });
 
@@ -211,5 +199,6 @@ test("shared directory keeps Story Bible flat and toggles planning or script chi
   assert.match(directory, /current === section\.id \? null : section\.id/);
   assert.match(directory, /aria-expanded=\{isExpanded\}/);
   assert.match(directory, /\{isExpanded \? \(/);
-  assert.match(directory, /\{isExpandable \? <ChevronRight/);
+  assert.match(directory, /className="workspace-section-chevron"/);
+  assert.match(directory, /workspace-mobile-navigation/);
 });

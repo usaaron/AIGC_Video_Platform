@@ -1,0 +1,152 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+import { setImmediate } from "node:timers/promises";
+import vm from "node:vm";
+import ts from "typescript";
+
+import * as recovery from "../lib/generation-recovery.ts";
+import { workspaceSectionAccess } from "../lib/workspace-stage.ts";
+
+const source = fs.readFileSync(new URL("../components/script-workspace.tsx", import.meta.url), "utf8");
+const ast = ts.createSourceFile("script-workspace.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const components = ast.statements.filter((node) => (
+  ts.isFunctionDeclaration(node)
+  && ["ScriptWorkspace", "InitialScriptBatchLauncher"].includes(node.name?.text)
+));
+const hookSource = fs.readFileSync(new URL("../components/use-script-generation-recovery.ts", import.meta.url), "utf8");
+const hookAst = ts.createSourceFile("use-script-generation-recovery.ts", hookSource, ts.ScriptTarget.Latest, true);
+const hookFunctions = hookAst.statements.filter(ts.isFunctionDeclaration).map((node) => node.getText(hookAst));
+const draftHookSource = fs.readFileSync(new URL("../components/use-script-draft-editing.ts", import.meta.url), "utf8");
+const draftHookAst = ts.createSourceFile("use-script-draft-editing.ts", draftHookSource, ts.ScriptTarget.Latest, true);
+const draftHookFunctions = draftHookAst.statements.filter(ts.isFunctionDeclaration).map((node) => node.getText(draftHookAst));
+const authorHookSource = fs.readFileSync(new URL("../components/use-script-author-workflow.ts", import.meta.url), "utf8");
+const authorHookAst = ts.createSourceFile("use-script-author-workflow.ts", authorHookSource, ts.ScriptTarget.Latest, true);
+const authorHookFunctions = authorHookAst.statements.filter(ts.isFunctionDeclaration).map((node) => node.getText(authorHookAst));
+const compiled = ts.transpileModule([...hookFunctions, ...draftHookFunctions, ...authorHookFunctions, ...components.map((node) => node.getText(ast))].join("\n"), {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    jsx: ts.JsxEmit.ReactJSX,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
+
+function projectFixture() {
+  return {
+    id: "initial-recovery-project",
+    characters: [],
+    episodes: [],
+    storyLines: [],
+    status: "generating",
+    storyBibleVersion: 1,
+    episodePlansReadyThrough: 24,
+    generationSettings: { episodeCount: 24 },
+    planningSession: { phase: "script", status: "approved" },
+    activeGenerationTask: {
+      jobId: "initial-recovery-job",
+      status: "running",
+      attemptCount: 1,
+      startEpisode: 1,
+      endEpisode: 8,
+    },
+  };
+}
+
+// Execute the real component branches and effects with only their UI dependencies stubbed.
+function workspaceHarness(project) {
+  const effects = [];
+  const timers = [];
+  const batchRequests = [];
+  const requestedRanges = [];
+  let url = new URL(`http://localhost/projects/${project.id}/workspace`);
+  const context = {
+    exports: {},
+    require: () => ({ jsx: (type, props) => ({ type, props }) }),
+    ...recovery,
+    workspaceSectionAccess,
+    useParams: () => ({ projectId: project.id }),
+    useRouter: () => ({ replace: (path) => { url = new URL(path, url); } }),
+    useSearchParams: () => url.searchParams,
+    useProjects: () => ({ getProject: () => project, isReady: true, updateProject: async () => true }),
+    useLocale: () => ({ locale: "zh", t: (key) => key }),
+    useScriptGenerationTask: () => undefined,
+    useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
+    useRef: (current) => ({ current }),
+    useMemo: (factory) => factory(),
+    useEffect: (effect) => effects.push(effect),
+    useCallback: (callback) => callback,
+    loadWorkspaceChatMessages: () => [],
+    PendingScriptWorkspace() {},
+    isScriptGenerationRunning: () => false,
+    window: {
+      setTimeout: (callback, delay) => { timers.push({ callback, delay }); return timers.length; },
+      clearTimeout() {},
+    },
+    storyBibleIdForProject: () => "story-bible.initial-recovery",
+    loadActiveStoryPlanNodes: async () => [],
+    nextApprovedScriptLeafRange: (_nodes, _roadmaps, _episodes, range) => {
+      requestedRanges.push(range);
+      return { status: "ready", range };
+    },
+    nextLeafBatchRange: (_generatedThrough, _settings, range) => ({ status: "ready", range }),
+    beginScriptGenerationTask: (request) => {
+      batchRequests.push(request);
+      return { started: false, task: request };
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(compiled, context);
+  return {
+    batchRequests,
+    requestedRanges,
+    timers,
+    effects,
+    render: () => context.exports.ScriptWorkspace(),
+    runRecoveryEffect() {
+      effects.find((effect) => String(effect).includes("shouldAutoResumeGenerationRecovery"))();
+    },
+    get url() { return url; },
+  };
+}
+
+test("refresh before the first saved episode reaches the initial launcher with the original recovery range", async () => {
+  const project = projectFixture();
+  const harness = workspaceHarness(project);
+  assert.equal(harness.render().type.name, "PendingScriptWorkspace");
+
+  harness.runRecoveryEffect();
+  assert.equal(harness.timers.length, 1);
+  assert.equal(harness.timers[0].delay, 500);
+  harness.timers[0].callback();
+
+  assert.equal(harness.url.searchParams.get("generate"), "1");
+  const launcher = harness.render();
+  assert.equal(launcher.type.name, "InitialScriptBatchLauncher");
+  const effectOffset = harness.effects.length;
+  launcher.type(launcher.props);
+  harness.effects.slice(effectOffset).find((effect) => String(effect).includes("generateInitialBatch"))();
+  await setImmediate();
+
+  assert.equal(harness.batchRequests.length, 1);
+  assert.equal(harness.batchRequests[0].projectId, project.id);
+  assert.equal(harness.batchRequests[0].startEpisode, 1);
+  assert.equal(harness.batchRequests[0].endEpisode, 8);
+  assert.equal(harness.requestedRanges[0].endEpisode, 8);
+});
+
+for (const blockedState of ["new", "paused", "completed", "awaiting_review"]) {
+  test(`empty ${blockedState} workspace does not create generation intent on refresh`, () => {
+    const project = projectFixture();
+    if (blockedState === "new") project.activeGenerationTask = undefined;
+    else if (blockedState === "awaiting_review") project.planningSession.status = blockedState;
+    else project.activeGenerationTask.status = blockedState;
+    const harness = workspaceHarness(project);
+
+    assert.equal(harness.render().type.name, "PendingScriptWorkspace");
+    harness.runRecoveryEffect();
+
+    assert.equal(harness.timers.length, 0);
+    assert.equal(harness.url.searchParams.has("generate"), false);
+    assert.equal(harness.batchRequests.length, 0);
+  });
+}

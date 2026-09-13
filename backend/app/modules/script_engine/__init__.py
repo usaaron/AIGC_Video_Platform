@@ -1,5 +1,6 @@
 from app.modules.script_engine.generation_service import (
     CreativeDeepeningDisabledError,
+    EpisodeExecutionNotReadyError,
     MissingContentSpecError,
     MissingGenerationStrategyError,
     ScriptGenerationService,
@@ -83,6 +84,7 @@ __all__ = [
     "DuplicatePromptLibraryItemError",
     "CreativeDeepeningChange",
     "CreativeDeepeningDisabledError",
+    "EpisodeExecutionNotReadyError",
     "CreativeDeepeningChangeType",
     "CreativeDeepeningMode",
     "CreativeDeepeningPreservationCheck",

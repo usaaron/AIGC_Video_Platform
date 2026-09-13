@@ -177,22 +177,22 @@ function synchronizeWorldStates(
   existingStates: ContinuityStateRecord[],
 ): ContinuityStateRecord[] {
   if (!drafts.length) return existingStates;
-  const records = new Map<string, ContinuityStateRecord>(
-    existingStates.map((state) => [
-      `${state.entityKey}::${state.stateDomain}`,
-      state,
-    ]),
-  );
-  const seenChanges = new Map(
-    [...records.entries()].map(([key, state]) => [
-      key,
-      new Set(state.history.map(worldStateChangeSignature)),
-    ]),
-  );
+  const rebuiltEpisodes = new Set(drafts.map((draft) => draft.episodeNumber));
+  // Saved episode drafts replace their earlier projected history on revision.
+  const contributions = existingStates.flatMap((state) => {
+    if (!state.history.length) return [{ state, fromDraft: false }];
+    const history = state.history.filter((change) => !rebuiltEpisodes.has(change.episodeNumber));
+    return history.length ? [{ state: { ...state, history }, fromDraft: false }] : [];
+  });
   for (const { episodeNumber, status, draft } of drafts) {
     for (const update of draft.continuity_state_updates ?? []) {
-      const key = `${update.entity_key}::${update.state_domain}`;
-      const previous = records.get(key);
+      const prefix = `${update.entity_type}.`;
+      const baseKey = update.entity_key.startsWith(prefix) ? update.entity_key.slice(prefix.length) : update.entity_key;
+      const metadata = existingStates.filter((state) => (
+        state.entityType === update.entity_type && state.stateDomain === update.state_domain
+        && state.entityName.trim() === update.entity_name.trim()
+        && (state.entityKey.startsWith(prefix) ? state.entityKey.slice(prefix.length) : state.entityKey) === baseKey
+      )).reduce<Partial<ContinuityStateRecord>>((combined, state) => ({ ...combined, ...state }), {});
       const change = {
         episodeNumber,
         transition: update.transition,
@@ -203,32 +203,78 @@ function synchronizeWorldStates(
         evidenceSceneNumbers: [...new Set(update.evidence_scene_numbers ?? [])],
         status: episodeCommitStatus(status),
       };
-      const priorHistory = previous?.history ?? [];
-      const signature = worldStateChangeSignature(change);
-      const signatures = seenChanges.get(key) ?? new Set<string>();
-      const duplicateIndex = priorHistory.findIndex(
-        (item) => worldStateChangeSignature(item) === signature,
-      );
-      signatures.add(signature);
-      seenChanges.set(key, signatures);
-      records.set(key, {
-        entityKey: update.entity_key,
-        entityType: update.entity_type,
-        entityName: update.entity_name.trim(),
-        stateDomain: update.state_domain,
-        currentState: change.currentState,
-        persistence: update.persistence,
-        futureConstraint: change.futureConstraint,
-        lastUpdatedEpisode: episodeNumber,
-        history: duplicateIndex >= 0
-          ? priorHistory.map((item, index) => (
-              index === duplicateIndex ? { ...item, status: change.status } : item
-            ))
-          : [...priorHistory, change],
+      contributions.push({
+        fromDraft: true,
+        state: {
+          ...metadata,
+          entityKey: update.entity_key,
+          entityType: update.entity_type,
+          entityName: update.entity_name.trim(),
+          stateDomain: update.state_domain,
+          currentState: change.currentState,
+          persistence: update.persistence,
+          futureConstraint: change.futureConstraint,
+          lastUpdatedEpisode: episodeNumber,
+          history: [change],
+        },
       });
     }
   }
+  // Resolve only a single type-prefix difference with matching identity evidence.
+  // Earliest evidence owns the key, including when old workspaces contain splits.
+  contributions.sort((left, right) => (
+    firstWorldStateEpisode(left.state) - firstWorldStateEpisode(right.state)
+  ));
+  const records = new Map<string, ContinuityStateRecord>();
+  const exactKeys = new Map<string, string>();
+  const prefixAliases = new Map<string, string>();
+  for (const { state, fromDraft } of contributions) {
+    const exactKey = JSON.stringify([state.entityType, state.stateDomain, state.entityKey]);
+    const prefix = `${state.entityType}.`;
+    const baseKey = state.entityKey.startsWith(prefix)
+      ? state.entityKey.slice(prefix.length)
+      : state.entityKey;
+    const aliasKey = JSON.stringify([
+      state.entityType, state.stateDomain, state.entityName.trim(), baseKey,
+    ]);
+    const key = exactKeys.get(exactKey) ?? prefixAliases.get(aliasKey) ?? exactKey;
+    const previous = records.get(key);
+    const historyBySignature = new Map(
+      (previous?.history ?? []).map((change) => [worldStateChangeSignature(change), change]),
+    );
+    for (const change of state.history) {
+      const signature = worldStateChangeSignature(change);
+      const existing = historyBySignature.get(signature);
+      historyBySignature.set(signature, existing ? {
+        ...existing,
+        status: fromDraft ? change.status : (
+          existing.status === "confirmed" || change.status === "confirmed"
+            ? "confirmed"
+            : "provisional"
+        ),
+      } : change);
+    }
+    const history = [...historyBySignature.values()]
+      .sort((left, right) => left.episodeNumber - right.episodeNumber);
+    const latest = history.at(-1);
+    records.set(key, {
+      ...previous,
+      ...state,
+      entityKey: previous?.entityKey ?? state.entityKey,
+      currentState: latest?.currentState ?? state.currentState,
+      persistence: latest?.persistence ?? state.persistence,
+      futureConstraint: latest ? latest.futureConstraint : state.futureConstraint,
+      lastUpdatedEpisode: latest?.episodeNumber ?? state.lastUpdatedEpisode,
+      history,
+    });
+    exactKeys.set(exactKey, key);
+    prefixAliases.set(aliasKey, key);
+  }
   return [...records.values()];
+}
+
+function firstWorldStateEpisode(state: ContinuityStateRecord): number {
+  return Math.min(state.lastUpdatedEpisode, ...state.history.map((change) => change.episodeNumber));
 }
 
 function worldStateChangeSignature(
@@ -890,6 +936,8 @@ function applyCharacterStateUpdate(
     knowledgeStates: mergeKnowledgeStates(
       previous?.knowledgeStates ?? [],
       update.knowledge_states ?? [],
+      episodeNumber,
+      update.evidence_scene_numbers ?? [],
     ),
     healthConditions: update.health_conditions == null
       ? previous?.healthConditions
@@ -930,16 +978,21 @@ function applyCharacterStateUpdate(
 function mergeKnowledgeStates(
   existing: CharacterKnowledgeRecord[],
   updates: NonNullable<GeneratedCharacterStateUpdate["knowledge_states"]>,
+  episodeNumber: number,
+  evidenceSceneNumbers: number[],
 ): CharacterKnowledgeRecord[] {
   const merged = new Map(existing.map((item) => [item.knowledgeKey, item]));
   for (const update of updates) {
+    merged.delete(update.knowledge_key);
     merged.set(update.knowledge_key, {
       knowledgeKey: update.knowledge_key,
       statement: update.statement.trim(),
       status: update.status,
+      lastUpdatedEpisode: episodeNumber,
+      evidenceSceneNumbers: [...new Set(evidenceSceneNumbers)],
     });
   }
-  return [...merged.values()].slice(-30);
+  return [...merged.values()];
 }
 
 function deriveFallbackCharacterState(

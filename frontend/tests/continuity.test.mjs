@@ -56,6 +56,32 @@ function episode(number, characters, scenes, characterStateUpdates = [], relatio
   };
 }
 
+test("long series retains early keyed knowledge and replaces revised facts", () => {
+  const drafts = Array.from({ length: 121 }, (_, index) => episode(index + 1, [{
+    name: "Mara", role: "Lead", description: "Archive investigator", motivation: "Find the truth",
+  }], [], [{
+    character_name: "Mara", current_goal: "Verify the archive", emotional_state: "Cautious",
+    knowledge_changes: [], active_constraints: [],
+    change_summary: "Checks a new record", change_cause: "Visits the archive", evidence_scene_numbers: [1],
+    knowledge_states: [{ knowledge_key: `archive.record_${index + 1}`, statement: `Inspected record ${index + 1}`, status: "known" }],
+  }]));
+  const revised = drafts.at(-1).generationRun.draft_master_script;
+  revised.character_state_updates[0].knowledge_states.push({
+    knowledge_key: "archive.record_1", statement: "The first record's date is false", status: "disproved",
+  });
+  drafts.at(-1).workingDraftJson = JSON.stringify(revised);
+  const initial = synchronizeContinuity("Archive investigation", [], drafts);
+  const knowledge = initial.characters[0].dynamicState.knowledgeStates;
+  assert.equal(knowledge.length, 121);
+  assert.equal(knowledge.at(-1).knowledgeKey, "archive.record_1");
+  assert.equal(knowledge.at(-1).status, "disproved");
+  assert.ok(knowledge.some((item) => item.knowledgeKey === "archive.record_2"));
+  revised.character_state_updates[0].knowledge_states.pop();
+  drafts.at(-1).workingDraftJson = JSON.stringify(revised);
+  const replayed = synchronizeContinuity("Archive investigation", initial.characters, drafts);
+  assert.equal(replayed.characters[0].dynamicState.knowledgeStates.find((item) => item.knowledgeKey === "archive.record_1").status, "known");
+});
+
 test("generated episode characters become stable character cards", () => {
   const result = synchronizeContinuity("末世求生", [], [episode(1, [{
     name: "林夏",

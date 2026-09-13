@@ -195,41 +195,41 @@
       "knowledge_id": "knowledge.short_drama.compact_episode_cycle.v1",
       "version": "v1",
       "category": "short_drama_structure",
-      "principle": "Each 75-115 second episode must form a compact pressure-action-payoff-hook cycle instead of behaving like one fragment of a conventional long-drama scene sequence.",
+      "principle": "Each 75-115 second episode must deliver concrete viewing value through information, character understanding, emotion, or expectation, with visible evidence and the approved episode rhythm.",
       "application_rules": [
-        "Make the immediate pressure legible early and let the protagonist act before background explanation takes over.",
-        "Make every one of the episode's one to five scenes change an observable state, and deliver a visible local payoff before the ending hook.",
-        "Make the hook arise from the episode's action and create one concrete obligation for the next episode."
+        "Make the episode's current concern legible through concrete action, dialogue, or reaction; avoid repeating background already understood by the audience.",
+        "Give each of the episode's one to five scenes a clear contribution to information, character understanding, emotion, expectation, or story state; do not require an external state change in every scene.",
+        "For a serial episode, make the hook arise causally from this episode and create a concrete continuation; a twist is optional. For a season or series finale, follow the approved closure."
       ],
       "limitations": [
-        "A quieter emotional episode is valid when it still changes a relationship, decision, knowledge state, or risk.",
+        "A quiet or setup episode is valid when the audience gains specific understanding, emotion, information, or expectation now; it need not contain a reversal or an irreversible change.",
         "Do not add disconnected shocks, artificial reversals, extra dialogue, or extra scenes merely to imitate pace."
       ],
       "anti_patterns": [
-        "Most of the episode explains background while the protagonist does not act.",
-        "Several consecutive episodes only investigate, prepare, travel, or wait while postponing all satisfaction."
+        "Repeating known background or gestures without adding viewing value.",
+        "Investigation, preparation, travel, or waiting that postpones all viewing value to later episodes."
       ],
-      "source_reference": "Product contract: mainland serialized comic-drama episodes are 75-115 seconds with one to five scenes and an episode-level payoff and hook"
+      "source_reference": "Product contract: mainland serialized comic-drama episodes are 75-115 seconds with one to five scenes, concrete viewing value, and causal serial handoffs or approved finale closure"
     },
     {
       "knowledge_id": "knowledge.serialization.short_drama_escalation_engine.v1",
       "version": "v1",
       "category": "story_structure_and_serialization",
-      "principle": "A long serialized short-drama project stays sustainable by changing tactics, costs, power, information, and relationships while every short episode still completes its own compact dramatic cycle.",
+      "principle": "A long serialized short-drama project stays sustainable through developments in tactics, costs, power, information, and relationships while every short episode delivers concrete viewing value at its approved rhythm.",
       "application_rules": [
-        "Let each episode's visible result cause the next episode's pressure instead of resetting or merely extending the same confrontation.",
+        "Let serial handoffs follow the episode's events, discoveries, or relationships without resetting the same confrontation; a quieter episode can deepen understanding or expectation without escalating danger.",
         "Escalate across episode groups through changed strategy, opposition, cost, relationship, or knowledge, not only louder danger.",
         "End or transform a conflict engine once its local question is resolved, then hand off one causal pressure rather than opening decorative subplots."
       ],
       "limitations": [
         "Do not postpone all payoff to a distant stage finale in order to preserve a long project.",
-        "Do not require multiple parallel lines, a fixed act count, equal branch sizes, or gradual television pacing."
+        "Do not require multiple parallel lines, a fixed act count, equal branch sizes, a fixed escalation cycle, or an irreversible change in every episode."
       ],
       "anti_patterns": [
         "Importing conventional television A/B/C plot loads into every 75-115 second episode.",
-        "Treating an eight-to-twelve-episode leaf as one slow conventional-drama act with no episode-level settlement."
+        "Treating an eight-to-twelve-episode leaf as one extended setup with no concrete viewing value in its individual episodes."
       ],
-      "source_reference": "Product contract: recursive 8-12 episode leaves with per-episode pressure-action-payoff cycles and causal handoffs"
+      "source_reference": "Product contract: recursive 8-12 episode leaves with per-episode viewing value and causal serial handoffs"
     }
   ],
   "bundles": [

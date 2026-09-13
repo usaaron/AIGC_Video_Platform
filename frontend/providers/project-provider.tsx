@@ -85,7 +85,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (!active) return;
         setServerPersistenceAvailable(serverResult.available);
         if (!serverResult.available) {
-          const offlineProjects = localProjects.map((project) => (
+          const offlineProjects = projectsRef.current.map((project) => (
             project.serverSync?.status === "conflict"
               ? {
                   ...project,
@@ -104,7 +104,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const merged = mergeProjects(localProjects, serverResult.projects);
+        // The editor is usable while the server request is pending. Merge
+        // against current state so that response cannot erase intervening edits.
+        const merged = mergeProjects(projectsRef.current, serverResult.projects);
         const nextProjects = sortProjects(merged.projects);
         projectsRef.current = nextProjects;
         setProjects(nextProjects);

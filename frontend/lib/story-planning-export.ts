@@ -39,7 +39,7 @@ export function episodeRoadmapCharacters(
   item: EpisodeRoadmapItem,
   characters: CharacterDraft[],
 ): string {
-  return item.character_refs.map((reference) => {
+  return (item.character_refs ?? []).map((reference) => {
     const character = characters.find((candidate) => candidate.id === reference || candidate.name === reference);
     return character
       ? `${character.name}（${normalizedGenderLabel(character.gender)}）`
@@ -96,6 +96,13 @@ export function toStoryPlanningMarkdown(
       `- 场地：${episodeRoadmapLocations(item)}`,
       `- 出场人物 & 性别：${episodeRoadmapCharacters(item, characters)}`,
       `- 梗概：${episodeRoadmapSynopsis(item)}`,
+      ...(item.protagonist_cost?.trim() ? [`- 主角代价：${item.protagonist_cost.trim()}`] : []),
+      ...(item.dramatic_units?.length
+        ? ["- 戏剧单位：", ...item.dramatic_units.map((unit, index) => (
+          `  ${index + 1}. ${unit.change_type}：${unit.trigger} → ${unit.choice} → ${unit.visible_consequence}`
+            + (unit.evidence_hint?.trim() ? `（动作或对白证据：${unit.evidence_hint.trim()}）` : "")
+        ))]
+        : []),
       ].join("\n");
     });
 

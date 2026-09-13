@@ -311,7 +311,10 @@ async def test_generate_script_draft() -> None:
     assert data["draft_master_script"]["generation_strategy_id"] == generation_strategy_id
     assert len(data["draft_master_script"]["scenes"]) == 3
     assert data["draft_master_script"]["scenes"][-1]["cliffhanger"] is True
-    assert data["llm_raw_output"]["title"]
+    assert data["llm_raw_output"] == {}
+    assert data["prompt_retrieval_result"]["prompts"][0]["prompt_template"] == (
+        "Prompt omitted from product result."
+    )
     assert data["story_qc_report"]["status"] == "placeholder"
     assert data["revision_plan"]["content_spec_id"] == content_spec_id
     assert data["revision_plan"]["must_re_qc"] is True
@@ -364,7 +367,7 @@ async def test_generate_script_draft_stream_reports_progress_and_result() -> Non
     assert result["data"]["llm_raw_output"] == {}
     assert result["data"]["prompt_build_result"]["rendered_variables"] == {}
     assert result["data"]["prompt_build_result"]["prompt_text"] == (
-        "Prompt omitted after streamed generation."
+        "Prompt omitted from product result."
     )
 
 
@@ -573,20 +576,16 @@ async def test_episode_context_review_and_user_modification_api() -> None:
 
     assert source_run["episode_context"]["episode_number"] == 2
     assert source_run["episode_context"]["batch_context"]["batch_number"] == 2
-    assert "SerializedEpisodeContract:" in source_run["prompt_build_result"]["prompt_text"]
-    assert "Mara and Adrian remain distrustful allies" in (
-        source_run["prompt_build_result"]["prompt_text"]
-    )
+    assert source_run["prompt_build_result"]["prompt_text"] == "Prompt omitted from product result."
+    assert "Mara and Adrian remain distrustful allies" in source_run["episode_context"]["project_continuity_summary"]
     assert reviewed_run["draft_master_script"]["hook"] == edited_draft["hook"]
     assert modification_response.status_code == 200
     modification = modification_response.json()["data"]
     assert modification["instruction"] == "Increase the cost of the ally's decision."
-    assert "UserDirectedModificationContract:" in (
-        modification["candidate_generation_run"]["prompt_build_result"]["prompt_text"]
+    assert modification["candidate_generation_run"]["prompt_build_result"]["prompt_text"] == (
+        "Prompt omitted from product result."
     )
-    assert "DocumentSelectionContext:" in (
-        modification["candidate_generation_run"]["prompt_build_result"]["prompt_text"]
-    )
+    assert modification["candidate_generation_run"]["llm_raw_output"] == {}
 
 
 @pytest.mark.anyio
@@ -662,8 +661,8 @@ async def test_generate_script_draft_accepts_resolved_character_context() -> Non
     assert character["name"] == "Lena"
     assert character["field_sources"]["belief"] == "ai_inferred"
     prompt_text = data["prompt_build_result"]["prompt_text"]
-    assert "ResolvedCreativeContext:" in prompt_text
-    assert "Never sacrifice humans for progress" in prompt_text
+    assert prompt_text == "Prompt omitted from product result."
+    assert "Never sacrifice humans for progress" in character["moral_boundaries"]
 
 
 @pytest.mark.anyio

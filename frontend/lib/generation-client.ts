@@ -22,8 +22,9 @@ import {
   hasUsableCreativeSource,
   referenceMaterialFallbackPrompt,
 } from "@/lib/reference-materials";
-import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
+import { resolveProjectTagSelection } from "@/lib/tag-catalog";
 import type {
+  AuthorConflictResolution,
   BilingualScriptView,
   CreativeDecisionRecord,
   CreativeDeepeningRun,
@@ -42,7 +43,8 @@ import {
   canonicalCharacterNameMap,
 } from "@/lib/canonical-character-names";
 import { clientDialogueSpeaker } from "@/lib/client-screenplay-format";
-import { episodeEndingText } from "@/lib/episode-ending";
+import { buildEpisodeHandoff } from "@/lib/episode-handoff";
+export { buildEpisodeHandoff } from "@/lib/episode-handoff";
 import type { StoryBibleSelectionContext } from "@/lib/story-planning-client";
 
 interface ApiList<T> { data: T[] }
@@ -61,6 +63,7 @@ interface GenerationStrategy {
   target_platform: string;
   applicable_tags: string[];
   draft_knowledge_bundle_id?: string | null;
+  model_tier?: "strong_planner" | "fast_executor";
 }
 interface ResolutionResponse { data: { content_spec: { id: string }; resolved_creative_context: unknown } }
 interface GenerationResponse { data: ScriptGenerationRun }
@@ -237,22 +240,8 @@ export async function generateSingleEpisode(
     strategiesResponse,
     confirmedCheckpoint,
   } = preparedRuntime;
-  const activeNodeIds = new Set(nodesResponse.data.filter((node) => node.is_active).map((node) => node.id));
   const activeNodes = new Map(nodesResponse.data.filter((node) => node.is_active).map((node) => [node.id, node]));
-  const customTags = project.customTags ?? [];
-  const customTagMap = new Map(customTags.map((tag) => [tag.id, tag]));
-  const systemTagIds = Array.from(new Set(
-    project.selectedTagIds
-      .filter((tagId) => !customTagMap.has(tagId))
-      .map(resolveLegacyTagId),
-  ));
-  const selectedCustomTagLabels = project.selectedTagIds
-    .map((tagId) => customTagMap.get(tagId)?.label)
-    .filter((label): label is string => Boolean(label));
-  const missingTags = systemTagIds.filter((tagId) => !activeNodeIds.has(tagId));
-  if (missingTags.length) {
-    throw new Error(`后端本体目录缺少已选标签：${missingTags.join("、")}`);
-  }
+  const { systemTagIds, creativeTagLabels: selectedCustomTagLabels } = resolveProjectTagSelection(project, nodesResponse.data);
   if (!hasUsableCreativeSource(project.creativePrompt, project.referenceMaterials) && systemTagIds.length === 0) {
     throw new Error("仅使用“我的标签”时需要补充创作描述或选择至少一个系统标签。");
   }
@@ -573,6 +562,7 @@ export async function modifyEpisodeDraft(
   signal?: AbortSignal,
   selectionContext?: StoryBibleSelectionContext | null,
   currentProject?: ScriptProject,
+  resolution?: AuthorConflictResolution,
 ): Promise<ScriptDraftModificationResult> {
   const sourceEpisodeContext = sourceGenerationRun.episode_context;
   const refreshedSourceGenerationRun = currentProject && sourceEpisodeContext
@@ -598,10 +588,17 @@ export async function modifyEpisodeDraft(
   const response = await apiRequest<ModificationResponse>("/script-generation/modify-draft", {
     method: "POST",
     body: JSON.stringify({
-      source_generation_run: refreshedSourceGenerationRun,
+      source_generation_run: {
+        ...refreshedSourceGenerationRun,
+        ...(currentProject && !refreshedSourceGenerationRun.story_project_id
+          ? { story_project_id: currentProject.id }
+          : {}),
+      },
       source_draft_master_script: draft,
+      source_story_bible_version: currentProject?.storyBibleVersion ?? null,
       instruction,
       selection_context: selectionContext ?? null,
+      ...(resolution ? { resolution } : {}),
     }),
     signal,
   });
@@ -719,32 +716,6 @@ function buildEpisodeContinuitySummary(draft: GeneratedDraft): string {
     finalScene?.scene_causality?.outcome ? `结尾状态变化：${finalScene.scene_causality.outcome}` : "",
     finalScene?.turning_point ? `结尾关键转折：${finalScene.turning_point}` : "",
   ].filter(Boolean).join("\n").slice(0, 2000);
-}
-
-export function buildEpisodeHandoff(draft: GeneratedDraft): string {
-  const finalScene = draft.scenes[draft.scenes.length - 1];
-  const endingMode = draft.ending_mode ?? "serial_hook";
-  const stateUpdates = (draft.character_state_updates ?? []).slice(-8).map((item) => (
-    `${item.character_name}：${item.change_summary}（原因：${item.change_cause}）`
-  ));
-  const openObligations = (draft.setup_payoff_updates ?? [])
-    .filter((item) => item.status !== "paid_off")
-    .slice(-6)
-    .map((item) => `${item.setup_payoff_ref}：${item.next_required_step ?? item.progress_summary}`);
-  return [
-    `上一集可见结果：${finalScene?.scene_causality?.outcome ?? draft.episode_goal}`,
-    finalScene?.turning_point ? `结尾转折：${finalScene.turning_point}` : "",
-    endingMode === "serial_hook" && finalScene?.cliffhanger
-      ? `结尾钩子：${draft.hook}`
-      : endingMode !== "serial_hook"
-        ? `结尾收束：${episodeEndingText(draft)}`
-        : "",
-    stateUpdates.length ? `人物状态变化：${stateUpdates.join("；")}` : "",
-    openObligations.length ? `未完成义务：${openObligations.join("；")}` : "",
-    endingMode === "serial_hook" && draft.next_episode_question?.trim()
-      ? `下一集问题：${draft.next_episode_question}`
-      : "",
-  ].filter(Boolean).join("\n").slice(0, 3200);
 }
 
 function resolveScriptTone(emotionTagId?: string): "intense" | "melodramatic" | "suspenseful" | "emotional" {

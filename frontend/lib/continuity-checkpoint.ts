@@ -222,22 +222,12 @@ export function compactContinuityLedgerForGeneration(
   ledger: Record<string, unknown>,
 ): string {
   const entityAliases = arrayValue(ledger.entity_aliases);
-  const aliasesByCanonical = new Map<string, string[]>();
-  for (const item of entityAliases) {
-    const canonical = String(item.canonical_entity_key ?? "");
-    const alias = String(item.alias ?? "");
-    if (!canonical || !alias) continue;
-    aliasesByCanonical.set(canonical, [
-      ...(aliasesByCanonical.get(canonical) ?? []),
-      alias,
-    ]);
-  }
   const compact: Record<string, unknown> = {
     version: ledger.version,
     through_episode_number: ledger.through_episode_number,
     story_bible_version: ledger.story_bible_version,
   };
-  const sections: Array<[string, unknown[]]> = [
+  const coreSections: Array<[string, Array<Record<string, unknown>>]> = [
     ["character_states", arrayValue(ledger.character_states).map((item) => (
       pickFields(item, [
         "character_ref", "current_goal", "emotional_state", "belief_or_attitude",
@@ -247,7 +237,6 @@ export function compactContinuityLedgerForGeneration(
         "last_updated_episode",
       ])
     ))],
-    ["entity_aliases", entityAliases.slice(-36)],
     ["world_states", prioritizeWorldStates(arrayValue(ledger.world_states)).map((item) => pickFields(item, [
       "entity_key", "entity_type", "entity_name", "state_domain", "current_state",
       "persistence", "future_constraint", "last_transition", "change_cause",
@@ -255,33 +244,60 @@ export function compactContinuityLedgerForGeneration(
     ]))],
     ["open_setup_payoffs", arrayValue(ledger.setup_payoffs)
       .filter((item) => item.status !== "paid_off" && item.status !== "dropped")],
+  ];
+  const activeSections = coreSections.filter(([, records]) => records.length);
+  const allowance = Math.floor(
+    (CHECKPOINT_CHARACTER_BUDGET - JSON.stringify(compact).length) / Math.max(1, activeSections.length),
+  );
+  const deferred: typeof coreSections = [];
+  // Reserve a share for each source of continuity before spending spare space.
+  // Aliases are admitted atomically with their record, never instead of its facts.
+  for (const [key, records] of activeSections) {
+    const sectionBudget = Math.min(CHECKPOINT_CHARACTER_BUDGET, JSON.stringify(compact).length + allowance);
+    deferred.push([key, records.filter((record) => !appendRecordWithinBudget(
+      compact, key, record, sectionBudget, entityAliases,
+    ))]);
+  }
+  while (deferred.some(([, records]) => records.length)) {
+    for (const [key, records] of deferred) {
+      const record = records.shift();
+      if (record) appendRecordWithinBudget(compact, key, record, CHECKPOINT_CHARACTER_BUDGET, entityAliases);
+    }
+  }
+  const supportingSections: typeof coreSections = [
     ["story_line_states", arrayValue(ledger.story_line_states)],
     ["relationship_states", arrayValue(ledger.relationship_states)],
     ["recent_episode_summaries", arrayValue(ledger.recent_episode_summaries).slice(-4)],
   ];
-  for (const [key, values] of sections) {
-    appendRecordsWithinBudget(compact, key, values, CHECKPOINT_CHARACTER_BUDGET);
+  for (const [key, records] of supportingSections) {
+    for (const record of records) {
+      appendRecordWithinBudget(compact, key, record, CHECKPOINT_CHARACTER_BUDGET, []);
+    }
   }
   return JSON.stringify(compact);
 }
 
-function appendRecordsWithinBudget(
+function appendRecordWithinBudget(
   target: Record<string, unknown>,
   key: string,
-  values: unknown[],
+  record: Record<string, unknown>,
   budget: number,
-): void {
-  const accepted: unknown[] = [];
-  for (const value of values) {
-    accepted.push(value);
-    target[key] = accepted;
-    if (JSON.stringify(target).length > budget) {
-      accepted.pop();
-      break;
+  entityAliases: Array<Record<string, unknown>>,
+): boolean {
+  const candidate: Record<string, unknown> = { ...target, [key]: [...arrayValue(target[key]), record] };
+  const entityKey = record.character_ref ?? record.entity_key;
+  if (entityKey) {
+    const aliases = [...arrayValue(target.entity_aliases)];
+    for (const alias of entityAliases.filter((item) => item.canonical_entity_key === entityKey)) {
+      if (!aliases.some((item) => item.canonical_entity_key === alias.canonical_entity_key && item.alias === alias.alias)) {
+        aliases.push(alias);
+      }
     }
+    if (aliases.length) candidate.entity_aliases = aliases;
   }
-  if (accepted.length) target[key] = accepted;
-  else delete target[key];
+  if (JSON.stringify(candidate).length > budget) return false;
+  Object.assign(target, candidate);
+  return true;
 }
 
 function arrayValue(value: unknown): Array<Record<string, unknown>> {
@@ -317,11 +333,23 @@ function prioritizeWorldStates<T>(states: T[]): T[] {
       - Number((left as Record<string, unknown>).evidence_episode_number ?? 0)
     ))
     .slice(0, 2);
-  const firstPage = [...ranked.slice(0, 8), ...recentProductionAssets];
+  const latestSchedule = ranked
+    .filter((state) => String((state as Record<string, unknown>).state_domain) === "schedule")
+    .sort((left, right) => (
+      Number((right as Record<string, unknown>).evidence_episode_number ?? 0)
+      - Number((left as Record<string, unknown>).evidence_episode_number ?? 0)
+    ))
+    .slice(0, 1);
+  const firstPage = [
+    ...ranked.slice(0, 1), ...latestSchedule, ...recentProductionAssets, ...ranked.slice(0, 8),
+  ];
   const seen = new Set<string>();
   return [...firstPage, ...ranked].filter((state) => {
     const record = state as Record<string, unknown>;
-    const key = String(record.entity_key ?? `${record.entity_type}:${record.entity_name}`);
+    const key = JSON.stringify([
+      record.entity_key ?? `${record.entity_type}:${record.entity_name}`,
+      record.state_domain,
+    ]);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

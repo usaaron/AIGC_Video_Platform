@@ -1,0 +1,921 @@
+{
+  "provenance": {
+    "origin": "synthetic real_generation_probe_fixture.py story, observed-01",
+    "date": "2026-09-11",
+    "fault": "21 bilingual dialogue lines retained from a 30-line isolated generated fixture",
+    "historical_failure_reproduction": false
+  },
+  "source": {
+    "output": {
+      "title": "酒会迷局",
+      "logline": "订婚酒会上，调查记者伊芙发现投屏包含无辜证人名单后紧急切断电源，并与科尔集团继承人亚当当面核对矿难异常付款时间。",
+      "synopsis": "订婚酒会上，伊芙准备用付款截图打击科尔矿业集团，却发现大屏幕准备连同未公开证人名单一并投屏。为了保护无辜证人，伊芙拔下电源线中断投屏。侧廊里，亚当追上伊芙，两人当面用手机比对，确认付款时间18:00早于通报记载的事故发生时刻20:00。亚当指出只有旧仓库的原始工单才能证明作业交接，并将仓库钥匙交给伊芙，透露工单今晚就要被转运。",
+      "hook": "大屏幕即将投屏无辜证人名单，伊芙在最后一秒拔掉电源线！",
+      "target_audience": "面向英语观众的悬疑情感与复仇连载",
+      "target_platform": "TikTok",
+      "language": "en",
+      "tone": "intense",
+      "episode_goal": "伊芙必须在订婚酒会上保住证人身份并验证异常付款时间。",
+      "target_duration_seconds": 90,
+      "ending_mode": "serial_hook",
+      "characters": [
+        {
+          "name": "伊芙",
+          "role": "女主角、调查记者",
+          "description": "28岁，冷静敏锐，因姐姐死于被掩盖的矿难而追查科尔矿业集团；渴望公开真相，害怕再次信错人，底线是不牺牲无辜者。",
+          "motivation": "查清矿难真相，惩治幕后黑手，同时保护无辜证人。"
+        },
+        {
+          "name": "亚当",
+          "role": "男主角、科尔矿业集团继承人",
+          "description": "30岁，克制强势，表面阻止伊芙曝光，实际在调查父亲；渴望终止家族罪恶，但恐惧真相毁掉所有亲近的人。",
+          "motivation": "核实矿难证据真相，在不伤害无辜的前提下揭露父亲的罪行。"
+        }
+      ],
+      "scenes": [
+        {
+          "scene_number": 1,
+          "slug": "INT. 订婚酒会厅 - 夜",
+          "scene_heading": "INT. 订婚酒会厅 - 夜",
+          "purpose": "伊芙在名单即将被投屏时拔下连接线，保护无辜证人。",
+          "setting": "INT. 订婚酒会厅 - 夜",
+          "beat_summary": "订婚酒会上，伊芙准备公开付款截图，但发现证人名单也将被投屏，果断拔掉连接线中断公开。",
+          "emotional_shift": "从复仇冲动转为警惕果断",
+          "emotional_objective": "通过突发阻力迫使伊芙在公开报复与保护证人之间做出选择。",
+          "character_refs": [
+            "伊芙",
+            "亚当"
+          ],
+          "character_actions": [
+            "伊芙站在宴会厅侧边的控制台旁，紧盯台上的大屏幕，手指按在连接线接头上。",
+            "亚当穿过祝贺的人群走向舞台中央，向宾客举杯致意。",
+            "屏幕闪烁，付款截图开始加载，但下方随即弹出了未公开的证人名单预览。",
+            "宾客们纷纷转头看向大屏幕，议论声渐渐响起。",
+            "伊芙一把拔下控制台上的视频连接线，大屏幕瞬间黑屏。"
+          ],
+          "body_order": [
+            "action:0",
+            "action:1",
+            "dialogue:0",
+            "dialogue:1",
+            "action:2",
+            "dialogue:2",
+            "dialogue:3",
+            "action:3",
+            "dialogue:4",
+            "action:4",
+            "dialogue:5",
+            "dialogue:6"
+          ],
+          "turning_point": "伊芙发现投屏画面包含证人名单，拔掉电源线放弃当众曝光。",
+          "scene_causality": {
+            "goal": "伊芙想在订婚酒会上当众曝光付款截图打击科尔集团。",
+            "conflict": "投屏系统将未公开证人名单与截图一并显示，公开会危及证人。",
+            "outcome": "伊芙拔掉连接线保住证人名单，但也失去了当众曝光的机会。",
+            "caused_by_scene_number": null,
+            "causal_link": null
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "自信庄重",
+              "text": "Welcome, everyone. Tonight is about the future of Cole Mining.",
+              "chinese_translation": "欢迎各位。今晚关乎科尔矿业的未来。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "暗自凝视，低语",
+              "text": "Your future ends tonight, Adam.",
+              "chinese_translation": "你的未来今晚就到头了，亚当。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "眼神骤变",
+              "text": "No... the witness list is attached.",
+              "chinese_translation": "不好……证人名单也在里面。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "在台上注意到屏幕异常，眉头紧锁",
+              "text": "Eve? What are you doing over there?",
+              "chinese_translation": "伊芙？你在那边做什么？"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "果断伸手",
+              "text": "I can't let them burn.",
+              "chinese_translation": "我不能连累无辜的人。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "大步冲下舞台",
+              "text": "Stop the feed! Eve, control yourself!",
+              "chinese_translation": "切断信号！伊芙，冷静点！"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "将手机与名单卡片迅速收进手袋",
+              "text": "I control the evidence, Adam.",
+              "chinese_translation": "证据在我手上，亚当。"
+            }
+          ],
+          "content_manifest": {
+            "location": "INT. 订婚酒会厅",
+            "time_of_day": "夜",
+            "character_refs": [
+              "伊芙",
+              "亚当"
+            ],
+            "objective": "伊芙要在酒会上保住证人名单并找机会核验证据。",
+            "conflict": "当众曝光会连累无辜证人，拔掉电线则失去公开打击机会。",
+            "turning_point": "伊芙发现证人名单被附在投屏文件中，果断拔线。",
+            "outcome": "投屏中断，证人名单安全，亚当要求私下交涉。",
+            "props": [
+              "投影仪连接线",
+              "手机",
+              "证人名单文件卡片"
+            ],
+            "entry_state": "酒会致辞开始，伊芙握着手机准备投屏。",
+            "exit_state": "大屏幕黑屏，伊芙收好名单，亚当带她前往侧廊。"
+          }
+        },
+        {
+          "scene_number": 2,
+          "slug": "INT. 酒店宴会厅侧廊 - 夜",
+          "scene_heading": "INT. 酒店宴会厅侧廊 - 夜",
+          "purpose": "当面比对付款截图时间与公司通报时间，确认两小时异常。",
+          "setting": "INT. 酒店宴会厅侧廊 - 夜",
+          "beat_summary": "侧廊中，伊芙与亚当用两部手机当面比对，查实付款18:00早于通报记载的事故发生时刻20:00。",
+          "emotional_shift": "从敌对试探转为严肃核查",
+          "emotional_objective": "通过两部手机的实物对照，让证据发生可见变化。",
+          "character_refs": [
+            "伊芙",
+            "亚当"
+          ],
+          "character_actions": [
+            "伊芙将手机屏幕摔在侧廊的雕花大理石台面上，上面清晰显示着事故当日18:00的汇款截图。",
+            "亚当掏出手机，快速调出科尔矿业集团的官方通报文件。",
+            "亚当将两部手机并排贴在一起，仔细核对屏幕上的当地同一时区时间戳。",
+            "亚当按灭自己的手机屏幕，神色异常严峻。",
+            "亚当上前一步，挡住侧廊出口，声音极度克制。"
+          ],
+          "body_order": [
+            "action:0",
+            "dialogue:0",
+            "action:1",
+            "dialogue:1",
+            "dialogue:2",
+            "action:2",
+            "dialogue:3",
+            "dialogue:4",
+            "action:3",
+            "dialogue:5",
+            "dialogue:6",
+            "action:4"
+          ],
+          "turning_point": "两部手机并排对比，查实18:00付款早于通报的20:00事故时刻。",
+          "scene_causality": {
+            "goal": "伊芙逼迫亚当承认异常付款的真实性。",
+            "conflict": "亚当认为单凭截图无法证明造假者或实际事故时刻。",
+            "outcome": "两人查实时间差存在，亚当指出只有旧仓库原始工单才能证明交接。",
+            "caused_by_scene_number": 1,
+            "causal_link": "伊芙拔掉连接线后，亚当带她到侧廊私下核对材料。"
+          },
+          "cliffhanger": false,
+          "dialogues": [
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "逼视亚当",
+              "text": "Explain this. A payout to the hazard team at six PM on the day of the disaster.",
+              "chinese_translation": "解释一下。矿难当天下午六点给险情组的汇款。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "按住手机",
+              "text": "Our official report states the collapse occurred at eight PM. Operations continued until then.",
+              "chinese_translation": "我们的官方报告明确记载崩塌发生在晚上八点，在此之前作业一直在持续。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "指着截图上的时刻",
+              "text": "Six PM! The payment was issued two hours before your official accident time!",
+              "chinese_translation": "六点！这笔付款比你们官方事故时间早了整整两个小时！"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "眼神一震",
+              "text": "The press release went out the next morning at eight, but the report itself logs the collapse at eight PM...",
+              "chinese_translation": "新闻稿是次日早上八点发布的，但报告本身记载的坍塌时刻的确是晚上八点……"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "意图：冷笑",
+              "text": "Two hours. Why pay off safety crews two hours before the mine allegedly collapsed?",
+              "chinese_translation": "相差整整两小时。为什么在矿山声称坍塌前两小时就给安检组打款？"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "声音沉重",
+              "text": "This screenshot proves a time disparity. But it doesn't prove who forged the record.",
+              "chinese_translation": "这张截图只证明了时间差异，但无法证明是谁篡改了记录。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "抢回手机",
+              "text": "It proves Cole Mining lied about the timeline!",
+              "chinese_translation": "这证明了科尔矿业在时间线上说了谎！"
+            }
+          ],
+          "content_manifest": {
+            "location": "INT. 酒店宴会厅侧廊",
+            "time_of_day": "夜",
+            "character_refs": [
+              "伊芙",
+              "亚当"
+            ],
+            "objective": "比对付款时间与官方通报时间。",
+            "conflict": "截图不足以在法庭上证明造假者，必须找到原始工单。",
+            "turning_point": "两部手机并排对照，查实18:00与20:00的2小时时差。",
+            "outcome": "伊芙证实了付款时间异常，亚当透露原始工单存在于旧仓库。",
+            "props": [
+              "手机",
+              "矿难付款截图",
+              "公司官方通报"
+            ],
+            "entry_state": "两人进入侧廊，伊芙拿出付款截图逼问。",
+            "exit_state": "查实2小时时差，亚当提出必须去旧仓库拿原始工单。"
+          }
+        },
+        {
+          "scene_number": 3,
+          "slug": "INT. 酒店出口 - 夜",
+          "scene_heading": "INT. 酒店出口 - 夜",
+          "purpose": "亚当将仓库钥匙交给伊芙，建立今晚前往旧仓库的行动约束。",
+          "setting": "INT. 酒店出口 - 夜",
+          "beat_summary": "酒店后门处，亚当交出旧仓库钥匙并透露工单今晚转运，两人决定立即前往仓库。",
+          "emotional_shift": "从相互戒备转为迫切合作",
+          "emotional_objective": "完成钥匙交接并确立下一集的明确行动目标。",
+          "character_refs": [
+            "伊芙",
+            "亚当"
+          ],
+          "character_actions": [
+            "酒店后门风声凛冽，伊芙裹紧外套，回头看着追出来的亚当。",
+            "亚当从口袋里摸出把沉重的黄铜钥匙，捏在指缝间。",
+            "亚当抓过伊芙的手，将黄铜钥匙拍在她掌心里，紧紧合拢她的手指。",
+            "宴会厅门口传来保安催促的车门声，光晕洒在两人身上。",
+            "伊芙拉开车门坐进副驾驶，亚当迅速绕到驾驶座，引擎轰然响起，车灯刺破夜色。"
+          ],
+          "body_order": [
+            "action:0",
+            "dialogue:0",
+            "dialogue:1",
+            "action:1",
+            "dialogue:2",
+            "dialogue:3",
+            "action:2",
+            "dialogue:4",
+            "dialogue:5",
+            "dialogue:6",
+            "action:3",
+            "action:4"
+          ],
+          "turning_point": "亚当将旧仓库钥匙塞入伊芙手中，透露工单今晚转运。",
+          "scene_causality": {
+            "goal": "两人需要决定如何抢在工单被处理前拿到原始证据。",
+            "conflict": "工单今晚转运，擅闯科尔私有地产面临被捕风险。",
+            "outcome": "伊芙收下钥匙，两人达成临时合作，连夜驾车前往旧仓库。",
+            "caused_by_scene_number": 2,
+            "causal_link": "在侧廊查实时间差后，亚当必须赶在转运前将钥匙交给伊芙。"
+          },
+          "cliffhanger": true,
+          "dialogues": [
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "意图：驻足",
+              "text": "Why tell me about the warehouse? You're a Cole.",
+              "chinese_translation": "为什么要告诉我仓库的事？你姓科尔。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "停在一步开外",
+              "text": "Because I'm trying to find out what my father is hiding.",
+              "chinese_translation": "因为我也想查清我父亲究竟隐瞒了什么。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "盯着钥匙",
+              "text": "You expect me to trust you?",
+              "chinese_translation": "你想让我信任你？"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "意图：摇头",
+              "text": "I don't expect trust. I offer facts.",
+              "chinese_translation": "我不指望信任，我只提供事实。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "凝视伊芙",
+              "text": "The shipping crew leaves at midnight. The original orders are scheduled for transfer tonight.",
+              "chinese_translation": "运输队午夜出发，原始工单计划今晚被转运。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "握紧钥匙",
+              "text": "Transfer hasn't happened yet?",
+              "chinese_translation": "转运还没有发生？"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "意图：点头",
+              "text": "Not yet. But if we don't go now, those papers burn.",
+              "chinese_translation": "还没有。但如果我们现在不过去，那些纸质文件就会烧掉。"
+            }
+          ],
+          "content_manifest": {
+            "location": "INT. 酒店出口",
+            "time_of_day": "夜",
+            "character_refs": [
+              "伊芙",
+              "亚当"
+            ],
+            "objective": "锁定原始工单去向并决定今晚行动。",
+            "conflict": "工单今晚转运，两人面临擅闯私产的风险。",
+            "turning_point": "亚当把旧仓库钥匙放在伊芙掌心，透露转运就在今晚。",
+            "outcome": "伊芙拿到仓库钥匙，两人连夜驾车赶往旧仓库。",
+            "props": [
+              "黄铜仓库钥匙",
+              "手机"
+            ],
+            "entry_state": "两人一前一后走出酒店后门。",
+            "exit_state": "伊芙持有仓库钥匙，两人驾车驶向旧仓库。"
+          }
+        }
+      ],
+      "character_state_updates": [
+        {
+          "character_name": "伊芙",
+          "current_goal": "连夜赶往旧仓库获取记录18:30停工的原始工单。",
+          "emotional_state": "高度警惕、果断冷静",
+          "belief_or_attitude": null,
+          "life_status": null,
+          "physical_state": null,
+          "location": null,
+          "knowledge_changes": [
+            "查实付款截图时间18:00早于官方通报事故时刻20:00",
+            "获知记载18:30停工的原始工单今晚在旧仓库被转运"
+          ],
+          "knowledge_states": null,
+          "health_conditions": [],
+          "action_capabilities": [],
+          "lasting_marks": [],
+          "active_constraints": [
+            "不得牺牲无辜证人曝光名单",
+            "必须赶在午夜转运前进入旧仓库"
+          ],
+          "personality_change": null,
+          "change_summary": "保住了证人名单，与亚当达成有限合作去旧仓库寻找工单。",
+          "change_cause": "发现投屏附带名单后拔线，并在侧廊与亚当核对出2小时时间差。",
+          "evidence_scene_numbers": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "character_name": "亚当",
+          "current_goal": "协助伊芙在旧仓库核对工单，同时暗中调查父亲的掩盖行为。",
+          "emotional_state": "克制沉重、高度戒备",
+          "belief_or_attitude": null,
+          "life_status": null,
+          "physical_state": null,
+          "location": null,
+          "knowledge_changes": [
+            "确认公司通报事故时刻20:00与18:00付款截图存在2小时偏差",
+            "确认原始工单仍在旧仓库尚未被转运"
+          ],
+          "knowledge_states": null,
+          "health_conditions": [],
+          "action_capabilities": [],
+          "lasting_marks": [],
+          "active_constraints": [
+            "尚未掌握幕后主使的完整证据链",
+            "面临擅闯家族私产的追责风险"
+          ],
+          "personality_change": null,
+          "change_summary": "将旧仓库钥匙交给伊芙，决定与伊芙当晚前往仓库核查。",
+          "change_cause": "认同时间差存在异常，且工单今晚即将被转运毁迹。",
+          "evidence_scene_numbers": [
+            2,
+            3
+          ]
+        }
+      ],
+      "relationship_state_updates": [
+        {
+          "source_character_name": "伊芙",
+          "target_character_name": "亚当",
+          "relationship_type": "利益同盟",
+          "source_to_target": "保留怀疑但同意合作",
+          "target_to_source": "希望共同核验事实并保护家族不受不实指控",
+          "current_state": "从公开敌对转为共同查验证据的有限合作关系。",
+          "change_summary": "伊芙接受亚当提供的仓库钥匙，两人共同驾车前往仓库。",
+          "change_cause": "当面核对出2小时付款时间差，且工单即将被转运。",
+          "evidence_scene_numbers": [
+            2,
+            3
+          ]
+        }
+      ],
+      "continuity_state_updates": [
+        {
+          "entity_key": "mine_payment_screenshot",
+          "entity_type": "item",
+          "entity_name": "矿难付款截图",
+          "state_domain": "possession",
+          "transition": "established",
+          "current_state": "由伊芙妥善保管，已私下展示给亚当核对，未向外界公开。",
+          "persistence": "permanent",
+          "future_constraint": "不能单独作为法庭证据，需与原始工单比对。",
+          "change_cause": "伊芙拔下电源线阻止了公开投屏。",
+          "evidence_scene_numbers": [
+            1,
+            2
+          ]
+        },
+        {
+          "entity_key": "old_warehouse_key",
+          "entity_type": "item",
+          "entity_name": "旧仓库黄铜钥匙",
+          "state_domain": "possession",
+          "transition": "transferred",
+          "current_state": "亚当在酒店出口将其交给了伊芙，现由伊芙持有。",
+          "persistence": "temporary",
+          "future_constraint": "用于今晚开启旧仓库大门。",
+          "change_cause": "亚当主动将钥匙放在伊芙掌心中。",
+          "evidence_scene_numbers": [
+            3
+          ]
+        }
+      ],
+      "story_line_updates": [
+        {
+          "story_line_id": "storyline.mine_evidence",
+          "status": "active",
+          "progress_summary": "查实付款截图18:00与通报20:00存在2小时偏差；拿到旧仓库钥匙准备核查工单。",
+          "contribution_type": "progress",
+          "planned_beat_ref": null,
+          "planned_alignment": "aligned",
+          "alignment_note": null,
+          "next_required_step": "进入旧仓库核对原始工单上记载的18:30停工记录。",
+          "change_cause": "当面比对手机时间戳并取得旧仓库钥匙。",
+          "evidence_scene_numbers": [
+            2,
+            3
+          ]
+        }
+      ],
+      "setup_payoff_updates": [],
+      "continuation_hook": {
+        "next_episode_obligation": "两人必须赶在转运前进入旧仓库核对原始工单与官方通报的持续作业主张。",
+        "ending_hook_type": "事实反转",
+        "ending_hook_summary": "亚当透露记载真实停工时间的工单今晚就将被转运，两人必须连夜赶往旧仓库。"
+      },
+      "next_episode_question": "两人赶在转运前潜入旧仓库，能否从原始工单中查出18:30停工的真相？",
+      "episode_cast": [
+        "伊芙",
+        "亚当"
+      ],
+      "locations": [
+        "INT. 订婚酒会厅 - 夜",
+        "INT. 酒店宴会厅侧廊 - 夜",
+        "INT. 酒店出口 - 夜"
+      ]
+    },
+    "strategy": {
+      "id": "strategy.tiktok.frontend_mvp.dark_romance.v1",
+      "name": "TikTok Dark Romance Knowledge + Deepening Strategy",
+      "target_platform": "tiktok",
+      "target_content_type": "ai_comic_drama",
+      "applicable_tags": [
+        "genre.dark_romance"
+      ],
+      "model_provider": "openai_compatible",
+      "model_name": "gpt-6-astra",
+      "model_tier": "strong_planner",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "max_tokens": 4000,
+      "workflow_steps": [
+        {
+          "step_order": 1,
+          "name": "story_planning",
+          "description": "Generate the dramatic episode draft as structured JSON.",
+          "prompt_id": "prompt.story_planning.frontend_mvp",
+          "multi_turn_enabled": false,
+          "structured_output_required": true
+        },
+        {
+          "step_order": 2,
+          "name": "tiktok_optimization",
+          "description": "Tighten pacing, hook density, and cliffhanger pressure.",
+          "prompt_id": "prompt.tiktok_optimization.frontend_mvp",
+          "multi_turn_enabled": false,
+          "structured_output_required": true
+        }
+      ],
+      "prompt_ids": [
+        "prompt.story_planning.frontend_mvp",
+        "prompt.tiktok_optimization.frontend_mvp"
+      ],
+      "draft_knowledge_bundle_id": "knowledge_bundle.draft.dark_romance_tiktok.v1",
+      "deepening_mode": "shadow",
+      "deepening_prompt_ids": [
+        "prompt.creative_deepening.frontend_mvp"
+      ],
+      "deepening_knowledge_bundle_id": "knowledge_bundle.deepening.dark_romance_tiktok.v1",
+      "deepening_max_tokens": 4000,
+      "deepening_max_expressive_growth_ratio": 0.35,
+      "qc_enabled": true,
+      "self_check_enabled": true,
+      "human_review_required": false,
+      "output_schema": {},
+      "version": "v1",
+      "status": "active"
+    },
+    "release_region": "overseas",
+    "target_duration_seconds": 90
+  },
+  "failed_patches": [
+    {
+      "status": "passed",
+      "output": {
+        "scenes": [
+          {
+            "scene_number": 1,
+            "character_actions": [
+              "伊芙站在宴会厅侧边的控制台旁，紧盯台上的大屏幕，手指按在连接线接头上。",
+              "亚当穿过祝贺的人群走向舞台中央，向宾客举杯致意。",
+              "屏幕闪烁，付款截图开始加载，但下方随即弹出了未公开的证人名单预览。",
+              "宾客们纷纷转头看向大屏幕议论纷纷，亚当察觉异常抬头看向后台。",
+              "伊芙一把拔下控制台上的视频连接线，大屏幕瞬间黑屏。"
+            ],
+            "body_order": [
+              "action:0",
+              "dialogue:0",
+              "action:1",
+              "dialogue:1",
+              "action:2",
+              "dialogue:2",
+              "dialogue:3",
+              "action:3",
+              "dialogue:4",
+              "dialogue:5",
+              "action:4",
+              "dialogue:6",
+              "dialogue:7"
+            ],
+            "dialogues": [
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {}
+            ]
+          }
+        ]
+      },
+      "raw_responses": [
+        "{\n  \"scenes\": [\n    {\n      \"scene_number\": 1,\n      \"character_actions\": [\n        \"伊芙站在宴会厅侧边的控制台旁，紧盯台上的大屏幕，手指按在连接线接头上。\",\n        \"亚当穿过祝贺的人群走向舞台中央，向宾客举杯致意。\",\n        \"屏幕闪烁，付款截图开始加载，但下方随即弹出了未公开的证人名单预览。\",\n        \"宾客们纷纷转头看向大屏幕议论纷纷，亚当察觉异常抬头看向后台。\",\n        \"伊芙一把拔下控制台上的视频连接线，大屏幕瞬间黑屏。\"\n      ],\n      \"body_order\": [\n        \"action:0\",\n        \"dialogue:0\",\n        \"action:1\",\n        \"dialogue:1\",\n        \"action:2\",\n        \"dialogue:2\",\n        \"dialogue:3\",\n        \"action:3\",\n        \"dialogue:4\",\n        \"dialogue:5\",\n        \"action:4\",\n        \"dialogue:6\",\n        \"dialogue:7\"\n      ],\n      \"dialogues\": [\n        {\n            }\n        ,\n        {\n          }\n        ,\n        {\n          }\n        ,\n        {\n          }\n        ,\n        {\n          }\n        ,\n        {\n          }\n        ,\n        {\n          }\n        ,\n        {\n          }\n      ]\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "status": "passed",
+      "output": {
+        "scenes": [
+          {
+            "scene_number": 1,
+            "character_actions": [
+              "伊芙站在宴会厅侧边的控制台旁，紧盯台上的大屏幕，手指按在连接线接头上。",
+              "亚当穿过祝贺的人群走向舞台中央，向宾客举杯致意。",
+              "屏幕闪烁，付款截图开始加载，但下方随即弹出了未公开的证人名单预览。",
+              "宾客们纷纷转头看向大屏幕议论纷纷，亚当察觉异常抬头看向后台。",
+              "伊芙一把拔下控制台上的视频连接线，大屏幕瞬间黑屏。"
+            ],
+            "body_order": [
+              "action:0",
+              "dialogue:0",
+              "action:1",
+              "dialogue:1",
+              "action:2",
+              "dialogue:2",
+              "dialogue:3",
+              "action:3",
+              "dialogue:4",
+              "dialogue:5",
+              "action:4",
+              "dialogue:6",
+              "dialogue:7"
+            ],
+            "dialogues": [
+              {}
+            ]
+          }
+        ]
+      },
+      "raw_responses": [
+        "{\"scenes\":[{\"scene_number\":1,\"character_actions\":[\"伊芙站在宴会厅侧边的控制台旁，紧盯台上的大屏幕，手指按在连接线接头上。\",\"亚当穿过祝贺的人群走向舞台中央，向宾客举杯致意。\",\"屏幕闪烁，付款截图开始加载，但下方随即弹出了未公开的证人名单预览。\",\"宾客们纷纷转头看向大屏幕议论纷纷，亚当察觉异常抬头看向后台。\",\"伊芙一把拔下控制台上的视频连接线，大屏幕瞬间黑屏。\"],\"body_order\":[\"action:0\",\"dialogue:0\",\"action:1\",\"dialogue:1\",\"action:2\",\"dialogue:2\",\"dialogue:3\",\"action:3\",\"dialogue:4\",\"dialogue:5\",\"action:4\",\"dialogue:6\",\"dialogue:7\"],\"dialogues\":[{\n  }\n]}\n]\n}"
+      ]
+    }
+  ],
+  "repaired_patch": {
+    "status": "passed",
+    "output": {
+      "scenes": [
+        {
+          "scene_number": 1,
+          "character_actions": [
+            "伊芙站在宴会厅侧边的控制台旁，紧盯台上的大屏幕，手指按在连接线接头上。",
+            "亚当穿过祝贺的人群走向舞台中央，向宾客举杯致意。",
+            "屏幕闪烁，付款截图开始加载，但下方随即弹出了未公开的证人名单预览。",
+            "宾客们纷纷转头看向大屏幕，议论声渐渐响起。",
+            "伊芙一把拔下控制台上的视频连接线，大屏幕瞬间黑屏。"
+          ],
+          "body_order": [
+            "action:0",
+            "action:1",
+            "dialogue:0",
+            "dialogue:1",
+            "action:2",
+            "dialogue:2",
+            "dialogue:3",
+            "action:3",
+            "dialogue:4",
+            "dialogue:5",
+            "action:4",
+            "dialogue:6",
+            "dialogue:7"
+          ],
+          "dialogues": [
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "自信庄重",
+              "text": "Welcome, everyone. Tonight is about celebrating the future of Cole Mining.",
+              "chinese_translation": "欢迎各位。今晚关乎科尔矿业的未来。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "暗自凝视，低语",
+              "text": "Your future ends tonight, Adam.",
+              "chinese_translation": "你的未来今晚就到头了，亚当。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "眼神骤变",
+              "text": "No... the witness list is attached to this feed.",
+              "chinese_translation": "不好……证人名单也在投屏文件里。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "在台上注意到屏幕异常，眉头紧锁",
+              "text": "Eve? What are you doing over there at the control console?",
+              "chinese_translation": "伊芙？你在控制台那边做什么？"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "果断伸手",
+              "text": "I can't let innocent witnesses burn for your crimes.",
+              "chinese_translation": "我不能为了击垮你连累无辜的证人。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "大步冲下舞台",
+              "text": "Stop the feed! Eve, control yourself before you destroy everything!",
+              "chinese_translation": "切断信号！伊芙，在你毁了一切之前冷静点！"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "将手机与名单卡片迅速收进手袋",
+              "text": "I control the evidence, Adam.",
+              "chinese_translation": "证据在我手上，亚当。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "眼神警惕",
+              "text": "Step away from the console before security gets involved!",
+              "chinese_translation": "在保安干预之前离控制台远点！"
+            }
+          ]
+        },
+        {
+          "scene_number": 2,
+          "character_actions": [
+            "伊芙将手机屏幕摔在侧廊的雕花大理石台面上，上面清晰显示着事故当日18:00的汇款截图。",
+            "亚当掏出手机，快速调出科尔矿业集团的官方通报文件。",
+            "亚当将两部手机并排贴在一起，仔细核对屏幕上的当地同一时区时间戳。",
+            "亚当按灭自己的手机屏幕，神色异常严峻。",
+            "亚当上前一步，挡住侧廊出口，声音极度克制。"
+          ],
+          "body_order": [
+            "action:0",
+            "dialogue:0",
+            "action:1",
+            "dialogue:1",
+            "dialogue:2",
+            "action:2",
+            "dialogue:3",
+            "dialogue:4",
+            "action:3",
+            "dialogue:5",
+            "dialogue:6",
+            "action:4",
+            "dialogue:7",
+            "dialogue:8"
+          ],
+          "dialogues": [
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "逼视亚当",
+              "text": "Explain this. A payout to the hazard team at six PM on the day of the disaster.",
+              "chinese_translation": "解释一下。矿难当天下午六点给险情组的汇款。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "按住手机",
+              "text": "Our official report states the collapse occurred at eight PM. Operations continued until then.",
+              "chinese_translation": "我们的官方报告明确记载崩塌发生在晚上八点，在此之前作业一直在持续。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "指着截图上的时刻",
+              "text": "Six PM! The payment was issued two hours before your official accident time!",
+              "chinese_translation": "六点！这笔付款比你们官方事故时间早了整整两个小时！"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "眼神一震",
+              "text": "The press release went out the next morning, but the official report logs the collapse at eight PM...",
+              "chinese_translation": "新闻稿是次日早上发布的，但官方报告本身记载的坍塌时刻的确是晚上八点……"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "冷笑",
+              "text": "Two hours. Why pay off safety crews two hours before the mine allegedly collapsed?",
+              "chinese_translation": "相差整整两小时。为什么在矿山声称坍塌前两小时就给安检组打款？"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "声音沉重",
+              "text": "This screenshot proves a time disparity. But it doesn't prove who forged the record.",
+              "chinese_translation": "这张截图只证明了时间差异，但无法证明是谁篡改了记录。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "语气凌厉",
+              "text": "Someone knew the shaft was falling apart before the workers did!",
+              "chinese_translation": "有人早在工人察觉前就已知晓矿井要塌！"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "抢回手机",
+              "text": "It proves Cole Mining lied about the entire timeline!",
+              "chinese_translation": "这证明了科尔矿业在整条时间线上说了谎！"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "严肃逼视",
+              "text": "Or someone inside set the charges early.",
+              "chinese_translation": "或者有人内部提前引爆了炸药。"
+            }
+          ]
+        },
+        {
+          "scene_number": 3,
+          "character_actions": [
+            "酒店后门风声凛冽，伊芙裹紧外套，回头看着追出来的亚当。",
+            "亚当从口袋里摸出把沉重的黄铜钥匙，捏在指缝间。",
+            "亚当抓过伊芙的手，将黄铜钥匙拍在她掌心里，紧紧合拢她的手指。",
+            "宴会厅门口传来保安催促的车门声，光晕洒在两人身上。",
+            "伊芙拉开车门坐进副驾驶，亚当迅速绕到驾驶座，引擎轰然响起，车灯刺破夜色。"
+          ],
+          "body_order": [
+            "action:0",
+            "dialogue:0",
+            "dialogue:1",
+            "action:1",
+            "dialogue:2",
+            "dialogue:3",
+            "dialogue:4",
+            "action:2",
+            "dialogue:5",
+            "dialogue:6",
+            "action:3",
+            "action:4",
+            "dialogue:7"
+          ],
+          "dialogues": [
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "驻足",
+              "text": "Why tell me about the warehouse? You're a Cole.",
+              "chinese_translation": "为什么要告诉我仓库的事？你姓科尔。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "停在一步开外",
+              "text": "Because I'm trying to find out what my father is hiding from all of us.",
+              "chinese_translation": "因为我也想查清我父亲究竟隐瞒了我们什么。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "盯着钥匙",
+              "text": "You expect me to trust you after tonight?",
+              "chinese_translation": "经历今晚之后你还指望我信任你？"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "摇头",
+              "text": "I don't expect trust, Eve. I offer facts.",
+              "chinese_translation": "我不指望信任，伊芙。我只提供事实。"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "凝视伊芙",
+              "text": "The shipping crew leaves at midnight. The original work orders are scheduled for transfer tonight.",
+              "chinese_translation": "运输队午夜出发，原始工单计划今晚被转运。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "握紧钥匙",
+              "text": "The transfer hasn't happened yet?",
+              "chinese_translation": "转运还没有发生？"
+            },
+            {
+              "character_name": "Adam Cole",
+              "chinese_character_name": "亚当",
+              "intent": "点头",
+              "text": "Not yet. But if we don't go right now, those papers burn.",
+              "chinese_translation": "还没有。但如果我们现在不过去，那些纸质文件就会烧掉。"
+            },
+            {
+              "character_name": "Eve Hart",
+              "chinese_character_name": "伊芙",
+              "intent": "眼神坚定",
+              "text": "Then drive before they wipe the evidence.",
+              "chinese_translation": "那就快开，在他们销毁证据前赶过去。"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

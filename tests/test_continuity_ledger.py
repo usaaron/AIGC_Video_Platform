@@ -4,6 +4,47 @@ from app.modules.script_engine.continuity_ledger import project_episode_artifact
 from app.modules.script_engine.long_story_models import StoryBible
 
 
+def test_long_series_preserves_early_knowledge_and_replaces_keys_in_recency_order() -> None:
+    bible = _story_bible_with_relationship()
+    source = build_episode_artifact()
+    ledger = None
+    for number in range(1, 122):
+        updates = [{
+            "knowledge_key": f"archive.record_{number}",
+            "statement": f"Mara inspected archive record {number}.",
+            "status": "known",
+        }]
+        if number == 121:
+            updates.append({
+                "knowledge_key": "archive.record_1",
+                "statement": "Mara has disproved the first record's claimed date.",
+                "status": "disproved",
+            })
+        artifact = source.model_copy(update={
+            "artifact_id": f"artifact.long_series.episode_{number}",
+            "episode_number": number,
+            "content_payload": {
+                "title": f"Episode {number}",
+                "synopsis": "Mara investigates the archive.",
+                "character_state_updates": [{
+                    "character_name": "Mara",
+                    "current_goal": "Verify the archive records.",
+                    "emotional_state": "Cautious",
+                    "knowledge_states": updates,
+                }],
+            },
+        })
+        ledger = project_episode_artifact_to_ledger(
+            artifact=artifact, story_bible=bible, previous=ledger,
+        )
+    mara = next(item for item in ledger.character_states if item.character_ref == "character.mara")
+    assert len(mara.knowledge_states) == 121
+    assert mara.knowledge_states[-1].knowledge_key == "archive.record_1"
+    assert mara.knowledge_states[-1].status == "disproved"
+    assert any(item.knowledge_key == "archive.record_2" for item in mara.knowledge_states)
+    assert len(type(ledger).model_validate_json(ledger.model_dump_json()).character_states[0].knowledge_states) == 121
+
+
 def _story_bible_with_relationship():
     payload = build_story_bible().model_dump(mode="json")
     payload["character_registry"] = [

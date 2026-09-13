@@ -19,6 +19,7 @@ import {
 export { buildEpisodePlanningMemory } from "@/lib/episode-planning-memory";
 import { getClientInstanceId, recordProjectServerRevisions } from "@/lib/project-sync";
 import { normalizeEpisodeDurationSeconds } from "@/lib/generation-planning";
+import type { EpisodePlanMaterializationDraft } from "@/lib/episode-plan-materializer";
 import {
   hasUsableCreativeSource,
   referenceMaterialFallbackPrompt,
@@ -32,10 +33,11 @@ import {
   creativeDirectionInputSignature,
   storyPlanningInputSignature,
 } from "@/lib/story-planning-signature";
-import { getTag, resolveLegacyTagId } from "@/lib/tag-catalog";
+import { projectTagLabels, resolveProjectTagSelection } from "@/lib/tag-catalog";
 import { mainlandTextIsEnglishDominant } from "@/lib/mainland-language";
 import {
   boundStoryBibleAuthorInstruction,
+  seedInspirationBriefFromInput,
   importedPlanningInstruction,
   shouldApplyImportedPlanningConstraints,
 } from "@/lib/input-readiness-workflow";
@@ -45,6 +47,8 @@ import {
   type CreativeDirectionCandidate,
   type EndingMode,
   type EpisodeRoadmapItem,
+  type EpisodePlanMaterializationReceipt,
+  type EpisodeDramaticUnit,
   type PlanningSession,
   type PlanningTurn,
   type ScriptProject,
@@ -103,14 +107,11 @@ function storyPlanningSourcePayload(
   project: ScriptProject,
   maxPromptCharacters: number,
 ) {
-  const customTags = new Map((project.customTags ?? []).map((item) => [item.id, item.label]));
   return {
     creative_prompt: (project.creativePrompt
       || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, maxPromptCharacters),
     reference_materials: referenceMaterialsForApi(project.referenceMaterials),
-    selected_tag_labels: project.selectedTagIds.map((tagId) => (
-      customTags.get(tagId) ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId
-    )),
+    selected_tag_labels: projectTagLabels(project),
   };
 }
 interface StoryInspirationChatResponse {
@@ -491,6 +492,8 @@ export interface EpisodePlan {
   protagonist_decision: string;
   reveal: string | null;
   emotional_movement: string;
+  dramatic_units?: EpisodeDramaticUnit[];
+  protagonist_cost?: string | null;
   setup_refs: string[];
   payoff_refs: string[];
   exit_state: string;
@@ -516,17 +519,7 @@ export async function prepareStoryPlanningProject(
 
   const catalog = await loadStoryPlanningCatalog();
   const activeNodes = catalog.nodes.filter((node) => node.is_active);
-  const activeNodeIds = new Set(activeNodes.map((node) => node.id));
-  const customTagMap = new Map((project.customTags ?? []).map((tag) => [tag.id, tag]));
-  const systemTagIds = Array.from(new Set(
-    project.selectedTagIds
-      .filter((tagId) => !customTagMap.has(tagId))
-      .map(resolveLegacyTagId),
-  ));
-  const missingTags = systemTagIds.filter((tagId) => !activeNodeIds.has(tagId));
-  if (missingTags.length) {
-    throw new Error(`后端标签库缺少：${missingTags.join("、")}`);
-  }
+  const { systemTagIds, creativeTagLabels: customTagLabels } = resolveProjectTagSelection(project, catalog.nodes);
   if (!hasUsableCreativeSource(project.creativePrompt, project.referenceMaterials) && systemTagIds.length === 0) {
     throw new Error("仅使用“我的标签”时，需要补充创作描述或选择至少一个系统标签。");
   }
@@ -582,9 +575,6 @@ export async function prepareStoryPlanningProject(
     return project;
   }
 
-  const customTagLabels = project.selectedTagIds
-    .map((tagId) => customTagMap.get(tagId)?.label)
-    .filter((label): label is string => Boolean(label));
   const emotionTag = systemTagIds
     .map((tagId) => activeNodes.find((node) => node.id === tagId))
     .find((node) => node?.category === "Emotion");
@@ -902,6 +892,7 @@ export async function generateStoryInspirationTurn(
   currentBrief: StoryInspirationBrief,
   userMessage = "",
   signal?: AbortSignal,
+  candidateDecisionKey?: string,
 ): Promise<StoryInspirationChatResponse["data"]> {
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法开始寻找灵感。");
@@ -919,9 +910,11 @@ export async function generateStoryInspirationTurn(
           role: message.role,
           content: message.content,
           questions: message.questions,
+          ...(message.candidate_history ? { candidate_history: message.candidate_history } : {}),
         })),
-        current_brief: currentBrief,
+        current_brief: candidateDecisionKey ? currentBrief : seedInspirationBriefFromInput(project, currentBrief),
         user_message: userMessage.trim(),
+        ...(candidateDecisionKey ? { candidate_decision_key: candidateDecisionKey } : {}),
         target_episode_count: project.generationSettings.episodeCount,
         readiness_supplement_questions: project.inputReadiness?.selectedPath === "recommended"
           ? (project.inputReadiness.supplementQuestions ?? []).slice(0, 12)
@@ -1455,6 +1448,113 @@ export async function loadEpisodePlans(
   );
 }
 
+export async function confirmEpisodePlanMaterialization(
+  projectId: string,
+  draft: EpisodePlanMaterializationDraft,
+  sourceDocument: string,
+  authorConfirmedAt = new Date().toISOString(),
+): Promise<Omit<EpisodePlanMaterializationReceipt, "roadmapDraftCount">> {
+  const response = await apiRequest<{
+    data: {
+      materialization_id: string;
+      source_fingerprint: string;
+      story_bible_id: string;
+      story_bible_version: number;
+      status: "draft";
+      mappings: Array<{
+        episode_number: number;
+        target_node_id: string;
+        target_node_version: number;
+        target_episode_start: number;
+        target_episode_end: number;
+      }>;
+      unresolved_fields: Array<{ fields: string[] }>;
+      preview_created_at: string;
+      author_confirmed_at: string;
+      created_at: string;
+    };
+  }>(`/story-projects/${projectId}/episode-plan-materializations`, {
+    method: "POST",
+    body: JSON.stringify({
+      schema_version: draft.schemaVersion,
+      draft_schema_version: draft.draftSchemaVersion,
+      adapter_version: draft.adapterVersion,
+      source_document: sourceDocument,
+      source_fingerprint: draft.sourceFingerprint,
+      fingerprint_algorithm: draft.fingerprintAlgorithm,
+      story_bible_id: draft.storyBibleId,
+      story_bible_version: draft.storyBibleVersion,
+      mappings: draft.mappings.map((mapping) => ({
+        episode_number: mapping.episodeNumber,
+        source_row_ordinal: mapping.sourceRowOrdinal,
+        source_start: mapping.sourceStart,
+        source_end: mapping.sourceEnd,
+        source_raw_text: mapping.sourceRawText,
+        target_node_id: mapping.targetNodeId,
+        target_node_version: mapping.targetNodeVersion,
+        target_episode_start: mapping.targetEpisodeRange.start,
+        target_episode_end: mapping.targetEpisodeRange.end,
+        fields: mapping.fields,
+        field_provenance: Object.fromEntries(
+          Object.entries(mapping.fieldProvenance).map(([field, provenance]) => [
+            field,
+            provenance
+              ? {
+                  source: provenance.source,
+                  row_ordinal: provenance.rowOrdinal,
+                  episode_number: provenance.episodeNumber,
+                  field: provenance.field,
+                  value: provenance.value,
+                  span: provenance.span,
+                }
+              : provenance,
+          ]),
+        ),
+        unresolved_fields: mapping.unresolvedFields,
+        review_required: true,
+      })),
+      unresolved_fields: draft.unresolvedFields.map((item) => ({
+        episode_number: item.episodeNumber,
+        row_ordinal: item.rowOrdinal,
+        fields: item.fields,
+      })),
+      review_required: true,
+      preview_status: draft.status,
+      preview_created_at: draft.createdAt,
+      author_confirmed_at: authorConfirmedAt,
+      confirmed_by: "author",
+    }),
+  });
+  const targetNodeRefs = Array.from(new Map(
+    response.data.mappings.map((mapping) => [
+      `${mapping.target_node_id}:${mapping.target_node_version}`,
+      {
+        nodeId: mapping.target_node_id,
+        nodeVersion: mapping.target_node_version,
+        startEpisode: mapping.target_episode_start,
+        endEpisode: mapping.target_episode_end,
+      },
+    ]),
+  ).values());
+  return {
+    schemaVersion: "episode_plan_materialization.v1",
+    materializationId: response.data.materialization_id,
+    sourceFingerprint: response.data.source_fingerprint,
+    storyBibleId: response.data.story_bible_id,
+    storyBibleVersion: response.data.story_bible_version,
+    status: response.data.status,
+    episodeNumbers: response.data.mappings.map((mapping) => mapping.episode_number),
+    targetNodeRefs,
+    unresolvedFieldCount: response.data.unresolved_fields.reduce(
+      (total, item) => total + item.fields.length,
+      0,
+    ),
+    previewCreatedAt: response.data.preview_created_at,
+    authorConfirmedAt: response.data.author_confirmed_at,
+    createdAt: response.data.created_at,
+  };
+}
+
 function latestPlanningVersions<T extends { version: number }>(
   items: T[],
   identityField: keyof T,
@@ -1839,6 +1939,14 @@ function episodePlanNarrative(plan: EpisodePlan): MainlandNarrativeField[] {
     narrativeField("主角决定", plan.protagonist_decision),
     narrativeField("揭示", plan.reveal),
     narrativeField("情绪变化", plan.emotional_movement),
+    narrativeField("人物代价", plan.protagonist_cost),
+    ...(plan.dramatic_units ?? []).flatMap((unit, index) => [
+      narrativeField(`戏剧单位 ${index + 1} 触发事件`, unit.trigger),
+      narrativeField(`戏剧单位 ${index + 1} 人物选择`, unit.choice),
+      narrativeField(`戏剧单位 ${index + 1} 可见后果`, unit.visible_consequence),
+      narrativeField(`戏剧单位 ${index + 1} 变化类型`, unit.change_type),
+      narrativeField(`戏剧单位 ${index + 1} 动作或对白证据`, unit.evidence_hint),
+    ]),
     narrativeField("退出状态", plan.exit_state),
     narrativeField("悬念", plan.cliffhanger),
     ...plan.continuity_requirements.map((value, index) => (

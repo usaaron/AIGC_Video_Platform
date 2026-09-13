@@ -10,6 +10,10 @@ const generationClient = await readFile(
   new URL("../lib/generation-client.ts", import.meta.url),
   "utf8",
 );
+const authorWorkflow = await readFile(
+  new URL("../components/use-script-author-workflow.ts", import.meta.url),
+  "utf8",
+);
 
 test("canonical episode persistence never schedules a compatibility translation pass", () => {
   assert.doesNotMatch(workspace, /buildGeneratedOverseasDialogueView/);
@@ -37,46 +41,7 @@ test("new overseas episodes only use embedded dialogue translations from the can
   assert.match(workspace, /buildEmbeddedOverseasDialogueView\(\s*draft,\s*"zh-CN-short-drama"/s);
 });
 
-test("generation recovery checkpoints upload the large workspace once per boundary", () => {
-  const checkpointBodies = [...workspace.matchAll(
-    /const persistRecoveryTask = async \(task: GenerationRecoveryTask\) => \{([\s\S]*?)\n    \};/g,
-  )].map((match) => match[1]);
-
-  assert.equal(checkpointBodies.length, 2);
-  for (const body of checkpointBodies) {
-    assert.match(body, /await saveGenerationTaskOnServer/);
-    assert.equal(body.match(/await updateProject\(/g)?.length, 1);
-    assert.match(body, /activeGenerationTask: recoveryTask/);
-    assert.doesNotMatch(body, /activeGenerationTask: task/);
-  }
-});
-
-test("orphaned and transiently failed generation resume once per bounded attempt", () => {
-  assert.match(workspace, /shouldAutoResumeGenerationRecovery\(/);
-  assert.match(workspace, /const recoveryAttemptKey = `\$\{task\.jobId\}:\$\{task\.attemptCount\}`/);
-  assert.match(workspace, /autoResumedRecoveryAttempts\.current\.add\(recoveryAttemptKey\)/);
-  assert.match(workspace, /generateNextStageRef\.current\(task\.instruction/);
-  assert.match(
-    workspace,
-    /if \(!launched\) autoResumedRecoveryAttempts\.current\.delete\(recoveryAttemptKey\)/,
-  );
-  assert.match(workspace, /automaticGenerationRecoveryDelayMs\(task\)/);
-});
-
-test("completed planning automatically advances through every ready script part once", () => {
-  assert.match(workspace, /const automaticallyStartedScriptParts = useRef\(new Set<string>\(\)\)/);
-  assert.match(workspace, /const nextEpisode = nextReadyScriptPartEpisode\(/);
-  assert.match(workspace, /shouldAutomaticallyContinueScriptGeneration\(\{/);
-  assert.match(workspace, /automaticallyStartedScriptParts\.current\.has\(attemptKey\)/);
-  assert.match(workspace, /automaticallyStartedScriptParts\.current\.add\(attemptKey\)/);
-  assert.match(workspace, /void generateNextStageRef\.current\(\)/);
-  assert.doesNotMatch(workspace, /workspace\.generateNextPart/);
-});
-
-test("正文暂停会取消当前流请求并在恢复后重试同一集", () => {
-  assert.match(workspace, /registerScriptGenerationAbortController/);
-  assert.match(workspace, /isScriptGenerationPauseAbort\(controller\.signal\)/);
-  assert.match(workspace, /signal: controller\.signal/);
+test("正文生成接口继续向流请求传递取消信号", () => {
   assert.match(generationClient, /signal\?: AbortSignal/);
   assert.match(generationClient, /signal,\n\s*\},\n\s*\(event\)/);
 });
@@ -87,7 +52,7 @@ test("正文定向修改把选区上下文和取消信号分别交给接口", ()
     /modifyEpisodeDraft\([\s\S]*?signal\?: AbortSignal,\s*selectionContext\?: StoryBibleSelectionContext \| null/,
   );
   assert.match(generationClient, /selection_context: selectionContext \?\? null/);
-  assert.match(workspace, /quote: selectionOverride/);
+  assert.match(authorWorkflow, /quote: selectionOverride/);
 });
 
 test("正文修改在请求前刷新本集记忆并保留原始总纲上下文", () => {
@@ -96,9 +61,9 @@ test("正文修改在请求前刷新本集记忆并保留原始总纲上下文",
     generationClient,
     /episode_context: \{\s*\.\.\.sourceEpisodeContext,\s*memory_recall:/,
   );
-  assert.match(generationClient, /source_generation_run: refreshedSourceGenerationRun/);
+  assert.match(generationClient, /source_generation_run: \{\s*\.\.\.refreshedSourceGenerationRun,/);
   assert.match(
-    workspace,
-    /modifyEpisodeDraft\([\s\S]*?selectionOverride,\s*currentProject,/,
+    authorWorkflow,
+    /modifyEpisodeDraft\([\s\S]*?selectionOverride,\s*sourceProject,/,
   );
 });

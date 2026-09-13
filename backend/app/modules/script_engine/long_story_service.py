@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
 from sqlalchemy.exc import IntegrityError
@@ -30,9 +30,12 @@ from app.modules.script_engine.long_story_models import (
     NarrativeEvent,
     NarrativeEventSet,
     EpisodePlan,
+    EpisodePlanMaterialization,
+    EpisodePlanMaterializationCreate,
     GenerationBatchStatus,
     GenerationJobStatus,
     GenerationTaskCheckpoint,
+    GenerationTaskClaimRequest,
     MAX_EPISODE_READY_SPAN,
     MIN_EPISODE_READY_SPAN,
     MAX_WORKSPACE_PAYLOAD_BYTES,
@@ -70,6 +73,46 @@ PlanningVersionT = TypeVar(
     StoryStagePlan,
     EpisodePlan,
 )
+
+
+def _utf16_code_units(value: str) -> bytes:
+    return value.encode("utf-16-le", errors="surrogatepass")
+
+
+def _utf16_slice(value: str, start: int, end: int) -> str:
+    encoded = _utf16_code_units(value)
+    return encoded[start * 2 : end * 2].decode(
+        "utf-16-le",
+        errors="surrogatepass",
+    )
+
+
+def _episode_plan_source_fingerprint(value: str, algorithm: str) -> str:
+    if algorithm == "sha256":
+        return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+    fingerprint = 2_166_136_261
+    encoded = _utf16_code_units(value)
+    for index in range(0, len(encoded), 2):
+        fingerprint ^= int.from_bytes(encoded[index : index + 2], "little")
+        fingerprint = (fingerprint * 16_777_619) & 0xFFFFFFFF
+    return f"fnv1a32:{fingerprint:08x}"
+
+
+def _episode_plan_materialization_id(
+    story_project_id: str,
+    payload: EpisodePlanMaterializationCreate,
+) -> str:
+    identity = {
+        "story_project_id": story_project_id,
+        **payload.model_dump(mode="json", exclude={"author_confirmed_at"}),
+    }
+    encoded = json.dumps(
+        identity,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"episode_plan_materialization.{hashlib.sha256(encoded).hexdigest()}"
 
 
 class LongStoryNotFoundError(LookupError):
@@ -500,6 +543,21 @@ class LongStoryService:
                 raise LongStoryReferenceError(
                     "Generation checkpoint must reference its generation batch."
                 )
+            current_checkpoint = repository.get_job_checkpoint(checkpoint.job_id)
+            if current_checkpoint is not None and current_checkpoint.lease_id is not None:
+                lease_active = (
+                    current_checkpoint.lease_expires_at is not None
+                    and current_checkpoint.lease_expires_at > datetime.now(timezone.utc)
+                )
+                if lease_active and checkpoint.lease_id != current_checkpoint.lease_id:
+                    raise LongStoryPersistenceConflictError(
+                        "Generation task is currently leased by another worker."
+                    )
+            if checkpoint.status != GenerationJobStatus.running and checkpoint.lease_id is not None:
+                checkpoint = checkpoint.model_copy(
+                    update={"lease_id": None, "lease_expires_at": None}
+                )
+            stored_task = GenerationTaskCheckpoint(batch=batch, checkpoint=checkpoint)
             if batch.end_episode > project.planned_episode_count:
                 raise LongStoryReferenceError(
                     "Generation batch range exceeds the Story Project episode count."
@@ -523,7 +581,74 @@ class LongStoryService:
                     )
             repository.save_batch(batch)
             repository.save_job_checkpoint(checkpoint)
-            return task
+            return stored_task
+
+        return self._run(operation)
+
+    def claim_generation_task(
+        self,
+        story_project_id: str,
+        job_id: str,
+        request: GenerationTaskClaimRequest,
+    ) -> GenerationTaskCheckpoint:
+        """Atomically claim one task for a bounded background worker attempt."""
+
+        def operation(repository: LongStoryRepository) -> GenerationTaskCheckpoint:
+            self._require_project(repository, story_project_id, for_update=True)
+            current = repository.get_job_checkpoint(job_id)
+            if current is None:
+                raise LongStoryNotFoundError(
+                    f"Generation Job '{job_id}' was not found."
+                )
+            batch = repository.get_batch(current.batch_id)
+            if batch is None or batch.story_project_id != story_project_id:
+                raise LongStoryNotFoundError(
+                    f"Generation Job '{job_id}' was not found."
+                )
+            now = datetime.now(timezone.utc)
+            if current.status == GenerationJobStatus.completed:
+                raise LongStoryPersistenceConflictError(
+                    "Completed generation tasks cannot be claimed."
+                )
+            if (
+                current.status == GenerationJobStatus.running
+                and current.lease_id == request.lease_id
+                and current.lease_expires_at is not None
+                and current.lease_expires_at > now
+            ):
+                return GenerationTaskCheckpoint(batch=batch, checkpoint=current)
+            if (
+                current.status == GenerationJobStatus.running
+                and current.lease_id is not None
+                and current.lease_expires_at is not None
+                and current.lease_expires_at > now
+                and current.lease_id != request.lease_id
+            ):
+                raise LongStoryPersistenceConflictError(
+                    "Generation task is currently leased by another worker."
+                )
+            claimed = current.model_copy(
+                update={
+                    "revision": current.revision + 1,
+                    "status": GenerationJobStatus.running,
+                    "attempt_count": current.attempt_count + 1,
+                    "last_error": None,
+                    "lease_id": request.lease_id,
+                    "lease_expires_at": now + timedelta(seconds=request.lease_ttl_seconds),
+                    "checkpointed_at": now,
+                }
+            )
+            claimed_batch = batch
+            if batch.status != GenerationBatchStatus.running:
+                claimed_batch = batch.model_copy(
+                    update={
+                        "revision": batch.revision + 1,
+                        "status": GenerationBatchStatus.running,
+                    }
+                )
+                repository.save_batch(claimed_batch)
+            repository.save_job_checkpoint(claimed)
+            return GenerationTaskCheckpoint(batch=claimed_batch, checkpoint=claimed)
 
         return self._run(operation)
 
@@ -1167,6 +1292,10 @@ class LongStoryService:
                     "Story Bible content_spec_id must match its Story Project."
                 )
             current = repository.get_story_bible(story_bible.story_bible_id)
+            if current is not None and current.story_project_id != project.project_id:
+                raise LongStoryReferenceError(
+                    "Story Bible identity already belongs to another Story Project."
+                )
             self._validate_version_sequence(
                 current=current,
                 requested_version=story_bible.version,
@@ -1726,6 +1855,255 @@ class LongStoryService:
                 story_bible_version=story_bible_version,
             )
             return repository.list_story_stages(
+                story_project_id,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
+            )
+
+        return self._run(operation)
+
+    def create_episode_plan_materialization(
+        self,
+        story_project_id: str,
+        payload: EpisodePlanMaterializationCreate,
+    ) -> EpisodePlanMaterialization:
+        """Validate and persist one author-confirmed import batch atomically."""
+
+        def operation(repository: LongStoryRepository) -> EpisodePlanMaterialization:
+            project = self._require_project(
+                repository,
+                story_project_id,
+                for_update=True,
+            )
+            if (
+                project.active_story_bible_id != payload.story_bible_id
+                or project.active_story_bible_version != payload.story_bible_version
+            ):
+                raise LongStoryPersistenceConflictError(
+                    "Episode Plan materialization Story Bible lineage is no longer active."
+                )
+            story_bible = repository.get_story_bible(
+                payload.story_bible_id,
+                version=payload.story_bible_version,
+            )
+            if (
+                story_bible is None
+                or story_bible.story_project_id != project.project_id
+                or story_bible.status != PlanningApprovalStatus.approved
+            ):
+                raise LongStoryReferenceError(
+                    "Episode Plan materialization requires the active approved Story Bible."
+                )
+            if len(_utf16_code_units(payload.source_document)) // 2 > 130_000:
+                raise LongStoryReferenceError(
+                    "Episode Plan materialization source exceeds the bounded source limit."
+                )
+            if _episode_plan_source_fingerprint(
+                payload.source_document,
+                payload.fingerprint_algorithm,
+            ) != payload.source_fingerprint:
+                raise LongStoryReferenceError(
+                    "Episode Plan materialization source fingerprint does not match the source document."
+                )
+
+            materialization_id = _episode_plan_materialization_id(
+                story_project_id,
+                payload,
+            )
+            existing = repository.get_episode_plan_materialization(materialization_id)
+            validated_lineages: set[tuple[str, int]] = set()
+            for mapping in payload.mappings:
+                if mapping.episode_number > project.planned_episode_count:
+                    raise LongStoryReferenceError(
+                        "Episode Plan materialization exceeds the Story Project episode count."
+                    )
+                if _utf16_slice(
+                    payload.source_document,
+                    mapping.source_start,
+                    mapping.source_end,
+                ) != mapping.source_raw_text:
+                    raise LongStoryReferenceError(
+                        "Episode Plan materialization source span does not match its source row."
+                    )
+                source_fields = mapping.fields.model_dump()
+                for field, provenance in mapping.field_provenance.items():
+                    value = source_fields[field]
+                    expected_values = value if isinstance(value, list) else [value]
+                    if provenance.span is None:
+                        if field != "episode_title" or any(
+                            item not in mapping.source_raw_text
+                            for item in expected_values
+                            if item
+                        ):
+                            raise LongStoryReferenceError(
+                                "Episode Plan materialization field provenance is missing its source span."
+                            )
+                        continue
+                    source_fragment = _utf16_slice(
+                        payload.source_document,
+                        provenance.span.start,
+                        provenance.span.end,
+                    )
+                    if any(
+                        item not in source_fragment
+                        for item in expected_values
+                        if item
+                    ):
+                        raise LongStoryReferenceError(
+                            "Episode Plan materialization field value does not match its source span."
+                        )
+                node = repository.get_story_plan_node(
+                    mapping.target_node_id,
+                    version=mapping.target_node_version,
+                )
+                latest_node = repository.get_story_plan_node(mapping.target_node_id)
+                if node is None or node.story_project_id != project.project_id:
+                    raise LongStoryReferenceError(
+                        "Episode Plan materialization target node was not found in the project."
+                    )
+                if (
+                    node.story_bible_id != payload.story_bible_id
+                    or node.story_bible_version != payload.story_bible_version
+                    or node.status != PlanningApprovalStatus.approved
+                    or node.expansion_status != StoryPlanExpansionStatus.episode_ready
+                ):
+                    raise LongStoryReferenceError(
+                        "Episode Plan materialization target must be an approved episode-ready node in the active lineage."
+                    )
+                if latest_node is None or latest_node.version != mapping.target_node_version:
+                    raise LongStoryPersistenceConflictError(
+                        "Episode Plan materialization target node version is stale."
+                    )
+                # Editing an ancestor can invalidate a leaf without creating a
+                # new leaf version. Check the complete current approval chain.
+                ancestor = node
+                lineage: set[tuple[str, int]] = set()
+                while (ancestor.node_id, ancestor.version) not in validated_lineages:
+                    ancestor_ref = (ancestor.node_id, ancestor.version)
+                    if ancestor_ref in lineage:
+                        raise LongStoryPersistenceConflictError(
+                            "Episode Plan materialization target ancestry is recursive."
+                        )
+                    lineage.add(ancestor_ref)
+                    if ancestor.parent_node_id is None:
+                        break
+                    parent = repository.get_story_plan_node(ancestor.parent_node_id)
+                    if (
+                        parent is None
+                        or parent.version != ancestor.parent_node_version
+                        or parent.story_project_id != project.project_id
+                        or parent.story_bible_id != payload.story_bible_id
+                        or parent.story_bible_version != payload.story_bible_version
+                        or parent.status != PlanningApprovalStatus.approved
+                        or parent.expansion_status != StoryPlanExpansionStatus.expanded
+                    ):
+                        raise LongStoryPersistenceConflictError(
+                            "Episode Plan materialization target ancestor is stale "
+                            "or is no longer approved and expanded."
+                        )
+                    ancestor = parent
+                validated_lineages.update(lineage)
+                if (
+                    node.planned_start_episode != mapping.target_episode_start
+                    or node.planned_end_episode != mapping.target_episode_end
+                    or not mapping.target_episode_start
+                    <= mapping.episode_number
+                    <= mapping.target_episode_end
+                ):
+                    raise LongStoryReferenceError(
+                        "Episode Plan materialization target node range has changed."
+                    )
+
+            episode_numbers = {item.episode_number for item in payload.mappings}
+            workspace = repository.get_workspace_snapshot(project.project_id)
+            workspace_payload = workspace.workspace_payload if workspace else {}
+            for field_name, identity_key in (
+                ("episodes", "episodeNumber"),
+                ("episodeRoadmaps", "episode_number"),
+                ("episodePlanMaterializations", "materializationId"),
+            ):
+                items = workspace_payload.get(field_name, [])
+                valid_collection = isinstance(items, list) and all(
+                    isinstance(item, dict)
+                    and (
+                        isinstance(item.get(identity_key), str)
+                        and bool(item[identity_key].strip())
+                        if identity_key == "materializationId"
+                        else type(item.get(identity_key)) is int
+                        and 1 <= item[identity_key] <= 2_000
+                    )
+                    for item in items
+                )
+                if not valid_collection:
+                    raise LongStoryPersistenceConflictError(
+                        "Episode Plan materialization cannot verify workspace "
+                        f"occupancy because '{field_name}' is malformed."
+                    )
+            receipts = workspace_payload.get("episodePlanMaterializations", [])
+            replay_already_projected = existing is not None and any(
+                isinstance(item, dict)
+                and item.get("materializationId") == materialization_id
+                for item in receipts
+            )
+            for item in workspace_payload.get("episodes", []):
+                if (
+                    isinstance(item, dict)
+                    and item.get("episodeNumber") in episode_numbers
+                ):
+                    raise LongStoryPersistenceConflictError(
+                        "Episode Plan materialization cannot overwrite an existing episode body."
+                    )
+            if not replay_already_projected:
+                for item in workspace_payload.get("episodeRoadmaps", []):
+                    if (
+                        isinstance(item, dict)
+                        and item.get("episode_number") in episode_numbers
+                    ):
+                        raise LongStoryPersistenceConflictError(
+                            "Episode Plan materialization cannot overwrite an existing roadmap."
+                        )
+            if any(
+                item.status != PlanningApprovalStatus.superseded
+                and item.episode_number in episode_numbers
+                for item in repository.list_episode_plans(
+                    project.project_id,
+                    story_bible_id=payload.story_bible_id,
+                    story_bible_version=payload.story_bible_version,
+                )
+            ):
+                raise LongStoryPersistenceConflictError(
+                    "Episode Plan materialization conflicts with an existing Episode Plan."
+                )
+
+            if existing is not None:
+                return existing
+            materialization = EpisodePlanMaterialization(
+                **payload.model_dump(),
+                materialization_id=materialization_id,
+                story_project_id=project.project_id,
+                status="draft",
+                created_at=datetime.now(timezone.utc),
+            )
+            return repository.save_episode_plan_materialization(materialization)
+
+        return self._run(operation)
+
+    def list_episode_plan_materializations(
+        self,
+        story_project_id: str,
+        *,
+        story_bible_id: str | None = None,
+        story_bible_version: int | None = None,
+    ) -> list[EpisodePlanMaterialization]:
+        def operation(repository: LongStoryRepository) -> list[EpisodePlanMaterialization]:
+            self._require_project(repository, story_project_id)
+            self._validate_story_bible_lineage_filter(
+                repository,
+                story_project_id,
+                story_bible_id=story_bible_id,
+                story_bible_version=story_bible_version,
+            )
+            return repository.list_episode_plan_materializations(
                 story_project_id,
                 story_bible_id=story_bible_id,
                 story_bible_version=story_bible_version,

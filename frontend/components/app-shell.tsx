@@ -46,6 +46,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     resolveProjectSyncConflict,
   } = useProjects();
   const { t } = useLocale();
+  const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
   const visibleProjects = projects.filter((project) => (
     project.title.toLowerCase().includes(projectSearch.trim().toLowerCase())
   ));
@@ -109,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             type="button"
           >
             <FolderKanban aria-hidden="true" size={16} />
-            <span>{t("nav.projectLibrary")}</span>
+            <span>{currentProject?.title ?? t("nav.projectLibrary")}</span>
             <ChevronDown aria-hidden="true" className={projectMenuOpen ? "is-open" : ""} size={14} />
           </button>
           {projectMenuOpen ? (
@@ -127,6 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <label className="topbar-project-search">
                 <Search aria-hidden="true" size={14} />
                 <input
+                  autoFocus
                   aria-label={t("nav.search")}
                   onChange={(event) => setProjectSearch(event.target.value)}
                   placeholder={t("nav.search")}
@@ -143,7 +145,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   const active = pathname.includes(project.id);
                   return (
                     <div className={`topbar-project-row ${active ? "is-active" : ""}`} key={project.id}>
-                      <Link className="topbar-project-item" href={projectHref}>
+                      <Link className="topbar-project-item" href={projectHref} onClick={() => setProjectMenuOpen(false)}>
                         <span className="topbar-project-glyph"><BookOpenText aria-hidden="true" size={15} /></span>
                         <span>
                           <strong>{project.title}</strong>
@@ -168,18 +170,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                   );
                 })}
               </nav>
-              <Link className="topbar-all-projects" href="/">{t("nav.projectLibrary")}</Link>
+              <Link className="topbar-all-projects" href="/" onClick={() => setProjectMenuOpen(false)}>{t("nav.projectLibrary")}</Link>
             </section>
           ) : null}
         </div>
         <div className="topbar-actions">
           <BackgroundGenerationStatus />
-          <div className="service-indicator">
-            <span aria-hidden="true" />
-            {t("nav.serviceReady")}
-          </div>
           <LanguageToggle compact />
-          <div aria-label={t("nav.scriptMaster")} className="topbar-avatar">剧</div>
         </div>
       </header>
       {projectMenuOpen ? (
@@ -201,7 +198,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <MenuIcon />
           </button>
-          <BrandLogo compact />
+          <BrandLogo compact spin />
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </header>

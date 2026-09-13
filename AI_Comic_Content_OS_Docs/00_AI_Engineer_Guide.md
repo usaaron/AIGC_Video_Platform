@@ -14,6 +14,7 @@
 - 数据契约：`02_Data_Model.md`
 - API 契约：`05_API_Design.md`
 - Script Engine：`14_Script_Engine.md`
+- 分镜与前期制作目标方案：[44_PREPRODUCTION_STORYBOARD_PLAN.md](44_PREPRODUCTION_STORYBOARD_PLAN.md)；实现状态仍以 Current Status 为准
 - Benchmark 与评估：`20_Benchmark_Evaluation.md`
 - Research：`Research/`
 
@@ -43,6 +44,8 @@
 ```
 
 当前处于 `Capability Optimization / System Validation`。除非发现明确架构缺陷或合作方需求无法由现有边界承载，否则不新增大型基础模块，不大规模改写稳定主链路。
+
+2026-09-08 范围补充：用户已将正文之后的文字分镜、资产设计、图片／视频提示词与前期制作包纳入项目方案，见 D-027 和 44 号文档。实际媒体生成归下游团队；“当前剧本核心”不再表示永久排除前期制作。此次只整合方案，进入实现时按 Roadmap 分期交付，不把设计对象当作现有 Schema 或 API。
 
 ## Architecture Guardrails
 

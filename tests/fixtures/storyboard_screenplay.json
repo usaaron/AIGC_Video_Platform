@@ -1,0 +1,35 @@
+{
+  "id": "draft.storyboard.fixture",
+  "content_spec_id": "content_spec.storyboard",
+  "generation_strategy_id": "strategy.storyboard.fixture",
+  "title": "门后的钥匙",
+  "language": "zh",
+  "tone": "suspenseful",
+  "hook": "门即将关闭，林岚必须让同伴先进门。",
+  "synopsis": "林岚握着钥匙撑住门，让周宁进入走廊。两人通过门口后，门外突然传来三声敲击。",
+  "episode_goal": "让两人穿过门口，同时保留钥匙的连续状态。",
+  "target_duration_seconds": 25,
+  "created_at": "2026-09-11T00:00:00Z",
+  "updated_at": "2026-09-11T00:00:00Z",
+  "scenes": [{
+    "scene_number": 1,
+    "slug": "走廊门口",
+    "scene_heading": "INT. 走廊门口 - 夜",
+    "setting_hint": "走廊门口，门向内打开",
+    "purpose": "林岚保护同伴先进入走廊。",
+    "beat_summary": "两人通过门口，但门外出现了新的动静。",
+    "emotional_shift": "急迫转为警觉",
+    "character_refs": ["林岚", "周宁"],
+    "character_actions": [
+      "林岚站在门内侧，左手握着黄铜钥匙，右手撑住向内关闭的门。周宁站在门外。",
+      "周宁从林岚身旁跨过门槛。林岚仍用右手撑门，左手里的钥匙没有松开。",
+      "林岚等周宁站稳后放开门，门合上。门外传来三声敲击，两人停在走廊里。"
+    ],
+    "dialogues": [
+      {"character_name": "林岚", "text": "先进去。", "intent": "让同伴先通过"},
+      {"character_name": "周宁", "text": "钥匙别松手。", "intent": "提醒她保留钥匙"}
+    ],
+    "body_order": ["action:0", "dialogue:0", "action:1", "dialogue:1", "action:2"],
+    "cliffhanger": true
+  }]
+}

@@ -121,6 +121,7 @@ class LLMRuntimeConfig:
         api_key: str | None = None,
         base_url: str | None = None,
         timeout_seconds: int | None = None,
+        request_deadline_seconds: float | None = None,
         max_retries: int | None = None,
         reasoning_effort: str | None = None,
         thinking_mode: str | None = None,
@@ -130,6 +131,8 @@ class LLMRuntimeConfig:
         retry_empty_response: bool = True,
         defer_schema_container_repair: bool = False,
         retry_gateway_stream_as_non_stream: bool = True,
+        settings_prefix: str = "LLM",
+        apply_astra_fallback: bool = True,
     ) -> LLMAdapter:
         selected_provider = provider or self.provider
         selected_api_key = api_key or self.api_key
@@ -149,12 +152,22 @@ class LLMRuntimeConfig:
                 "LLM_BASE_URL is required for the OpenAI-compatible RealLLMAdapter."
             )
 
-        return RealLLMAdapter(
+        if request_deadline_seconds is None and _is_astra_model(model_name or self.model_name):
+            # Interactive planning should fail over after a bounded wait. The
+            # role-specific builder uses 45s for Grill Me and 120s elsewhere.
+            request_deadline_seconds = _parse_role_positive_int(
+                settings_prefix,
+                fallback_prefixes=("LLM",) if settings_prefix != "LLM" else (),
+                suffix="REQUEST_DEADLINE_SECONDS",
+                default=120,
+            )
+        adapter = RealLLMAdapter(
             provider=selected_provider,
             model_name=model_name or self.model_name,
             api_key=selected_api_key,
             base_url=selected_base_url,
             timeout_seconds=timeout_seconds or self.timeout_seconds,
+            request_deadline_seconds=request_deadline_seconds,
             max_retries=self.max_retries if max_retries is None else max_retries,
             wire_api=wire_api or self.wire_api,
             reasoning_effort=reasoning_effort or self.reasoning_effort,
@@ -165,6 +178,9 @@ class LLMRuntimeConfig:
             defer_schema_container_repair=defer_schema_container_repair,
             retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
         )
+        if not apply_astra_fallback:
+            return adapter
+        return _with_astra_fallback(adapter, settings_prefix=settings_prefix)
 
 
 def get_llm_runtime_config() -> LLMRuntimeConfig:
@@ -172,7 +188,59 @@ def get_llm_runtime_config() -> LLMRuntimeConfig:
 
 
 def build_llm_adapter_from_env() -> LLMAdapter:
-    return get_llm_runtime_config().build_adapter()
+    return get_llm_runtime_config().build_adapter(settings_prefix="LLM_OUTLINE")
+
+
+def build_planning_editor_llm_adapter_from_env() -> LLMAdapter:
+    """Build the shared DeepSeek editor for non-screenplay planning changes."""
+
+    return _build_role_adapter_from_env(
+        "LLM_PLANNING_EDITOR",
+        fallback_prefixes=("LLM_CN_STORYBOARD", "LLM_DEEPSEEK"),
+        default_model_env="LLM_DEEPSEEK_MODEL",
+        default_timeout_seconds=300,
+        default_max_retries=0,
+        default_reasoning_effort="high",
+        default_thinking_mode="enabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        default_retry_empty_response=False,
+        inherit_fallback_runtime_tuning=False,
+        inherit_fallback_flags=False,
+    )
+
+
+def build_input_readiness_llm_adapter_from_env() -> LLMAdapter:
+    """Keep classification and supplied-fact extraction on a bounded light role."""
+
+    if not _has_script_route_fields("LLM_INPUT_READINESS"):
+        return build_creative_llm_adapter_from_env()
+    if os.getenv("LLM_INPUT_READINESS_PROVIDER") != "mock":
+        missing = [
+            suffix for suffix in ("MODEL", "BASE_URL", "API_KEY")
+            if not os.getenv(f"LLM_INPUT_READINESS_{suffix}", "").strip()
+            and not (suffix == "API_KEY" and _role_api_key_pool("LLM_INPUT_READINESS"))
+        ]
+        if missing:
+            raise MissingLLMConfigurationError(
+                "LLM_INPUT_READINESS requires its own complete profile; missing: "
+                + ", ".join(missing)
+            )
+    return _build_role_adapter_from_env(
+        "LLM_INPUT_READINESS",
+        default_model_env="LLM_INPUT_READINESS_MODEL",
+        default_provider="openai_compatible",
+        default_wire_api="chat_completions",
+        default_timeout_seconds=60,
+        default_max_retries=0,
+        default_reasoning_effort="none",
+        default_thinking_mode="disabled",
+        default_use_strict_schema=False,
+        default_send_response_format=True,
+        default_retry_empty_response=False,
+        inherit_fallback_runtime_tuning=False,
+        inherit_fallback_flags=False,
+    )
 
 
 def build_planning_llm_adapter_from_env() -> LLMAdapter:
@@ -295,6 +363,12 @@ def build_story_architect_recovery_llm_adapter_from_env() -> LLMAdapter:
     )
 
 
+def get_episode_plan_chunk_size() -> int:
+    # Roadmap generation is resumed after every saved episode. A single item
+    # keeps provider context and completion latency bounded for real models.
+    return _parse_positive_int("LLM_EPISODE_PLAN_CHUNK_SIZE", default=1)
+
+
 def build_episode_plan_llm_adapter_from_env() -> LLMAdapter:
     """Build the adapter for executable per-episode roadmaps."""
 
@@ -304,6 +378,7 @@ def build_episode_plan_llm_adapter_from_env() -> LLMAdapter:
         default_model_env="LLM_MODEL",
         default_timeout_seconds=180,
         default_max_retries=0,
+        default_reasoning_effort="low",
         default_thinking_mode="disabled",
     )
     routes: list[LLMAdapter] = [primary]
@@ -738,7 +813,7 @@ def build_script_editor_llm_adapter_from_env() -> LLMAdapter:
 
 
 def build_dialogue_polish_adapter_from_env() -> LLMAdapter:
-    """Build the optional American-dialogue polish adapter."""
+    """Build the dialogue presentation adapter with its own role namespace."""
 
     return _build_role_adapter_from_env(
         "LLM_DIALOGUE",
@@ -857,6 +932,7 @@ def _build_role_adapter_from_env(
     fallback_prefixes: tuple[str, ...] = (),
     default_model_env: str,
     default_provider: str | None = None,
+    default_wire_api: str | None = None,
     default_timeout_seconds: int,
     default_max_retries: int,
     default_use_strict_schema: bool = True,
@@ -868,6 +944,7 @@ def _build_role_adapter_from_env(
     retry_gateway_stream_as_non_stream: bool = True,
     inherit_fallback_runtime_tuning: bool = True,
     inherit_fallback_flags: bool = True,
+    apply_astra_fallback: bool = True,
 ) -> LLMAdapter:
     """Build one independently configurable model role with safe legacy fallbacks."""
 
@@ -902,7 +979,7 @@ def _build_role_adapter_from_env(
     model_name = value("MODEL", os.getenv(default_model_env, config.model_name).strip())
     api_key = value("API_KEY", config.api_key)
     base_url = value("BASE_URL", config.base_url)
-    wire_api = value("WIRE_API", config.wire_api) or config.wire_api
+    wire_api = value("WIRE_API", default_wire_api or config.wire_api) or config.wire_api
     reasoning_effort = value(
         "REASONING_EFFORT",
         default_reasoning_effort or config.reasoning_effort,
@@ -923,11 +1000,26 @@ def _build_role_adapter_from_env(
         suffix="TIMEOUT_SECONDS",
         default=default_timeout_seconds,
     )
+    default_request_deadline_seconds = timeout_seconds
+    if _is_astra_model(model_name):
+        # Older GLM-oriented role defaults disabled transport schemas. Astra
+        # supports them; explicit per-role flags still override these defaults.
+        default_use_strict_schema = True
+        default_send_response_format = True
+        default_request_deadline_seconds = (
+            45 if "INSPIRATION" in prefix.upper() else 120
+        )
+    request_deadline_seconds = _parse_role_positive_int(
+        prefix,
+        fallback_prefixes=runtime_fallback_prefixes,
+        suffix="REQUEST_DEADLINE_SECONDS",
+        default=default_request_deadline_seconds,
+    )
     max_retries = _parse_role_non_negative_int(
         prefix,
         fallback_prefixes=runtime_fallback_prefixes,
         suffix="MAX_RETRIES",
-        default=default_max_retries,
+        default=0 if _is_astra_model(model_name) else default_max_retries,
     )
     retry_empty_response = _parse_role_flag(
         prefix,
@@ -969,12 +1061,13 @@ def _build_role_adapter_from_env(
             suffix="SEND_RESPONSE_FORMAT",
             default=default_send_response_format,
         )
-        return PooledLLMAdapter(
+        adapter: LLMAdapter = PooledLLMAdapter(
             provider=provider,
             model_name=model_name or config.model_name,
             api_keys=api_keys,
             base_url=base_url,
             timeout_seconds=timeout_seconds,
+            request_deadline_seconds=request_deadline_seconds,
             max_retries=max_retries,
             wire_api=wire_api,
             reasoning_effort=reasoning_effort,
@@ -985,12 +1078,16 @@ def _build_role_adapter_from_env(
             defer_schema_container_repair=defer_schema_container_repair,
             retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
         )
-    return config.build_adapter(
+        if not apply_astra_fallback:
+            return adapter
+        return _with_astra_fallback(adapter, settings_prefix=prefix)
+    adapter = config.build_adapter(
         provider=provider,
         model_name=model_name,
         api_key=api_key,
         base_url=base_url,
         timeout_seconds=timeout_seconds,
+        request_deadline_seconds=request_deadline_seconds,
         max_retries=max_retries,
         reasoning_effort=reasoning_effort,
         thinking_mode=thinking_mode,
@@ -1010,6 +1107,105 @@ def _build_role_adapter_from_env(
         retry_empty_response=retry_empty_response,
         defer_schema_container_repair=defer_schema_container_repair,
         retry_gateway_stream_as_non_stream=retry_gateway_stream_as_non_stream,
+        settings_prefix=prefix,
+        apply_astra_fallback=apply_astra_fallback,
+    )
+    return adapter
+
+
+def _is_astra_model(model_name: str | None) -> bool:
+    return bool(model_name and model_name.strip().casefold() == "gpt-6-astra")
+
+
+def _with_astra_fallback(
+    primary: LLMAdapter,
+    *,
+    settings_prefix: str,
+) -> LLMAdapter:
+    """Attach one DeepSeek Pro fallback to every Astra-backed role.
+
+    A single fallback namespace reuses the configured mainland screenplay
+    gateway by default, so credentials and endpoint settings are not copied
+    into every role. The circuit opens after the first recoverable failure and
+    cools down after ten minutes; the first request therefore waits only for
+    its role deadline before falling back.
+    """
+
+    if isinstance(primary, ModelFailoverLLMAdapter):
+        return primary
+    try:
+        primary_info = primary.get_model_info()
+    except Exception:
+        return primary
+    if not _is_astra_model(primary_info.model_name):
+        return primary
+    # Choose an entire DeepSeek profile before building it. Falling back field by
+    # field to the generic Astra profile can recurse or mix gateway credentials.
+    fallback_prefix = None
+    candidate_prefixes = (
+        f"{settings_prefix}_FALLBACK",
+        "LLM_ASTRA_FALLBACK",
+        "LLM_DEEPSEEK",
+        "LLM_CN_SCRIPT",
+        "LLM_SCRIPT",
+    )
+    for candidate in candidate_prefixes:
+        model = os.getenv(f"{candidate}_MODEL", "").strip()
+        base_url = os.getenv(f"{candidate}_BASE_URL", "").strip()
+        has_key = bool(os.getenv(f"{candidate}_API_KEY", "").strip() or _role_api_key_pool(candidate))
+        if model.casefold() == "deepseek-v4-pro" and base_url and has_key:
+            fallback_prefix = candidate
+            break
+        if candidate in {"LLM_ASTRA_FALLBACK", f"{settings_prefix}_FALLBACK"} and (
+            model or base_url or has_key
+        ):
+            break
+    if fallback_prefix is None:
+        logger.warning(
+            "Astra fallback is unavailable for %s: a complete deepseek-v4-pro profile is required.",
+            settings_prefix,
+        )
+        return primary
+    try:
+        fallback_settings_prefix = fallback_prefix
+        fallback = _build_role_adapter_from_env(
+            fallback_settings_prefix,
+            fallback_prefixes=(),
+            default_model_env=f"{fallback_prefix}_MODEL",
+            default_provider="openai_compatible",
+            default_wire_api="chat_completions",
+            default_timeout_seconds=300,
+            default_max_retries=0,
+            default_reasoning_effort="high" if fallback_prefix == "LLM_ASTRA_FALLBACK" else "low",
+            default_thinking_mode="enabled" if fallback_prefix == "LLM_ASTRA_FALLBACK" else "disabled",
+            default_use_strict_schema=False,
+            default_send_response_format=False,
+            default_retry_empty_response=False,
+            inherit_fallback_runtime_tuning=False,
+            inherit_fallback_flags=False,
+            apply_astra_fallback=False,
+        )
+    except MissingLLMConfigurationError as exc:
+        logger.warning("Astra fallback is unavailable for %s: %s", settings_prefix, exc)
+        return primary
+    threshold = _parse_role_positive_int(
+        settings_prefix,
+        fallback_prefixes=("LLM_ASTRA_FALLBACK",),
+        suffix="FAILOVER_FAILURE_THRESHOLD",
+        default=1,
+    )
+    cooldown_name = f"{settings_prefix}_FAILOVER_COOLDOWN_SECONDS"
+    if not os.getenv(cooldown_name, "").strip():
+        cooldown_name = "LLM_ASTRA_FALLBACK_FAILOVER_COOLDOWN_SECONDS"
+    if not os.getenv(cooldown_name, "").strip():
+        cooldown_name = "LLM_ASTRA_FAILOVER_COOLDOWN_SECONDS"
+    cooldown = _parse_positive_float_env(cooldown_name, default=600.0)
+    return ModelFailoverLLMAdapter(
+        primary=primary,
+        fallback=fallback,
+        circuit_failure_threshold=threshold,
+        circuit_cooldown_seconds=cooldown,
+        failover_on_request_deadline=True,
     )
 
 

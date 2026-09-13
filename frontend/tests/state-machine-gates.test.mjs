@@ -38,13 +38,15 @@ test("a durable script route never adds the generation intent", () => {
 test("readiness analysis remains advisory until the user selects the recommended path", () => {
   const complete = {
     schemaVersion: "input_readiness.v1",
+    assessmentVersion: 2,
+    structurallyComplete: true,
     detectedLevel: "script",
     recommendedStage: "script",
     missingItems: [],
     selectedPath: "recommended",
   };
   const fullWorkflow = { ...complete, selectedPath: "full_workflow" };
-  const partial = { ...complete, detectedLevel: "episode_plan", missingItems: ["第3集缺少钩子"] };
+  const partial = { ...complete, detectedLevel: "episode_plan", structurallyComplete: false, missingItems: ["第3集缺少钩子"] };
 
   assert.deepEqual(inputReadinessWorkflowIntent(complete), {
     normalizeStoryBible: true,
@@ -55,6 +57,10 @@ test("readiness analysis remains advisory until the user selects the recommended
     prepareCompletePlanning: false,
   });
   assert.deepEqual(inputReadinessWorkflowIntent(partial), {
+    normalizeStoryBible: true,
+    prepareCompletePlanning: false,
+  });
+  assert.deepEqual(inputReadinessWorkflowIntent({ ...complete, assessmentVersion: undefined, structurallyComplete: undefined }), {
     normalizeStoryBible: true,
     prepareCompletePlanning: false,
   });
@@ -147,7 +153,7 @@ test("empty script workspace keeps generation behind an explicit action", async 
 });
 
 test("recovery automation carries the planning approval state into its guard", async () => {
-  const workspace = await source("components/script-workspace.tsx");
+  const workspace = await source("components/use-script-generation-recovery.ts");
   assert.match(
     workspace,
     /shouldAutoResumeGenerationRecovery\([\s\S]*project\.planningSession\?\.status/,

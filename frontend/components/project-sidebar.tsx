@@ -7,7 +7,7 @@ import { useState } from "react";
 import { PlusIcon, ScriptIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { LanguageToggle } from "@/components/language-toggle";
 import { formatRelativeTime } from "@/lib/format";
-import { getLocalizedTagLabel, getTag } from "@/lib/tag-catalog";
+import { projectTagLabel } from "@/lib/tag-catalog";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
@@ -29,11 +29,13 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
     <>
       <button
         aria-label={t("nav.close")}
+        aria-hidden={!isOpen}
+        inert={!isOpen}
         className={`sidebar-scrim ${isOpen ? "is-visible" : ""}`}
         onClick={onClose}
         type="button"
       />
-      <aside className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
+      <aside aria-hidden={!isOpen} inert={!isOpen} className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
         <div className="sidebar-module-head">
           <span className="sidebar-module-icon"><ScriptIcon /></span>
           <span>
@@ -68,7 +70,7 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
             <div className="sidebar-empty">{t("nav.noMatches")}</div>
           ) : (
             visibleProjects.map((project) => {
-              const primaryTag = getTag(project.selectedTagIds[0] ?? "");
+              const primaryTag = projectTagLabel(project, project.selectedTagIds[0] ?? "", locale);
               const active = pathname.includes(project.id);
               const projectHref = currentWorkspaceHref(project);
               return (
@@ -77,7 +79,7 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
                     <span className="project-history-icon"><ScriptIcon /></span>
                     <span className="project-history-copy">
                       <strong>{project.title}</strong>
-                      <small>{primaryTag ? getLocalizedTagLabel(primaryTag, locale) : t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
+                      <small>{primaryTag ?? t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
                     </span>
                     <span className={`status-dot status-${project.status}`} />
                   </Link>

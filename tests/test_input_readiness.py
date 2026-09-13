@@ -113,6 +113,37 @@ def test_partial_episode_plan_stays_in_planning_and_reports_the_gap() -> None:
     assert any("目标为 20 集" in item for item in result.missing_items)
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("第1集\n第3集", 3),
+        ("第01—33集", 33),
+        ("E01–E52", 52),
+        ("第一集\n第二集\n第十集", 10),
+        ("全剧共50集", 50),
+    ],
+)
+def test_detected_episode_count_uses_the_planning_boundary(
+    text: str,
+    expected: int,
+) -> None:
+    result = CreativeInputReadinessService().analyze(
+        readiness_request(text, episode_count=80)
+    )
+
+    assert result.detected_episode_count == expected
+
+
+def test_declared_episode_range_does_not_fabricate_supplied_episode_coverage() -> None:
+    result = CreativeInputReadinessService().analyze(
+        readiness_request("第01—33集\n## EP34–EP52", episode_count=52)
+    )
+
+    assert result.detected_episode_count == 52
+    assert result.evidence == ["检测到资料声明的计划集数为 52 集。"]
+    assert result.detected_level == InputReadinessLevel.premise
+
+
 def test_screenplay_structure_is_detected_as_script() -> None:
     result = CreativeInputReadinessService().analyze(
         readiness_request(
@@ -133,7 +164,8 @@ def test_screenplay_structure_is_detected_as_script() -> None:
 
     assert result.detected_level == InputReadinessLevel.script
     assert result.recommended_stage == RecommendedWorkflowStage.script
-    assert result.coverage.script > 0.4
+    assert result.coverage.script == 0.1
+    assert result.structurally_complete is False
     assert any("目标为 10 集" in item for item in result.missing_items)
 
 
@@ -160,6 +192,86 @@ def test_scene_plan_labels_are_not_mistaken_for_character_dialogue() -> None:
 
     assert result.detected_level == InputReadinessLevel.episode_plan
     assert result.recommended_stage == RecommendedWorkflowStage.planning
+
+
+def test_source_character_bios_and_props_are_facts_not_dialogue() -> None:
+    text = """故事背景：虚构的旧时代城市，工会控制着港口。
+角色介绍：
+Alex（阿莱克）：43岁，前律师，决定保护无辜的送货员。
+标志性道具：一件旧律师服和一把施工锤。
+行为准则：他只惩罚真正伤害他人的人。
+
+Morgan（摩根）：前演员，失去伙伴后开始报复商会。
+标志性道具：一架破损的竖琴。
+行为准则：拒绝攻击穷苦的人。
+
+大致剧情：两人因商会的送货员发生冲突，后来共同对抗压迫者。最终两人保留各自原则，并共同保护这座城市。"""
+    result = CreativeInputReadinessService().analyze(readiness_request(text, episode_count=60))
+    assert not any("对白" in item for item in result.evidence)
+    assert not any("明确主角及其身份" in item for item in result.missing_items)
+    assert {"protagonist_and_goal", "world_setting", "ending_direction", "relationship_direction"}.issubset({fact.field for fact in result.known_facts})
+    character_quotes = [fact.quote for fact in result.known_facts if fact.field == "protagonist_and_goal"]
+    assert any("Alex" in quote for quote in character_quotes)
+    assert any("Morgan" in quote for quote in character_quotes)
+    for fact in result.known_facts:
+        assert text[fact.start:fact.end] == fact.quote
+        assert fact.source_id == "reference_1"
+    assert result.estimated_supported_characters == 0
+    assert result.recommended_target_total_characters is None
+    assert result.capacity_status.value == "not_estimated"
+
+
+@pytest.mark.parametrize("placeholder", ["", "待补充", "TBD", "暂无", "……"])
+def test_empty_bible_template_cannot_claim_completed_content(placeholder: str) -> None:
+    text = "\n".join(f"{heading}：{placeholder}" for heading in
+                     ("故事梗概", "主题", "主要人物", "世界观", "核心冲突", "故事结构", "人物弧光", "主线", "最终结局"))
+    result = CreativeInputReadinessService().analyze(readiness_request(text, episode_count=8))
+    assert result.detected_level == InputReadinessLevel.premise
+    assert not result.structurally_complete
+    assert result.known_facts == []
+
+
+def test_episode_audit_requires_content_in_each_numbered_row() -> None:
+    text = "第1集\n本集目标：取得证据。开场：走进仓库。中心冲突：仓库被封锁。主角决定：继续调查。本集结果：拿到证据。结尾钩子：证据被调包。场景规划：仓库。\n"
+    text += "\n".join(f"第{i}集 待补充" for i in range(2, 9))
+    result = CreativeInputReadinessService().analyze(readiness_request(text, episode_count=8))
+    assert result.detected_level == InputReadinessLevel.episode_plan
+    assert result.coverage.episode_plan == 0.125
+    assert result.recommended_stage == RecommendedWorkflowStage.planning
+    assert result.episode_audit.complete_plan_numbers == [1]
+    assert result.episode_audit.incomplete_numbers == list(range(2, 9))
+    assert not result.structurally_complete
+
+
+@pytest.mark.parametrize("numbers,missing,duplicates,outside", [
+    (range(2, 10), [1], [], [9]),
+    ([1, 1, 2, 3, 4, 5, 6, 7, 8], [], [1], []),
+])
+def test_episode_audit_detects_gaps_duplicate_numbers_and_out_of_range(numbers, missing, duplicates, outside) -> None:
+    text = "\n".join(f"## 第{i}集\n本集目标：取得证据。中心冲突：仓库被封锁。本集结果：找到货单。结尾钩子：发现可疑签名。" for i in numbers)
+    result = CreativeInputReadinessService().analyze(readiness_request(text, episode_count=8))
+    assert result.episode_audit.missing_numbers == missing
+    assert result.episode_audit.duplicate_numbers == duplicates
+    assert result.episode_audit.out_of_range_numbers == outside
+    assert not result.structurally_complete
+    assert result.missing_items
+
+
+def test_unnumbered_script_does_not_claim_complete_series() -> None:
+    text = "INT. ROOM - NIGHT\n阿莱：门锁住了。\n小林：钥匙在这里。\n阿莱：有人来了。\n小林：先躲起来。\n阿莱：快离开这里。\n小林：我来断后。\n阿莱：一起走吧。\n小林：好，我们一起。"
+    result = CreativeInputReadinessService().analyze(readiness_request(text, episode_count=8))
+    assert result.detected_level == InputReadinessLevel.script
+    assert result.episode_audit.unnumbered_script
+    assert result.coverage.script == 0
+    assert not result.structurally_complete
+    assert any("分集边界" in item for item in result.missing_items)
+
+
+def test_empty_episode_titles_still_report_the_numbered_content_gaps() -> None:
+    result = CreativeInputReadinessService().analyze(readiness_request("\n".join(f"第{n}集：待补充" for n in range(1, 9)), episode_count=8))
+    assert result.detected_level == InputReadinessLevel.premise
+    assert result.coverage.episode_plan == 0
+    assert any("仅有集号不计为完成" in item for item in result.missing_items)
 
 
 class StubLLMAdapter(LLMAdapter):
@@ -198,16 +310,69 @@ class StubLLMAdapter(LLMAdapter):
 
 
 def test_model_failure_uses_deterministic_result() -> None:
-    payload = CreativeInputReadinessRequest(
-        creative_prompt="一个记者发现家族秘密，并决定追查真相。",
-        episode_count=30,
-    )
+    payload = readiness_request("一个记者发现家族秘密，并决定追查真相。", episode_count=30)
     result = CreativeInputReadinessService(
         StubLLMAdapter(RuntimeError("gateway unavailable"))
     ).analyze(payload)
 
     assert result.detected_level == InputReadinessLevel.premise
     assert result.analysis_method == InputReadinessAnalysisMethod.heuristic
+    assert result.analysis_notice
+
+
+def test_structural_refresh_never_calls_the_model() -> None:
+    class MustNotRun(StubLLMAdapter):
+        def generate_structured_output(self, *args, **kwargs):
+            pytest.fail("Read-only structural refresh called the model")
+
+    payload = readiness_request("主角：记者必须保护证人。\n最终结局：证人安全地离开城市。")
+    result = CreativeInputReadinessService(MustNotRun({})).analyze(payload.model_copy(update={"use_model": False}))
+    assert result.analysis_method == InputReadinessAnalysisMethod.heuristic
+    assert result.known_facts
+
+
+def test_model_can_downgrade_structure_and_only_exact_source_quotes_are_retained() -> None:
+    text = """故事梗概：记者调查旧案，发现家族掩盖真相。
+主题：公开真相的代价。
+主要人物：记者必须保护重要证人。
+世界观：工厂关闭后的工业城市。
+核心冲突：商会封锁证人的去路。
+故事结构：第一幕取证；第二幕对抗；第三幕听证。
+最终结局：证人安全离开城市。"""
+    payload = readiness_request(text)
+    assert CreativeInputReadinessService().analyze(payload).detected_level == InputReadinessLevel.story_bible
+    result = CreativeInputReadinessService(StubLLMAdapter({
+        "detected_level": "premise", "confidence": .95,
+        "coverage": {"premise": .8, "story_bible": .2, "episode_plan": 1, "script": 1},
+        "known_facts": [
+            {"field": "episode_goal", "source_id": "reference_1", "quote": "记者必须保护重要证人。"},
+            {"field": "stakes", "quote": "missing source identifier"},
+            {"field": "stakes", "source_id": "reference_1", "quote": "公开真相的代价。"},
+            {"field": "ending_direction", "source_id": "reference_1", "quote": "主角成为市长。"},
+            {"field": "tone_and_pacing", "source_id": "reference_9", "quote": "公开真相的代价。"},
+        ],
+    })).analyze(payload)
+    assert result.detected_level == InputReadinessLevel.premise
+    assert result.analysis_method == InputReadinessAnalysisMethod.model_assisted
+    assert result.analysis_notice is None
+    assert result.coverage.episode_plan == result.coverage.script == 0
+    assert any(fact.field == "stakes" for fact in result.known_facts)
+    assert not any(fact.field == "tone_and_pacing" or "市长" in fact.quote for fact in result.known_facts)
+    assert all(text[fact.start:fact.end] == fact.quote for fact in result.known_facts)
+
+
+def test_model_cannot_relabel_supplied_plan_as_premise_or_promote_episode_goal_to_story_fact() -> None:
+    text = "第1集\n本集目标：记者取得货单。中心冲突：保安封锁仓库。本集结果：记者取得残页。结尾钩子：残页出现未知签名。\n第2集：待补充"
+    result = CreativeInputReadinessService(StubLLMAdapter({
+        "detected_level": "premise", "confidence": .95,
+        "coverage": {"premise": .8, "story_bible": .2, "episode_plan": .01, "script": 0},
+        "known_facts": [{"field": "protagonist_and_goal", "source_id": "reference_1", "quote": "记者取得货单。"}],
+    })).analyze(readiness_request(text, episode_count=8))
+    assert result.analysis_method == InputReadinessAnalysisMethod.model_assisted
+    assert result.detected_level == InputReadinessLevel.episode_plan
+    assert result.coverage.episode_plan == .125
+    assert result.known_facts == []
+    assert not result.structurally_complete
 
 
 def test_model_cannot_upgrade_unstructured_synopsis_to_script() -> None:

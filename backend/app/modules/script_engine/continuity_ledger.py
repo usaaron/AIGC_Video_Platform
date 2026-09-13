@@ -413,7 +413,10 @@ def _project_character_state(
                 knowledge_key=str(item["knowledge_key"]),
                 statement=str(item.get("statement", "")).strip(),
                 status=str(item.get("status", "known")),
+                source_episode_number=episode_number,
+                evidence_scene_numbers=_int_list(update.get("evidence_scene_numbers")),
             )
+            knowledge_states.pop(knowledge_state.knowledge_key, None)
             knowledge_states[knowledge_state.knowledge_key] = knowledge_state
     return ContinuityCharacterState(
         character_ref=character_ref,
@@ -424,7 +427,7 @@ def _project_character_state(
         physical_state=_updated_optional(update, "physical_state", prior),
         location=_updated_optional(update, "location", prior),
         current_knowledge=current_knowledge,
-        knowledge_states=list(knowledge_states.values())[-50:],
+        knowledge_states=list(knowledge_states.values()),
         health_conditions=_updated_list(update, "health_conditions", prior),
         action_capabilities=_updated_list(update, "action_capabilities", prior),
         lasting_marks=_updated_list(update, "lasting_marks", prior),

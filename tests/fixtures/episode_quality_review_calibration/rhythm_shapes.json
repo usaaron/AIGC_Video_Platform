@@ -1,0 +1,67 @@
+[
+  {
+    "sample_id": "rhythm.single_closed_negotiation",
+    "shape": "单一密闭场谈判/审讯",
+    "scene_count": 1,
+    "dialogue_line_count": 25,
+    "action_unit_count": 15,
+    "expected_runtime_seconds": 97,
+    "soft_targets": {
+      "scene_count": [1, 2],
+      "dialogue_line_count": [12, 26],
+      "action_unit_count": [8, 16]
+    }
+  },
+  {
+    "sample_id": "rhythm.normal_progression",
+    "shape": "常规推进集",
+    "scene_count": 3,
+    "dialogue_line_count": 30,
+    "action_unit_count": 18,
+    "expected_runtime_seconds": 119,
+    "soft_targets": {
+      "scene_count": [2, 4],
+      "dialogue_line_count": [18, 32],
+      "action_unit_count": [12, 20]
+    }
+  },
+  {
+    "sample_id": "rhythm.chase_rescue_public_event",
+    "shape": "追逐/救援/公开事件",
+    "scene_count": 4,
+    "dialogue_line_count": 28,
+    "action_unit_count": 20,
+    "expected_runtime_seconds": 113,
+    "soft_targets": {
+      "scene_count": [3, 5],
+      "dialogue_line_count": [10, 28],
+      "action_unit_count": [16, 28]
+    }
+  },
+  {
+    "sample_id": "rhythm.relationship_turn_silent_pressure",
+    "shape": "关系转折/沉默高压集",
+    "scene_count": 2,
+    "dialogue_line_count": 25,
+    "action_unit_count": 15,
+    "expected_runtime_seconds": 98,
+    "soft_targets": {
+      "scene_count": [1, 3],
+      "dialogue_line_count": [8, 22],
+      "action_unit_count": [8, 18]
+    }
+  },
+  {
+    "sample_id": "rhythm.finale",
+    "shape": "季终/剧终",
+    "scene_count": 4,
+    "dialogue_line_count": 30,
+    "action_unit_count": 18,
+    "expected_runtime_seconds": 120,
+    "soft_targets": {
+      "scene_count": [2, 5],
+      "dialogue_line_count": null,
+      "action_unit_count": null
+    }
+  }
+]

@@ -4,9 +4,11 @@ import {
   type InputReadinessLevel,
   type InputReadinessSourceKind,
   type InputReadinessStage,
+  type InputSourceFact,
+  type InputEpisodeAudit,
   type ProjectDraft,
 } from "./types.ts";
-import { episodeNumbersFromDocument } from "./input-import-adapter.ts";
+import { declaredEpisodeCountFromDocument } from "./input-import-adapter.ts";
 import { referenceMaterialsForApi } from "./reference-materials.ts";
 
 const LEVELS = new Set<InputReadinessLevel>([
@@ -34,8 +36,7 @@ export function detectEpisodeCountFromCreativeInput(
     draft.creativePrompt,
     ...draft.referenceMaterials.map((material) => material.extractedText),
   ].join("\n");
-  const episodeNumbers = episodeNumbersFromDocument(source);
-  return episodeNumbers.length > 0 ? episodeNumbers.length : null;
+  return declaredEpisodeCountFromDocument(source);
 }
 
 export function buildInputReadinessRequest(draft: ProjectDraft) {
@@ -102,7 +103,51 @@ export function parseInputReadinessResponse(
     parsed.recommendedTargetTotalCharacters = nullableInteger(candidate.recommended_target_total_characters);
     parsed.supplementQuestions = stringArray(candidate.supplement_questions);
   }
+  if (candidate.assessment_version === 2) {
+    parsed.assessmentVersion = 2;
+    parsed.knownFacts = parseSourceFacts(candidate.known_facts);
+    parsed.episodeAudit = parseEpisodeAudit(candidate.episode_audit);
+    parsed.structurallyComplete = candidate.structurally_complete === true;
+    parsed.analysisNotice = typeof candidate.analysis_notice === "string" ? candidate.analysis_notice : null;
+  }
   return parsed;
+}
+
+const FACT_FIELDS = new Set(["story_promise", "protagonist_and_goal", "core_obstacle", "stakes",
+  "relationship_direction", "reveal_or_twist", "ending_direction", "tone_and_pacing", "world_setting"]);
+
+function parseSourceFacts(value: unknown): InputSourceFact[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): InputSourceFact[] => {
+    if (!isRecord(item) || typeof item.field !== "string" || !FACT_FIELDS.has(item.field)
+      || typeof item.source_id !== "string" || typeof item.source_name !== "string"
+      || typeof item.quote !== "string" || !item.quote.trim()
+      || !Number.isInteger(item.start) || !Number.isInteger(item.end)
+      || Number(item.start) < 0 || Number(item.end) <= Number(item.start)) return [];
+    return [{ field: item.field as InputSourceFact["field"], sourceId: item.source_id,
+      sourceName: item.source_name, quote: item.quote, start: Number(item.start), end: Number(item.end) }];
+  }).slice(0, 24);
+}
+
+function parseEpisodeAudit(value: unknown): InputEpisodeAudit | null {
+  if (!isRecord(value) || !Number.isInteger(value.target_count) || Number(value.target_count) < 1 || Number(value.target_count) > 2000) return null;
+  const numbers = (list: unknown): number[] => Array.isArray(list)
+    ? [...new Set(list.filter((n): n is number => Number.isInteger(n) && Number(n) >= 1 && Number(n) <= 2000))].sort((a, b) => a - b) : [];
+  return { targetCount: Number(value.target_count), suppliedNumbers: numbers(value.supplied_numbers),
+    completePlanNumbers: numbers(value.complete_plan_numbers), scriptNumbers: numbers(value.script_numbers),
+    missingNumbers: numbers(value.missing_numbers), incompleteNumbers: numbers(value.incomplete_numbers),
+    duplicateNumbers: numbers(value.duplicate_numbers), outOfRangeNumbers: numbers(value.out_of_range_numbers),
+    unnumberedScript: value.unnumbered_script === true };
+}
+
+export function verifiedInputFacts(analysis: InputReadinessAnalysis | undefined, source: Pick<ProjectDraft, "creativePrompt" | "referenceMaterials">): InputSourceFact[] {
+  return (analysis?.knownFacts ?? []).filter((fact) => {
+    const match = /^reference_(\d+)$/.exec(fact.sourceId);
+    const document = fact.sourceId === "creative_prompt" ? source.creativePrompt.trim()
+      : match ? source.referenceMaterials[Number(match[1]) - 1]?.extractedText.trim() : undefined;
+    // Python source offsets count code points; JS strings use UTF-16 units.
+    return document !== undefined && [...document].slice(fact.start, fact.end).join("") === fact.quote;
+  });
 }
 
 function boundedNumber(value: unknown): number {
@@ -121,6 +166,7 @@ function nullableInteger(value: unknown): number | null {
 }
 
 function capacityStatus(value: unknown): InputReadinessCapacityStatus {
+  if (value === "not_estimated") return value;
   if (value === "supplement_recommended" || value === "target_reduce_recommended") {
     return value;
   }

@@ -28,6 +28,7 @@ export function storyPlanningInputSignature(project: ScriptProject): string {
       : null,
     authorInstruction: project.storyBibleAuthorInstruction?.trim() ?? "",
     generation: {
+      releaseRegion: project.generationSettings.releaseRegion,
       episodeCountMode: project.generationSettings.episodeCountMode,
       episodeCount: project.generationSettings.episodeCount,
       targetTotalCharacters: project.generationSettings.targetTotalCharacters,

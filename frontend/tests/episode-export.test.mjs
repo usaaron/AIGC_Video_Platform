@@ -44,6 +44,11 @@ test("Markdown episode export keeps screenplay headings and readable scene struc
 
   assert.match(content, /^# 第12集《门后的真相》$/m);
   assert.match(content, /预计时长：90秒/);
+  assert.match(content, /## 本集信息/);
+  assert.match(content, /本集出场人物：林夏：主角、周野/);
+  assert.match(content, /场景清单：/);
+  assert.match(content, /场景任务：找到证据/);
+  assert.match(content, /## 正式正文/);
   assert.match(content, /## INT\. 旧仓库 夜/);
   assert.match(content, /△ 林夏推开铁门。/);
   assert.match(content, /\*\*林夏\*\*[\s\S]*（试探）[\s\S]*谁在那里？/);

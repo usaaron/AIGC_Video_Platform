@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.content_spec.models import ResolvedCreativeContext
+from app.modules.script_engine.author_conflict_models import AuthorConflictResolution, AuthorConflictReview
 from app.modules.master_script.models import DraftMasterScript
 from app.modules.orchestrator.models import OrchestrationPlan
 from app.modules.retrieval.models import RetrievalPlanResult
@@ -26,7 +27,9 @@ from app.script_delivery_contract import (
     normalize_episode_dialogue_plan_payload,
 )
 from app.modules.script_engine.long_story_models import (
+    ContinuityKnowledgeState,
     CreativeDecisionRecord,
+    EpisodeDramaticUnit,
     EpisodeSceneExecutionBeat,
     MemoryLayer,
     StoryBibleSelectionContext,
@@ -160,6 +163,8 @@ class MemoryCapsule(BaseModel):
     priority: int = Field(default=50, ge=0, le=100)
     mandatory: bool = False
     conflict_note: str | None = Field(default=None, max_length=500)
+    knowledge_states: list[ContinuityKnowledgeState] = Field(default_factory=list, max_length=40_000)
+    active_constraints: list[str] = Field(default_factory=list, max_length=30)
 
     @field_validator("source_scene_numbers")
     @classmethod
@@ -219,6 +224,10 @@ class MemoryRecall(BaseModel):
         for capsule in self.capsules:
             if capsule.source_episode is not None and capsule.source_episode > self.through_episode_number:
                 raise ValueError("Memory capsule source episode cannot exceed through_episode_number.")
+            if any(item.source_episode_number is not None
+                   and item.source_episode_number > self.through_episode_number
+                   for item in capsule.knowledge_states):
+                raise ValueError("Memory knowledge source episode cannot exceed through_episode_number.")
         return self
 
 
@@ -443,6 +452,9 @@ class GenerationStrategy(BaseModel):
     applicable_tags: list[str] = Field(default_factory=list, max_length=20)
     model_provider: str = Field(min_length=2, max_length=80)
     model_name: str = Field(min_length=2, max_length=120)
+    # Strong planners author the route; fast executors may only implement a
+    # route that has passed the deterministic episode readiness gate.
+    model_tier: Literal["strong_planner", "fast_executor"] = "strong_planner"
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
     max_tokens: int = Field(default=3000, ge=128, le=32000)
@@ -1275,6 +1287,8 @@ class ApprovedEpisodePlanContext(BaseModel):
     stage_opposition: str | None = Field(default=None, min_length=3, max_length=800)
     episode_payoff: str | None = Field(default=None, min_length=3, max_length=800)
     pressure_escalation: str | None = Field(default=None, min_length=3, max_length=800)
+    dramatic_units: list[EpisodeDramaticUnit] = Field(default_factory=list, max_length=7)
+    protagonist_cost: str | None = Field(default=None, min_length=3, max_length=500)
     setup_refs: list[str] = Field(default_factory=list, max_length=20)
     payoff_refs: list[str] = Field(default_factory=list, max_length=20)
     exit_state: str = Field(min_length=5, max_length=1_000)
@@ -1291,6 +1305,7 @@ class ApprovedEpisodePlanContext(BaseModel):
         default_factory=list,
         max_length=EPISODE_SCENE_MAX,
     )
+    execution_ready: bool = False
     layer_contracts: EpisodeThreeLayerContract | None = None
 
     @field_validator("target_duration_seconds", mode="before")
@@ -1455,7 +1470,7 @@ class EpisodeGenerationContext(BaseModel):
     total_episodes: int = Field(ge=1, le=2000)
     ending_mode: EndingMode = DEFAULT_ENDING_MODE
     previous_episode_summary: str | None = Field(default=None, max_length=2000)
-    previous_episode_handoff: str | None = Field(default=None, max_length=3200)
+    previous_episode_handoff: str | None = Field(default=None, max_length=24_000)
     previous_episode_question: str | None = Field(default=None, max_length=240)
     episode_instruction: str | None = Field(default=None, max_length=4000)
     module_handoff: str | None = Field(default=None, max_length=3600)
@@ -1619,6 +1634,8 @@ class ScriptDraftModificationRequest(BaseModel):
     source_draft_master_script: DraftMasterScript
     instruction: str = Field(min_length=3, max_length=500)
     selection_context: StoryBibleSelectionContext | None = None
+    resolution: AuthorConflictResolution | None = None
+    source_story_bible_version: int | None = Field(default=None, ge=1)
 
 
 class ScriptDraftModificationResult(BaseModel):
@@ -1626,7 +1643,14 @@ class ScriptDraftModificationResult(BaseModel):
 
     source_draft_master_script_id: str = Field(min_length=3, max_length=120)
     instruction: str = Field(min_length=3, max_length=500)
-    candidate_generation_run: ScriptGenerationDraftRun
+    candidate_generation_run: ScriptGenerationDraftRun | None = None
+    conflict_review: AuthorConflictReview | None = None
+
+    @model_validator(mode="after")
+    def ensure_one_modification_result(self):
+        if (self.candidate_generation_run is None) == (self.conflict_review is None):
+            raise ValueError("Return either a candidate or an author conflict review.")
+        return self
 
 
 class ScriptDraftModificationResponse(BaseModel):

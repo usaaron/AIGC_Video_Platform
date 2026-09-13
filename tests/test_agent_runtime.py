@@ -4,7 +4,10 @@ import pytest
 from sqlmodel import SQLModel
 
 from app.database import create_database_runtime
-from app.modules.agent_runtime.episode_roadmap import EpisodeRoadmapAgent
+from app.modules.agent_runtime.episode_roadmap import (
+    EpisodeRoadmapAgent,
+    episode_roadmap_quality_issues,
+)
 from app.modules.agent_runtime.service import AgentRunService
 from app.modules.agent_runtime.story_quality import StoryQualityAgent
 from app.modules.agent_runtime.models import (
@@ -85,6 +88,21 @@ def test_agent_runtime_records_only_sanitized_failure_metadata() -> None:
     assert "sensitive provider response" not in serialized
 
 
+def test_checkpoint_serialization_failure_marks_tool_failed() -> None:
+    session = AgentSession(
+        agent_name="test_agent", subject_ref="subject.serializer",
+        policy=AgentRunPolicy(max_steps=1, max_model_tool_calls=1, allowed_tools={"draft"}),
+    )
+    with pytest.raises(RuntimeError, match="checkpoint rejected"):
+        session.call_tool(
+            "draft", kind=AgentToolKind.model, operation=lambda: {"draft": "valid"},
+            checkpoint_serializer=lambda _: _raise_runtime_error("checkpoint rejected"),
+        )
+    execution = session.record.tool_executions[0]
+    assert execution.status.value == "failed"
+    assert execution.error_type == "RuntimeError"
+
+
 def test_episode_roadmap_agent_accepts_valid_draft_without_repair() -> None:
     service = _FakeRoadmapService(draft=_roadmap_item(with_scene_plan=True))
     agent = EpisodeRoadmapAgent(planning_service=service)  # type: ignore[arg-type]
@@ -119,6 +137,27 @@ def test_episode_roadmap_agent_repairs_only_the_current_invalid_item() -> None:
         "repair_episode_roadmap",
         "inspect_repaired_episode_roadmap",
     ]
+
+
+def test_episode_roadmap_agent_blocks_missing_scene_execution_fields() -> None:
+    valid = _roadmap_item(with_scene_plan=True)
+    incomplete_scene = valid.scene_execution_plan[0].model_copy(update={
+        "evidence_requirements": [],
+    })
+    incomplete = valid.model_copy(update={
+        "scene_execution_plan": [incomplete_scene],
+    })
+
+    assert "scene_execution_plan.1.evidence_requirements_missing" in (
+        episode_roadmap_quality_issues(incomplete)
+    )
+    service = _FakeRoadmapService(draft=incomplete, repaired=valid)
+    result = EpisodeRoadmapAgent(
+        planning_service=service,  # type: ignore[arg-type]
+    ).run(_roadmap_request())
+
+    assert service.modify_calls == 1
+    assert result.item == valid
 
 
 def test_episode_roadmap_chunk_agent_checkpoints_one_bounded_batch() -> None:
@@ -267,6 +306,9 @@ def _roadmap_item(*, with_scene_plan: bool) -> EpisodePlanGenerationItem:
         pressure_escalation="原始凭证把追查目标指向更高权力层。",
         exit_state="主角带着证人和原始凭证进入临时安全点。",
         cliffhanger="安全点门外响起只有内部盟友知道的暗号。",
+        next_episode_obligation="下一集必须在安全点被识破前核验内部盟友的授权记录。",
+        protagonist_cost="主角暴露自己的身份，失去原定的安全撤离路线。",
+        execution_ready=True,
         character_refs=["character.lead"],
         story_line_refs=["storyline.main"],
         continuity_requirements=["证人必须保持存活且携带原始凭证。"],
@@ -277,6 +319,10 @@ def _roadmap_item(*, with_scene_plan: bool) -> EpisodePlanGenerationItem:
                     "scene_heading": "INT. 档案馆 日",
                     "character_refs": ["character.lead"],
                     "scene_objective": "保护证人并取得原始凭证。",
+                    "opposition": "对手封锁档案馆并逼近证人藏身处。",
+                    "information_shift": "凭证上出现内部盟友的签名。",
+                    "choice_or_cost": "主角暴露自己以换取证人转移时间。",
+                    "evidence_requirements": ["凭证上的签名必须可被镜头观察。"],
                     "visible_action": "主角封住侧门，带证人从档案架后转移。",
                     "turn_or_reveal": "凭证上出现内部盟友的签名。",
                     "dialogue_objective": "逼证人说明凭证的真实流转路径。",

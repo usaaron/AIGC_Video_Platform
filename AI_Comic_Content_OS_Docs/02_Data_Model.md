@@ -46,6 +46,10 @@
 
 ## 当前实现状态
 
+2026-09-11 新增独立文字分镜契约 `PreproductionStoryboard`、`StoryboardScene`、`StoryboardShot`、`SceneDesign`，实现位于 `backend/app/modules/preproduction/models.py`。每集保存正文完整快照和校验值；镜头使用稳定 ID 与本场 `action:N/dialogue:N` 引用，场景的 `source_revision` 指向包含其正文来源的不可变分镜版本。重编候选与当前场景分开保存，采用后才更新当前版本。生命周期为 `draft/review/source_changed`，不等于正式剧本确认或交付批准。
+
+存储复用 `module_documents` 的 `preproduction_storyboards` 命名空间：项目/集数键保存最新版本，版本后缀键保存追加式历史；通过 `expected_revision` 比较更新，同一事务写入最新版本和历史。详细范围与未完成的数据对象见 [55 号实现核对](55_LIBLIB_STORYBOARD_IMPLEMENTATION.md)。
+
 V0.1 已实现：
 
 - `Asset` 的 Pydantic 数据模型
@@ -1462,6 +1466,13 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 
 `entry_state → protagonist_decision → exit_state` 为后续连续性验证提供结构化依据。
 
+路线图生成、持久化 `EpisodePlan` 和正文请求的 `ApprovedEpisodePlanContext` 共同支持以下可选编导设计，旧 `v1` payload 不必补写：
+
+- `dramatic_units`：默认 `[]`，最多 7 项，不设最低数量。每项 `EpisodeDramaticUnit` 包含 `trigger`（触发处境）、`choice`（人物具体做法）、`visible_consequence`（可观察后果）、`change_type`（变化类型），以及可选的 `evidence_hint`（预期动作或对白证据）。前三项各为 3–300 字符，类型为 2–40 字符，证据为 `null` 或 3–300 字符。
+- `protagonist_cost`：默认 `null`，填写时为 3–500 字符，只记录已批准事件支持的具体个人代价，不自动生成通用占位句。
+
+戏剧单位可以跨场，同一场也可以包含多个单位；数量不是分场、镜头、节拍或批准标准。`evidence_hint` 是待正文实现的设计，不能作为已经发生的连续性事实。两项共用现有路线图篇幅预算，随路线图保存、修订、批准和导出；只批准后才作为正文执行约束。局部修改保留范围外内容；改写结果省略可选字段时保留原值，允许范围内显式返回 `[]` / `null` 时才能清空。
+
 实际中文漫剧正文由 `DraftMasterScript` 承载：场景可见行动进入 `character_actions`，可表演对白进入 `dialogues.text`，并保留场景因果、角色、场景状态和结尾悬念。只有这些具体集的动作与对白有效字符进入长篇完成字数。
 
 ### `ContinuityLedger`
@@ -1503,6 +1514,7 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 - `generation_job_checkpoints`
 - `story_project_workspace_snapshots`
 - `episode_artifact_versions`
+- `episode_plan_materializations`
 
 设计采用关系索引字段 + JSONB immutable snapshot：
 
@@ -1518,11 +1530,21 @@ Application Service 当前校验唯一有效根节点、父子归属、同级顺
 
 `StoryProjectWorkspaceSnapshot` 是 Frontend authoring aggregate 的兼容持久化边界，包含 `project_id`、单调递增 `revision`、payload schema version、client instance、完整 workspace JSONB、SHA-256 checksum、payload size 与更新时间。它不替代正式 Story Bible / Episode Plan / Episode Artifact 领域模型；由于兼容快照会同时包含结构化稿件和编辑态文本，当前单条 payload 限制为 50 MB，stale revision 返回冲突。
 
+`EpisodePlanMaterialization` 是上传分集原文经作者确认后的独立、不可变审计批次。它保存 bounded source document、SHA-256/FNV-1a32 指纹、逐行 UTF-16 span、字段 provenance、unresolved 字段、Story Bible ID/version、目标 `episode_ready` 节点 ID/version/range、预览和确认时间。服务端在单次事务中复核 lineage、节点 CAS 和现有内容占用；记录及其路线图投影始终为 `draft`，不复用旧 Episode Plan PUT、不填补默认叙事文本，也不产生批准或正文语义。
+
 `EpisodeArtifact` 保存单集明确内容里程碑，而不是每次键盘输入。当前类型为 `draft / revised / final`，每条包含服务端分配的同类型版本号、content schema version、正文 JSONB、checksum、字节数、optional source artifact、client 和 bounded lineage refs。`artifact_id` 支持相同 payload 幂等重放但禁止覆盖；同项目、同集、同类型版本连续增长，单条正文限制 5 MB。
 
 当前持久化已完成 ContentSpec 与长篇资源的 schema、migration、Repository，以及 Project / Workspace Snapshot / Episode Artifact / Story Bible / Story Plan Node / Stage / Episode Plan 的 Application Service 与资源 API。Frontend 已进行本地优先同步与服务端恢复，并在确认和质量闭环里程碑写入 Draft / Revised / Final Artifact；尚未实现编辑过程细粒度版本、递归自动拆分、Continuity 自动更新或后台 worker。
 
-### Compatibility Boundary
+### Long Story Memory Input (2026-09-08)
+
+`ContinuityKnowledgeState` 保存稳定 `knowledge_key`、`statement` 与 `status`，并可带 `source_episode_number` 和 `evidence_scene_numbers`。来源由已保存集的投影确定。`ContinuityCharacterState.knowledge_states` 保留累计键值，更新同键时替换旧状态；不再以最近 50 条截断历史，契约上限为 40000 条。原文和不可变制品仍是重建依据。
+
+`MemoryCapsule` 的新增兼容字段为 `knowledge_states` 和 `active_constraints`，默认空列表；`MemoryRecall` 的 `through_episode_number` 同时约束胶囊来源和其中每条知识的来源。它仍是本次任务的 provisional 输入，不能据此推进 canonical 账本。支持性摘要和完整知识输入分开整理，选定的稳定键、状态和来源进入最终模型提示。
+
+`EpisodeGenerationContext.previous_episode_handoff` 允许最多 24000 字符，用于上一集结果、未完成义务及最后一场实际正文。产品和探针使用同一交接函数，保留正文次序，不把交接作为新批准剧情。现有 JSONB 存储兼容新增字段，本轮无需新增数据库表或 migration。实现与 20 万字容量验证边界见 `41_LONG_STORY_MEMORY_AND_PROMPT_INPUT.md`。
+
+### Earlier Compatibility Boundary
 
 - 未修改 `ContentSpec`、`DraftMasterScript`、Final `MasterScript` 或现有生成步骤 API contract。
 - Story Planning LLM call、规划对象持久化和 Episode Plan 到现有 Draft 约束的首条兼容路径已启用；未启用自动批准、Continuity 自动抽取或后台全量生成执行。

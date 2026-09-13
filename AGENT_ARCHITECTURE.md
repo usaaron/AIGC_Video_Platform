@@ -65,7 +65,7 @@ draft_episode_roadmap
 
 ### EpisodeScriptAgent
 
-正文已经接入统一 Agent 边界，内部成熟流程不变，但现在会在已校验的 DeepSeek 初稿之后持久化断点：
+正文已接入统一 Agent 边界，在已校验的市场正文模型初稿之后持久化断点。大陆为 DeepSeek v4 Pro，海外为 Gemini 3.6 Flash；模型协议由适配器统一处理，结构/数量修复继承请求的发行市场：
 
 ```text
 正文初稿
@@ -73,13 +73,15 @@ draft_episode_roadmap
     -> 漫剧格式检查
     -> 连续性检查与局部修订
     -> 保存已校验初稿断点
-    -> GPT 后处理
+    -> [显式启用且门禁需要时] 正文编辑
     -> 剧本质检
 ```
 
-如果 GPT 后处理或后续网络请求失败，同一 `agent_request_id` 会从初稿断点续跑，不再重复调用 DeepSeek。Agent 层只负责运行范围和统一记录，不增加额外模型调用。
+如果后处理或后续网络请求失败，同一 `agent_request_id` 会从初稿断点续跑。Agent 层只负责运行范围和统一记录，不增加额外模型调用。正文结果和检查点共用 `result_projection`，首次完成与重放的业务响应一致；检查点序列化失败也会把工具标记为失败，不会留下持续运行的状态。
 
-## 后续 Agent
+## 后续职责复用
+
+以下是候选职责，不是待新增的三个自主运行时。总编剧判断先落到现有 StoryPlanningService；连续性检查和局部修订复用 generation_service、ContinuityQC 与 Revision；前期制作按 44 号方案实现自己的应用用例。只有出现独立的状态、工具选择和恢复需求时，才增加 Agent 编排边界。
 
 ### StoryShowrunnerAgent
 

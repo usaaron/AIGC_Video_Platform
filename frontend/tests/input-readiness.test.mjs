@@ -4,8 +4,15 @@ import test from "node:test";
 
 import {
   buildInputReadinessRequest,
+  detectEpisodeCountFromCreativeInput,
   parseInputReadinessResponse,
+  verifiedInputFacts,
 } from "../lib/input-readiness.ts";
+import { analyzeInputReadiness } from "../lib/input-readiness-client.ts";
+import {
+  declaredEpisodeCountFromDocument,
+  episodeNumbersFromDocument,
+} from "../lib/input-import-adapter.ts";
 import { DEFAULT_GENERATION_SETTINGS } from "../lib/types.ts";
 
 function draft() {
@@ -32,6 +39,28 @@ function draft() {
   };
 }
 
+function browserTimers(t) {
+  const previous = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  t.after(() => { if (previous === undefined) delete globalThis.window; else globalThis.window = previous; });
+}
+
+test("episode count detection uses the highest explicit planned episode", () => {
+  assert.equal(
+    detectEpisodeCountFromCreativeInput({
+      ...draft(),
+      creativePrompt: "第1集：失踪\n第3集：听证",
+      referenceMaterials: [],
+    }),
+    3,
+  );
+  assert.equal(declaredEpisodeCountFromDocument("第01—33集\nE34–E52"), 52);
+  assert.equal(declaredEpisodeCountFromDocument("第一集\n第二集\n第十集"), 10);
+  assert.equal(declaredEpisodeCountFromDocument("总集数：50集"), 50);
+  assert.deepEqual(episodeNumbersFromDocument("第1集\n第3集"), [1, 3]);
+  assert.deepEqual(episodeNumbersFromDocument("第01—33集\n## E34–E52"), []);
+});
+
 test("readiness request follows the additive backend contract", () => {
   assert.deepEqual(buildInputReadinessRequest(draft()), {
     creative_prompt: "一个关于失踪证人的故事。",
@@ -42,6 +71,7 @@ test("readiness request follows the additive backend contract", () => {
       extracted_text: "第1集：证人消失",
     }],
     episode_count: 80,
+    target_total_characters: 140000,
   });
 });
 
@@ -105,11 +135,13 @@ test("project creation keeps readiness advisory and existing planning gates sepa
   ]);
 
   assert.match(client, /\/input-readiness\/analyze/);
-  assert.match(client, /catch\s*\{\s*return null;/s);
-  assert.match(editor, /const analysis = await analyzeInputReadiness\(draft\)/);
-  assert.match(editor, /if \(!analysis\) \{\s*await saveNewProject\(\)/s);
+  assert.doesNotMatch(client, /catch\s*\{\s*return null;/s);
+  assert.match(editor, /analysis = await analyzeInputReadiness\(draft, \{ signal: controller.signal \}\)/);
+  assert.match(editor, /setReadinessFailed\(true\)/);
+  assert.match(editor, /inputReadiness\.createWithoutAnalysis/);
   assert.match(editor, /createWithReadinessPath\("recommended"\)/);
   assert.match(editor, /createWithReadinessPath\("full_workflow"\)/);
+  assert.match(editor, /detectedEpisodeCount >= 8/);
   assert.match(editor, /selectedPath:\s*path/);
   assert.match(editor, /inputReadiness\.createRecommended/);
   assert.match(editor, /inputReadiness\.createFull/);
@@ -117,4 +149,46 @@ test("project creation keeps readiness advisory and existing planning gates sepa
   assert.match(types, /inputReadiness\?: InputReadinessAnalysis/);
   assert.doesNotMatch(editor, /storyBibleStatus:\s*"approved"/);
   assert.doesNotMatch(editor, /episodePlansReadyThrough:\s*\d/);
+});
+
+test("failed or unreadable analysis rejects and retains a separate creation decision", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response("unavailable", { status: 503 }));
+  browserTimers(t);
+  await assert.rejects(analyzeInputReadiness(draft()));
+  globalThis.fetch = async () => Response.json({ data: { schema_version: "future.v2" } });
+  await assert.rejects(analyzeInputReadiness(draft()), /无法读取/);
+});
+
+test("structural rechecks avoid a model call and cancellation reaches the request", async (t) => {
+  browserTimers(t);
+  const controller = new AbortController();
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    assert.equal(JSON.parse(options.body).use_model, false);
+    return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => {
+      reject(new DOMException("cancelled", "AbortError"));
+    }, { once: true }));
+  });
+  const pending = analyzeInputReadiness(draft(), { useModel: false, signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+});
+
+test("source spans respect Unicode code points and reject changed documents", () => {
+  const text = "场景🎬主角保护证人。";
+  const fact = { field: "protagonist_and_goal", sourceId: "creative_prompt", sourceName: "创作输入",
+    quote: "主角保护证人。", start: 3, end: [...text].length };
+  const source = { creativePrompt: text, referenceMaterials: [] };
+  assert.deepEqual(verifiedInputFacts({ knownFacts: [fact] }, source), [fact]);
+  assert.deepEqual(verifiedInputFacts({ knownFacts: [fact] }, { ...source, creativePrompt: "原文已修改。" }), []);
+  const parsed = parseInputReadinessResponse({ data: {
+    schema_version: "input_readiness.v1", assessment_version: 2, detected_level: "premise", recommended_stage: "story_bible",
+    known_facts: [{ field: fact.field, source_id: fact.sourceId, source_name: fact.sourceName, quote: fact.quote, start: fact.start, end: fact.end }],
+    structurally_complete: false, capacity_status: "not_estimated", analysis_notice: "智能核对暂未完成",
+    episode_audit: { target_count: 8, supplied_numbers: [1, 1], complete_plan_numbers: [], missing_numbers: [2, 3, 4, 5, 6, 7, 8] },
+  } });
+  assert.equal(parsed.assessmentVersion, 2);
+  assert.equal(parsed.capacityStatus, "not_estimated");
+  assert.equal(parsed.structurallyComplete, false);
+  assert.deepEqual(parsed.knownFacts, [fact]);
+  assert.deepEqual(parsed.episodeAudit.suppliedNumbers, [1]);
 });

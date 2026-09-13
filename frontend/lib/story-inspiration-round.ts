@@ -1,6 +1,7 @@
 import type {
   StoryInspirationBrief,
   StoryInspirationFrontierQuestion,
+  StoryInspirationMessage,
 } from "./types.ts";
 
 export type StoryInspirationAnswerKind = "choice" | "custom" | "unsure" | "delegate";
@@ -9,6 +10,86 @@ export interface StoryInspirationRoundAnswer {
   kind: StoryInspirationAnswerKind;
   value: string;
   note: string;
+}
+
+export const INSPIRATION_ROUND_DRAFT_KEY = "__inspiration_round_draft";
+
+export function storyInspirationRoundNavigation(
+  questions: StoryInspirationFrontierQuestion[],
+  answers: Record<string, StoryInspirationRoundAnswer>,
+  requestedIndex: number,
+) {
+  const index = Math.max(0, Math.min(requestedIndex, questions.length - 1));
+  const unanswered = questions.findIndex((question) => !storyInspirationAnswerIsComplete(answers[question.decision_key]));
+  const answeredCount = questions.filter((question) => storyInspirationAnswerIsComplete(answers[question.decision_key])).length;
+  const complete = questions.length > 0 && unanswered === -1;
+  const action = !questions.length ? "none" : complete ? "submit" : index < questions.length - 1 ? "next" : unanswered === index ? "answer" : "review";
+  return { index, answeredCount, complete, action, nextIndex: action === "next" ? index + 1 : Math.max(0, unanswered) };
+}
+
+export function inspirationRoundDraftFromSections(
+  sections: Record<string, unknown> | undefined,
+  frontier: StoryInspirationMessage | undefined,
+): Record<string, StoryInspirationRoundAnswer> {
+  const value = sections?.[INSPIRATION_ROUND_DRAFT_KEY];
+  if (!value || typeof value !== "object" || !frontier) return {};
+  const draft = value as { messageId?: unknown; answers?: unknown };
+  if (draft.messageId !== frontier.id || !draft.answers || typeof draft.answers !== "object") return {};
+  const answers: Record<string, StoryInspirationRoundAnswer> = {};
+  for (const question of frontier.questions) {
+    const item = (draft.answers as Record<string, unknown>)[question.decision_key];
+    if (!item || typeof item !== "object") continue;
+    const answer = item as Partial<StoryInspirationRoundAnswer>;
+    if (answer.kind && ["choice", "custom", "unsure", "delegate"].includes(answer.kind)
+      && typeof answer.value === "string" && typeof answer.note === "string") {
+      answers[question.decision_key] = { kind: answer.kind, value: answer.value.slice(0, 300), note: answer.note.slice(0, 140) };
+    }
+  }
+  return retainStoryInspirationRoundAnswers(frontier.questions, answers);
+}
+
+export function replaceStoryInspirationCandidates(
+  messages: StoryInspirationMessage[],
+  replacement: StoryInspirationFrontierQuestion,
+): StoryInspirationMessage[] {
+  const active = messages.at(-1);
+  if (active?.role !== "assistant" || !active.questions.some(
+    (question) => question.decision_key === replacement.decision_key,
+  )) throw new Error("当前创作决定已变化，请重新获取方案。");
+  if (replacement.choices.length < 2) throw new Error("本次没有返回足够的候选方案，请重试。");
+  const history: Record<string, string[]> = {};
+  for (const question of active.questions) {
+    history[question.decision_key] = [...new Set(messages.flatMap((message) => [
+      ...(message.candidate_history?.[question.decision_key] ?? []),
+      ...message.questions.filter((item) => item.decision_key === question.decision_key)
+        .flatMap((item) => item.choices),
+    ]))];
+  }
+  // Keep the frontier identity: refreshing candidates does not submit the round.
+  return [...messages.slice(0, -1), {
+    ...active,
+    candidate_history: history,
+    questions: active.questions.map((question) => question.decision_key === replacement.decision_key
+      ? { ...question, choices: replacement.choices, recommended_choice: replacement.recommended_choice,
+          recommended_answer: replacement.recommended_answer }
+      : question),
+  }];
+}
+
+export function retainStoryInspirationRoundAnswers(
+  questions: StoryInspirationFrontierQuestion[],
+  answers: Record<string, StoryInspirationRoundAnswer>,
+): Record<string, StoryInspirationRoundAnswer> {
+  const retained: Record<string, StoryInspirationRoundAnswer> = {};
+  for (const question of questions) {
+    const answer = answers[question.decision_key];
+    if (!answer) continue;
+    retained[question.decision_key] = answer.kind === "choice" && !question.choices.includes(answer.value)
+      ? { kind: "custom", value: "", note: answer.note }
+      : answer;
+  }
+  return Object.keys(retained).length === Object.keys(answers).length
+    && Object.entries(retained).every(([key, value]) => answers[key] === value) ? answers : retained;
 }
 
 type InspirationCoreField =
@@ -46,8 +127,7 @@ function roundAnswerPreview(answer: StoryInspirationRoundAnswer): string {
 
 /**
  * Merge the current round into a new brief value without mutating the saved
- * session. It is a live preview until every question has been answered, then
- * becomes the request checkpoint when the user submits the complete round.
+ * session. It becomes a checkpoint on explicit save or round submission.
  */
 export function previewStoryInspirationBrief(
   brief: StoryInspirationBrief,
@@ -67,12 +147,20 @@ export function previewStoryInspirationBrief(
   );
   for (const question of questions) {
     const answer = answers[question.decision_key];
+    if (answer) {
+      const prefix = `关于${question.title}的补充：`;
+      preview.additional_notes = [...preview.additional_notes.filter((item) => !item.startsWith(prefix)),
+        ...(answer.note.trim() ? [`${prefix}${answer.note.trim()}`] : [])].slice(-20);
+    }
     if (!answer || !storyInspirationAnswerIsComplete(answer)) continue;
     const field = inspirationBriefFieldForQuestion(question);
     const value = roundAnswerPreview(answer);
     if (field && value) preview[field] = value;
     const isUnresolved = answer.kind === "unsure";
     const isDelegated = answer.kind === "delegate";
+    const previousDecision = decisions.get(question.decision_key);
+    if (field && (isUnresolved || isDelegated) && previousDecision?.source === "grill_answer"
+      && previousDecision.value === preview[field]) preview[field] = "";
     preview.unresolved = preview.unresolved.filter((item) => !item.startsWith(`${question.title}：`));
     decisions.set(question.decision_key, {
       decision_key: question.decision_key,
@@ -168,7 +256,7 @@ export function buildStoryInspirationRoundMessage(
       ? "暂时不确定，保留到后续阶段再决定。"
       : answer?.kind === "delegate"
         ? "已授权剧本大师先提出方案，但未经我确认不能写入故事事实。"
-        : answer?.value.trim().slice(0, 260) ?? "";
+        : answer?.value.trim().slice(0, 300) ?? "";
     const note = answer?.note.trim().slice(0, 140);
     return [
       `${question.question_id}｜${title}`,

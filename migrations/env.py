@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from app.database import database_url_from_env
+from app import document_repository  # noqa: F401
 from app.modules.content_spec import persistence as content_spec_persistence  # noqa: F401
 from app.modules.script_engine import long_story_persistence  # noqa: F401
 from app.modules.agent_runtime import persistence as agent_runtime_persistence  # noqa: F401

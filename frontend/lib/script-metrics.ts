@@ -34,7 +34,7 @@ export function calculateDraftTextMetrics(draft: GeneratedDraft): DraftTextMetri
     draft.synopsis,
     draft.hook,
     draft.episode_goal ?? "",
-    ...draft.characters.flatMap((character) => [
+    ...(draft.characters ?? []).flatMap((character) => [
       character.name,
       character.role,
       character.description,

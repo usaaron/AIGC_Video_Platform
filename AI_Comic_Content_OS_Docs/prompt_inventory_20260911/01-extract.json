@@ -1,0 +1,109 @@
+[
+  {
+    "id": "input.readiness.model",
+    "title": "输入成熟度识别模型提示词",
+    "path": "backend/app/modules/input_readiness/service.py",
+    "symbol": "CreativeInputReadinessService._model_prompt",
+    "status": "conditional",
+    "notes": "当前输入识别入口使用；简单短输入、无模型或 mock 使用本地规则，模型失败本地回退。只分析输入，不推进工作流。"
+  },
+  {
+    "id": "input.readiness.supplement",
+    "title": "输入容量提示与补充问题",
+    "path": "backend/app/modules/input_readiness/service.py",
+    "symbol": "CreativeInputReadinessService._capacity_fields",
+    "status": "active",
+    "notes": "代码生成的建议与问题，并非独立模型提示词；在选择推荐路径时可作为 Grill 的提问线索。"
+  },
+  {
+    "id": "input.grill.main",
+    "title": "Grill Me 寻找灵感主提示词",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService._build_story_inspiration_prompt",
+    "status": "active",
+    "notes": "当前主前端的 inspiration-chat 入口。动态插入市场合同、来源、最近对话、历史问题、当前 brief 和本轮回答。"
+  },
+  {
+    "id": "input.grill.fallback",
+    "title": "Grill Me 模型失败时的本地回退问题",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService._fallback_story_inspiration_turn",
+    "status": "conditional",
+    "notes": "超时或结构化输出无效时使用，亦用于过滤后无新题时；固定问句但受前置条件、去重和收束规则约束，不是日常固定问卷。"
+  },
+  {
+    "id": "input.grill.round_message",
+    "title": "Grill Me 逐题答案转为整轮用户消息",
+    "path": "frontend/lib/story-inspiration-round.ts",
+    "start_line": 160,
+    "end_line": 179,
+    "status": "active",
+    "notes": "包含暂时不确定与仅授权先提方案的原文约束，属于动态发送给模型的用户消息构造。"
+  },
+  {
+    "id": "input.grill.brief_to_instruction",
+    "title": "Grill 结论和自主填写内容转为总纲作者约束",
+    "path": "frontend/components/story-bible-panel.tsx",
+    "start_line": 1064,
+    "end_line": 1094,
+    "status": "active",
+    "notes": "保留必须保留/避免、未决和委托状态；作为 author_instruction 传入当前普通总纲生成主链路。"
+  },
+  {
+    "id": "input.reference_purpose_contract",
+    "title": "参考资料用途与权威合同",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService._reference_material_context",
+    "status": "conditional",
+    "notes": "有参考资料时动态插入对应用途规则及预算内资料片段；无资料时返回 none supplied。Grill、方向、总纲等复用。"
+  },
+  {
+    "id": "input.import.server_contract",
+    "title": "服务端显式原文总纲导入合同",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "STORY_BIBLE_IMPORT_INSTRUCTION",
+    "status": "conditional",
+    "notes": "仅显式 import-draft 路由注入，并强制 preserve_source_document；未确定的高影响内容保持待定。"
+  },
+  {
+    "id": "input.import.frontend_contracts",
+    "title": "前端总纲与分集规划导入合同",
+    "path": "frontend/lib/input-readiness-workflow.ts",
+    "start_line": 17,
+    "end_line": 31,
+    "status": "conditional",
+    "notes": "两个完整文本常量：STORY_BIBLE_IMPORT_INSTRUCTION、PLANNING_IMPORT_INSTRUCTION。推荐路径且达到相应成熟度/完整度条件时使用；不是所有从零创作都注入。"
+  },
+  {
+    "id": "input.direction.options",
+    "title": "保留的创作方向候选提示词",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService._build_creative_direction_prompt",
+    "status": "legacy",
+    "notes": "后端 API 和客户端函数仍存在；当前前端组件未发现调用。仅变化用户未指定维度，不能当作当前 Grill 主流程。"
+  },
+  {
+    "id": "input.interactive.step",
+    "title": "保留的逐节四候选总纲提示词",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService._build_interactive_story_bible_step_prompt",
+    "status": "legacy",
+    "notes": "后端 API 和客户端函数仍存在；当前主界面未调用。按十种步骤生成当前字段的四个候选。"
+  },
+  {
+    "id": "input.interactive.step_repair",
+    "title": "保留的逐节候选输出修复包装",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService.generate_story_bible_interactive_step",
+    "status": "legacy_conditional",
+    "notes": "完整方法包含 _build_interactive_story_bible_step_prompt 调用及附加严格四候选修复要求；只有旧入口被调用且输出无效时触发。"
+  },
+  {
+    "id": "input.interactive.synthesis",
+    "title": "保留的已确认交互框架合成总纲提示词",
+    "path": "backend/app/modules/script_engine/story_planning_service.py",
+    "symbol": "StoryPlanningService.complete_interactive_story_bible",
+    "status": "legacy",
+    "notes": "完整方法内含 synthesis_prompt。当前 Grill 完成后走普通 generateStoryBibleDraft，不走此旧合成接口。"
+  }
+]

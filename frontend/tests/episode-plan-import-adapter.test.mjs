@@ -40,7 +40,7 @@ test("adapter retains original ordering and marks incomplete rows without invent
   assert.ok(parsed.warnings.some((warning) => warning.code === "episode_numbers_out_of_order"));
 });
 
-test("persisted import drafts are source-identified and remain staging artifacts", async () => {
+test("persisted import drafts are source-identified and preview stays non-mutating", async () => {
   const draft = await buildEpisodePlanImportDraft("第1集\n本集目标：打开故事");
 
   assert.equal(draft.schemaVersion, "episode_plan_import.v1");
@@ -50,7 +50,7 @@ test("persisted import drafts are source-identified and remain staging artifacts
 
   const panel = await readFile(new URL("../components/story-plan-node-panel.tsx", import.meta.url), "utf8");
   assert.match(panel, /episodePlanImportDraft/);
-  assert.match(panel, /不会创建或修改剧情树、路线图或正文/);
+  assert.match(panel, /预览不写入数据/);
+  assert.match(panel, /不会批准路线图或生成正文/);
   assert.doesNotMatch(panel, /episodePlanImportDraft[\s\S]{0,500}status:\s*["']approved["']/);
 });
-

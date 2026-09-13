@@ -96,7 +96,7 @@ export function migrateProjectScreenplayFormat(
             2,
           )
         : episode.confirmedDraftJson,
-      modificationCandidate: episode.modificationCandidate
+      modificationCandidate: episode.modificationCandidate?.candidate_generation_run
         ? {
             ...episode.modificationCandidate,
             candidate_generation_run: {
@@ -186,7 +186,7 @@ function buildAliasMap(
       episode.generationRun.draft_master_script,
       parseJsonDraft(episode.workingDraftJson),
       parseJsonDraft(episode.confirmedDraftJson),
-      episode.modificationCandidate?.candidate_generation_run.draft_master_script,
+      episode.modificationCandidate?.candidate_generation_run?.draft_master_script,
       episode.deepeningRun?.candidate_draft_master_script,
       episode.revisionRun?.revised_draft_master_script,
       episode.finalizationResult?.master_script,

@@ -15,6 +15,7 @@ from app.modules.agent_runtime.runtime import AgentSession
 from app.modules.agent_runtime.service import AgentRunService, fingerprint_input
 from app.modules.script_engine.generation_service import ScriptGenerationService
 from app.modules.script_engine.llm_adapter import bind_llm_log_context
+from app.modules.script_engine.result_projection import compact_generation_payload, compact_generation_result
 from app.modules.script_engine.script_post_editor import (
     ScriptPostEditCheckpoint,
     ScriptPostEditor,
@@ -207,7 +208,7 @@ class EpisodeScriptAgent:
                 "draft_run": _compact_script_checkpoint(draft_run),
             },
         )
-        return EpisodeScriptAgentResult(draft_run=draft_run, run=run)
+        return EpisodeScriptAgentResult(draft_run=compact_generation_result(draft_run), run=run)
 
     def _generate_pre_edit(
         self,
@@ -290,15 +291,7 @@ def _supports_keyword(callable_object: Callable[..., object], name: str) -> bool
 
 
 def _compact_script_checkpoint(draft_run: ScriptGenerationDraftRun) -> dict[str, object]:
-    """Persist a validated product result without prompts or raw model output."""
-
-    payload = draft_run.model_dump(mode="json")
-    payload["llm_raw_output"] = {}
-    prompt_build = payload.get("prompt_build_result")
-    if isinstance(prompt_build, dict):
-        prompt_build["prompt_text"] = "Prompt omitted after validated Agent checkpoint."
-        prompt_build["rendered_variables"] = {}
-    return payload
+    return compact_generation_payload(draft_run)
 
 
 def _agent_run_telemetry(record: AgentRunRecord) -> dict[str, object]:

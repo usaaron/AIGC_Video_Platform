@@ -185,6 +185,30 @@ def test_episode_generation_context_keeps_the_approved_episode_plan_structured()
         "制造交易",
         "换取账本",
     ]
+    assert serialized["approved_episode_plan"]["dramatic_units"] == []
+    assert serialized["approved_episode_plan"]["protagonist_cost"] is None
+
+    dramatic_unit = {
+        "trigger": "中间人要求主角交出证人地址才肯交易。",
+        "choice": "主角交出自己的藏身地址并签字担保。",
+        "visible_consequence": "中间人交出账本，同时派人前往主角住处。",
+        "change_type": "安全与承诺",
+        "evidence_hint": "担保书上的地址与主角钥匙上的门牌相同。",
+    }
+    enriched = context.model_dump(mode="json")
+    enriched["approved_episode_plan"]["dramatic_units"] = [dramatic_unit]
+    enriched["approved_episode_plan"]["protagonist_cost"] = "主角暴露了自己的住处，无法再回去藏身。"
+    restored = EpisodeGenerationContext.model_validate_json(
+        EpisodeGenerationContext.model_validate(enriched).model_dump_json()
+    )
+    assert restored.approved_episode_plan is not None
+    assert restored.approved_episode_plan.dramatic_units[0].model_dump(mode="json") == dramatic_unit
+    assert restored.approved_episode_plan.protagonist_cost == "主角暴露了自己的住处，无法再回去藏身。"
+
+    malformed = context.model_dump(mode="json")
+    malformed["approved_episode_plan"]["dramatic_units"] = [{"trigger": "中间人拒绝交易。"}]
+    with pytest.raises(ValidationError, match="visible_consequence"):
+        EpisodeGenerationContext.model_validate(malformed)
 
     legacy = context.model_dump(mode="json")
     legacy["approved_episode_plan"]["target_duration_seconds"] = 60
@@ -779,6 +803,16 @@ def test_memory_recall_rejects_capsules_after_recall_boundary() -> None:
                 )
             ],
         )
+
+
+def test_memory_recall_rejects_future_knowledge_inside_an_older_capsule() -> None:
+    with pytest.raises(ValidationError, match="knowledge source episode"):
+        MemoryRecall(through_episode_number=2, capsules=[MemoryCapsule(
+            capsule_id="memory.character.lead", memory_type="character_state",
+            summary="The lead's prior state.", source_episode=2,
+            knowledge_states=[{"knowledge_key": "future.identity", "statement": "The future reveal.",
+                               "status": "known", "source_episode_number": 3}],
+        )])
 
 
 def test_memory_recall_deduplicates_legacy_reference_lists() -> None:

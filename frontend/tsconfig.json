@@ -34,7 +34,13 @@
     ".next/types/**/*.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-human-flow/types/**/*.ts",
+    ".next-human-flow/dev/types/**/*.ts",
+    ".next-human-flow-mock/types/**/*.ts",
+    ".next-human-flow-mock/dev/types/**/*.ts",
+    ".next-human-flow-real/types/**/*.ts",
+    ".next-human-flow-real/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

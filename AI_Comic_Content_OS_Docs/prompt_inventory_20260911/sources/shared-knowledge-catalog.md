@@ -1,0 +1,357 @@
+# 静态创作知识条目与知识包原文
+
+编号：`shared-knowledge-catalog`。状态：`conditional`。
+
+来源：[backend/app/modules/script_engine/static_knowledge_catalog.v1.json:1](/Users/simonriley/Downloads/docs/backend/app/modules/script_engine/static_knowledge_catalog.v1.json:1)。符号：`指定原文片段`。
+
+目录含12条知识、5个bundle。按策略、市场、目标阶段及任务选择，不能理解为每次把所有知识同时发送。来源字段是仓库既有记录，本次未重新验证外部引用。
+
+本页保留当前工作区原文，不是优化后的替代提示词，也不是某次模型调用的完整展开结果。
+
+## 源码原文
+
+此部分按原始行提取，保留缩进、条件、占位变量和全部短字符串。
+
+````json
+{
+  "catalog_version": "static_knowledge_catalog.v1",
+  "items": [
+    {
+      "knowledge_id": "knowledge.genre.dark_romance.power_and_boundary.v1",
+      "version": "v1",
+      "category": "genre_blueprint",
+      "principle": "Make intimacy, danger, power, and boundaries causally affect one another instead of treating darkness as decoration.",
+      "application_rules": [
+        "Make the dark context alter trust, vulnerability, power, or choice in the relationship.",
+        "Preserve character motivation and consequences rather than aestheticizing harm."
+      ],
+      "limitations": [
+        "Use only when dark romance is explicitly requested and content boundaries are available.",
+        "Do not treat abuse, stalking, or coercion as mandatory genre beats."
+      ],
+      "anti_patterns": [
+        "Adding arbitrary cruelty to an otherwise conventional romance.",
+        "Using violence alone as proof that the relationship is developed."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.genre.dark_romance.power_and_boundary.v1.md; Katie Deane, Dark romance: an introduction, DOI 10.1080/23268743.2025.2586593"
+    },
+    {
+      "knowledge_id": "knowledge.character.choice_reveals_character.v1",
+      "version": "v1",
+      "category": "character_design",
+      "principle": "Reveal character through consequential choices under pressure, especially when attractive values or outcomes conflict.",
+      "application_rules": [
+        "Present at least two meaningful options with distinct costs.",
+        "Let the chosen action affect later trust, risk, or opportunity."
+      ],
+      "limitations": [
+        "Do not make every choice extreme or irreversible.",
+        "Allow low-pressure choices when intentionally establishing routine."
+      ],
+      "anti_patterns": [
+        "Labeling a character brave without showing a risky choice.",
+        "Presenting a choice with only one plausible option and no cost."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.character.choice_reveals_character.v1.md; Robert McKee, Story, ISBN 9780060987343"
+    },
+    {
+      "knowledge_id": "knowledge.conflict.progressive_cost.v1",
+      "version": "v1",
+      "category": "conflict_and_emotion",
+      "principle": "Escalate conflict by increasing cost, narrowing options, or deepening opposition created by earlier actions.",
+      "application_rules": [
+        "Track what becomes harder, riskier, or less reversible after each outcome.",
+        "Vary escalation through relational, informational, moral, temporal, or physical cost."
+      ],
+      "limitations": [
+        "Do not make every beat louder or more violent.",
+        "Allow temporary release when it makes the next escalation legible."
+      ],
+      "anti_patterns": [
+        "Repeating the same threat across multiple scenes.",
+        "Announcing larger stakes while available choices remain unchanged."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.conflict.progressive_cost.v1.md; Robert McKee, Story, ISBN 9780060987343"
+    },
+    {
+      "knowledge_id": "knowledge.story.causal_sequence.v1",
+      "version": "v1",
+      "category": "story_structure",
+      "principle": "Arrange major incidents so later events arise plausibly or necessarily from earlier events rather than merely following them.",
+      "application_rules": [
+        "Record what state changes after each scene.",
+        "Make a later goal, obstacle, reveal, or cost depend on that changed state."
+      ],
+      "limitations": [
+        "Do not eliminate deliberate ambiguity or associative structures with clear organizing logic.",
+        "Do not require literal dialogue references to prior scenes."
+      ],
+      "anti_patterns": [
+        "Repeating parallel scenes without changing available choices.",
+        "Ignoring the consequences of the prior scene outcome."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.story.causal_sequence.v1.md; Aristotle, Poetics, Project Gutenberg eBook 1974"
+    },
+    {
+      "knowledge_id": "knowledge.platform.tiktok.early_hook.v1",
+      "version": "v1",
+      "category": "short_form_tiktok",
+      "principle": "Communicate the central value, tension, surprise, or emotional question early enough that viewers understand why to continue.",
+      "application_rules": [
+        "Make the opening hook legible through action, image, dialogue, or a precise dramatic question.",
+        "Connect the hook to the episode's actual conflict and payoff."
+      ],
+      "limitations": [
+        "Do not treat an advertising timing guideline as a universal law for fiction.",
+        "Do not replace setup with disconnected shock or exposition."
+      ],
+      "anti_patterns": [
+        "Opening with a sensational image that never affects the story.",
+        "Spending the opening only explaining background before conflict appears."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.platform.tiktok.early_hook.v1.md; TikTok For Business, Creative Best Practices for TikTok Ads"
+    },
+    {
+      "knowledge_id": "knowledge.payoff.logical_necessity.v1",
+      "version": "v1",
+      "category": "conflict_and_emotion",
+      "principle": "Prepare a payoff through connected choices so it can surprise in form while feeling logically necessary in retrospect.",
+      "application_rules": [
+        "Identify the setup, intervening choices, and payoff transformation.",
+        "Make the payoff answer an established desire, fear, or dramatic question."
+      ],
+      "limitations": [
+        "Do not make the outcome fully predictable.",
+        "Do not require a positive reward when the intended payoff is costly or tragic."
+      ],
+      "anti_patterns": [
+        "Resolving the conflict through an unprepared outside rescue.",
+        "Repeating a setup without changing its meaning or consequence."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.payoff.logical_necessity.v1.md; John Truby, The Anatomy of Story, ISBN 9781429923705"
+    },
+    {
+      "knowledge_id": "knowledge.visual.scene_context.v1",
+      "version": "v1",
+      "category": "visual_narrative",
+      "principle": "Give each production-facing scene enough context to establish interior or exterior space, location, and relevant time condition before action unfolds.",
+      "application_rules": [
+        "Represent spatial and temporal context semantically, independent of export format.",
+        "Mark a transition when context changes in a way that affects action or comprehension."
+      ],
+      "limitations": [
+        "Do not force traditional screenplay typography into the MasterScript schema.",
+        "Do not repeat context when a continuous sequence intentionally preserves the prior scene."
+      ],
+      "anti_patterns": [
+        "Characters appear in a new place without transition or causal explanation.",
+        "Production syntax is embedded as prose and becomes impossible to parse."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.visual.scene_context.v1.md; BBC Writersroom, Screenplay Format"
+    },
+    {
+      "knowledge_id": "knowledge.visual.observable_action.v1",
+      "version": "v1",
+      "category": "visual_narrative",
+      "principle": "Describe what can be seen or heard and translate internal states into behavior, image, dialogue, or intentional voice channels.",
+      "application_rules": [
+        "Replace abstract state labels with observable choice, gesture, spatial behavior, or speech when possible.",
+        "Keep internal narration only when it adds information or tension unavailable through action."
+      ],
+      "limitations": [
+        "Do not ban all voiceover, internal monologue, or subjective visual devices.",
+        "Do not prescribe camera direction before production requirements are known."
+      ],
+      "anti_patterns": [
+        "Stating private thoughts with no visible or audible representation.",
+        "Using adjectives such as powerful or devastated instead of concrete behavior."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.visual.observable_action.v1.md; BBC Writersroom, Screenplay Format"
+    },
+    {
+      "knowledge_id": "knowledge.emotion.audience_participation.v1",
+      "version": "v1",
+      "category": "conflict_and_emotion",
+      "principle": "Let audiences infer motives and consequences from behavior instead of explaining every emotional meaning directly.",
+      "application_rules": [
+        "Provide observable behavior that supports a live emotional interpretation.",
+        "Resolve or complicate the emotional question through later action."
+      ],
+      "limitations": [
+        "Do not hide essential context until choices seem random.",
+        "Do not use ambiguity without an eventual consequence or clarification."
+      ],
+      "anti_patterns": [
+        "Dialogue explains the exact emotion already visible in action.",
+        "Emotional ambiguity has no later story function."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.emotion.audience_participation.v1.md; John Truby, The Anatomy of Story, ISBN 9781429923705"
+    },
+    {
+      "knowledge_id": "knowledge.visual.channel_separation.v1",
+      "version": "v1",
+      "category": "visual_narrative",
+      "principle": "Keep visual action, dialogue, voiceover, internal thought, and on-screen text distinguishable so each channel has a clear function.",
+      "application_rules": [
+        "Keep visible action separate from private thought.",
+        "Use voiceover or internal monologue only when action cannot deliver the information more effectively."
+      ],
+      "limitations": [
+        "Do not adopt source-specific symbols or production syntax as mandatory.",
+        "Do not assume every script needs every narrative channel."
+      ],
+      "anti_patterns": [
+        "Mixing private thought into action as if it were visible.",
+        "Repeating the same sentence through dialogue, voiceover, and captions."
+      ],
+      "source_reference": "Research/Knowledge_Items/knowledge.visual.channel_separation.v1.md; practitioner observation classified as informal, medium confidence"
+    },
+    {
+      "knowledge_id": "knowledge.short_drama.compact_episode_cycle.v1",
+      "version": "v1",
+      "category": "short_drama_structure",
+      "principle": "Each 75-115 second episode must create a compact, observable state change and a causal continuation point instead of behaving like one fragment of a conventional long-drama scene sequence.",
+      "application_rules": [
+        "Make the immediate pressure or decision legible early and let the protagonist act before background explanation takes over.",
+        "Make every one of the episode's one to five scenes change an observable state; the change may be a payoff, relationship turn, failed attempt, information exchange, consequence or another story-native result.",
+        "Make the hook arise from the episode's action and create one concrete obligation for the next episode."
+      ],
+      "limitations": [
+        "A quieter emotional episode is valid when it still changes a relationship, decision, knowledge state, or risk.",
+        "Do not add disconnected shocks, artificial reversals, extra dialogue, or extra scenes merely to imitate pace."
+      ],
+      "anti_patterns": [
+        "Most of the episode explains background while the protagonist does not act.",
+        "Several consecutive episodes only investigate, prepare, travel, or wait while postponing all satisfaction."
+      ],
+      "source_reference": "Product contract: mainland serialized comic-drama episodes are 75-115 seconds with one to five scenes and a causal episode-level result"
+    },
+    {
+      "knowledge_id": "knowledge.serialization.short_drama_escalation_engine.v1",
+      "version": "v1",
+      "category": "story_structure_and_serialization",
+      "principle": "A long serialized short-drama project stays sustainable by changing tactics, costs, power, information, and relationships while every short episode still completes a local dramatic movement.",
+      "application_rules": [
+        "Let each episode's visible result cause the next episode's pressure instead of resetting or merely extending the same confrontation.",
+        "Escalate across episode groups through changed strategy, opposition, cost, relationship, or knowledge, not only louder danger.",
+        "End or transform a conflict engine once its local question is resolved, then hand off one causal pressure rather than opening decorative subplots."
+      ],
+      "limitations": [
+        "Do not postpone all payoff to a distant stage finale in order to preserve a long project.",
+        "Do not require multiple parallel lines, a fixed act count, equal branch sizes, or gradual television pacing."
+      ],
+      "anti_patterns": [
+        "Importing conventional television A/B/C plot loads into every 75-115 second episode.",
+        "Treating an eight-to-twelve-episode leaf as one slow conventional-drama act with no episode-level settlement."
+      ],
+      "source_reference": "Product contract: recursive 8-12 episode leaves with per-episode observable state changes and causal handoffs"
+    }
+  ],
+  "bundles": [
+    {
+      "bundle_id": "knowledge_bundle.draft.dark_romance_tiktok.v1",
+      "version": "v1",
+      "knowledge_ids": [
+        "knowledge.genre.dark_romance.power_and_boundary.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.platform.tiktok.early_hook.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.visual.observable_action.v1"
+      ],
+      "applicable_conditions": {
+        "any_tag_labels": ["Dark Romance"],
+        "target_platforms": ["tiktok"]
+      },
+      "source_reference": "AI_Comic_Content_OS_Docs/Research/Creative_Knowledge_Bootstrap_v1.md",
+      "target_stage": "draft_generation"
+    },
+    {
+      "bundle_id": "knowledge_bundle.deepening.dark_romance_tiktok.v1",
+      "version": "v1",
+      "knowledge_ids": [
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.emotion.audience_participation.v1",
+        "knowledge.visual.observable_action.v1",
+        "knowledge.visual.channel_separation.v1"
+      ],
+      "applicable_conditions": {
+        "any_tag_labels": ["Dark Romance"],
+        "target_platforms": ["tiktok"]
+      },
+      "source_reference": "AI_Comic_Content_OS_Docs/Research/Creative_Knowledge_Bootstrap_v1.md",
+      "target_stage": "creative_deepening"
+    },
+    {
+      "bundle_id": "knowledge_bundle.draft.cn_mainland_serial_short_drama.v1",
+      "version": "v1",
+      "knowledge_ids": [
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.short_drama.compact_episode_cycle.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
+        "knowledge.visual.scene_context.v1",
+        "knowledge.visual.observable_action.v1",
+        "knowledge.visual.channel_separation.v1",
+        "knowledge.emotion.audience_participation.v1"
+      ],
+      "applicable_conditions": {
+        "target_platforms": ["mainland china comic drama"],
+        "platform_profile_ids": ["cn_mainland_comic_drama_v1"]
+      },
+      "source_reference": "Product contract: mainland serialized comic-drama short-episode workflow",
+      "target_stage": "draft_generation"
+    },
+    {
+      "bundle_id": "knowledge_bundle.draft.cn_mainland_longform_foundation.v1",
+      "version": "v1",
+      "knowledge_ids": [
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.short_drama.compact_episode_cycle.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
+        "knowledge.visual.scene_context.v1",
+        "knowledge.visual.observable_action.v1",
+        "knowledge.visual.channel_separation.v1",
+        "knowledge.emotion.audience_participation.v1"
+      ],
+      "applicable_conditions": {
+        "target_platforms": ["mainland china comic drama"],
+        "platform_profile_ids": ["cn_mainland_comic_drama_v1"]
+      },
+      "source_reference": "AI_Comic_Content_OS_Docs/Research/Creative_Knowledge_Bootstrap_v1.md",
+      "target_stage": "draft_generation"
+    },
+    {
+      "bundle_id": "knowledge_bundle.draft.cn_mainland_longform_planning_candidate.v2",
+      "version": "v2",
+      "knowledge_ids": [
+        "knowledge.story.causal_sequence.v1",
+        "knowledge.character.choice_reveals_character.v1",
+        "knowledge.conflict.progressive_cost.v1",
+        "knowledge.payoff.logical_necessity.v1",
+        "knowledge.short_drama.compact_episode_cycle.v1",
+        "knowledge.serialization.short_drama_escalation_engine.v1",
+        "knowledge.visual.scene_context.v1",
+        "knowledge.visual.observable_action.v1",
+        "knowledge.visual.channel_separation.v1",
+        "knowledge.emotion.audience_participation.v1"
+      ],
+      "applicable_conditions": {
+        "target_platforms": ["mainland china comic drama"],
+        "platform_profile_ids": ["cn_mainland_comic_drama_v1"]
+      },
+      "source_reference": "Compatibility alias mapped to the mainland serialized short-drama knowledge contract",
+      "target_stage": "draft_generation"
+    }
+  ]
+}
+````
+
+片段 SHA-256：`a0208057009fbdacdcaf746369c7bfb6ff7274b14be24855f20307450f10d1dd`

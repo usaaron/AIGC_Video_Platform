@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -26,6 +27,7 @@ class InputReadinessAnalysisMethod(str, Enum):
 
 
 class InputReadinessCapacityStatus(str, Enum):
+    not_estimated = "not_estimated"
     sufficient = "sufficient"
     supplement_recommended = "supplement_recommended"
     target_reduce_recommended = "target_reduce_recommended"
@@ -48,6 +50,38 @@ class InputReadinessCoverage(BaseModel):
     script: float = Field(ge=0.0, le=1.0)
 
 
+SourceFactField = Literal[
+    "story_promise", "protagonist_and_goal", "core_obstacle", "stakes",
+    "relationship_direction", "reveal_or_twist", "ending_direction",
+    "tone_and_pacing", "world_setting",
+]
+
+
+class InputSourceFact(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: SourceFactField
+    source_id: str
+    source_name: str
+    quote: str = Field(min_length=2, max_length=800)
+    start: int = Field(ge=0)
+    end: int = Field(ge=1)
+
+
+class InputEpisodeAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target_count: int = Field(ge=1, le=2_000)
+    supplied_numbers: list[int] = Field(default_factory=list)
+    complete_plan_numbers: list[int] = Field(default_factory=list)
+    script_numbers: list[int] = Field(default_factory=list)
+    missing_numbers: list[int] = Field(default_factory=list)
+    incomplete_numbers: list[int] = Field(default_factory=list)
+    duplicate_numbers: list[int] = Field(default_factory=list)
+    out_of_range_numbers: list[int] = Field(default_factory=list)
+    unnumbered_script: bool = False
+
+
 class CreativeInputReadinessRequest(BaseModel):
     """Creative input inspected before a Story Project is created.
 
@@ -65,6 +99,7 @@ class CreativeInputReadinessRequest(BaseModel):
     )
     episode_count: int = Field(ge=1, le=2_000)
     target_total_characters: int = Field(default=140_000, ge=1_000, le=10_000_000)
+    use_model: bool = True
 
     @model_validator(mode="after")
     def validate_creative_source(self) -> "CreativeInputReadinessRequest":
@@ -94,6 +129,11 @@ class CreativeInputReadiness(BaseModel):
     recommended_stage: RecommendedWorkflowStage
     requires_user_confirmation: bool = True
     analysis_method: InputReadinessAnalysisMethod
+    assessment_version: int = 2
+    known_facts: list[InputSourceFact] = Field(default_factory=list, max_length=24)
+    episode_audit: InputEpisodeAudit | None = None
+    structurally_complete: bool = False
+    analysis_notice: str | None = None
     source_character_count: int = Field(default=0, ge=0)
     detected_episode_count: int | None = Field(default=None, ge=1, le=2_000)
     source_kinds: list[InputReadinessSourceKind] = Field(default_factory=list, max_length=5)

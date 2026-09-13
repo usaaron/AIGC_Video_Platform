@@ -477,22 +477,124 @@ class SceneCausality(BaseModel):
         return self
 
 
+_SCENE_TIME_PATTERN = re.compile(
+    r"(黎明|清晨|早晨|上午|中午|下午|傍晚|黄昏|夜晚|深夜|白天|日间|夜|日)",
+)
+_SCENE_SPEAKER_MARKER_PATTERN = re.compile(
+    r"\s*[（(](?:O\.S\.|V\.O\.|CONTINUED|PRE[-‑ ]?LAP)[）)]\s*$",
+    re.IGNORECASE,
+)
+
+
+class SceneContentManifest(BaseModel):
+    """Creator-facing content required to make one scene producible.
+
+    The manifest is separate from planning and QC fields. It is rendered as a
+    compact episode information sheet while the formal screenplay body remains
+    action/dialogue only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    location: str = Field(min_length=3, max_length=120)
+    time_of_day: str = Field(min_length=1, max_length=40)
+    character_refs: list[str] = Field(default_factory=list, max_length=20)
+    objective: str = Field(min_length=5, max_length=240)
+    conflict: str = Field(min_length=5, max_length=300)
+    turning_point: str = Field(min_length=3, max_length=240)
+    outcome: str = Field(min_length=5, max_length=240)
+    props: list[str] = Field(default_factory=list, max_length=12)
+    entry_state: str = Field(min_length=3, max_length=240)
+    exit_state: str = Field(min_length=3, max_length=240)
+
+    @field_validator("character_refs", "props")
+    @classmethod
+    def ensure_unique_manifest_values(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Scene content manifest values must be unique.")
+        return values
+
+
+def _infer_scene_character_refs(dialogues: list[Any]) -> list[str]:
+    refs: list[str] = []
+    for dialogue in dialogues:
+        if isinstance(dialogue, dict):
+            name = dialogue.get("chinese_character_name") or dialogue.get("character_name", "")
+        else:
+            name = getattr(dialogue, "chinese_character_name", None) or getattr(
+                dialogue, "character_name", ""
+            )
+        if not isinstance(name, str):
+            continue
+        normalized = _SCENE_SPEAKER_MARKER_PATTERN.sub("", name).strip()
+        if normalized and normalized.casefold() not in {value.casefold() for value in refs}:
+            refs.append(normalized)
+    return refs
+
+
+def _default_scene_content_manifest(
+    *,
+    location: str,
+    purpose: str,
+    beat_summary: str,
+    turning_point: str | None,
+    scene_causality: SceneCausality | None,
+    dialogues: list[Any],
+    character_refs: list[str],
+) -> SceneContentManifest:
+    causal = scene_causality
+    scene_location = location.strip() or "未指定地点"
+    time_match = _SCENE_TIME_PATTERN.search(scene_location)
+    return SceneContentManifest(
+        location=scene_location,
+        time_of_day=time_match.group(1) if time_match else "未指定时间",
+        character_refs=list(character_refs) or _infer_scene_character_refs(dialogues),
+        objective=purpose,
+        conflict=causal.conflict if causal else "场景中的阻力阻止人物直接完成目标。",
+        turning_point=turning_point or (causal.outcome if causal else beat_summary),
+        outcome=causal.outcome if causal else beat_summary,
+        props=[],
+        entry_state=(
+            causal.causal_link
+            if causal and causal.causal_link
+            else "人物带着既有目标进入场景。"
+        ),
+        exit_state=causal.outcome if causal else beat_summary,
+    )
+
+
 class SceneCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scene_number: int = Field(ge=1, le=50)
     slug: str = Field(min_length=3, max_length=120)
+    scene_heading: str | None = Field(default=None, min_length=5, max_length=200)
     purpose: str = Field(min_length=5, max_length=240)
     setting: str = Field(min_length=3, max_length=120)
     beat_summary: str = Field(min_length=5, max_length=300)
     emotional_shift: str = Field(min_length=3, max_length=120)
     emotional_objective: str | None = Field(default=None, min_length=3, max_length=160)
+    character_refs: list[str] = Field(default_factory=list, max_length=20)
     character_actions: list[str] = Field(default_factory=list, max_length=24)
     body_order: list[str] = Field(default_factory=list, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
     scene_causality: SceneCausality | None = None
     cliffhanger: bool = False
     dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+    content_manifest: SceneContentManifest | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_scene_heading_aliases(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if not normalized.get("setting") and normalized.get("scene_heading"):
+            normalized["setting"] = normalized["scene_heading"]
+        if not normalized.get("scene_heading") and normalized.get("setting"):
+            normalized["scene_heading"] = normalized["setting"]
+        return normalized
 
     @model_validator(mode="after")
     def ensure_complete_body_order(self) -> "SceneCard":
@@ -501,6 +603,18 @@ class SceneCard(BaseModel):
             action_count=len(self.character_actions),
             dialogue_count=len(self.dialogues),
         )
+        if self.content_manifest is None:
+            self.content_manifest = _default_scene_content_manifest(
+                location=self.scene_heading or self.setting or self.slug,
+                purpose=self.purpose,
+                beat_summary=self.beat_summary,
+                turning_point=self.turning_point,
+                scene_causality=self.scene_causality,
+                dialogues=self.dialogues,
+                character_refs=self.character_refs,
+            )
+        if not self.character_refs:
+            self.character_refs = list(self.content_manifest.character_refs)
         return self
 
 
@@ -509,11 +623,13 @@ class DraftSceneCard(BaseModel):
 
     scene_number: int = Field(ge=1, le=50)
     slug: str = Field(min_length=3, max_length=120)
+    scene_heading: str | None = Field(default=None, min_length=5, max_length=200)
     purpose: str = Field(min_length=5, max_length=240)
     setting_hint: str = Field(min_length=3, max_length=120)
     beat_summary: str = Field(min_length=5, max_length=300)
     emotional_shift: str = Field(min_length=3, max_length=120)
     emotional_objective: str | None = Field(default=None, min_length=3, max_length=160)
+    character_refs: list[str] = Field(default_factory=list, max_length=20)
     character_actions: list[str] = Field(default_factory=list, max_length=24)
     body_order: list[str] = Field(default_factory=list, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
@@ -522,6 +638,19 @@ class DraftSceneCard(BaseModel):
     dialogue_prompts: list[str] = Field(default_factory=list, max_length=10)
     dialogues: list[DialogueLine] = Field(default_factory=list, max_length=35)
     supporting_asset_ids: list[str] = Field(default_factory=list, max_length=10)
+    content_manifest: SceneContentManifest | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_scene_heading_aliases(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if not normalized.get("setting_hint") and normalized.get("scene_heading"):
+            normalized["setting_hint"] = normalized["scene_heading"]
+        if not normalized.get("scene_heading") and normalized.get("setting_hint"):
+            normalized["scene_heading"] = normalized["setting_hint"]
+        return normalized
 
     @field_validator("dialogue_prompts", "supporting_asset_ids", "character_actions")
     @classmethod
@@ -538,6 +667,18 @@ class DraftSceneCard(BaseModel):
             action_count=len(self.character_actions),
             dialogue_count=len(self.dialogues),
         )
+        if self.content_manifest is None:
+            self.content_manifest = _default_scene_content_manifest(
+                location=self.scene_heading or self.setting_hint or self.slug,
+                purpose=self.purpose,
+                beat_summary=self.beat_summary,
+                turning_point=self.turning_point,
+                scene_causality=self.scene_causality,
+                dialogues=self.dialogues,
+                character_refs=self.character_refs,
+            )
+        if not self.character_refs:
+            self.character_refs = list(self.content_manifest.character_refs)
         return self
 
 
@@ -553,6 +694,8 @@ class MasterScriptBase(BaseModel):
     tone: ScriptTone
     hook: str = Field(min_length=5, max_length=240)
     synopsis: str = Field(min_length=10, max_length=500)
+    episode_cast: list[str] = Field(default_factory=list, max_length=20)
+    locations: list[str] = Field(default_factory=list, max_length=20)
     episode_goal: str = Field(min_length=5, max_length=240)
     target_duration_seconds: int = Field(ge=5, le=600)
     ending_mode: EndingMode = DEFAULT_ENDING_MODE
@@ -593,6 +736,25 @@ class MasterScriptBase(BaseModel):
         return scenes
 
     @model_validator(mode="after")
+    def ensure_episode_content_index(self) -> "MasterScriptBase":
+        if not self.episode_cast:
+            self.episode_cast = list(
+                dict.fromkeys(
+                    reference
+                    for scene in self.scenes
+                    for reference in scene.character_refs
+                )
+            ) or [character.name for character in self.characters]
+        if not self.locations:
+            self.locations = list(
+                dict.fromkeys(
+                    (scene.scene_heading or scene.setting or scene.slug).strip()
+                    for scene in self.scenes
+                )
+            )
+        return self
+
+    @model_validator(mode="after")
     def ensure_final_scene_has_cliffhanger(self) -> "MasterScriptBase":
         if ending_mode_requires_hook(self.ending_mode) and not self.scenes[-1].cliffhanger:
             raise ValueError("The final scene must end with a cliffhanger in MVP mode.")
@@ -613,6 +775,8 @@ class DraftMasterScriptBase(BaseModel):
     tone: ScriptTone
     hook: str = Field(min_length=5, max_length=240)
     synopsis: str = Field(min_length=10, max_length=500)
+    episode_cast: list[str] = Field(default_factory=list, max_length=20)
+    locations: list[str] = Field(default_factory=list, max_length=20)
     episode_goal: str = Field(min_length=5, max_length=240)
     target_duration_seconds: int = Field(ge=5, le=600)
     ending_mode: EndingMode = DEFAULT_ENDING_MODE
@@ -654,6 +818,25 @@ class DraftMasterScriptBase(BaseModel):
         if len(set(numbers)) != len(numbers):
             raise ValueError("Scene numbers must be unique.")
         return scenes
+
+    @model_validator(mode="after")
+    def ensure_draft_episode_content_index(self) -> "DraftMasterScriptBase":
+        if not self.episode_cast:
+            self.episode_cast = list(
+                dict.fromkeys(
+                    reference
+                    for scene in self.scenes
+                    for reference in scene.character_refs
+                )
+            ) or [character.name for character in self.characters]
+        if not self.locations:
+            self.locations = list(
+                dict.fromkeys(
+                    (scene.scene_heading or scene.setting_hint or scene.slug).strip()
+                    for scene in self.scenes
+                )
+            )
+        return self
 
     @model_validator(mode="after")
     def ensure_final_draft_scene_has_cliffhanger(self) -> "DraftMasterScriptBase":
@@ -742,17 +925,53 @@ class LLMGeneratedSceneCard(BaseModel):
 
     scene_number: int = Field(ge=1, le=50)
     slug: str = Field(min_length=3, max_length=120)
+    scene_heading: str = Field(min_length=5, max_length=200)
     purpose: str = Field(min_length=5, max_length=240)
     setting: str = Field(min_length=3, max_length=120)
     beat_summary: str = Field(min_length=5, max_length=300)
     emotional_shift: str = Field(min_length=3, max_length=120)
     emotional_objective: str = Field(min_length=3, max_length=160)
+    character_refs: list[str] = Field(min_length=1, max_length=20)
     character_actions: list[str] = Field(min_length=1, max_length=24)
     body_order: list[str] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str = Field(min_length=3, max_length=240)
     scene_causality: SceneCausality
     cliffhanger: bool = False
     dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+    content_manifest: SceneContentManifest
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_scene_heading_aliases(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if not normalized.get("setting") and normalized.get("scene_heading"):
+            normalized["setting"] = normalized["scene_heading"]
+        if not normalized.get("scene_heading") and normalized.get("setting"):
+            normalized["scene_heading"] = normalized["setting"]
+        if not normalized.get("character_refs"):
+            normalized["character_refs"] = _infer_scene_character_refs(
+                normalized.get("dialogues") if isinstance(normalized.get("dialogues"), list) else []
+            )
+        if not normalized.get("content_manifest"):
+            causal_value = normalized.get("scene_causality")
+            causal = None
+            if isinstance(causal_value, dict):
+                try:
+                    causal = SceneCausality.model_validate(causal_value)
+                except Exception:
+                    causal = None
+            normalized["content_manifest"] = _default_scene_content_manifest(
+                location=str(normalized.get("scene_heading") or normalized.get("setting") or normalized.get("slug") or "未指定地点"),
+                purpose=str(normalized.get("purpose") or "完成本场目标"),
+                beat_summary=str(normalized.get("beat_summary") or "本场产生可见变化"),
+                turning_point=normalized.get("turning_point"),
+                scene_causality=causal,
+                dialogues=normalized.get("dialogues") if isinstance(normalized.get("dialogues"), list) else [],
+                character_refs=normalized.get("character_refs") if isinstance(normalized.get("character_refs"), list) else [],
+            ).model_dump()
+        return normalized
 
     @model_validator(mode="before")
     @classmethod
@@ -898,6 +1117,8 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     logline: str = Field(min_length=10, max_length=240)
     synopsis: str = Field(min_length=10, max_length=500)
     hook: str = Field(min_length=5, max_length=240)
+    episode_cast: list[str] = Field(min_length=1, max_length=20)
+    locations: list[str] = Field(min_length=1, max_length=20)
     target_audience: str = Field(min_length=3, max_length=200)
     target_platform: str = Field(min_length=2, max_length=80)
     language: str = Field(min_length=2, max_length=20)
@@ -917,6 +1138,40 @@ class LLMGeneratedDraftMasterScript(BaseModel):
     continuation_hook: ContinuationHookState | None = None
     scenes: list[LLMGeneratedSceneCard] = Field(min_length=1, max_length=20)
     next_episode_question: str | None = Field(default=None, min_length=5, max_length=240)
+
+    @model_validator(mode="before")
+    @classmethod
+    def supply_episode_content_index(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        raw_scenes = normalized.get("scenes") if isinstance(normalized.get("scenes"), list) else []
+        if not normalized.get("episode_cast"):
+            refs = [
+                reference
+                for scene in raw_scenes
+                if isinstance(scene, dict)
+                for reference in (
+                    scene.get("character_refs")
+                    or _infer_scene_character_refs(scene.get("dialogues", []))
+                )
+                if isinstance(reference, str) and reference.strip()
+            ]
+            if not refs and isinstance(normalized.get("characters"), list):
+                refs = [
+                    character.get("name", "")
+                    for character in normalized["characters"]
+                    if isinstance(character, dict) and character.get("name")
+                ]
+            normalized["episode_cast"] = list(dict.fromkeys(refs))
+        if not normalized.get("locations"):
+            locations = [
+                scene.get("scene_heading") or scene.get("setting") or scene.get("slug", "")
+                for scene in raw_scenes
+                if isinstance(scene, dict)
+            ]
+            normalized["locations"] = list(dict.fromkeys(value.strip() for value in locations if isinstance(value, str) and value.strip()))
+        return normalized
 
     @field_validator("title", mode="before")
     @classmethod
@@ -948,6 +1203,21 @@ class LLMGeneratedDraftMasterScript(BaseModel):
         if ending_mode_requires_next_question(self.ending_mode) and not self.next_episode_question:
             raise ValueError(
                 "Serial episodes must provide a concrete next_episode_question."
+            )
+        if not self.episode_cast:
+            self.episode_cast = list(
+                dict.fromkeys(
+                    reference
+                    for scene in self.scenes
+                    for reference in scene.character_refs
+                )
+            ) or [character.name for character in self.characters]
+        if not self.locations:
+            self.locations = list(
+                dict.fromkeys(
+                    (scene.scene_heading or scene.setting or scene.slug).strip()
+                    for scene in self.scenes
+                )
             )
         character_names = {
             character.name.strip().casefold() for character in self.characters

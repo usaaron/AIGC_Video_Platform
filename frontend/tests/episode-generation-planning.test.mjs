@@ -133,6 +133,21 @@ test("roadmap three-layer contract is handed to screenplay generation unchanged"
   assert.strictEqual(executionPlan?.layer_contracts, layerContracts);
 });
 
+test("legacy and cleared dramatic fields keep the existing generation budget", () => {
+  for (const optionalFields of [{}, { dramatic_units: [], protagonist_cost: null }, { protagonist_cost: "  " }]) {
+    const execution = episodeGenerationExecutionPlan({
+      episodeNumber: 1,
+      episodePlan: { ...episodePlan(1), ...optionalFields },
+    });
+    assert.deepEqual(execution.dramatic_units, []);
+    assert.equal(execution.protagonist_cost, null);
+    assert.equal(execution.planned_scene_count, 3);
+    assert.equal(execution.planned_dialogue_line_count, 30);
+    assert.equal(execution.planned_shot_count, 16);
+    assert.equal(execution.target_duration_seconds, 90);
+  }
+});
+
 test("legacy roadmap duration is normalized into the current editing range", () => {
   const low = episodeGenerationExecutionPlan({
     episodeNumber: 1,
@@ -439,6 +454,8 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       stage_opposition: "封锁交易现场",
       episode_payoff: "主角拿到账本",
       pressure_escalation: "证人身份暴露",
+      dramatic_units: [],
+      protagonist_cost: null,
       source_turning_points: ["主角放弃公开抢夺"],
       source_unit_story_beats: ["制造交易", "换取账本"],
       ending_hook_type: "身份暴露",
@@ -470,6 +487,8 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       episode_payoff: "主角拿到账本",
       pressure_escalation: "证人身份暴露",
       setup_refs: [],
+      dramatic_units: [],
+      protagonist_cost: null,
       payoff_refs: [],
       exit_state: "证人安全但线索中断",
       cliffhanger: "失踪线人发来坐标",
@@ -484,6 +503,28 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       scene_execution_plan: [],
     },
   );
+});
+
+test("dramatic design reaches writing from both roadmap and saved plan", () => {
+  const units = [{
+    trigger: "证人拒绝坐进主角的车",
+    choice: "主角把唯一的车钥匙交给证人",
+    visible_consequence: "证人驾车离开，主角留在封锁区",
+    change_type: "关系与资源",
+    evidence_hint: "主角松开钥匙后退到车外",
+  }];
+  const cost = "主角失去撤离车辆，只能独自等待盘查";
+  for (const field of ["episodeRoadmap", "episodePlan"]) {
+    const result = episodeGenerationExecutionPlan({
+      episodeNumber: 4,
+      [field]: { ...episodePlan(4), dramatic_units: units, protagonist_cost: cost },
+    });
+    assert.deepEqual(result.dramatic_units, units);
+    assert.equal(result.protagonist_cost, cost);
+    const legacy = episodeGenerationExecutionPlan({ episodeNumber: 4, [field]: episodePlan(4) });
+    assert.deepEqual(legacy.dramatic_units, []);
+    assert.equal(legacy.protagonist_cost, null);
+  }
 });
 
 test("recursive leaf compiles into a compact episode execution boundary", () => {
@@ -542,7 +583,7 @@ test("direct-script readiness advances only across contiguous approved leaves", 
   );
 });
 
-test("roadmap-gated readiness waits for every saved episode in the approved leaf", () => {
+test("roadmap-gated readiness waits for every approved episode in the approved leaf", () => {
   const node = {
     ...storyNode(1, 8),
     node_id: "story_plan.demo.leaf",
@@ -579,7 +620,7 @@ test("roadmap-gated readiness waits for every saved episode in the approved leaf
         roadmap(8, "draft"),
       ],
     }),
-    8,
+    0,
   );
 });
 
@@ -723,7 +764,7 @@ test("episode constraints ignore an approved roadmap from an obsolete leaf versi
   assert.equal(constraints[0].episodeRoadmap.source_node_version, 3);
 });
 
-test("saved roadmap coverage restores the synchronized contiguous checkpoint", () => {
+test("approved roadmap coverage restores only the contiguous approved checkpoint", () => {
   const roadmap = (episodeNumber, status = "approved") => ({
     episode_number: episodeNumber,
     status,
@@ -732,7 +773,7 @@ test("saved roadmap coverage restores the synchronized contiguous checkpoint", (
     episodeRoadmapCoverageThrough([
       roadmap(1), roadmap(2), roadmap(3), roadmap(5), roadmap(4, "draft"),
     ]),
-    5,
+    3,
   );
   assert.equal(
     episodeRoadmapCoverageThrough([

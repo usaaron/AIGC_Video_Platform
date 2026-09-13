@@ -33,6 +33,14 @@ export interface MemoryCapsule {
   priority: number;
   mandatory: boolean;
   conflict_note?: string | null;
+  knowledge_states?: Array<{
+    knowledge_key: string;
+    statement: string;
+    status: "known" | "believed" | "suspected" | "disproved" | "forgotten";
+    source_episode_number?: number;
+    evidence_scene_numbers?: number[];
+  }>;
+  active_constraints?: string[];
 }
 
 export interface MemoryRecall {
@@ -199,9 +207,13 @@ function characterCapsules(
     const state = character.dynamicState;
     const latestHistory = character.stateHistory?.at(-1);
     const sourceEpisode = state?.lastUpdatedEpisode ?? character.lastUpdatedEpisode ?? latestHistory?.episodeNumber ?? 0;
-    const knowledge = (state?.knowledgeStates ?? []).slice(0, 5).map((item) => (
-      `${item.status}:${item.statement}`
-    ));
+    const knowledge = (state?.knowledgeStates ?? []).map((item) => ({
+      knowledge_key: item.knowledgeKey,
+      statement: item.statement,
+      status: item.status,
+      source_episode_number: item.lastUpdatedEpisode,
+      evidence_scene_numbers: item.evidenceSceneNumbers ?? [],
+    }));
     const summary = compactText([
       `角色${character.name}`,
       state?.currentGoal ? `目标：${state.currentGoal}` : "",
@@ -211,13 +223,14 @@ function characterCapsules(
       state?.activeConstraints?.length ? `限制：${state.activeConstraints.join("、")}` : "",
       state?.latestChangeSummary ? `最新变化：${state.latestChangeSummary}` : "",
       state?.latestChangeCause ? `变化原因：${state.latestChangeCause}` : "",
-      knowledge.length ? `认知：${knowledge.join("；")}` : "",
     ].filter(Boolean).join("；"));
     const focused = focusedRefs.has(normalize(ref)) || focusedRefs.has(normalize(character.id));
     return capsule({
       capsule_id: `memory.character.${safeId(character.id)}`,
       memory_type: "character_state",
       summary,
+      knowledge_states: knowledge,
+      active_constraints: [...(state?.activeConstraints ?? [])],
       source_episode: sourceEpisode,
       source_scene_numbers: latestHistory?.evidenceSceneNumbers ?? [],
       entity_refs: [ref],
@@ -238,7 +251,7 @@ function continuityCapsules(
     const focused = focusedRefs.has(normalize(state.entityKey));
     const critical = new Set([
       "existence", "life", "health", "ability", "condition", "ownership",
-      "possession", "access", "rule", "legal_status", "knowledge",
+      "possession", "access", "rule", "legal_status", "knowledge", "schedule",
     ]).has(state.stateDomain);
     return capsule({
       capsule_id: `memory.state.${safeId(`${state.entityKey}.${state.stateDomain}`)}`,
@@ -423,7 +436,7 @@ function selectCapsules(candidates: MemoryCapsule[], focusedRefs: Set<string>): 
     || left.capsule_id.localeCompare(right.capsule_id)
   ));
   const selected = ranked.slice(0, MAX_CAPSULES);
-  while (JSON.stringify(selected).length > MEMORY_RECALL_CHAR_BUDGET) {
+  while (recallSupportingSize(selected) > MEMORY_RECALL_CHAR_BUDGET) {
     const removableIndex = [...selected].reverse().findIndex((capsule) => !capsule.mandatory);
     if (removableIndex < 0) break;
     selected.splice(selected.length - 1 - removableIndex, 1);
@@ -432,12 +445,17 @@ function selectCapsules(candidates: MemoryCapsule[], focusedRefs: Set<string>): 
 }
 
 function compactRecall(recall: MemoryRecall): MemoryRecall {
-  if (JSON.stringify(recall).length <= MEMORY_RECALL_CHAR_BUDGET) return recall;
+  if (recallSupportingSize(recall.capsules) <= MEMORY_RECALL_CHAR_BUDGET) return recall;
   const capsules = recall.capsules.map((capsule) => ({
     ...capsule,
-    summary: capsule.summary.slice(0, capsule.mandatory ? 700 : 360),
+    summary: capsule.mandatory ? capsule.summary : capsule.summary.slice(0, 360),
   }));
   return { ...recall, capsules };
+}
+
+function recallSupportingSize(capsules: MemoryCapsule[]): number {
+  // Keyed facts and active constraints are exact inputs, not summary budget.
+  return JSON.stringify(capsules.map(({ knowledge_states, active_constraints, ...supporting }) => supporting)).length;
 }
 
 function capsule(value: MemoryCapsule): MemoryCapsule {

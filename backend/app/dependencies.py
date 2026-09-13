@@ -14,9 +14,11 @@ from app.llm_runtime import (
     build_continuity_llm_adapter_from_env,
     build_dialogue_polish_adapter_from_env,
     build_episode_plan_llm_adapter_from_env,
+    get_episode_plan_chunk_size,
     build_llm_adapter_from_env,
     build_market_routed_role_adapter_from_env,
     build_planning_llm_adapter_from_env,
+    build_planning_editor_llm_adapter_from_env,
     build_script_generation_adapter_from_env,
     build_script_editor_llm_adapter_from_env,
     build_script_repair_llm_adapter_from_env,
@@ -35,6 +37,9 @@ from app.modules.content_spec.service import ContentSpecService
 from app.modules.data_intelligence.service import DataIntelligenceService
 from app.modules.master_script.repository import MasterScriptRepository
 from app.modules.master_script.service import MasterScriptService
+from app.modules.preproduction.repository import PreproductionRepository
+from app.modules.script_engine.author_conflicts import AuthorConflictReviewRepository
+from app.modules.preproduction.service import StoryboardService
 from app.modules.ontology_node.repository import OntologyNodeRepository
 from app.modules.ontology_node.service import OntologyNodeService
 from app.modules.orchestrator.repository import OrchestrationPlanRepository
@@ -67,6 +72,8 @@ from app.modules.script_engine.service import (
 )
 from app.modules.trend_snapshot.repository import TrendSnapshotRepository
 from app.modules.trend_snapshot.service import TrendSnapshotService
+from app.modules.hongguo_trends.repository import HongguoTrendsRepository
+from app.modules.hongguo_trends.service import HongguoTrendsService
 from evaluation.benchmark_runner import (
     BenchmarkResultRepository,
     BenchmarkRunner,
@@ -78,20 +85,22 @@ from evaluation.prompt_evaluation_runner import (
     PromptEvaluationService,
 )
 
-platform_profile_repository = PlatformProfileRepository()
-ontology_node_repository = OntologyNodeRepository()
-asset_repository = AssetRepository()
-prompt_library_repository = PromptLibraryRepository()
-generation_strategy_repository = GenerationStrategyRepository()
+platform_profile_repository = PlatformProfileRepository(lambda: _optional_content_spec_database_runtime())
+ontology_node_repository = OntologyNodeRepository(lambda: _optional_content_spec_database_runtime())
+asset_repository = AssetRepository(lambda: _optional_content_spec_database_runtime())
+prompt_library_repository = PromptLibraryRepository(lambda: _optional_content_spec_database_runtime())
+generation_strategy_repository = GenerationStrategyRepository(lambda: _optional_content_spec_database_runtime())
 content_spec_repository = ContentSpecRepository(
     database_runtime_factory=lambda: _optional_content_spec_database_runtime()
 )
-master_script_repository = MasterScriptRepository()
-orchestration_plan_repository = OrchestrationPlanRepository()
+master_script_repository = MasterScriptRepository(lambda: _optional_content_spec_database_runtime())
+orchestration_plan_repository = OrchestrationPlanRepository(lambda: _optional_content_spec_database_runtime())
 data_ingestion_job_repository = DataIngestionJobRepository()
 data_ingestion_run_history_repository = DataIngestionRunHistoryRepository()
 ingestion_dedup_repository = IngestionDedupRepository()
 trend_snapshot_repository = TrendSnapshotRepository()
+hongguo_trends_repository = HongguoTrendsRepository(lambda: _optional_content_spec_database_runtime())
+author_conflict_repository = AuthorConflictReviewRepository(lambda: _optional_content_spec_database_runtime())
 benchmark_result_repository = BenchmarkResultRepository()
 benchmark_runner = BenchmarkRunner()
 prompt_evaluation_result_repository = PromptEvaluationResultRepository()
@@ -141,6 +150,14 @@ def get_long_story_service() -> LongStoryService:
             detail=str(exc),
         ) from exc
     return LongStoryService(runtime)
+
+
+def get_storyboard_service() -> StoryboardService:
+    try:
+        runtime = get_long_story_database_runtime()
+    except DatabaseConfigurationError as exc:
+        raise HTTPException(503, "分镜持久化服务尚未配置。") from exc
+    return StoryboardService(PreproductionRepository(runtime), build_planning_editor_llm_adapter_from_env)
 
 
 def get_story_planning_service() -> StoryPlanningService:
@@ -315,6 +332,10 @@ def _get_story_planning_service(
         defer_schema_container_repair=True,
         retry_gateway_stream_as_non_stream=False,
     )
+    try:
+        planning_editor_llm_adapter = build_planning_editor_llm_adapter_from_env()
+    except MissingLLMConfigurationError as exc:
+        planning_editor_llm_adapter = FailingLLMAdapter(exc)
     return StoryPlanningService(
         long_story_service=get_long_story_service(),
         content_spec_repository=content_spec_repository,
@@ -325,11 +346,13 @@ def _get_story_planning_service(
         inspiration_llm_adapter=inspiration_llm_adapter,
         story_bible_llm_adapter=story_bible_llm_adapter,
         story_bible_editor_llm_adapter=story_bible_editor_llm_adapter,
+        planning_editor_llm_adapter=planning_editor_llm_adapter,
         story_architect_llm_adapter=story_architect_llm_adapter,
         story_architect_recovery_llm_adapter=(
             story_architect_recovery_llm_adapter
         ),
         episode_plan_llm_adapter=episode_plan_llm_adapter,
+        episode_plan_chunk_size=get_episode_plan_chunk_size(),
     )
 
 
@@ -435,6 +458,19 @@ def _get_script_generation_service(
         default_reasoning_effort="medium",
         default_thinking_mode="enabled",
     )
+    conversation_editor_llm_adapter = build_market_routed_role_adapter_from_env(
+        "SCRIPT_CONVERSATION_EDITOR",
+        fallback=script_editor_llm_adapter,
+        default_timeout_seconds=600,
+        default_max_retries=1,
+        default_reasoning_effort="medium",
+        default_thinking_mode="enabled",
+        default_use_strict_schema=False,
+        default_send_response_format=False,
+        default_retry_empty_response=True,
+        defer_schema_container_repair=True,
+        retry_gateway_stream_as_non_stream=True,
+    )
     try:
         continuity_llm_adapter = build_continuity_llm_adapter_from_env()
     except MissingLLMConfigurationError as exc:
@@ -459,12 +495,17 @@ def _get_script_generation_service(
         json_repair_llm_adapter=script_editor_llm_adapter,
         production_count_llm_adapter=script_editor_llm_adapter,
         initial_fallback_llm_adapter=primary_repair_llm_adapter,
+        initial_generation_timeout_seconds=_initial_generation_timeout_seconds(),
         contract_fallback_llm_adapter=primary_repair_llm_adapter,
         continuity_llm_adapter=continuity_llm_adapter,
         script_editor_llm_adapter=script_editor_llm_adapter,
+        conversation_editor_llm_adapter=conversation_editor_llm_adapter,
+        author_conflict_repository=author_conflict_repository,
         script_editor_enabled=_env_flag(
             "SCRIPT_GPT_POST_EDIT_ENABLED",
-            default=True,
+            # Generate the screenplay once by default. Deterministic gates and
+            # bounded hard-failure repairs remain active; GPT editing is opt-in.
+            default=False,
         ),
         revision_planner=get_revision_planner(),
         creative_deepening_enabled=_env_flag(
@@ -472,6 +513,21 @@ def _get_script_generation_service(
             default=False,
         ),
     )
+
+
+def _initial_generation_timeout_seconds() -> int:
+    raw = os.getenv("LLM_INITIAL_GENERATION_TIMEOUT_SECONDS", "900").strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise MissingLLMConfigurationError(
+            "LLM_INITIAL_GENERATION_TIMEOUT_SECONDS must be a positive integer."
+        ) from error
+    if value <= 0:
+        raise MissingLLMConfigurationError(
+            "LLM_INITIAL_GENERATION_TIMEOUT_SECONDS must be a positive integer."
+        )
+    return value
 
 
 def _env_flag(name: str, *, default: bool) -> bool:
@@ -487,7 +543,7 @@ def get_bilingual_script_view_service() -> BilingualScriptViewService:
     except MissingLLMConfigurationError as exc:
         llm_adapter = FailingLLMAdapter(exc)
     llm_adapter = build_market_routed_role_adapter_from_env(
-        "SCRIPT_EDITOR",
+        "DIALOGUE",
         fallback=llm_adapter,
         default_timeout_seconds=300,
         default_max_retries=1,
@@ -540,6 +596,10 @@ def get_trend_snapshot_service() -> TrendSnapshotService:
         data_ingestion_job_repository=data_ingestion_job_repository,
         run_history_repository=data_ingestion_run_history_repository,
     )
+
+
+def get_hongguo_trends_service() -> HongguoTrendsService:
+    return HongguoTrendsService(repository=hongguo_trends_repository)
 
 
 def get_benchmark_service() -> BenchmarkService:

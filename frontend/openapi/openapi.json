@@ -582,6 +582,14 @@
             "title": "Continuity Requirements",
             "type": "array"
           },
+          "dramatic_units": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeDramaticUnit"
+            },
+            "maxItems": 7,
+            "title": "Dramatic Units",
+            "type": "array"
+          },
           "emotional_movement": {
             "maxLength": 500,
             "minLength": 3,
@@ -635,6 +643,11 @@
               }
             ],
             "title": "Episode Payoff"
+          },
+          "execution_ready": {
+            "default": false,
+            "title": "Execution Ready",
+            "type": "boolean"
           },
           "exit_state": {
             "maxLength": 1000,
@@ -719,6 +732,19 @@
               }
             ],
             "title": "Pressure Escalation"
+          },
+          "protagonist_cost": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protagonist Cost"
           },
           "protagonist_decision": {
             "maxLength": 800,
@@ -1210,6 +1236,269 @@
         ],
         "title": "AssetType",
         "type": "string"
+      },
+      "AuthorConflictEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "established_fact": {
+            "maxLength": 700,
+            "minLength": 3,
+            "title": "Established Fact",
+            "type": "string"
+          },
+          "impact": {
+            "maxLength": 700,
+            "minLength": 3,
+            "title": "Impact",
+            "type": "string"
+          },
+          "requested_change": {
+            "maxLength": 700,
+            "minLength": 3,
+            "title": "Requested Change",
+            "type": "string"
+          },
+          "source_ref": {
+            "maxLength": 240,
+            "minLength": 3,
+            "title": "Source Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_ref",
+          "established_fact",
+          "requested_change",
+          "impact"
+        ],
+        "title": "AuthorConflictEvidence",
+        "type": "object"
+      },
+      "AuthorConflictOption": {
+        "additionalProperties": false,
+        "properties": {
+          "impact": {
+            "maxLength": 700,
+            "minLength": 3,
+            "title": "Impact",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "bridge",
+              "revise_upstream"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "option_id": {
+            "maxLength": 80,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Option Id",
+            "type": "string"
+          },
+          "plan": {
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Plan",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 3,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "option_id",
+          "kind",
+          "title",
+          "plan",
+          "impact"
+        ],
+        "title": "AuthorConflictOption",
+        "type": "object"
+      },
+      "AuthorConflictResolution": {
+        "additionalProperties": false,
+        "properties": {
+          "option_id": {
+            "maxLength": 80,
+            "minLength": 3,
+            "title": "Option Id",
+            "type": "string"
+          },
+          "review": {
+            "$ref": "#/components/schemas/AuthorConflictReview"
+          }
+        },
+        "required": [
+          "review",
+          "option_id"
+        ],
+        "title": "AuthorConflictResolution",
+        "type": "object"
+      },
+      "AuthorConflictReview": {
+        "additionalProperties": false,
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/AuthorConflictEvidence"
+            },
+            "maxItems": 8,
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "instruction": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/AuthorConflictOption"
+            },
+            "maxItems": 4,
+            "title": "Options",
+            "type": "array"
+          },
+          "review_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Review Id",
+            "type": "string"
+          },
+          "source_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Fingerprint",
+            "type": "string"
+          },
+          "source_story_bible_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Story Bible Version"
+          },
+          "user_goal": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "User Goal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_goal",
+          "review_id",
+          "source_fingerprint",
+          "instruction"
+        ],
+        "title": "AuthorConflictReview",
+        "type": "object"
+      },
+      "AuthorRevisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_workspace_revision": {
+            "minimum": 1.0,
+            "title": "Expected Workspace Revision",
+            "type": "integer"
+          },
+          "instruction": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "option_id": {
+            "maxLength": 80,
+            "minLength": 3,
+            "title": "Option Id",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "resolution_plan": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Resolution Plan",
+            "type": "string"
+          },
+          "review_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Review Id",
+            "type": "string"
+          },
+          "source_story_bible_version": {
+            "minimum": 1.0,
+            "title": "Source Story Bible Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_story_bible_version",
+          "expected_workspace_revision",
+          "instruction",
+          "resolution_plan",
+          "request_id",
+          "review_id",
+          "option_id"
+        ],
+        "title": "AuthorRevisionRequest",
+        "type": "object"
+      },
+      "AuthorRevisionResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthorRevisionResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "AuthorRevisionResponse",
+        "type": "object"
+      },
+      "AuthorRevisionResult": {
+        "properties": {
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "story_bible": {
+            "$ref": "#/components/schemas/StoryBible-Output"
+          },
+          "workspace_payload": {
+            "additionalProperties": true,
+            "title": "Workspace Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "story_bible",
+          "workspace_payload",
+          "revision"
+        ],
+        "title": "AuthorRevisionResult",
+        "type": "object"
       },
       "BenchmarkDatasetType": {
         "enum": [
@@ -2649,7 +2938,7 @@
             "items": {
               "$ref": "#/components/schemas/ContinuityKnowledgeState"
             },
-            "maxItems": 50,
+            "maxItems": 40000,
             "title": "Knowledge States",
             "type": "array"
           },
@@ -2850,12 +3139,33 @@
       "ContinuityKnowledgeState": {
         "additionalProperties": false,
         "properties": {
+          "evidence_scene_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20,
+            "title": "Evidence Scene Numbers",
+            "type": "array"
+          },
           "knowledge_key": {
             "maxLength": 120,
             "minLength": 3,
             "pattern": "^[a-z0-9_.:-]+$",
             "title": "Knowledge Key",
             "type": "string"
+          },
+          "source_episode_number": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Episode Number"
           },
           "statement": {
             "maxLength": 500,
@@ -4483,6 +4793,22 @@
           "analysis_method": {
             "$ref": "#/components/schemas/InputReadinessAnalysisMethod"
           },
+          "analysis_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Notice"
+          },
+          "assessment_version": {
+            "default": 2,
+            "title": "Assessment Version",
+            "type": "integer"
+          },
           "capacity_status": {
             "$ref": "#/components/schemas/InputReadinessCapacityStatus",
             "default": "sufficient"
@@ -4512,6 +4838,16 @@
           "detected_level": {
             "$ref": "#/components/schemas/InputReadinessLevel"
           },
+          "episode_audit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InputEpisodeAudit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "estimated_supported_characters": {
             "default": 0,
             "minimum": 0.0,
@@ -4524,6 +4860,14 @@
             },
             "maxItems": 50,
             "title": "Evidence",
+            "type": "array"
+          },
+          "known_facts": {
+            "items": {
+              "$ref": "#/components/schemas/InputSourceFact"
+            },
+            "maxItems": 24,
+            "title": "Known Facts",
             "type": "array"
           },
           "missing_items": {
@@ -4574,6 +4918,11 @@
             "title": "Source Kinds",
             "type": "array"
           },
+          "structurally_complete": {
+            "default": false,
+            "title": "Structurally Complete",
+            "type": "boolean"
+          },
           "supplement_questions": {
             "items": {
               "type": "string"
@@ -4623,6 +4972,11 @@
             "minimum": 1000.0,
             "title": "Target Total Characters",
             "type": "integer"
+          },
+          "use_model": {
+            "default": true,
+            "title": "Use Model",
+            "type": "boolean"
           }
         },
         "required": [
@@ -5646,6 +6000,14 @@
             "$ref": "#/components/schemas/EndingMode",
             "default": "serial_hook"
           },
+          "episode_cast": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Episode Cast",
+            "type": "array"
+          },
           "episode_goal": {
             "maxLength": 240,
             "minLength": 5,
@@ -5678,6 +6040,14 @@
             "additionalProperties": true,
             "title": "Llm Metadata",
             "type": "object"
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Locations",
+            "type": "array"
           },
           "logline": {
             "anyOf": [
@@ -5839,10 +6209,28 @@
             "title": "Character Actions",
             "type": "array"
           },
+          "character_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Character Refs",
+            "type": "array"
+          },
           "cliffhanger": {
             "default": false,
             "title": "Cliffhanger",
             "type": "boolean"
+          },
+          "content_manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SceneContentManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "dialogue_prompts": {
             "items": {
@@ -5894,6 +6282,19 @@
                 "type": "null"
               }
             ]
+          },
+          "scene_heading": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 5,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Heading"
           },
           "scene_number": {
             "maximum": 50.0,
@@ -6315,6 +6716,57 @@
         "title": "EpisodeContinuitySummary",
         "type": "object"
       },
+      "EpisodeDramaticUnit": {
+        "additionalProperties": false,
+        "description": "One observable change that gives an episode its own dramatic shape.",
+        "properties": {
+          "change_type": {
+            "maxLength": 40,
+            "minLength": 2,
+            "title": "Change Type",
+            "type": "string"
+          },
+          "choice": {
+            "maxLength": 300,
+            "minLength": 3,
+            "title": "Choice",
+            "type": "string"
+          },
+          "evidence_hint": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Hint"
+          },
+          "trigger": {
+            "maxLength": 300,
+            "minLength": 3,
+            "title": "Trigger",
+            "type": "string"
+          },
+          "visible_consequence": {
+            "maxLength": 300,
+            "minLength": 3,
+            "title": "Visible Consequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trigger",
+          "choice",
+          "visible_consequence",
+          "change_type"
+        ],
+        "title": "EpisodeDramaticUnit",
+        "type": "object"
+      },
       "EpisodeGenerationContext": {
         "additionalProperties": false,
         "properties": {
@@ -6486,7 +6938,7 @@
           "previous_episode_handoff": {
             "anyOf": [
               {
-                "maxLength": 3200,
+                "maxLength": 24000,
                 "type": "string"
               },
               {
@@ -6785,6 +7237,14 @@
             "title": "Continuity Requirements",
             "type": "array"
           },
+          "dramatic_units": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeDramaticUnit"
+            },
+            "maxItems": 7,
+            "title": "Dramatic Units",
+            "type": "array"
+          },
           "emotional_movement": {
             "maxLength": 500,
             "minLength": 3,
@@ -6854,6 +7314,19 @@
             "maxItems": 20,
             "title": "Payoff Refs",
             "type": "array"
+          },
+          "protagonist_cost": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protagonist Cost"
           },
           "protagonist_decision": {
             "maxLength": 800,
@@ -7061,6 +7534,14 @@
             "title": "Continuity Requirements",
             "type": "array"
           },
+          "dramatic_units": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeDramaticUnit"
+            },
+            "maxItems": 7,
+            "title": "Dramatic Units",
+            "type": "array"
+          },
           "emotional_movement": {
             "maxLength": 500,
             "minLength": 3,
@@ -7115,6 +7596,11 @@
               }
             ],
             "title": "Episode Title"
+          },
+          "execution_ready": {
+            "default": false,
+            "title": "Execution Ready",
+            "type": "boolean"
           },
           "exit_state": {
             "maxLength": 1000,
@@ -7195,6 +7681,19 @@
             "minLength": 3,
             "title": "Pressure Escalation",
             "type": "string"
+          },
+          "protagonist_cost": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protagonist Cost"
           },
           "protagonist_decision": {
             "maxLength": 800,
@@ -7513,6 +8012,834 @@
         "title": "EpisodePlanListResponse",
         "type": "object"
       },
+      "EpisodePlanMaterialization": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "const": "heading-segment-v1",
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "author_confirmed_at": {
+            "format": "date-time",
+            "title": "Author Confirmed At",
+            "type": "string"
+          },
+          "confirmed_by": {
+            "const": "author",
+            "default": "author",
+            "title": "Confirmed By",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft_schema_version": {
+            "const": "episode_plan_import.v1",
+            "title": "Draft Schema Version",
+            "type": "string"
+          },
+          "fingerprint_algorithm": {
+            "enum": [
+              "sha256",
+              "fnv1a32"
+            ],
+            "title": "Fingerprint Algorithm",
+            "type": "string"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanMaterializationMapping"
+            },
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Mappings",
+            "type": "array"
+          },
+          "materialization_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Materialization Id",
+            "type": "string"
+          },
+          "preview_created_at": {
+            "format": "date-time",
+            "title": "Preview Created At",
+            "type": "string"
+          },
+          "preview_status": {
+            "const": "staging",
+            "default": "staging",
+            "title": "Preview Status",
+            "type": "string"
+          },
+          "review_required": {
+            "const": true,
+            "default": true,
+            "title": "Review Required",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": "episode_plan_materialization.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_document": {
+            "maxLength": 130000,
+            "minLength": 1,
+            "title": "Source Document",
+            "type": "string"
+          },
+          "source_fingerprint": {
+            "maxLength": 80,
+            "minLength": 16,
+            "pattern": "^(sha256:[a-f0-9]{64}|fnv1a32:[a-f0-9]{8})$",
+            "title": "Source Fingerprint",
+            "type": "string"
+          },
+          "status": {
+            "const": "draft",
+            "default": "draft",
+            "title": "Status",
+            "type": "string"
+          },
+          "story_bible_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Story Bible Id",
+            "type": "string"
+          },
+          "story_bible_version": {
+            "minimum": 1.0,
+            "title": "Story Bible Version",
+            "type": "integer"
+          },
+          "story_project_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Story Project Id",
+            "type": "string"
+          },
+          "unresolved_fields": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanMaterializationUnresolved"
+            },
+            "maxItems": 2000,
+            "title": "Unresolved Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "draft_schema_version",
+          "adapter_version",
+          "source_document",
+          "source_fingerprint",
+          "fingerprint_algorithm",
+          "story_bible_id",
+          "story_bible_version",
+          "mappings",
+          "preview_created_at",
+          "author_confirmed_at",
+          "materialization_id",
+          "story_project_id"
+        ],
+        "title": "EpisodePlanMaterialization",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationCreate": {
+        "additionalProperties": false,
+        "description": "Author-confirmed, immutable import batch; still draft planning data.",
+        "properties": {
+          "adapter_version": {
+            "const": "heading-segment-v1",
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "author_confirmed_at": {
+            "format": "date-time",
+            "title": "Author Confirmed At",
+            "type": "string"
+          },
+          "confirmed_by": {
+            "const": "author",
+            "default": "author",
+            "title": "Confirmed By",
+            "type": "string"
+          },
+          "draft_schema_version": {
+            "const": "episode_plan_import.v1",
+            "title": "Draft Schema Version",
+            "type": "string"
+          },
+          "fingerprint_algorithm": {
+            "enum": [
+              "sha256",
+              "fnv1a32"
+            ],
+            "title": "Fingerprint Algorithm",
+            "type": "string"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanMaterializationMapping"
+            },
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Mappings",
+            "type": "array"
+          },
+          "preview_created_at": {
+            "format": "date-time",
+            "title": "Preview Created At",
+            "type": "string"
+          },
+          "preview_status": {
+            "const": "staging",
+            "default": "staging",
+            "title": "Preview Status",
+            "type": "string"
+          },
+          "review_required": {
+            "const": true,
+            "default": true,
+            "title": "Review Required",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": "episode_plan_materialization.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_document": {
+            "maxLength": 130000,
+            "minLength": 1,
+            "title": "Source Document",
+            "type": "string"
+          },
+          "source_fingerprint": {
+            "maxLength": 80,
+            "minLength": 16,
+            "pattern": "^(sha256:[a-f0-9]{64}|fnv1a32:[a-f0-9]{8})$",
+            "title": "Source Fingerprint",
+            "type": "string"
+          },
+          "story_bible_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Story Bible Id",
+            "type": "string"
+          },
+          "story_bible_version": {
+            "minimum": 1.0,
+            "title": "Story Bible Version",
+            "type": "integer"
+          },
+          "unresolved_fields": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanMaterializationUnresolved"
+            },
+            "maxItems": 2000,
+            "title": "Unresolved Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "draft_schema_version",
+          "adapter_version",
+          "source_document",
+          "source_fingerprint",
+          "fingerprint_algorithm",
+          "story_bible_id",
+          "story_bible_version",
+          "mappings",
+          "preview_created_at",
+          "author_confirmed_at"
+        ],
+        "title": "EpisodePlanMaterializationCreate",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationFieldProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "field": {
+            "enum": [
+              "episode_title",
+              "synopsis",
+              "episode_goal",
+              "entry_state",
+              "central_conflict",
+              "protagonist_decision",
+              "reveal",
+              "emotional_movement",
+              "stage_opposition",
+              "episode_payoff",
+              "pressure_escalation",
+              "exit_state",
+              "cliffhanger",
+              "ending_hook_type",
+              "next_episode_obligation",
+              "locations",
+              "character_refs",
+              "story_line_refs",
+              "setup_refs",
+              "payoff_refs",
+              "source_turning_points",
+              "source_unit_story_beats"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "row_ordinal": {
+            "maximum": 1999.0,
+            "minimum": 0.0,
+            "title": "Row Ordinal",
+            "type": "integer"
+          },
+          "source": {
+            "const": "source",
+            "default": "source",
+            "title": "Source",
+            "type": "string"
+          },
+          "span": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpisodePlanMaterializationSourceSpan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "maxLength": 28800,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row_ordinal",
+          "episode_number",
+          "field",
+          "value"
+        ],
+        "title": "EpisodePlanMaterializationFieldProvenance",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationFields": {
+        "additionalProperties": false,
+        "description": "Source-derived roadmap fields before any approval or prose generation.",
+        "properties": {
+          "central_conflict": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Central Conflict"
+          },
+          "character_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Character Refs",
+            "type": "array"
+          },
+          "cliffhanger": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cliffhanger"
+          },
+          "emotional_movement": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotional Movement"
+          },
+          "ending_hook_type": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ending Hook Type"
+          },
+          "entry_state": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry State"
+          },
+          "episode_goal": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Goal"
+          },
+          "episode_payoff": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Payoff"
+          },
+          "episode_title": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Title"
+          },
+          "exit_state": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit State"
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Locations",
+            "type": "array"
+          },
+          "next_episode_obligation": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Episode Obligation"
+          },
+          "payoff_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Payoff Refs",
+            "type": "array"
+          },
+          "pressure_escalation": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Escalation"
+          },
+          "protagonist_decision": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protagonist Decision"
+          },
+          "reveal": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reveal"
+          },
+          "setup_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Setup Refs",
+            "type": "array"
+          },
+          "source_turning_points": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Source Turning Points",
+            "type": "array"
+          },
+          "source_unit_story_beats": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Source Unit Story Beats",
+            "type": "array"
+          },
+          "stage_opposition": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Opposition"
+          },
+          "story_line_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Story Line Refs",
+            "type": "array"
+          },
+          "synopsis": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synopsis"
+          }
+        },
+        "title": "EpisodePlanMaterializationFields",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanMaterialization"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "EpisodePlanMaterializationListResponse",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationMapping": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "field_provenance": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EpisodePlanMaterializationFieldProvenance"
+            },
+            "propertyNames": {
+              "enum": [
+                "episode_title",
+                "synopsis",
+                "episode_goal",
+                "entry_state",
+                "central_conflict",
+                "protagonist_decision",
+                "reveal",
+                "emotional_movement",
+                "stage_opposition",
+                "episode_payoff",
+                "pressure_escalation",
+                "exit_state",
+                "cliffhanger",
+                "ending_hook_type",
+                "next_episode_obligation",
+                "locations",
+                "character_refs",
+                "story_line_refs",
+                "setup_refs",
+                "payoff_refs",
+                "source_turning_points",
+                "source_unit_story_beats"
+              ]
+            },
+            "title": "Field Provenance",
+            "type": "object"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/EpisodePlanMaterializationFields"
+          },
+          "review_required": {
+            "const": true,
+            "default": true,
+            "title": "Review Required",
+            "type": "boolean"
+          },
+          "source_end": {
+            "maximum": 130000.0,
+            "minimum": 1.0,
+            "title": "Source End",
+            "type": "integer"
+          },
+          "source_raw_text": {
+            "maxLength": 130000,
+            "minLength": 1,
+            "title": "Source Raw Text",
+            "type": "string"
+          },
+          "source_row_ordinal": {
+            "maximum": 1999.0,
+            "minimum": 0.0,
+            "title": "Source Row Ordinal",
+            "type": "integer"
+          },
+          "source_start": {
+            "maximum": 130000.0,
+            "minimum": 0.0,
+            "title": "Source Start",
+            "type": "integer"
+          },
+          "target_episode_end": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Target Episode End",
+            "type": "integer"
+          },
+          "target_episode_start": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Target Episode Start",
+            "type": "integer"
+          },
+          "target_node_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Target Node Id",
+            "type": "string"
+          },
+          "target_node_version": {
+            "minimum": 1.0,
+            "title": "Target Node Version",
+            "type": "integer"
+          },
+          "unresolved_fields": {
+            "items": {
+              "enum": [
+                "episode_title",
+                "synopsis",
+                "episode_goal",
+                "entry_state",
+                "central_conflict",
+                "protagonist_decision",
+                "reveal",
+                "emotional_movement",
+                "stage_opposition",
+                "episode_payoff",
+                "pressure_escalation",
+                "exit_state",
+                "cliffhanger",
+                "ending_hook_type",
+                "next_episode_obligation",
+                "locations",
+                "character_refs",
+                "story_line_refs",
+                "setup_refs",
+                "payoff_refs",
+                "source_turning_points",
+                "source_unit_story_beats"
+              ],
+              "type": "string"
+            },
+            "maxItems": 22,
+            "title": "Unresolved Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "episode_number",
+          "source_row_ordinal",
+          "source_start",
+          "source_end",
+          "source_raw_text",
+          "target_node_id",
+          "target_node_version",
+          "target_episode_start",
+          "target_episode_end",
+          "fields"
+        ],
+        "title": "EpisodePlanMaterializationMapping",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EpisodePlanMaterialization"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "EpisodePlanMaterializationResponse",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationSourceSpan": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "maximum": 130000.0,
+            "minimum": 0.0,
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "maximum": 130000.0,
+            "minimum": 0.0,
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "EpisodePlanMaterializationSourceSpan",
+        "type": "object"
+      },
+      "EpisodePlanMaterializationUnresolved": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "enum": [
+                "episode_title",
+                "synopsis",
+                "episode_goal",
+                "entry_state",
+                "central_conflict",
+                "protagonist_decision",
+                "reveal",
+                "emotional_movement",
+                "stage_opposition",
+                "episode_payoff",
+                "pressure_escalation",
+                "exit_state",
+                "cliffhanger",
+                "ending_hook_type",
+                "next_episode_obligation",
+                "locations",
+                "character_refs",
+                "story_line_refs",
+                "setup_refs",
+                "payoff_refs",
+                "source_turning_points",
+                "source_unit_story_beats"
+              ],
+              "type": "string"
+            },
+            "maxItems": 22,
+            "minItems": 1,
+            "title": "Fields",
+            "type": "array"
+          },
+          "row_ordinal": {
+            "maximum": 1999.0,
+            "minimum": 0.0,
+            "title": "Row Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "episode_number",
+          "row_ordinal",
+          "fields"
+        ],
+        "title": "EpisodePlanMaterializationUnresolved",
+        "type": "object"
+      },
       "EpisodePlanResponse": {
         "properties": {
           "data": {
@@ -7717,6 +9044,19 @@
             "title": "Character Refs",
             "type": "array"
           },
+          "choice_or_cost": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choice Or Cost"
+          },
           "dialogue_line_target": {
             "maximum": 35.0,
             "minimum": 0.0,
@@ -7729,11 +9069,53 @@
             "title": "Dialogue Objective",
             "type": "string"
           },
+          "evidence_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Evidence Requirements",
+            "type": "array"
+          },
           "exit_state": {
             "maxLength": 500,
             "minLength": 3,
             "title": "Exit State",
             "type": "string"
+          },
+          "forbidden_changes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Forbidden Changes",
+            "type": "array"
+          },
+          "information_shift": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Information Shift"
+          },
+          "opposition": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opposition"
           },
           "scene_heading": {
             "maxLength": 200,
@@ -8367,6 +9749,32 @@
             ],
             "title": "Last Error"
           },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "lease_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 3,
+                "pattern": "^[a-zA-Z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Id"
+          },
           "revision": {
             "default": 1,
             "minimum": 1.0,
@@ -8504,6 +9912,15 @@
             "maxLength": 80,
             "minLength": 2,
             "title": "Model Provider",
+            "type": "string"
+          },
+          "model_tier": {
+            "default": "strong_planner",
+            "enum": [
+              "strong_planner",
+              "fast_executor"
+            ],
+            "title": "Model Tier",
             "type": "string"
           },
           "name": {
@@ -8699,6 +10116,15 @@
             "title": "Model Provider",
             "type": "string"
           },
+          "model_tier": {
+            "default": "strong_planner",
+            "enum": [
+              "strong_planner",
+              "fast_executor"
+            ],
+            "title": "Model Tier",
+            "type": "string"
+          },
           "name": {
             "maxLength": 120,
             "minLength": 3,
@@ -8863,6 +10289,43 @@
         "title": "GenerationTaskCheckpointResponse",
         "type": "object"
       },
+      "GenerationTaskClaimRequest": {
+        "additionalProperties": false,
+        "description": "A bounded worker lease for one resumable generation task.",
+        "properties": {
+          "lease_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "lease_ttl_seconds": {
+            "default": 300,
+            "maximum": 3600.0,
+            "minimum": 30.0,
+            "title": "Lease Ttl Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease_id"
+        ],
+        "title": "GenerationTaskClaimRequest",
+        "type": "object"
+      },
+      "GenerationTaskClaimResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GenerationTaskCheckpoint"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "GenerationTaskClaimResponse",
+        "type": "object"
+      },
       "GenerationWorkflowStep": {
         "additionalProperties": false,
         "properties": {
@@ -8937,6 +10400,389 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HongguoCategoriesData": {
+        "additionalProperties": false,
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/HongguoCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "format": {
+            "enum": [
+              "real",
+              "comic",
+              "ai"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Id",
+            "type": "string"
+          },
+          "last_attempt_at": {
+            "format": "date-time",
+            "title": "Last Attempt At",
+            "type": "string"
+          },
+          "last_attempt_status": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "title": "Last Attempt Status",
+            "type": "string"
+          },
+          "next_refresh_at": {
+            "format": "date-time",
+            "title": "Next Refresh At",
+            "type": "string"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
+          "source_updated_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated Label"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "stale": {
+            "default": false,
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "fresh",
+              "stale",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "format",
+          "source_url",
+          "status",
+          "last_attempt_at",
+          "last_attempt_status",
+          "next_refresh_at"
+        ],
+        "title": "HongguoCategoriesData",
+        "type": "object"
+      },
+      "HongguoCategoriesResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HongguoCategoriesData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "HongguoCategoriesResponse",
+        "type": "object"
+      },
+      "HongguoCategory": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "tag_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Id"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "title": "HongguoCategory",
+        "type": "object"
+      },
+      "HongguoSampleWork": {
+        "additionalProperties": false,
+        "properties": {
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "url",
+          "rank"
+        ],
+        "title": "HongguoSampleWork",
+        "type": "object"
+      },
+      "HongguoTagRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "rank": {
+            "description": "Derived tag recommendation order, not an official tag rank.",
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "ranked_work_count": {
+            "minimum": 1.0,
+            "title": "Ranked Work Count",
+            "type": "integer"
+          },
+          "raw_labels": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Raw Labels",
+            "type": "array"
+          },
+          "sample_works": {
+            "items": {
+              "$ref": "#/components/schemas/HongguoSampleWork"
+            },
+            "maxItems": 3,
+            "title": "Sample Works",
+            "type": "array"
+          },
+          "tag_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Id"
+          },
+          "weighted_score": {
+            "minimum": 0.0,
+            "title": "Weighted Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "raw_labels",
+          "rank",
+          "ranked_work_count",
+          "weighted_score"
+        ],
+        "title": "HongguoTagRecommendation",
+        "type": "object"
+      },
+      "HongguoTrendsData": {
+        "additionalProperties": false,
+        "properties": {
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "format": {
+            "enum": [
+              "real",
+              "comic",
+              "ai"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Id",
+            "type": "string"
+          },
+          "last_attempt_at": {
+            "format": "date-time",
+            "title": "Last Attempt At",
+            "type": "string"
+          },
+          "last_attempt_status": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "title": "Last Attempt Status",
+            "type": "string"
+          },
+          "next_refresh_at": {
+            "format": "date-time",
+            "title": "Next Refresh At",
+            "type": "string"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
+          "pages_fetched": {
+            "default": 0,
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Pages Fetched",
+            "type": "integer"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/HongguoTagRecommendation"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "sample_work_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Sample Work Count",
+            "type": "integer"
+          },
+          "source_updated_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated Label"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "stale": {
+            "default": false,
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "fresh",
+              "stale",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "format",
+          "source_url",
+          "status",
+          "last_attempt_at",
+          "last_attempt_status",
+          "next_refresh_at"
+        ],
+        "title": "HongguoTrendsData",
+        "type": "object"
+      },
+      "HongguoTrendsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HongguoTrendsData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "HongguoTrendsResponse",
+        "type": "object"
+      },
       "IngestionRunStatus": {
         "enum": [
           "idle",
@@ -8956,6 +10802,76 @@
         "title": "IngestionScheduleType",
         "type": "string"
       },
+      "InputEpisodeAudit": {
+        "additionalProperties": false,
+        "properties": {
+          "complete_plan_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Complete Plan Numbers",
+            "type": "array"
+          },
+          "duplicate_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duplicate Numbers",
+            "type": "array"
+          },
+          "incomplete_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Incomplete Numbers",
+            "type": "array"
+          },
+          "missing_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Missing Numbers",
+            "type": "array"
+          },
+          "out_of_range_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Out Of Range Numbers",
+            "type": "array"
+          },
+          "script_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Script Numbers",
+            "type": "array"
+          },
+          "supplied_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Supplied Numbers",
+            "type": "array"
+          },
+          "target_count": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "unnumbered_script": {
+            "default": false,
+            "title": "Unnumbered Script",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target_count"
+        ],
+        "title": "InputEpisodeAudit",
+        "type": "object"
+      },
       "InputReadinessAnalysisMethod": {
         "enum": [
           "heuristic",
@@ -8966,6 +10882,7 @@
       },
       "InputReadinessCapacityStatus": {
         "enum": [
+          "not_estimated",
           "sufficient",
           "supplement_recommended",
           "target_reduce_recommended"
@@ -9030,6 +10947,60 @@
         ],
         "title": "InputReadinessSourceKind",
         "type": "string"
+      },
+      "InputSourceFact": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "minimum": 1.0,
+            "title": "End",
+            "type": "integer"
+          },
+          "field": {
+            "enum": [
+              "story_promise",
+              "protagonist_and_goal",
+              "core_obstacle",
+              "stakes",
+              "relationship_direction",
+              "reveal_or_twist",
+              "ending_direction",
+              "tone_and_pacing",
+              "world_setting"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 800,
+            "minLength": 2,
+            "title": "Quote",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "start": {
+            "minimum": 0.0,
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "field",
+          "source_id",
+          "source_name",
+          "quote",
+          "start",
+          "end"
+        ],
+        "title": "InputSourceFact",
+        "type": "object"
       },
       "KeywordEvidence": {
         "additionalProperties": false,
@@ -9442,6 +11413,14 @@
             "$ref": "#/components/schemas/EndingMode",
             "default": "serial_hook"
           },
+          "episode_cast": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Episode Cast",
+            "type": "array"
+          },
           "episode_goal": {
             "maxLength": 240,
             "minLength": 5,
@@ -9466,6 +11445,14 @@
           },
           "lineage": {
             "$ref": "#/components/schemas/FinalMasterScriptLineage"
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Locations",
+            "type": "array"
           },
           "logline": {
             "anyOf": [
@@ -9747,6 +11734,14 @@
         "additionalProperties": false,
         "description": "A bounded, source-linked memory selected for one generation task.",
         "properties": {
+          "active_constraints": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Active Constraints",
+            "type": "array"
+          },
           "authority": {
             "$ref": "#/components/schemas/MemoryAuthority",
             "default": "derived"
@@ -9783,6 +11778,14 @@
             },
             "maxItems": 20,
             "title": "Evidence Refs",
+            "type": "array"
+          },
+          "knowledge_states": {
+            "items": {
+              "$ref": "#/components/schemas/ContinuityKnowledgeState"
+            },
+            "maxItems": 40000,
+            "title": "Knowledge States",
             "type": "array"
           },
           "mandatory": {
@@ -11254,6 +13257,155 @@
           "data"
         ],
         "title": "PlatformProfileResponse",
+        "type": "object"
+      },
+      "PreflightFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "scene_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Number"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "PreflightFinding",
+        "type": "object"
+      },
+      "PreproductionStoryboard": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoryboardScene"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PreflightFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "revision": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/StoryboardScene"
+            },
+            "maxItems": 50,
+            "title": "Scenes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "preproduction_storyboard.v1",
+            "default": "preproduction_storyboard.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_draft": {
+            "additionalProperties": true,
+            "title": "Source Draft",
+            "type": "object"
+          },
+          "source_signature": {
+            "title": "Source Signature",
+            "type": "string"
+          },
+          "stale_scene_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Stale Scene Numbers",
+            "type": "array"
+          },
+          "status": {
+            "default": "draft",
+            "enum": [
+              "draft",
+              "review",
+              "source_changed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "story_project_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Story Project Id",
+            "type": "string"
+          },
+          "storyboard_id": {
+            "maxLength": 80,
+            "title": "Storyboard Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "visual_direction": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Visual Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "story_project_id",
+          "episode_number",
+          "source_draft",
+          "source_signature"
+        ],
+        "title": "PreproductionStoryboard",
         "type": "object"
       },
       "ProfileRule": {
@@ -14190,10 +16342,28 @@
             "title": "Character Actions",
             "type": "array"
           },
+          "character_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Character Refs",
+            "type": "array"
+          },
           "cliffhanger": {
             "default": false,
             "title": "Cliffhanger",
             "type": "boolean"
+          },
+          "content_manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SceneContentManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "dialogues": {
             "items": {
@@ -14238,6 +16408,19 @@
                 "type": "null"
               }
             ]
+          },
+          "scene_heading": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 5,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Heading"
           },
           "scene_number": {
             "maximum": 50.0,
@@ -14337,6 +16520,132 @@
           "outcome"
         ],
         "title": "SceneCausality",
+        "type": "object"
+      },
+      "SceneContentManifest": {
+        "additionalProperties": false,
+        "description": "Creator-facing content required to make one scene producible.\n\nThe manifest is separate from planning and QC fields. It is rendered as a\ncompact episode information sheet while the formal screenplay body remains\naction/dialogue only.",
+        "properties": {
+          "character_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Character Refs",
+            "type": "array"
+          },
+          "conflict": {
+            "maxLength": 300,
+            "minLength": 5,
+            "title": "Conflict",
+            "type": "string"
+          },
+          "entry_state": {
+            "maxLength": 240,
+            "minLength": 3,
+            "title": "Entry State",
+            "type": "string"
+          },
+          "exit_state": {
+            "maxLength": 240,
+            "minLength": 3,
+            "title": "Exit State",
+            "type": "string"
+          },
+          "location": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Location",
+            "type": "string"
+          },
+          "objective": {
+            "maxLength": 240,
+            "minLength": 5,
+            "title": "Objective",
+            "type": "string"
+          },
+          "outcome": {
+            "maxLength": 240,
+            "minLength": 5,
+            "title": "Outcome",
+            "type": "string"
+          },
+          "props": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Props",
+            "type": "array"
+          },
+          "time_of_day": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Time Of Day",
+            "type": "string"
+          },
+          "turning_point": {
+            "maxLength": 240,
+            "minLength": 3,
+            "title": "Turning Point",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location",
+          "time_of_day",
+          "objective",
+          "conflict",
+          "turning_point",
+          "outcome",
+          "entry_state",
+          "exit_state"
+        ],
+        "title": "SceneContentManifest",
+        "type": "object"
+      },
+      "SceneDesign": {
+        "additionalProperties": false,
+        "properties": {
+          "action_rhythm": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Action Rhythm",
+            "type": "string"
+          },
+          "purpose": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "reveal_order": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reveal Order",
+            "type": "string"
+          },
+          "spatial_layout": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Spatial Layout",
+            "type": "string"
+          },
+          "transition": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Transition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "reveal_order",
+          "spatial_layout",
+          "action_rhythm",
+          "transition"
+        ],
+        "title": "SceneDesign",
         "type": "object"
       },
       "ScoreBreakdown": {
@@ -14487,6 +16796,16 @@
             "title": "Instruction",
             "type": "string"
           },
+          "resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthorConflictResolution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "selection_context": {
             "anyOf": [
               {
@@ -14502,6 +16821,18 @@
           },
           "source_generation_run": {
             "$ref": "#/components/schemas/ScriptGenerationDraftRun"
+          },
+          "source_story_bible_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Story Bible Version"
           }
         },
         "required": [
@@ -14528,7 +16859,24 @@
         "additionalProperties": false,
         "properties": {
           "candidate_generation_run": {
-            "$ref": "#/components/schemas/ScriptGenerationDraftRun"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptGenerationDraftRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conflict_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthorConflictReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "instruction": {
             "maxLength": 500,
@@ -14545,8 +16893,7 @@
         },
         "required": [
           "source_draft_master_script_id",
-          "instruction",
-          "candidate_generation_run"
+          "instruction"
         ],
         "title": "ScriptDraftModificationResult",
         "type": "object"
@@ -16484,6 +18831,20 @@
       "StoryInspirationChatRequest": {
         "additionalProperties": false,
         "properties": {
+          "candidate_decision_key": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 3,
+                "pattern": "^[a-zA-Z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Decision Key"
+          },
           "content_spec_id": {
             "anyOf": [
               {
@@ -16664,6 +19025,19 @@
       "StoryInspirationMessage": {
         "additionalProperties": false,
         "properties": {
+          "candidate_history": {
+            "additionalProperties": {
+              "items": {
+                "maxLength": 300,
+                "minLength": 2,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maxProperties": 4,
+            "title": "Candidate History",
+            "type": "object"
+          },
           "content": {
             "maxLength": 4000,
             "minLength": 1,
@@ -18587,6 +20961,247 @@
         "title": "StoryStagePlanResponse",
         "type": "object"
       },
+      "StoryboardEditRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_action": {
+            "default": "keep",
+            "enum": [
+              "keep",
+              "accept",
+              "reject"
+            ],
+            "title": "Candidate Action",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/StoryboardScene"
+            },
+            "maxItems": 50,
+            "title": "Scenes",
+            "type": "array"
+          },
+          "visual_direction": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Visual Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "scenes"
+        ],
+        "title": "StoryboardEditRequest",
+        "type": "object"
+      },
+      "StoryboardGenerateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "instruction": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "StoryboardGenerateRequest",
+        "type": "object"
+      },
+      "StoryboardResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PreproductionStoryboard"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "StoryboardResponse",
+        "type": "object"
+      },
+      "StoryboardScene": {
+        "additionalProperties": false,
+        "properties": {
+          "design": {
+            "$ref": "#/components/schemas/SceneDesign"
+          },
+          "scene_number": {
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Scene Number",
+            "type": "integer"
+          },
+          "shots": {
+            "items": {
+              "$ref": "#/components/schemas/StoryboardShot"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Shots",
+            "type": "array"
+          },
+          "source_revision": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Source Revision",
+            "type": "integer"
+          },
+          "unresolved_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Unresolved Questions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scene_number",
+          "design",
+          "shots"
+        ],
+        "title": "StoryboardScene",
+        "type": "object"
+      },
+      "StoryboardShot": {
+        "additionalProperties": false,
+        "properties": {
+          "action_sequence": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Action Sequence",
+            "type": "array"
+          },
+          "camera": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Camera",
+            "type": "string"
+          },
+          "continuity_in": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Continuity In",
+            "type": "string"
+          },
+          "continuity_out": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Continuity Out",
+            "type": "string"
+          },
+          "dialogue": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 60,
+            "title": "Dialogue",
+            "type": "array"
+          },
+          "duration_seconds": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 600.0,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "framing": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Framing",
+            "type": "string"
+          },
+          "locked": {
+            "default": false,
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "prompt": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "purpose": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "shot_id": {
+            "maxLength": 80,
+            "minLength": 3,
+            "title": "Shot Id",
+            "type": "string"
+          },
+          "sound": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Sound",
+            "type": "string"
+          },
+          "source_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 60,
+            "minItems": 1,
+            "title": "Source Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_refs",
+          "purpose",
+          "duration_seconds",
+          "framing",
+          "camera",
+          "action_sequence",
+          "continuity_in",
+          "continuity_out"
+        ],
+        "title": "StoryboardShot",
+        "type": "object"
+      },
+      "StoryboardStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "source_draft": {
+            "additionalProperties": true,
+            "title": "Source Draft",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_draft"
+        ],
+        "title": "StoryboardStartRequest",
+        "type": "object"
+      },
       "StorylineDuty": {
         "additionalProperties": false,
         "description": "A bounded, evidence-backed resource contract for one story line.",
@@ -19872,6 +22487,122 @@
         "summary": "Get Generation Strategy",
         "tags": [
           "Generation Strategies"
+        ]
+      }
+    },
+    "/hongguo/categories": {
+      "get": {
+        "operationId": "get_categories_hongguo_categories_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "comic",
+              "enum": [
+                "real",
+                "comic",
+                "ai"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HongguoCategoriesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HongguoCategoriesResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Categories",
+        "tags": [
+          "HongguoTrends"
+        ]
+      }
+    },
+    "/hongguo/trending-tags": {
+      "get": {
+        "operationId": "get_trending_tags_hongguo_trending_tags_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "comic",
+              "enum": [
+                "real",
+                "comic",
+                "ai"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HongguoTrendsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HongguoTrendsResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Trending Tags",
+        "tags": [
+          "HongguoTrends"
         ]
       }
     },
@@ -21340,6 +24071,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -21840,6 +24581,58 @@
         ]
       }
     },
+    "/story-projects/{project_id}/author-revisions": {
+      "post": {
+        "operationId": "create_author_revision_story_projects__project_id__author_revisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorRevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorRevisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Author Revision",
+        "tags": [
+          "Long Story Planning"
+        ]
+      }
+    },
     "/story-projects/{project_id}/continuity-ledger/audit": {
       "get": {
         "operationId": "audit_continuity_ledger_story_projects__project_id__continuity_ledger_audit_get",
@@ -22182,6 +24975,161 @@
           }
         },
         "summary": "Generate Creative Directions",
+        "tags": [
+          "Long Story Planning"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/episode-plan-materializations": {
+      "get": {
+        "operationId": "list_episode_plan_materializations_story_projects__project_id__episode_plan_materializations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "story_bible_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Story Bible Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "story_bible_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Story Bible Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodePlanMaterializationListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Episode Plan Materializations",
+        "tags": [
+          "Long Story Planning"
+        ]
+      },
+      "post": {
+        "operationId": "create_episode_plan_materialization_story_projects__project_id__episode_plan_materializations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpisodePlanMaterializationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodePlanMaterializationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Episode Plan Materialization",
         "tags": [
           "Long Story Planning"
         ]
@@ -22765,6 +25713,272 @@
         ]
       }
     },
+    "/story-projects/{project_id}/episodes/{episode_number}/storyboard": {
+      "get": {
+        "operationId": "get_storyboard_story_projects__project_id__episodes__episode_number__storyboard_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "episode_number",
+            "required": true,
+            "schema": {
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Episode Number",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Storyboard",
+        "tags": [
+          "Preproduction"
+        ]
+      },
+      "post": {
+        "operationId": "start_storyboard_story_projects__project_id__episodes__episode_number__storyboard_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "episode_number",
+            "required": true,
+            "schema": {
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Episode Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryboardStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Storyboard",
+        "tags": [
+          "Preproduction"
+        ]
+      },
+      "put": {
+        "operationId": "edit_storyboard_story_projects__project_id__episodes__episode_number__storyboard_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "episode_number",
+            "required": true,
+            "schema": {
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Episode Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryboardEditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Storyboard",
+        "tags": [
+          "Preproduction"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/episodes/{episode_number}/storyboard/scenes/{scene_number}/generate": {
+      "post": {
+        "operationId": "generate_storyboard_scene_story_projects__project_id__episodes__episode_number__storyboard_scenes__scene_number__generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "episode_number",
+            "required": true,
+            "schema": {
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Episode Number",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_number",
+            "required": true,
+            "schema": {
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Scene Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryboardGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Storyboard Scene",
+        "tags": [
+          "Preproduction"
+        ]
+      }
+    },
     "/story-projects/{project_id}/generation-tasks/recoverable": {
       "get": {
         "operationId": "get_recoverable_generation_task_story_projects__project_id__generation_tasks_recoverable_get",
@@ -22952,6 +26166,87 @@
           }
         },
         "summary": "Save Generation Task",
+        "tags": [
+          "Long Story Planning"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/generation-tasks/{job_id}/claim": {
+      "post": {
+        "operationId": "claim_generation_task_story_projects__project_id__generation_tasks__job_id__claim_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerationTaskClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationTaskClaimResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Generation Task",
         "tags": [
           "Long Story Planning"
         ]

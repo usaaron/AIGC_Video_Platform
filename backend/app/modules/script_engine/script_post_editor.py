@@ -129,6 +129,12 @@ _EDITOR_NEAR_MISS_RETRYABLE_ISSUE_PREFIXES = (
     "海外路径必须严格沿用资料明确的英文人物名：",
     "中文路径必须严格沿用资料明确的中文人物名：",
 )
+_STALE_EDITOR_STATUS_FIELDS = (
+    "script_editor_deferred_reason",
+    "script_editor_deferred_issues",
+    "script_editor_skip_reason",
+)
+_OVERSEAS_LANGUAGE_ISSUE_PREFIX = "海外路径必须保持动作和表演提示中文、对白英文："
 
 
 class _ScriptLanguageFieldPatch(BaseModel):
@@ -239,7 +245,11 @@ class ScriptPostEditor:
             raise ValueError("存在终审质量问题时不能跳过正文终审。")
         scene_count, dialogue_count, shot_count = cls._production_counts(draft)
         metadata = {
-            **draft.llm_metadata,
+            **{
+                key: value
+                for key, value in draft.llm_metadata.items()
+                if key not in _STALE_EDITOR_STATUS_FIELDS
+            },
             "script_editor_policy": "quality_gated_v1",
             "script_editor_required": False,
             "script_editor_gate_passed": True,
@@ -248,6 +258,7 @@ class ScriptPostEditor:
             "script_editor_skipped": True,
             "script_editor_skip_reason": "validated_source_ready",
             "script_editor_deferred": False,
+            "script_editor_quality_status": "passed",
             "script_editor_attempt_count": 0,
             "script_editor_attempt_elapsed_ms": [],
             "script_editor_editable_scene_counts": [],
@@ -365,9 +376,6 @@ class ScriptPostEditor:
         # full-episode pass discovering the already-known duration problem.
         correction_issues: list[str] = list(source_contract_issues)
         previous_patch: dict[str, object] | None = None
-        previous_duration_seconds: int | None = (
-            source_duration.total_seconds if source_contract_issues else None
-        )
         language_field_repair_count = 0
         attempt = 0
         max_attempts = EDITOR_MAX_ATTEMPTS
@@ -395,7 +403,6 @@ class ScriptPostEditor:
                     for scene in working_draft.scenes
                 ]
             }
-            previous_duration_seconds = current_duration.total_seconds
             language_field_repair_count = (
                 resume_checkpoint.language_field_repair_count
             )
@@ -404,6 +411,25 @@ class ScriptPostEditor:
             attempt_elapsed_ms = list(resume_checkpoint.attempt_elapsed_ms)
             editable_scene_counts = list(resume_checkpoint.editable_scene_counts)
             resumed_from_checkpoint = True
+
+        if overseas_release and require_overseas_narrative_language and resume_checkpoint is None:
+            language_paths = self._overseas_body_language_issues(draft, include_narrative=True)
+            if (
+                language_paths
+                and all(re.fullmatch(r"scenes\.\d+\.slug", path) for path in language_paths)
+                and source_contract_issues == [
+                    _OVERSEAS_LANGUAGE_ISSUE_PREFIX + "、".join(language_paths[:5])
+                ]
+            ):
+                return self._edit_overseas_headings(
+                    draft,
+                    strategy=strategy,
+                    assessment=source_assessment,
+                    paths=language_paths,
+                    canonical_names=canonical_names,
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event,
+                )
 
         while attempt < max_attempts:
             if cancel_event is not None and cancel_event.is_set():
@@ -418,6 +444,17 @@ class ScriptPostEditor:
                     duration=current_duration,
                 )
             )
+            if len(editable_scene_numbers) < len(source_scene_numbers):
+                editable_duration = estimate_screenplay_duration(
+                    working_draft.model_copy(update={
+                        "scenes": [
+                            scene for scene in working_draft.scenes
+                            if scene.scene_number in editable_scene_numbers
+                        ]
+                    })  # type: ignore[arg-type]
+                ).total_seconds
+                if current_duration.total_seconds - editable_duration >= target_duration:
+                    editable_scene_numbers = source_scene_numbers
             editable_scene_counts.append(len(editable_scene_numbers))
             self._emit(
                 progress_callback,
@@ -440,7 +477,6 @@ class ScriptPostEditor:
                 canonical_character_names=canonical_names,
                 correction_issues=correction_issues,
                 previous_patch=previous_patch,
-                previous_duration_seconds=previous_duration_seconds,
                 editable_scene_numbers=editable_scene_numbers,
                 approved_speaker_source=draft,
             )
@@ -648,13 +684,19 @@ class ScriptPostEditor:
                     candidate
                 )
                 metadata = {
-                    **candidate.llm_metadata,
+                    **{
+                        key: value
+                        for key, value in candidate.llm_metadata.items()
+                        if key not in _STALE_EDITOR_STATUS_FIELDS
+                    },
                     "script_editor_policy": "quality_gated_v1",
                     "script_editor_required": True,
                     "script_editor_gate_passed": False,
                     "script_editor_gate_issues": list(source_contract_issues),
                     "script_editor_applied": True,
                     "script_editor_skipped": False,
+                    "script_editor_deferred": False,
+                    "script_editor_quality_status": "passed",
                     "script_editor_provider": self._llm_adapter.get_model_info().provider,
                     "script_editor_model": self._llm_adapter.get_model_info().model_name,
                     "script_editor_attempt_count": attempt + language_field_repair_count,
@@ -723,7 +765,6 @@ class ScriptPostEditor:
                     scene.model_dump(mode="json") for scene in candidate.scenes
                 ]
             }
-            previous_duration_seconds = duration.total_seconds
 
             if (
                 attempt == max_attempts
@@ -765,6 +806,94 @@ class ScriptPostEditor:
                 (time.perf_counter() - editor_started_at) * 1000
             ),
             editor_applied=working_draft != draft,
+        )
+
+    def _edit_overseas_headings(
+        self,
+        draft: DraftMasterScript,
+        *,
+        strategy: GenerationStrategy,
+        assessment: ScriptEditorialAssessment,
+        paths: list[str],
+        canonical_names: Mapping[str, str],
+        progress_callback: Callable[[str, dict[str, object]], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> ScriptPostEditResult:
+        started = time.perf_counter()
+        elapsed_ms: list[int] = []
+        issues = list(assessment.issues)
+        accepted: DraftMasterScript | None = None
+        duration = assessment.duration
+        for attempt in range(1, EDITOR_MAX_ATTEMPTS + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise LLMRequestCancelledError()
+            self._emit(
+                progress_callback, "stage", stage="repairing_overseas_language_fields",
+                field_count=len(paths), focused_retry=attempt > 1,
+            )
+            # Each attempt starts from the source. Only the requested headings
+            # can be merged; no action, dialogue or ledger is exposed to edits.
+            payload = draft.model_dump(mode="json")
+            attempt_started = time.perf_counter()
+            try:
+                self._apply_language_field_patch(
+                    payload, paths=paths, strategy=strategy, focused=attempt > 1,
+                    cancel_event=cancel_event,
+                )
+                candidate = DraftMasterScript.model_validate(payload)
+                checked = self.assess_source(
+                    candidate, overseas_release=True,
+                    canonical_character_names=canonical_names,
+                    require_overseas_narrative_language=True,
+                )
+                issues = list(checked.issues)
+                if not checked.requires_edit:
+                    accepted = self.accept_without_edit(candidate, assessment=checked)
+                    duration = checked.duration
+                    break
+            except LLMRequestError as exc:
+                issues = [str(exc)[:500]]
+                if not is_recoverable_llm_request_error(exc):
+                    break
+            except (LLMStructuredOutputError, ValidationError, ValueError) as exc:
+                issues = [f"场景标题语言补丁未通过校验：{str(exc)[:500]}"]
+            finally:
+                elapsed_ms.append(round((time.perf_counter() - attempt_started) * 1000))
+
+        total_ms = round((time.perf_counter() - started) * 1000)
+        if accepted is None:
+            accepted = self._deferred_result(
+                draft, duration=duration, attempt_count=attempt,
+                reason="heading_language_repair_incomplete", issues=issues,
+                attempt_elapsed_ms=elapsed_ms, total_elapsed_ms=total_ms,
+            ).draft
+        metadata = {
+            **accepted.llm_metadata,
+            "script_editor_policy": "quality_gated_v1",
+            "script_editor_required": True,
+            "script_editor_gate_passed": False,
+            "script_editor_gate_issues": list(assessment.issues),
+            "script_editor_skipped": False,
+            "script_editor_applied": not issues,
+            "script_editor_attempt_count": attempt,
+            "script_editor_full_episode_pass_count": 0,
+            "script_editor_focused_pass_count": 0,
+            "script_editor_language_field_repair_count": attempt,
+            "script_editor_repair_scope": "scene_headings_only",
+            "script_editor_attempt_elapsed_ms": elapsed_ms,
+            "script_editor_editable_scene_counts": [],
+            "script_editor_total_elapsed_ms": total_ms,
+            "script_editor_source_duration_seconds": assessment.duration.total_seconds,
+            "script_editor_resumed_from_checkpoint": False,
+        }
+        metadata.pop("script_editor_skip_reason", None)
+        # Language patches may use a separate route; the main adapter's model
+        # identity would mislabel this pass. Transport records retain the route.
+        metadata.pop("script_editor_provider", None)
+        metadata.pop("script_editor_model", None)
+        return ScriptPostEditResult(
+            draft=accepted.model_copy(update={"llm_metadata": metadata}),
+            duration=duration, attempt_count=attempt,
         )
 
     @classmethod
@@ -999,7 +1128,7 @@ class ScriptPostEditor:
             )
             if language_issues:
                 issues.append(
-                    "海外路径必须保持动作和表演提示中文、对白英文："
+                    _OVERSEAS_LANGUAGE_ISSUE_PREFIX
                     + "、".join(language_issues[:5])
                 )
         else:
@@ -1363,6 +1492,9 @@ class ScriptPostEditor:
 2. dialogues.text只用自然、简洁、可表演的美式英语，保留原句含义和潜台词。
 3. dialogues.chinese_translation只用简体中文，必须准确对应同一条dialogues.text的
 含义、语气、称谓和信息量，不得另写剧情或翻译其他字段。
+逐句保留动作主体、具体行为、对象、因果、否定、时态与确定程度；不得把明确执行者的具体行为
+改写为无主体的结果，也不得擅自补出原句未指明的执行者。屏幕、材料和受众的指代沿用给定上下文，
+不得把操作端预览改成观众已看见，或把未向外发布改成从未向任何人展示。
 4. dialogues.chinese_character_name只写character_name对应人物的稳定简体中文名；character_name本身保持稳定英文名。
 5. 每个给定path必须且只能返回一次，path必须原样复制，不得返回其他字段。
 6. value只填写修复后的纯文本，不要解释，不要Markdown。
@@ -1423,6 +1555,8 @@ class ScriptPostEditor:
                 else
                 "natural American English dialogue with at least one spoken word"
                 if path.endswith(".text")
+                else "简体中文场景标题，保留内外景、地点、时间和连续转场信息，不增加动作"
+                if path.endswith(".slug")
                 else "简体中文可见/可听表演描述"
             ),
         }
@@ -1663,7 +1797,6 @@ class ScriptPostEditor:
         canonical_character_names: Mapping[str, str],
         correction_issues: list[str],
         previous_patch: dict[str, object] | None,
-        previous_duration_seconds: int | None,
         editable_scene_numbers: list[int],
         approved_speaker_source: DraftMasterScript | None = None,
     ) -> str:
@@ -1680,7 +1813,11 @@ class ScriptPostEditor:
                 "人物意图、事实、关系、信息量、语气强弱、剧情顺序或结尾钩子。当前字段只写"
                 "润色后的英文对白；每条dialogue.chinese_translation同时写该条最终英文"
                 "dialogue.text准确、自然的简体中文对照。英文一旦修改，中文对照必须同步更新，"
-                "两者语义、语气、称谓和信息量一致；不要在同一个dialogue.text中混写中英版本。"
+                "两者逐句保留动作主体、对象、否定、时态、可能性和后果严重程度；"
+                "数量词及其所指对象必须对应，不能把两个时间改写成两件事情。"
+                "不得将可能受伤译成必然死亡。不得把明确执行者的具体行为改写为无主体的结果，"
+                "也不得擅自补出原句未指明的执行者；屏幕、材料和受众的指代须与当前动作一致。"
+                "不要在同一个dialogue.text中混写中英版本。"
             )
         else:
             language_rule = (
@@ -1710,61 +1847,82 @@ class ScriptPostEditor:
             "用潜台词、打断、试探和反击承载信息，不得用复述或说明凑量。"
         )
         correction_block = (
-            "\n上一次编辑仍有以下问题，必须全部修正：\n- "
+            "\n当前待修正文仍有以下问题，必须全部修正：\n- "
             + "\n- ".join(correction_issues)
             if correction_issues
             else ""
         )
-        precision_duration_rule = ""
-        if previous_duration_seconds is not None:
-            if previous_duration_seconds > EDITOR_DURATION_MAX_SECONDS:
-                reduction_percent = max(
-                    5,
-                    math.ceil(
-                        100
-                        * (
-                            previous_duration_seconds
-                            - EDITOR_PREFERRED_DURATION_MAX_SECONDS
-                        )
-                        / previous_duration_seconds
-                    )
-                    + 3,
+        editable_scene_number_set = set(editable_scene_numbers)
+        editable_scenes = [
+            scene for scene in draft.scenes
+            if scene.scene_number in editable_scene_number_set
+        ]
+        editable_duration = estimate_screenplay_duration(
+            draft.model_copy(update={"scenes": editable_scenes})  # type: ignore[arg-type]
+        ).total_seconds
+        # Keep the same estimator and assign its sub-second rounding residual
+        # to the fixed scenes so the whole-episode budget remains additive.
+        fixed_duration = max(0, current_duration.total_seconds - editable_duration)
+        duration_budget = {
+            "episode_current": current_duration.total_seconds,
+            "episode_target": target_duration,
+            "fixed_scenes": fixed_duration,
+            "editable_current": editable_duration,
+            "editable_target": max(0, target_duration - fixed_duration),
+            "editable_preferred_min": max(
+                0, EDITOR_PREFERRED_DURATION_MIN_SECONDS - fixed_duration
+            ),
+            "editable_preferred_max": max(
+                0, EDITOR_PREFERRED_DURATION_MAX_SECONDS - fixed_duration
+            ),
+            "editable_min": max(0, EDITOR_DURATION_MIN_SECONDS - fixed_duration),
+            "editable_max": max(0, EDITOR_DURATION_MAX_SECONDS - fixed_duration),
+        }
+        precision_duration_rule = (
+            "\n本轮时长预算按实际可编辑场景计算，数值均为估算秒数：未提供的固定场景约"
+            f"{fixed_duration}秒，可编辑场景当前合计约{editable_duration}秒，"
+            f"本轮可编辑场景目标合计约{duration_budget['editable_target']}秒，"
+            f"优先落在{duration_budget['editable_preferred_min']}–"
+            f"{duration_budget['editable_preferred_max']}秒，允许范围为"
+            f"{duration_budget['editable_min']}–{duration_budget['editable_max']}秒。"
+            "这些是本轮所有可编辑场景的合计额度，不是每场额度，也不是整集额度；"
+            "不得把未提供的固定场景时长重新分配给补丁。"
+            "估算时对白与动作取较长轨道并包含场景转换，二者通常并行；"
+            "动作文字不是旁白，中英对白对照也不能重复计时，不能按总文字量等比例扩写或删减。"
+        )
+        current_seconds = current_duration.total_seconds
+        if current_seconds > EDITOR_DURATION_MAX_SECONDS:
+            precision_duration_rule += (
+                "\n本轮是定量压缩：当前整集估算为"
+                f"{current_seconds}秒。只在可编辑场景中削减约"
+                f"{current_seconds - target_duration}秒，优先削减"
+                f"{current_seconds - EDITOR_PREFERRED_DURATION_MAX_SECONDS}–"
+                f"{current_seconds - EDITOR_PREFERRED_DURATION_MIN_SECONDS}秒；"
+                f"最少需减{current_seconds - EDITOR_DURATION_MAX_SECONDS}秒，"
+                f"最多可减{current_seconds - EDITOR_DURATION_MIN_SECONDS}秒，"
+                f"整集合并后必须落到{EDITOR_DURATION_MAX_SECONDS}秒以内，且不得低于"
+                f"{EDITOR_DURATION_MIN_SECONDS}秒。"
+                "保持场景、台词条数和镜头条数不变；优先删除复述、同义重复和不推进冲突的修饰，"
+                "不得删除剧情事实、人物行动、关键反应或结尾钩子。"
+            )
+            if current_seconds > EDITOR_NEAR_MISS_MAX_SECONDS:
+                precision_duration_rule += (
+                    "当前稿件明显超时，本轮是硬压缩而不是润色：先缩短每句台词和动作描述中的"
+                    "冗余表达，再做等量替换；必须保留生产计数，但不能保留原句的解释性重复。"
                 )
-                precision_duration_rule = (
-                    "\n本轮是定量压缩：上次结果估算为"
-                    f"{previous_duration_seconds}秒。保持场景、台词条数和镜头条数不变，"
-                    f"将可说台词与可拍动作的有效文字总量至少压缩{reduction_percent}%，"
-                    f"目标压到约{EDITOR_PREFERRED_DURATION_MAX_SECONDS}秒，并为误差预留余量，"
-                    f"必须落到{EDITOR_DURATION_MAX_SECONDS}秒以内。"
-                    "优先删除复述、同义重复和不推进冲突的修饰，不得删除剧情事实、"
-                    "人物行动、关键反应或结尾钩子。"
-                )
-                if previous_duration_seconds > EDITOR_NEAR_MISS_MAX_SECONDS:
-                    precision_duration_rule += (
-                        "当前稿件明显超时，本轮是硬压缩而不是润色：先缩短每句台词和动作描述中的"
-                        "冗余表达，再做等量替换；必须保留生产计数，但不能保留原句的解释性重复。"
-                    )
-            elif previous_duration_seconds < EDITOR_DURATION_MIN_SECONDS:
-                growth_percent = max(
-                    5,
-                    math.ceil(
-                        100
-                        * (
-                            EDITOR_PREFERRED_DURATION_MIN_SECONDS
-                            - previous_duration_seconds
-                        )
-                        / max(1, previous_duration_seconds)
-                    )
-                    + 3,
-                )
-                precision_duration_rule = (
-                    "\n本轮是定量补足：上次结果估算为"
-                    f"{previous_duration_seconds}秒。保持场景、台词条数和镜头条数不变，"
-                    f"在原有剧情事实内增加至少{growth_percent}%的有效表演文字，"
-                    f"目标达到约{EDITOR_PREFERRED_DURATION_MIN_SECONDS}秒且必须达到"
-                    f"{EDITOR_DURATION_MIN_SECONDS}秒以上；只增加动作反应、"
-                    "打断、潜台词和事件后果，不得新增剧情或人物。"
-                )
+        elif current_seconds < EDITOR_DURATION_MIN_SECONDS:
+            precision_duration_rule += (
+                "\n本轮是定量补足：当前整集估算为"
+                f"{current_seconds}秒。只在可编辑场景中增加约"
+                f"{target_duration - current_seconds}秒，优先增加"
+                f"{EDITOR_PREFERRED_DURATION_MIN_SECONDS - current_seconds}–"
+                f"{EDITOR_PREFERRED_DURATION_MAX_SECONDS - current_seconds}秒；"
+                f"最少需增{EDITOR_DURATION_MIN_SECONDS - current_seconds}秒，"
+                f"最多可增{EDITOR_DURATION_MAX_SECONDS - current_seconds}秒。"
+                "达到目标后停止扩写，不得把最低增量当作无上限补写许可。"
+                "保持场景、台词条数和镜头条数不变；只在原有剧情事实内增加动作反应、"
+                "打断、潜台词和事件后果，不得新增剧情或人物。"
+            )
         previous_scenes = {}
         if isinstance(previous_patch, dict):
             raw_scenes = previous_patch.get("scenes")
@@ -1776,7 +1934,6 @@ class ScriptPostEditor:
                     and isinstance(item.get("scene_number"), int)
                 }
         scene_context = []
-        editable_scene_number_set = set(editable_scene_numbers)
         for scene in draft.scenes:
             if scene.scene_number not in editable_scene_number_set:
                 continue
@@ -1787,6 +1944,11 @@ class ScriptPostEditor:
                 "purpose": scene.purpose,
                 "beat_summary": scene.beat_summary,
                 "turning_point": scene.turning_point,
+                "scene_causality": (
+                    scene.scene_causality.model_dump(mode="json")
+                    if scene.scene_causality is not None
+                    else None
+                ),
                 "cliffhanger": scene.cliffhanger,
                 "character_actions": editable.get(
                     "character_actions",
@@ -1813,6 +1975,7 @@ class ScriptPostEditor:
             "next_episode_question": draft.next_episode_question,
             "approved_speakers": approved_speakers,
             "editable_scene_numbers": editable_scene_numbers,
+            "duration_budget_seconds": duration_budget,
             "scenes": scene_context,
         }
         ending_contract_rule = (
@@ -1835,7 +1998,7 @@ class ScriptPostEditor:
 4. 全集所有场景的character_actions合计必须为{EPISODE_SHOT_UNIT_MIN}–{EPISODE_SHOT_UNIT_MAX}项，每项按一个独立镜头执行单元计数；不得拆分同一动作、增加空镜或写镜头语言凑数。
 5. 全集所有场景的dialogues合计必须为{EPISODE_DIALOGUE_LINE_MIN}–{EPISODE_DIALOGUE_LINE_MAX}条，每项必须是演员实际说出的一句台词；{dialogue_style_rule}intent只放可表演提示，例如低声、头也不抬或beat。
 6. 保留原稿已有的（O.S.）、（V.O.）、（continued）和（pre-lap）语义；如确有表演必要，可把这些标记附在已批准人物名后，但不得借此新增人物。
-7. 保持短剧持续执行压力-行动-回报-升级循环，在原有剧情范围内强化动作、反应、交锋和事件后果，不能整集只等待、调查、解释或为最终对手做准备。
+7. 沿用批准的单集节奏与场景职责，在原有剧情范围内强化动作、反应、情绪和事件后果，使信息、人物理解、情绪或期待上的观看价值有可拍证据。允许有价值的安静段落和铺垫，不强制反转、不可逆变化或固定循环；不得重复已知内容凑时长，也不得为增加刺激改写剧情。
 8. 不得修改场景标题、场景顺序、转场语义或结尾义务；{ending_contract_rule}
 9. 不得新增人物；说话人只能来自原稿已经存在的人物。
 10. 必须且只能返回editable_scene_numbers指定的场景，每场只返回scene_number、character_actions、body_order、dialogues；未指定场景由系统原样保留，不得返回。
@@ -1847,6 +2010,20 @@ class ScriptPostEditor:
         13. {language_rule}
         14. {canonical_name_rule}
         15. {pacing_rule}
+        16. scene_causality是只读因果上下文。逐场核对原文中谁阻止谁、谁掌握什么信息、
+哪些事实已经核实，再编辑动作和对白。补足时长不能凭空增加指责、企图或信息来源；
+若角色有意误判或说谎，保留原文依据，不得把误判写成已证实的事实。
+        17. 材料持有与公开范围是不同事实。逐项保留原稿各份材料及其不同部分的可见内容、
+公开渠道和实际受众；区分操作端预览、观众大屏与向外发布，动作和对白中的屏幕指代必须一致。
+遵守body_order中已经发生的展示：中断展示不能抹去已经暴露的内容；部分公开不代表其余材料也已公开，
+未向外发布也不代表从未展示。不得为润色新增或撤销公开事实，原稿未交代的设备或受众不得擅自补为事实。
+        18. 保留人物离场、读屏和消息传递的先后顺序，不能让离场者自动获知后来抵达他人设备的信息。
+核对台词所说的已发送内容与实际消息一致，区分提及附件和发送附件；保留页面切换和保存材料的可执行动作，
+单机截图不能表述为拍下两部设备。若原稿缺少必要的信息渠道或设备，不得为润色擅自补造。
+        19. 保留承诺的确定程度与适用范围，不能把“保护身份”扩写成“绝不会被追查”等人物
+无法控制的绝对保证。对方已表示条件不满足时，不能用安抚台词替代原稿的实际调整或同意过程。
+        20. intent与character_actions服从同一body_order；不得在表演提示中提前执行稍后才发生的
+书写、递交或接过，也不得重复一次交接。先呈现动作再写依赖它完成的反应，保留人物声音和潜台词。
 
 原稿生产计数（必须保持在交付范围内）：场景{source_scene_count}个，台词{source_dialogue_count}条，镜头执行单元{source_shot_count}个。优先在原有数量上做等量替换，不得通过删减台词、动作或拆分重复内容改变计数。
 {correction_block}{precision_duration_rule}

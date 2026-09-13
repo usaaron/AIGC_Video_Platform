@@ -79,7 +79,13 @@ npm test
 npm run test:e2e
 ```
 
+`npm test` loads the existing TypeScript paths through the Node test runtime
+hook; use a Node release providing `node:module.registerHooks` (validated with
+Node 22.18.0).
+
 `test:e2e` covers desktop and mobile smoke flows, browser/server errors, market
-route selection, and page performance budgets. Install its browser once with
+route selection, input assessment, uploaded episode counts, planning approval,
+first-episode recovery, and page performance budgets. Generation-related checks
+use isolated fixtures and intercepted APIs. Install its browser once with
 `npm run test:e2e:install`. Performance results are attached to the Playwright
 report rather than written into the application runtime.

@@ -53,6 +53,13 @@ test("draft metrics keep action and dialogue counts explainable", () => {
   assert.equal(metrics.scriptBodyCharacters, 8);
 });
 
+test("persisted screenplay without a character catalogue still reports body metrics", () => {
+  const draft = buildDraft();
+  delete draft.characters;
+  assert.deepEqual(calculateDraftTextMetrics(draft), calculateDraftTextMetrics(buildDraft()));
+  assert.equal(calculateSeriesTextMetrics([draft], 100, 1).scriptBodyCharacters, 8);
+});
+
 test("series metrics project a 600k target from the observed episode average", () => {
   const metrics = calculateSeriesTextMetrics([buildDraft()], 600_000, 334);
   assert.equal(metrics.requiredAverageCharactersPerEpisode, 1797);

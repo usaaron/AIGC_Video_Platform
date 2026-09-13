@@ -124,7 +124,7 @@ Creative Prompt and/or Effective Tags
 
 当前已具备从 Draft、受控 Revision、Re-QC 到 Final `MasterScript` 的完整运行链；`AcceptanceDecision` 仍处于 shadow mode，不阻断 Finalization。
 
-当前阶段视频生成、动画生成、Storyboard、Seedance、配音、剪辑等全部属于 Phase 2，仅保留接口与扩展位置。
+2026-09-08 范围更新：文字 Storyboard、视觉与资产设计、图片／视频提示词及前期交付包已纳入下一阶段设计，尚未实现；实际图片、视频、动画、配音与剪辑由下游团队承担。分工和数据边界见 [44_PREPRODUCTION_STORYBOARD_PLAN.md](44_PREPRODUCTION_STORYBOARD_PLAN.md)，不再将文字分镜与媒体生成执行统一列为本团队的 Media Production Phase。
 
 当前 `Knowledge Base` 的最小实现当前包括：
 
@@ -368,15 +368,16 @@ Learning Layer
 
 视频相关执行层能力当前不进入实际开发。
 
-未来 Media Production Phase 的兼容方向为：
+本团队下一阶段前期制作的目标交接方向为：
 
 Final `MasterScript`
 → Script-to-Production Adapter
 → Model-Independent Production Package
-→ Video Model Adapter
-→ Provider-Specific Generation Package
+→ 文字分镜、资产设计、图片／视频 Prompt Pack 与不可变前期制作包
+→ Handoff Adapter（与下游约定交付格式）
+→ 下游媒体素材绑定、生成与剪辑
 
-其中 Seedance 只允许作为 `Video Model Adapter` 的一种实现。角色视觉锚点、镜头、灯光、音频、连续性约束和模型 Prompt 应从 Final `MasterScript` 派生，不得以 Seedance 专用字段污染 Script Engine 核心契约。
+角色视觉锚点、镜头、灯光、声音要求、连续性约束和生成提示词应从所选正式剧本及已确认设计派生，不得以特定厂商字段污染 Script Engine 核心契约。通用描述由本系统输出；厂商格式由独立适配层转换，真实视频模型调用由下游负责。上述链路是设计目标，当前执行边界仍以 Current Status 为准。
 
 ---
 

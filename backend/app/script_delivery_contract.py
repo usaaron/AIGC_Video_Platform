@@ -195,6 +195,7 @@ EPISODE_SHOT_UNIT_MIN = 15
 EPISODE_SHOT_UNIT_MAX = 20
 SERIES_RUNTIME_MIN_MINUTES = 100
 PARTNER_SCREENPLAY_FORMAT_VERSION = "partner_screenplay.v1"
+PARTNER_SCREENPLAY_CONTENT_TEMPLATE_VERSION = "partner_screenplay.content_complete.v1"
 OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT = (
     "海外路径每一集都必须遵守同一语言与人物身份合同。OutputLanguage=en仅表示"
     "dialogues.text使用英文，不表示整份剧本使用英文；dialogues.text使用自然英文，"

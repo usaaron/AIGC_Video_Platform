@@ -119,6 +119,8 @@ class MasterScriptService:
             tone=revised_draft_master_script.tone,
             hook=revised_draft_master_script.hook,
             synopsis=revised_draft_master_script.synopsis,
+            episode_cast=revised_draft_master_script.episode_cast,
+            locations=revised_draft_master_script.locations,
             episode_goal=revised_draft_master_script.episode_goal,
             target_duration_seconds=revised_draft_master_script.target_duration_seconds,
             ending_mode=revised_draft_master_script.ending_mode,
@@ -273,11 +275,13 @@ class MasterScriptService:
         return SceneCard(
             scene_number=scene.scene_number,
             slug=scene.slug,
+            scene_heading=scene.scene_heading,
             purpose=scene.purpose,
             setting=scene.setting_hint,
             beat_summary=scene.beat_summary,
             emotional_shift=scene.emotional_shift,
             emotional_objective=scene.emotional_objective,
+            character_refs=scene.character_refs,
             character_actions=scene.character_actions,
             body_order=scene.body_order,
             turning_point=scene.turning_point,
@@ -288,6 +292,7 @@ class MasterScriptService:
                 dialogue_line_count_per_scene=dialogue_line_count_per_scene,
                 speaker_name_cycle=speaker_name_cycle,
             ),
+            content_manifest=scene.content_manifest,
         )
 
     def _build_dialogues(

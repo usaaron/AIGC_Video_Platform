@@ -5,7 +5,7 @@ from enum import Enum
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.script_delivery_contract import (
     DEFAULT_ENDING_MODE,
@@ -838,6 +838,13 @@ class StoryInspirationBriefPatch(BaseModel):
     unresolved: list[str] | None = Field(default=None, max_length=12)
     additional_notes: list[str] | None = Field(default=None, max_length=20)
 
+    @field_validator("must_keep", "must_avoid", "unresolved", "additional_notes", mode="before")
+    @classmethod
+    def ignore_null_placeholders(cls, value: object) -> object:
+        if isinstance(value, list) and any(item is None for item in value):
+            return [item for item in value if item is not None] or None
+        return value
+
 
 class StoryInspirationFrontierQuestion(BaseModel):
     """One decision on the currently answerable frontier of the story tree."""
@@ -857,8 +864,8 @@ class StoryInspirationFrontierQuestion(BaseModel):
 
     @model_validator(mode="after")
     def ensure_actionable_question(self) -> "StoryInspirationFrontierQuestion":
-        if not self.question.rstrip().endswith(("？", "?")):
-            raise ValueError("frontier question must end with a question mark")
+        if not re.search(r"[？?]", self.question):
+            raise ValueError("frontier question must contain a question")
         normalized_choices = [choice.casefold().strip() for choice in self.choices]
         if len(normalized_choices) != len(set(normalized_choices)):
             raise ValueError("frontier choices must be distinct")
@@ -882,12 +889,26 @@ class StoryInspirationTurnModelOutput(BaseModel):
     ready_to_generate: bool = False
 
 
+class StoryInspirationCandidateModelOutput(BaseModel):
+    """Candidates can change options, never the current question or author brief."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    assistant_message: str = Field(min_length=2, max_length=1_600)
+    choices: list[Annotated[str, Field(min_length=2, max_length=300)]] = Field(min_length=2, max_length=4)
+    recommended_choice: str | None = Field(default=None, min_length=2, max_length=300)
+    recommended_answer: str | None = Field(default=None, min_length=8, max_length=400)
+
+
 class StoryInspirationMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: Literal["assistant", "user"]
     content: str = Field(min_length=1, max_length=4_000)
     questions: list[StoryInspirationFrontierQuestion] = Field(default_factory=list, max_length=4)
+    candidate_history: dict[str, list[Annotated[str, Field(min_length=2, max_length=300)]]] = Field(
+        default_factory=dict, max_length=4,
+    )
 
 
 class StoryInspirationChatRequest(BaseModel):
@@ -902,6 +923,9 @@ class StoryInspirationChatRequest(BaseModel):
     messages: list[StoryInspirationMessage] = Field(default_factory=list, max_length=30)
     current_brief: StoryInspirationBrief = Field(default_factory=StoryInspirationBrief)
     user_message: str = Field(default="", max_length=2_000)
+    candidate_decision_key: str | None = Field(
+        default=None, min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN,
+    )
     target_episode_count: int = Field(default=300, ge=1, le=2_000)
     readiness_supplement_questions: list[str] = Field(default_factory=list, max_length=12)
 
@@ -1417,6 +1441,18 @@ class EpisodePlanningContinuityMemory(BaseModel):
     )
 
 
+class EpisodeDramaticUnit(BaseModel):
+    """One observable change that gives an episode its own dramatic shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trigger: str = Field(min_length=3, max_length=300)
+    choice: str = Field(min_length=3, max_length=300)
+    visible_consequence: str = Field(min_length=3, max_length=300)
+    change_type: str = Field(min_length=2, max_length=40)
+    evidence_hint: str | None = Field(default=None, min_length=3, max_length=300)
+
+
 class EpisodePlanBatchDraftRequest(BaseModel):
     """Generate a bounded EpisodePlan batch from one approved episode-ready leaf."""
 
@@ -1438,6 +1474,13 @@ class EpisodeSceneExecutionBeat(BaseModel):
     scene_heading: str = Field(min_length=5, max_length=200)
     character_refs: list[str] = Field(min_length=1, max_length=20)
     scene_objective: str = Field(min_length=3, max_length=500)
+    # These fields are optional for legacy roadmaps but required by the new
+    # execution-ready planning prompt before a fast screenplay model is used.
+    opposition: str | None = Field(default=None, min_length=3, max_length=500)
+    information_shift: str | None = Field(default=None, min_length=3, max_length=500)
+    choice_or_cost: str | None = Field(default=None, min_length=3, max_length=500)
+    evidence_requirements: list[str] = Field(default_factory=list, max_length=12)
+    forbidden_changes: list[str] = Field(default_factory=list, max_length=12)
     visible_action: str = Field(min_length=5, max_length=800)
     turn_or_reveal: str = Field(min_length=3, max_length=500)
     dialogue_objective: str = Field(min_length=3, max_length=500)
@@ -1522,6 +1565,8 @@ class EpisodePlanGenerationItem(BaseModel):
         min_length=3,
         max_length=800,
     )
+    dramatic_units: list[EpisodeDramaticUnit] = Field(default_factory=list, max_length=7)
+    protagonist_cost: str | None = Field(default=None, min_length=3, max_length=500)
     setup_refs: list[str] = Field(default_factory=list, max_length=20)
     payoff_refs: list[str] = Field(default_factory=list, max_length=20)
     exit_state: str = Field(min_length=5, max_length=1_000)
@@ -1542,6 +1587,7 @@ class EpisodePlanGenerationItem(BaseModel):
         default_factory=list,
         max_length=EPISODE_SCENE_MAX,
     )
+    execution_ready: bool = False
     layer_contracts: EpisodeThreeLayerContract | None = None
 
     @field_validator("target_duration_seconds", mode="before")
@@ -1687,6 +1733,8 @@ class EpisodePlan(BaseModel):
     protagonist_decision: str = Field(min_length=5, max_length=800)
     reveal: str | None = Field(default=None, min_length=3, max_length=800)
     emotional_movement: str = Field(min_length=3, max_length=500)
+    dramatic_units: list[EpisodeDramaticUnit] = Field(default_factory=list, max_length=7)
+    protagonist_cost: str | None = Field(default=None, min_length=3, max_length=500)
     setup_refs: list[str] = Field(default_factory=list, max_length=20)
     payoff_refs: list[str] = Field(default_factory=list, max_length=20)
     exit_state: str = Field(min_length=5, max_length=1_000)
@@ -1730,6 +1778,236 @@ class EpisodePlan(BaseModel):
         return self
 
 
+EpisodePlanMaterializationFieldName = Literal[
+    "episode_title",
+    "synopsis",
+    "episode_goal",
+    "entry_state",
+    "central_conflict",
+    "protagonist_decision",
+    "reveal",
+    "emotional_movement",
+    "stage_opposition",
+    "episode_payoff",
+    "pressure_escalation",
+    "exit_state",
+    "cliffhanger",
+    "ending_hook_type",
+    "next_episode_obligation",
+    "locations",
+    "character_refs",
+    "story_line_refs",
+    "setup_refs",
+    "payoff_refs",
+    "source_turning_points",
+    "source_unit_story_beats",
+]
+
+
+class EpisodePlanMaterializationFields(BaseModel):
+    """Source-derived roadmap fields before any approval or prose generation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episode_title: str | None = Field(default=None, max_length=1_200)
+    synopsis: str | None = Field(default=None, max_length=1_200)
+    episode_goal: str | None = Field(default=None, max_length=1_200)
+    entry_state: str | None = Field(default=None, max_length=1_200)
+    central_conflict: str | None = Field(default=None, max_length=1_200)
+    protagonist_decision: str | None = Field(default=None, max_length=1_200)
+    reveal: str | None = Field(default=None, max_length=1_200)
+    emotional_movement: str | None = Field(default=None, max_length=1_200)
+    stage_opposition: str | None = Field(default=None, max_length=1_200)
+    episode_payoff: str | None = Field(default=None, max_length=1_200)
+    pressure_escalation: str | None = Field(default=None, max_length=1_200)
+    exit_state: str | None = Field(default=None, max_length=1_200)
+    cliffhanger: str | None = Field(default=None, max_length=1_200)
+    ending_hook_type: str | None = Field(default=None, max_length=1_200)
+    next_episode_obligation: str | None = Field(default=None, max_length=1_200)
+    locations: list[str] = Field(default_factory=list, max_length=24)
+    character_refs: list[str] = Field(default_factory=list, max_length=24)
+    story_line_refs: list[str] = Field(default_factory=list, max_length=24)
+    setup_refs: list[str] = Field(default_factory=list, max_length=24)
+    payoff_refs: list[str] = Field(default_factory=list, max_length=24)
+    source_turning_points: list[str] = Field(default_factory=list, max_length=24)
+    source_unit_story_beats: list[str] = Field(default_factory=list, max_length=24)
+
+
+class EpisodePlanMaterializationSourceSpan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start: int = Field(ge=0, le=130_000)
+    end: int = Field(ge=0, le=130_000)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "EpisodePlanMaterializationSourceSpan":
+        if self.end < self.start:
+            raise ValueError("Source span end must not be lower than start.")
+        return self
+
+
+class EpisodePlanMaterializationFieldProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["source"] = "source"
+    row_ordinal: int = Field(ge=0, le=1_999)
+    episode_number: int = Field(ge=1, le=2_000)
+    field: EpisodePlanMaterializationFieldName
+    value: str = Field(min_length=1, max_length=28_800)
+    span: EpisodePlanMaterializationSourceSpan | None = None
+
+
+class EpisodePlanMaterializationMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    episode_number: int = Field(ge=1, le=2_000)
+    source_row_ordinal: int = Field(ge=0, le=1_999)
+    source_start: int = Field(ge=0, le=130_000)
+    source_end: int = Field(ge=1, le=130_000)
+    source_raw_text: str = Field(min_length=1, max_length=130_000)
+    target_node_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    target_node_version: int = Field(ge=1)
+    target_episode_start: int = Field(ge=1, le=2_000)
+    target_episode_end: int = Field(ge=1, le=2_000)
+    fields: EpisodePlanMaterializationFields
+    field_provenance: dict[
+        EpisodePlanMaterializationFieldName,
+        EpisodePlanMaterializationFieldProvenance,
+    ] = Field(default_factory=dict)
+    unresolved_fields: list[EpisodePlanMaterializationFieldName] = Field(
+        default_factory=list,
+        max_length=22,
+    )
+    review_required: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_source_mapping(self) -> "EpisodePlanMaterializationMapping":
+        if self.source_end <= self.source_start:
+            raise ValueError("Materialization source span must be non-empty.")
+        if self.target_episode_end < self.target_episode_start:
+            raise ValueError("Target episode range is invalid.")
+        if not self.target_episode_start <= self.episode_number <= self.target_episode_end:
+            raise ValueError("Mapped episode must fall inside the target node range.")
+
+        values = self.fields.model_dump()
+        expected_unresolved = {
+            field
+            for field, value in values.items()
+            if (isinstance(value, list) and not value)
+            or (not isinstance(value, list) and (value is None or not value.strip()))
+        }
+        if len(self.unresolved_fields) != len(set(self.unresolved_fields)):
+            raise ValueError("unresolved_fields must not contain duplicates.")
+        if set(self.unresolved_fields) != expected_unresolved:
+            raise ValueError("unresolved_fields must exactly match empty source fields.")
+
+        for field, provenance in self.field_provenance.items():
+            value = values[field]
+            expected_value = "、".join(value) if isinstance(value, list) else value
+            if not expected_value:
+                raise ValueError("Field provenance cannot reference an unresolved field.")
+            if (
+                provenance.field != field
+                or provenance.row_ordinal != self.source_row_ordinal
+                or provenance.episode_number != self.episode_number
+                or provenance.value != expected_value
+            ):
+                raise ValueError("Field provenance does not match its materialized value.")
+            if provenance.span is not None and (
+                provenance.span.start < self.source_start
+                or provenance.span.end > self.source_end
+            ):
+                raise ValueError("Field provenance span exceeds its source row.")
+
+        resolved_fields = set(values) - expected_unresolved
+        if set(self.field_provenance) != resolved_fields:
+            raise ValueError("Every resolved source field requires exact provenance.")
+        return self
+
+
+class EpisodePlanMaterializationUnresolved(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    episode_number: int = Field(ge=1, le=2_000)
+    row_ordinal: int = Field(ge=0, le=1_999)
+    fields: list[EpisodePlanMaterializationFieldName] = Field(
+        min_length=1,
+        max_length=22,
+    )
+
+
+class EpisodePlanMaterializationCreate(BaseModel):
+    """Author-confirmed, immutable import batch; still draft planning data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["episode_plan_materialization.v1"]
+    draft_schema_version: Literal["episode_plan_import.v1"]
+    adapter_version: Literal["heading-segment-v1"]
+    source_document: str = Field(min_length=1, max_length=130_000)
+    source_fingerprint: str = Field(
+        min_length=16,
+        max_length=80,
+        pattern=r"^(sha256:[a-f0-9]{64}|fnv1a32:[a-f0-9]{8})$",
+    )
+    fingerprint_algorithm: Literal["sha256", "fnv1a32"]
+    story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    story_bible_version: int = Field(ge=1)
+    mappings: list[EpisodePlanMaterializationMapping] = Field(
+        min_length=1,
+        max_length=2_000,
+    )
+    unresolved_fields: list[EpisodePlanMaterializationUnresolved] = Field(
+        default_factory=list,
+        max_length=2_000,
+    )
+    review_required: Literal[True] = True
+    preview_status: Literal["staging"] = "staging"
+    preview_created_at: datetime
+    author_confirmed_at: datetime
+    confirmed_by: Literal["author"] = "author"
+
+    @model_validator(mode="after")
+    def validate_batch_shape(self) -> "EpisodePlanMaterializationCreate":
+        if not self.source_fingerprint.startswith(f"{self.fingerprint_algorithm}:"):
+            raise ValueError("fingerprint_algorithm must match source_fingerprint.")
+        episodes = [item.episode_number for item in self.mappings]
+        ordinals = [item.source_row_ordinal for item in self.mappings]
+        if episodes != list(range(episodes[0], episodes[-1] + 1)):
+            raise ValueError("Materialization episodes must be ordered and contiguous.")
+        if ordinals != list(range(len(ordinals))):
+            raise ValueError("Materialization row ordinals must be consecutive from zero.")
+        if any(
+            current.source_start < previous.source_end
+            for previous, current in zip(self.mappings, self.mappings[1:])
+        ):
+            raise ValueError("Materialization source rows must be ordered and non-overlapping.")
+
+        expected_unresolved = [
+            {
+                "episode_number": item.episode_number,
+                "row_ordinal": item.source_row_ordinal,
+                "fields": item.unresolved_fields,
+            }
+            for item in self.mappings
+            if item.unresolved_fields
+        ]
+        if [item.model_dump() for item in self.unresolved_fields] != expected_unresolved:
+            raise ValueError("Batch unresolved_fields must match its episode mappings.")
+        return self
+
+
+class EpisodePlanMaterialization(EpisodePlanMaterializationCreate):
+    materialization_id: str = Field(
+        min_length=3,
+        max_length=120,
+        pattern=IDENTIFIER_PATTERN,
+    )
+    story_project_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    status: Literal["draft"] = "draft"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class ContinuityKnowledgeState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1742,6 +2020,8 @@ class ContinuityKnowledgeState(BaseModel):
     status: str = Field(
         pattern=r"^(known|believed|suspected|disproved|forgotten)$"
     )
+    source_episode_number: int | None = Field(default=None, ge=0, le=2_000)
+    evidence_scene_numbers: list[int] = Field(default_factory=list, max_length=20)
 
 
 class ContinuityCharacterState(BaseModel):
@@ -1758,7 +2038,8 @@ class ContinuityCharacterState(BaseModel):
     physical_state: str | None = Field(default=None, min_length=2, max_length=300)
     location: str | None = Field(default=None, min_length=2, max_length=300)
     current_knowledge: list[str] = Field(default_factory=list, max_length=100)
-    knowledge_states: list[ContinuityKnowledgeState] = Field(default_factory=list, max_length=50)
+    # Persist every keyed fact; task-scoped recall decides what enters a prompt.
+    knowledge_states: list[ContinuityKnowledgeState] = Field(default_factory=list, max_length=40_000)
     health_conditions: list[str] = Field(default_factory=list, max_length=30)
     action_capabilities: list[str] = Field(default_factory=list, max_length=30)
     lasting_marks: list[str] = Field(default_factory=list, max_length=30)
@@ -2142,6 +2423,10 @@ class GenerationJobCheckpoint(BaseModel):
     completed_episode_numbers: list[int] = Field(default_factory=list, max_length=20)
     failed_episode_numbers: list[int] = Field(default_factory=list, max_length=20)
     last_error: str | None = Field(default=None, max_length=2_000)
+    lease_id: str | None = Field(
+        default=None, min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN
+    )
+    lease_expires_at: AwareDatetime | None = None
     checkpointed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("completed_episode_numbers", "failed_episode_numbers")
@@ -2160,6 +2445,8 @@ class GenerationJobCheckpoint(BaseModel):
             raise ValueError("An episode cannot be both completed and failed.")
         if self.status == GenerationJobStatus.failed and not self.last_error:
             raise ValueError("Failed generation job requires last_error.")
+        if (self.lease_id is None) != (self.lease_expires_at is None):
+            raise ValueError("Generation job lease_id and lease_expires_at must be set together.")
         return self
 
 
@@ -2180,6 +2467,23 @@ class GenerationTaskCheckpoint(BaseModel):
 
 class GenerationTaskCheckpointResponse(BaseModel):
     data: GenerationTaskCheckpoint | None
+
+
+class GenerationTaskClaimRequest(BaseModel):
+    """A bounded worker lease for one resumable generation task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lease_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)
+    lease_ttl_seconds: int = Field(default=300, ge=30, le=3_600)
+
+
+class GenerationTaskClaimResponse(BaseModel):
+    data: GenerationTaskCheckpoint
+
+
+class GenerationTaskLeaseRenewRequest(GenerationTaskClaimRequest):
+    expected_revision: int = Field(ge=1)
 
 
 class StoryProjectResponse(BaseModel):
@@ -2241,6 +2545,14 @@ class EpisodePlanResponse(BaseModel):
 
 class EpisodePlanListResponse(BaseModel):
     data: list[EpisodePlan]
+
+
+class EpisodePlanMaterializationResponse(BaseModel):
+    data: EpisodePlanMaterialization
+
+
+class EpisodePlanMaterializationListResponse(BaseModel):
+    data: list[EpisodePlanMaterialization]
 
 
 class LongStoryErrorResponse(BaseModel):

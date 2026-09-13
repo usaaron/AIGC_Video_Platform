@@ -155,6 +155,40 @@ def test_screenplay_body_order_preserves_authored_interleaving() -> None:
     ]
 
 
+def test_content_complete_scene_manifest_and_episode_index_are_backfilled_for_legacy_drafts() -> None:
+    scene = _screenplay_scene()
+
+    assert scene.character_refs == ["林夏", "周野"]
+    assert scene.content_manifest is not None
+    assert scene.content_manifest.location == "INT. 仓库 夜"
+    assert scene.content_manifest.character_refs == ["林夏", "周野"]
+    assert scene.content_manifest.outcome
+
+    draft = DraftMasterScript.model_validate({
+        "content_spec_id": "content_spec_001",
+        "generation_strategy_id": "strategy.001",
+        "title": "本集",
+        "language": "zh-CN",
+        "tone": "intense",
+        "hook": "门后的真相即将出现。",
+        "synopsis": "林夏在仓库中找到证据并遭遇新的阻力。",
+        "episode_goal": "拿到证据。",
+        "target_duration_seconds": 90,
+        "characters": [
+            {"name": "林夏", "role": "主角", "description": "负责调查真相的记者。", "motivation": "查明事实。"},
+            {"name": "周野", "role": "协助者", "description": "掌握仓库内部情况的人。", "motivation": "保护证据。"},
+        ],
+        "scenes": [scene.model_copy(update={"cliffhanger": True})],
+    })
+
+    assert draft.episode_cast == ["林夏", "周野"]
+    assert draft.locations == ["INT. 仓库 夜"]
+    schema = LLMGeneratedDraftMasterScript.model_json_schema()
+    assert {"episode_cast", "locations"}.issubset(schema["required"])
+    scene_schema = schema["$defs"]["LLMGeneratedSceneCard"]
+    assert {"scene_heading", "character_refs", "content_manifest"}.issubset(scene_schema["required"])
+
+
 def test_screenplay_body_order_recovers_invalid_legacy_order_locally() -> None:
     scene = _screenplay_scene(body_order=["action:0", "dialogue:99"])
 

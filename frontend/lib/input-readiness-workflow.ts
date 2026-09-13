@@ -1,7 +1,29 @@
 import type {
   InputReadinessAnalysis,
   ScriptProject,
+  StoryInspirationBrief,
 } from "./types.ts";
+import { verifiedInputFacts } from "./input-readiness.ts";
+
+export function seedInspirationBriefFromInput(
+  project: Pick<ScriptProject, "inputReadiness" | "creativePrompt" | "referenceMaterials">,
+  brief: StoryInspirationBrief,
+): StoryInspirationBrief {
+  const grouped = new Map<string, string[]>();
+  for (const fact of verifiedInputFacts(project.inputReadiness, project)) {
+    if (fact.field === "world_setting" || brief[fact.field].trim()) continue;
+    if (brief.creative_decisions.some((decision) => decision.decision_key.split(".")[0] === fact.field
+      && (decision.locked || decision.status !== "proposed"))) continue;
+    const quotes = grouped.get(fact.field) ?? [];
+    if (!quotes.includes(fact.quote)) quotes.push(fact.quote);
+    grouped.set(fact.field, quotes);
+  }
+  const patch = Object.fromEntries([...grouped].map(([field, quotes]) => {
+    const budget = Math.max(1, Math.floor((500 - quotes.length + 1) / quotes.length));
+    return [field, quotes.map((quote) => [...quote].slice(0, budget).join("")).join("\n")];
+  }));
+  return grouped.size ? { ...brief, ...patch } : brief;
+}
 
 export type InputReadinessWorkflowSource =
   | Pick<ScriptProject, "inputReadiness">
@@ -67,7 +89,7 @@ export function inputReadinessWorkflowIntent(
     // Only a structurally complete episode plan may prepare the planning
     // artifacts in the background. Partial plans remain in the normal review
     // flow so missing episodes cannot be mistaken for an approved roadmap.
-    prepareCompletePlanning: analysis.missingItems.length === 0
+    prepareCompletePlanning: analysis.assessmentVersion === 2 && analysis.structurallyComplete === true
       && (analysis.detectedLevel === "script"
         || (analysis.detectedLevel === "episode_plan" && analysis.recommendedStage === "script")),
   };

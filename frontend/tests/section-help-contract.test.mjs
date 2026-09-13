@@ -21,7 +21,6 @@ test("section help opens after two seconds and can be pinned by click", async ()
 
 test("help is present across creation, planning, script, navigation, and detail areas", async () => {
   const files = [
-    "components/home-dashboard.tsx",
     "components/script-project-editor.tsx",
     "components/story-bible-panel.tsx",
     "components/story-plan-node-panel.tsx",

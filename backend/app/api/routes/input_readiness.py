@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.llm_runtime import build_creative_llm_adapter_from_env
+from app.llm_runtime import build_input_readiness_llm_adapter_from_env
 from app.modules.input_readiness.models import (
     CreativeInputReadinessRequest,
     CreativeInputReadinessResponse,
@@ -18,7 +18,7 @@ def get_input_readiness_service() -> CreativeInputReadinessService:
     """Build an optional classifier; local analysis remains available offline."""
 
     try:
-        llm_adapter = build_creative_llm_adapter_from_env()
+        llm_adapter = build_input_readiness_llm_adapter_from_env()
     except MissingLLMConfigurationError:
         llm_adapter = None
     return CreativeInputReadinessService(llm_adapter=llm_adapter)

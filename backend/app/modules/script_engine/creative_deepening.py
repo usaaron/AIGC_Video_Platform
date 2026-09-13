@@ -198,6 +198,8 @@ class CreativeDeepeningService:
             tone=generated.tone,
             hook=generated.hook,
             synopsis=generated.synopsis,
+            episode_cast=generated.episode_cast,
+            locations=generated.locations,
             episode_goal=generated.episode_goal,
             ending_mode=source.ending_mode,
             # Runtime is a project/roadmap constraint, not an editable creative field.
@@ -217,11 +219,18 @@ class CreativeDeepeningService:
                 DraftSceneCard(
                     scene_number=scene.scene_number,
                     slug=scene.slug,
+                    scene_heading=scene.scene_heading or scene.setting,
                     purpose=scene.purpose,
                     setting_hint=scene.setting,
                     beat_summary=scene.beat_summary,
                     emotional_shift=scene.emotional_shift,
                     emotional_objective=scene.emotional_objective,
+                    character_refs=(
+                        scene.character_refs
+                        or source_scenes[scene.scene_number].character_refs
+                        if scene.scene_number in source_scenes
+                        else scene.character_refs
+                    ),
                     character_actions=scene.character_actions,
                     body_order=scene.body_order,
                     turning_point=scene.turning_point,
@@ -233,6 +242,12 @@ class CreativeDeepeningService:
                         source_scenes[scene.scene_number].supporting_asset_ids
                         if scene.scene_number in source_scenes
                         else []
+                    ),
+                    content_manifest=(
+                        scene.content_manifest
+                        or source_scenes[scene.scene_number].content_manifest
+                        if scene.scene_number in source_scenes
+                        else scene.content_manifest
                     ),
                 )
                 for scene in generated.scenes

@@ -2,10 +2,12 @@ import json
 import logging
 import threading
 import time
+from copy import deepcopy
 
 import httpx
 import pytest
 
+from app.modules.master_script.models import LLMGeneratedDraftMasterScript
 from app.modules.script_engine.llm_adapter import (
     AdaptiveTransportLLMAdapter,
     AdaptiveTransportState,
@@ -669,6 +671,96 @@ def test_real_llm_adapter_streams_responses_output_deltas() -> None:
     assert seen_deltas == [('{"title":"流式标题"}', True)]
 
 
+@pytest.mark.parametrize("wire_api", ["responses", "chat_completions"])
+def test_stream_stops_at_provider_terminal_without_waiting_for_socket_close(wire_api):
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    closed = []
+    calls = []
+    seen = []
+    if wire_api == "responses":
+        expected_usage = {"input_tokens": 10, "output_tokens": 6}
+        events = [
+            {"type": "response.output_text.delta", "delta": '{"title":"Ready"}'},
+            {"type": "response.completed", "response": {
+                "id": "resp_terminal", "usage": {"input_tokens": 10, "output_tokens": 6},
+            }},
+        ]
+    else:
+        expected_usage = {"prompt_tokens": 10, "completion_tokens": 6}
+        events = [
+            {"id": "chat_terminal", "choices": [{"delta": {"content": '{"title":"Ready"}'}, "finish_reason": None}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 6}},
+            "[DONE]",
+        ]
+
+    class KeepOpenStream(httpx.SyncByteStream):
+        def __iter__(self):
+            for event in events:
+                data = event if isinstance(event, str) else json.dumps(event)
+                yield f"data: {data}\n\n".encode()
+            raise AssertionError("Read beyond terminal into a connection kept open by the gateway")
+
+        def close(self):
+            closed.append(True)
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, stream=KeepOpenStream(), headers={"content-type": "text/event-stream"})
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible", model_name="script-model", api_key="test-key",
+        base_url="https://example.test/v1", wire_api=wire_api, max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    result = adapter.generate_structured_output_stream(
+        "Return JSON.", strategy=strategy,
+        on_delta=lambda delta, reset: seen.append((delta, reset)),
+    )
+    assert result["title"] == "Ready"
+    assert result["_meta"]["response_id"] == ("resp_terminal" if wire_api == "responses" else "chat_terminal")
+    assert result["_meta"]["usage"] == expected_usage
+    assert result["_meta"]["stream_termination"] == "completed"
+    assert seen == [('{"title":"Ready"}', True)]
+    assert closed == [True]
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("status", ["failed", "incomplete", "cancelled"])
+def test_failed_terminal_never_accepts_parseable_json_or_reads_past_terminal(status, caplog):
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    closed = []
+    calls = []
+
+    class FailedStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b'data: {"type":"response.output_text.delta","delta":"{\\"title\\":\\"Partial\\"}"}\n\n'
+            event = {"type": f"response.{status}", "response": {"status": status}}
+            yield f"data: {json.dumps(event)}\n\n".encode()
+            raise AssertionError("Read past failed terminal event")
+
+        def close(self):
+            closed.append(True)
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, stream=FailedStream(), headers={"content-type": "text/event-stream"})
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible", model_name="script-model", api_key="test-key",
+        base_url="https://example.test/v1", wire_api="responses", max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    caplog.set_level(logging.WARNING, logger="app.modules.script_engine.llm_adapter")
+    with pytest.raises(LLMStructuredOutputError) as raised:
+        adapter.generate_structured_output_stream("Return JSON.", strategy=strategy)
+    assert json.loads(raised.value.raw_content) == {"title": "Partial"}
+    assert raised.value.stream_termination == f"response.{status}:{status}"
+    assert "outcome=success" not in caplog.text
+    assert closed == [True]
+    assert len(calls) == 1
+
+
 def test_streaming_structured_error_records_json_position_and_incomplete_reason() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
 
@@ -917,7 +1009,8 @@ def test_real_llm_adapter_supports_json_object_mode() -> None:
     assert result["title"] == "JSON Object Title"
 
 
-def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-reasoner"])
+def test_deepseek_uses_chat_json_contract_and_explicit_thinking(model: str) -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
     schema = {
         "$defs": {
@@ -944,7 +1037,9 @@ def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/chat/completions"
         payload = json.loads(request.content.decode("utf-8"))
-        assert "response_format" not in payload
+        assert payload.get("response_format") == (
+            {"type": "json_object"} if model == "deepseek-v4-flash" else None
+        )
         assert payload["thinking"] == {"type": "enabled"}
         assert payload["reasoning_effort"] == "high"
         assert "temperature" not in payload
@@ -962,10 +1057,10 @@ def test_deepseek_uses_chat_json_contract_and_explicit_thinking() -> None:
 
     adapter = RealLLMAdapter(
         provider="openai_compatible",
-        model_name="deepseek-v4-flash",
+        model_name=model,
         api_key="secret-key",
         base_url="https://example.test/v1",
-        wire_api="responses",
+        wire_api="chat_completions",
         reasoning_effort="high",
         thinking_mode="enabled",
         use_strict_schema=True,
@@ -2015,7 +2110,8 @@ def test_pooled_keys_do_not_repeat_model_level_reasoning_budget_exhaustion() -> 
     assert getattr(exc_info.value, "pool_key_attempt_count") == 1
 
 
-def test_reasoning_only_responses_budget_exhaustion_skips_nonstream_repeat() -> None:
+@pytest.mark.parametrize("max_retries", [0, 1, 3])
+def test_reasoning_only_responses_budget_exhaustion_skips_nonstream_repeat(max_retries: int) -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
     request_count = 0
 
@@ -2053,7 +2149,7 @@ def test_reasoning_only_responses_budget_exhaustion_skips_nonstream_repeat() -> 
         api_key="secret-key",
         base_url="https://example.test/v1",
         wire_api="responses",
-        max_retries=0,
+        max_retries=max_retries,
         transport=httpx.MockTransport(handler),
     )
 
@@ -3330,6 +3426,80 @@ def test_pooled_adapter_bounds_persistently_empty_output_to_two_keys() -> None:
     assert getattr(exc_info.value, "pool_key_attempt_count") == 2
 
 
+@pytest.mark.parametrize("wire_api", ["chat_completions", "responses"])
+def test_script_strict_request_schema_removes_reference_default_without_mutating_source(
+    wire_api: str,
+) -> None:
+    adapter = RealLLMAdapter(
+        provider="openai_compatible",
+        model_name="script-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        wire_api=wire_api,
+        transport=httpx.MockTransport(lambda _: pytest.fail("No HTTP request expected")),
+    )
+    source_schema = LLMGeneratedDraftMasterScript.model_json_schema()
+    original_schema = deepcopy(source_schema)
+    assert source_schema["properties"]["ending_mode"] == {
+        "$ref": "#/$defs/EndingMode", "default": "serial_hook",
+    }
+
+    payload = adapter._build_payload(
+        prompt="Return an overseas episode.",
+        strategy=GenerationStrategy.model_validate(build_strategy()),
+        output_schema=source_schema,
+    )
+    output_format = (
+        payload["text"]["format"]
+        if wire_api == "responses"
+        else payload["response_format"]["json_schema"]
+    )
+    assert output_format["strict"] is True
+    provider_schema = output_format["schema"]
+
+    def check_references(value: object) -> None:
+        if isinstance(value, dict):
+            if isinstance(value.get("$ref"), str):
+                assert "default" not in value
+            for child in value.values():
+                check_references(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_references(child)
+
+    check_references(provider_schema)
+    assert provider_schema["properties"]["ending_mode"] == {"$ref": "#/$defs/EndingMode"}
+    assert provider_schema["$defs"]["EndingMode"] == source_schema["$defs"]["EndingMode"]
+    assert "ending_mode" in provider_schema["required"]
+    assert source_schema == original_schema
+    assert LLMGeneratedDraftMasterScript.model_fields["ending_mode"].default == "serial_hook"
+
+
+def test_strict_schema_reference_default_cleanup_preserves_business_properties() -> None:
+    source_schema = {
+        "type": "object",
+        "$defs": {"Ending": {"type": "string", "enum": ["closed"]}},
+        "properties": {
+            "$ref": {"type": "string"},
+            "default": {"type": "string", "default": "preserved"},
+            "nested": {
+                "type": "object",
+                "properties": {
+                    "ending": {"$ref": "#/$defs/Ending", "default": "closed"},
+                },
+            },
+        },
+    }
+    original_schema = deepcopy(source_schema)
+
+    normalized = RealLLMAdapter._normalize_strict_json_schema(source_schema)
+
+    assert normalized["properties"]["default"] == {"type": "string", "default": "preserved"}
+    assert normalized["properties"]["$ref"] == {"type": "string"}
+    assert normalized["properties"]["nested"]["properties"]["ending"] == {"$ref": "#/$defs/Ending"}
+    assert source_schema == original_schema
+
+
 def test_real_llm_adapter_normalizes_nested_schema_for_strict_output() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
 
@@ -3426,6 +3596,38 @@ def test_real_llm_adapter_inlines_root_collection_item_schema() -> None:
     )
 
     assert len(result["children"]) == 2
+
+
+def test_gemini_body_patch_schema_expands_nested_dialogue_references() -> None:
+    from app.modules.master_script.models import LLMMainlandBodyRepairPatch
+
+    adapter = RealLLMAdapter(provider="openai_compatible", model_name="gemini-3.6-flash",
+                             api_key="test", base_url="https://example.test/v1")
+    source = LLMMainlandBodyRepairPatch.model_json_schema()
+    original = deepcopy(source)
+    payload = adapter._build_payload(prompt="Repair the fixture.",
+        strategy=GenerationStrategy.model_validate(build_strategy()), output_schema=source)
+    schema = payload["response_format"]["json_schema"]["schema"]
+    dialogue = schema["properties"]["scenes"]["items"]["properties"]["dialogues"]["items"]
+    assert set(dialogue["required"]) == {"character_name", "chinese_character_name", "intent", "text", "chinese_translation"}
+    assert dialogue["properties"]["text"]["maxLength"] == 280
+    assert "$defs" not in schema
+    assert source == original
+
+
+def test_gemini_schema_preserves_recursive_refs_and_business_property_names() -> None:
+    adapter = RealLLMAdapter(provider="openai_compatible", model_name="gemini-3.6-flash",
+                             api_key="test", base_url="https://example.test/v1")
+    properties = {"$defs": {"type": "string"}, "$ref": {"type": "string"},
+                  "default": {"type": "object", "default": {"$ref": "literal-data"}}}
+    source = {"type": "object", "properties": properties}
+    result = adapter._provider_json_schema(source)
+    assert result["properties"]["$defs"] == properties["$defs"]
+    assert result["properties"]["$ref"] == properties["$ref"]
+    assert result["properties"]["default"]["default"] == {"$ref": "literal-data"}
+    recursive = {"type": "object", "properties": {"root": {"$ref": "#/$defs/Node"}},
+                 "$defs": {"Node": {"type": "object", "properties": {"next": {"$ref": "#/$defs/Node"}}}}}
+    assert adapter._provider_json_schema(recursive) == adapter._normalize_strict_json_schema(recursive)
 
 
 def test_real_llm_adapter_wraps_top_level_array_for_single_collection_schema() -> None:

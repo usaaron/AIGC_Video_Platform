@@ -18,9 +18,10 @@ class ContentSpecRepository:
         self._database_runtime_factory = database_runtime_factory
 
     def save(self, content_spec: ContentSpec) -> ContentSpec:
-        self._items[content_spec.id] = content_spec
         runtime = self._database_runtime()
-        if runtime is not None:
+        if runtime is None:
+            self._items[content_spec.id] = content_spec.model_copy(deep=True)
+        else:
             payload = content_spec.model_dump(mode="json")
             with runtime.session() as session:
                 record = session.get(ContentSpecRecord, content_spec.id)
@@ -45,30 +46,26 @@ class ContentSpecRepository:
         return content_spec
 
     def get(self, content_spec_id: str) -> ContentSpec | None:
-        cached = self._items.get(content_spec_id)
-        if cached is not None:
-            return cached
         runtime = self._database_runtime()
         if runtime is None:
-            return None
+            cached = self._items.get(content_spec_id)
+            return cached.model_copy(deep=True) if cached else None
         with runtime.session() as session:
             record = session.get(ContentSpecRecord, content_spec_id)
             if record is None:
                 return None
             restored = ContentSpec.model_validate(record.payload)
-        self._items[restored.id] = restored
         return restored
 
     def list(self) -> list[ContentSpec]:
         runtime = self._database_runtime()
         if runtime is None:
-            return list(self._items.values())
+            return [item.model_copy(deep=True) for item in self._items.values()]
         with runtime.session() as session:
             records = session.exec(
                 select(ContentSpecRecord).order_by(ContentSpecRecord.created_at)
             ).all()
             restored = [ContentSpec.model_validate(record.payload) for record in records]
-        self._items.update({item.id: item for item in restored})
         return restored
 
     def _database_runtime(self) -> DatabaseRuntime | None:

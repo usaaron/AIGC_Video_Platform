@@ -1,11 +1,42 @@
 import type { ProjectMarketProfile } from "./types.ts";
 
+const storyboardConflictMessages = new Set([
+  "分镜版本已变化，请重新加载。",
+  "分镜已被其他操作更新，请重新加载后再保存。",
+  "本场包含已锁定镜头，请先解锁需要重编的场景。",
+  "请先单独解锁镜头，再修改或移除其内容。",
+  "视觉方向会影响已锁定镜头，请先解锁。",
+  "本场已锁定，请先解锁。",
+  "请先采用或放弃当前候选。",
+  "分镜候选遗漏、重复或重排了正文引用；原分镜已保留，请重试本场。",
+]);
+
+const authorConflictMessages = new Set([
+  "冲突审阅记录已不可用，请重新检查本次修改。",
+  "正文、规划或修改要求已变化，请重新检查影响后再确认。",
+  "请选择当前审阅中的处理方案；自定义方向须先重新检查影响。",
+  "该方案涉及上游设定，请确认建立修订版本后在新版规划中处理。",
+  "总纲、工作区或处理方案已变化，请重新检查影响后再确认。",
+]);
+
+const inspirationMessages = new Set([
+  "当前创作决定已变化，请重新打开这一轮后再获取方案。",
+  "本次方案生成超时，已有方案和答案已保留，请重新获取。",
+  "本次没有生成有效候选，已有方案和答案已保留，请重新获取。",
+  "本次候选与已展示方案重复或数量不足，已有方案和答案已保留，请换一批。",
+  "本次未返回当前决定的候选方案，已有方案和答案已保留。",
+  "本次没有返回足够的候选方案，请重试。",
+]);
+
 export function visibleApiError(
   message: string,
   status: number,
   marketProfile: ProjectMarketProfile = "cn_mainland",
   failureClass?: string,
 ): string {
+  if (status === 409 && storyboardConflictMessages.has(message)) return message;
+  if (status === 409 && authorConflictMessages.has(message)) return message;
+  if (status === 422 && inspirationMessages.has(message)) return message;
   if (failureClass?.trim().toLocaleLowerCase() === "configuration") {
     return marketProfile === "cn_mainland"
       ? "生成服务配置当前不可用，请联系管理员检查模型设置。已保存的内容不会丢失。"
@@ -54,6 +85,7 @@ export function userFacingError(error: unknown, fallback: string): string {
   // that user-safe diagnosis instead of replacing every failure with the
   // feature's generic fallback.
   if (typeof candidate.status === "number") return candidate.message;
+  if (inspirationMessages.has(candidate.message)) return candidate.message;
   if (/^(生成服务|请求暂未完成|本次生成|The generation service|The request could not)/.test(
     candidate.message,
   )) {

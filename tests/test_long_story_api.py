@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import hashlib
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -175,6 +176,116 @@ def build_episode_plan(*, episode_number: int = 1) -> EpisodePlan:
     )
 
 
+def build_episode_plan_materialization_payload(
+    *,
+    target_node_version: int = 1,
+    source_fingerprint: str | None = None,
+) -> dict:
+    source_document = "第1集\n本集目标：找到钥匙"
+    fields = {
+        "episode_title": None,
+        "synopsis": None,
+        "episode_goal": "找到钥匙",
+        "entry_state": None,
+        "central_conflict": None,
+        "protagonist_decision": None,
+        "reveal": None,
+        "emotional_movement": None,
+        "stage_opposition": None,
+        "episode_payoff": None,
+        "pressure_escalation": None,
+        "exit_state": None,
+        "cliffhanger": None,
+        "ending_hook_type": None,
+        "next_episode_obligation": None,
+        "locations": [],
+        "character_refs": [],
+        "story_line_refs": [],
+        "setup_refs": [],
+        "payoff_refs": [],
+        "source_turning_points": [],
+        "source_unit_story_beats": [],
+    }
+    unresolved_fields = [
+        field
+        for field, value in fields.items()
+        if value is None or value == []
+    ]
+    return {
+        "schema_version": "episode_plan_materialization.v1",
+        "draft_schema_version": "episode_plan_import.v1",
+        "adapter_version": "heading-segment-v1",
+        "source_document": source_document,
+        "source_fingerprint": source_fingerprint or (
+            f"sha256:{hashlib.sha256(source_document.encode('utf-8')).hexdigest()}"
+        ),
+        "fingerprint_algorithm": "sha256",
+        "story_bible_id": "story_bible.api_demo",
+        "story_bible_version": 1,
+        "mappings": [{
+            "episode_number": 1,
+            "source_row_ordinal": 0,
+            "source_start": 0,
+            "source_end": len(source_document),
+            "source_raw_text": source_document,
+            "target_node_id": "story_plan.api_demo.root",
+            "target_node_version": target_node_version,
+            "target_episode_start": 1,
+            "target_episode_end": 8,
+            "fields": fields,
+            "field_provenance": {
+                "episode_goal": {
+                    "source": "source",
+                    "row_ordinal": 0,
+                    "episode_number": 1,
+                    "field": "episode_goal",
+                    "value": "找到钥匙",
+                    "span": {"start": 4, "end": len(source_document)},
+                }
+            },
+            "unresolved_fields": unresolved_fields,
+            "review_required": True,
+        }],
+        "unresolved_fields": [{
+            "episode_number": 1,
+            "row_ordinal": 0,
+            "fields": unresolved_fields,
+        }],
+        "review_required": True,
+        "preview_status": "staging",
+        "preview_created_at": NOW.isoformat(),
+        "author_confirmed_at": NOW.isoformat(),
+        "confirmed_by": "author",
+    }
+
+
+def seed_episode_plan_materialization_lineage(runtime) -> None:
+    project = build_project().model_copy(update={
+        "active_story_bible_id": "story_bible.api_demo",
+        "active_story_bible_version": 1,
+    })
+    story_bible = build_story_bible().model_copy(update={
+        "status": PlanningApprovalStatus.approved,
+        "approved_at": NOW,
+    })
+    node = build_story_plan_node(
+        planned_start_episode=1,
+        planned_end_episode=8,
+        expansion_status="episode_ready",
+    ).model_copy(update={
+        "unit_story_beats": ["beat 1", "beat 2", "beat 3", "beat 4"],
+        "unit_resolution": "Mara secures the verified record.",
+        "handoff_pressure": "The source is placed in immediate danger.",
+        "status": PlanningApprovalStatus.approved,
+        "approved_at": NOW,
+    })
+    with runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(project)
+        repository.save_story_bible(story_bible)
+        repository.save_story_plan_node(node)
+
+
 def test_script_phase_guard_accepts_only_complete_tree_and_roadmap_coverage() -> None:
     project = build_project().model_copy(update={
         "active_story_bible_id": "story_bible.api_demo",
@@ -253,6 +364,231 @@ def long_story_app(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_episode_plan_materialization_is_atomic_draft_and_idempotent(
+    long_story_app,
+) -> None:
+    app, runtime = long_story_app
+    seed_episode_plan_materialization_lineage(runtime)
+    payload = build_episode_plan_materialization_payload()
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        saved = await client.post(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+            json=payload,
+        )
+        replay_payload = {
+            **payload,
+            "author_confirmed_at": "2026-08-01T09:05:00Z",
+        }
+        replayed = await client.post(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+            json=replay_payload,
+        )
+        listed = await client.get(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+            params={
+                "story_bible_id": "story_bible.api_demo",
+                "story_bible_version": 1,
+            },
+        )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["data"]["status"] == "draft"
+    assert saved.json()["data"]["confirmed_by"] == "author"
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["data"]["materialization_id"] == (
+        saved.json()["data"]["materialization_id"]
+    )
+    assert replayed.json()["data"]["author_confirmed_at"] == (
+        saved.json()["data"]["author_confirmed_at"]
+    )
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()["data"]) == 1
+
+
+@pytest.mark.anyio
+async def test_episode_plan_materialization_rejects_stale_batch_without_partial_write(
+    long_story_app,
+) -> None:
+    app, runtime = long_story_app
+    seed_episode_plan_materialization_lineage(runtime)
+    payload = build_episode_plan_materialization_payload(target_node_version=2)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        rejected = await client.post(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+            json=payload,
+        )
+        listed = await client.get(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+        )
+
+    assert rejected.status_code == 409, rejected.text
+    assert "target node" in rejected.json()["detail"].lower()
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["data"] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field_name", "identity_key"),
+    [
+        ("episodes", "episodeNumber"),
+        ("episodeRoadmaps", "episode_number"),
+        ("episodePlanMaterializations", "materializationId"),
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid_shape",
+    ["null", "object", "non_object_item", "missing_identity", "invalid_identity"],
+)
+async def test_episode_plan_materialization_rejects_malformed_workspace_occupancy(
+    long_story_app,
+    field_name: str,
+    identity_key: str,
+    invalid_shape: str,
+) -> None:
+    app, runtime = long_story_app
+    seed_episode_plan_materialization_lineage(runtime)
+    invalid_value = {
+        "null": None,
+        "object": {},
+        "non_object_item": [None],
+        "missing_identity": [{}],
+        "invalid_identity": [{identity_key: []}],
+    }[invalid_shape]
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        saved_workspace = await client.put(
+            "/story-projects/story_project.api_demo/workspace",
+            json={
+                "project_id": "story_project.api_demo",
+                "revision": 1,
+                "client_instance_id": "client.materialization_audit",
+                "workspace_payload": {
+                    "id": "story_project.api_demo",
+                    field_name: invalid_value,
+                },
+            },
+        )
+        rejected = await client.post(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+            json=build_episode_plan_materialization_payload(),
+        )
+        listed = await client.get(
+            "/story-projects/story_project.api_demo/episode-plan-materializations",
+        )
+
+    assert saved_workspace.status_code == 200, saved_workspace.text
+    assert rejected.status_code == 409, rejected.text
+    assert field_name in rejected.json()["detail"]
+    assert "malformed" in rejected.json()["detail"]
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["data"] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("ancestor_depth", [1, 2])
+@pytest.mark.parametrize(
+    "ancestor_change",
+    ["draft", "replaced_approved", "replaced_draft", "replay_after_replacement"],
+)
+async def test_episode_plan_materialization_rejects_inactive_ancestor_lineage(
+    long_story_app,
+    ancestor_depth: int,
+    ancestor_change: str,
+) -> None:
+    app, runtime = long_story_app
+    project = build_project().model_copy(update={
+        "active_story_bible_id": "story_bible.api_demo",
+        "active_story_bible_version": 1,
+    })
+    story_bible = build_story_bible().model_copy(update={
+        "status": PlanningApprovalStatus.approved,
+        "approved_at": NOW,
+    })
+    ancestors = []
+    for index in range(ancestor_depth):
+        ancestor = build_story_plan_node(
+            node_id=f"story_plan.api_demo.ancestor_{index}",
+            parent_node_id=ancestors[-1].node_id if ancestors else None,
+            planned_start_episode=1,
+            planned_end_episode=60,
+            expansion_status="expanded",
+        ).model_copy(update={
+            "status": PlanningApprovalStatus.approved,
+            "approved_at": NOW,
+        })
+        ancestors.append(ancestor)
+    if ancestor_change == "draft":
+        ancestors[0] = ancestors[0].model_copy(update={
+            "status": PlanningApprovalStatus.draft,
+            "approved_at": None,
+        })
+    leaf = build_story_plan_node(
+        parent_node_id=ancestors[-1].node_id,
+        planned_start_episode=1,
+        planned_end_episode=8,
+        expansion_status="episode_ready",
+    ).model_copy(update={
+        "unit_story_beats": ["beat 1", "beat 2", "beat 3", "beat 4"],
+        "unit_resolution": "Mara secures the verified record.",
+        "handoff_pressure": "The source is placed in immediate danger.",
+        "status": PlanningApprovalStatus.approved,
+        "approved_at": NOW,
+    })
+    with runtime.session() as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(project)
+        repository.save_story_bible(story_bible)
+        for node in (*ancestors, leaf):
+            repository.save_story_plan_node(node)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        url = "/story-projects/story_project.api_demo/episode-plan-materializations"
+        payload = build_episode_plan_materialization_payload()
+        saved = None
+        if ancestor_change == "replay_after_replacement":
+            saved = await client.post(url, json=payload)
+            replayed = await client.post(url, json=payload)
+            assert saved.status_code == replayed.status_code == 200
+            assert replayed.json()["data"] == saved.json()["data"]
+        if ancestor_change != "draft":
+            approved_replacement = ancestor_change == "replaced_approved"
+            replacement = ancestors[0].model_copy(update={
+                "version": 2,
+                "status": (
+                    PlanningApprovalStatus.approved
+                    if approved_replacement
+                    else PlanningApprovalStatus.draft
+                ),
+                "approved_at": NOW if approved_replacement else None,
+            })
+            replaced = await client.put(
+                "/story-projects/story_project.api_demo/plan-nodes/"
+                f"{replacement.node_id}/versions/2",
+                json=replacement.model_dump(mode="json"),
+            )
+            assert replaced.status_code == 200, replaced.text
+        rejected = await client.post(url, json=payload)
+        listed = await client.get(url)
+
+    assert rejected.status_code == 409, rejected.text
+    assert "ancestor" in rejected.json()["detail"]
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["data"] == ([saved.json()["data"]] if saved else [])
+
+
+@pytest.mark.anyio
 async def test_generation_task_can_be_reloaded_by_exact_job_id(long_story_app) -> None:
     app, _runtime = long_story_app
     task = build_generation_task()
@@ -290,6 +626,15 @@ async def test_long_story_planning_api_persists_complete_planning_slice(
     long_story_app,
 ) -> None:
     app, runtime = long_story_app
+    episode_payload = build_episode_plan().model_dump(mode="json")
+    episode_payload["dramatic_units"] = [{
+        "trigger": "The witness refuses to release the timestamp without a guarantee.",
+        "choice": "Mara leaves her own address as the guarantee.",
+        "visible_consequence": "The witness releases the record and sends a guard to her home.",
+        "change_type": "safety and commitment",
+        "evidence_hint": "The guard copies Mara's address before leaving.",
+    }]
+    episode_payload["protagonist_cost"] = "Mara can no longer use her home as a hiding place."
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
@@ -317,7 +662,7 @@ async def test_long_story_planning_api_persists_complete_planning_slice(
         episode_response = await client.put(
             "/story-projects/story_project.api_demo/episode-plans/"
             "episode_plan.api_demo.001/versions/1",
-            json=build_episode_plan().model_dump(mode="json"),
+            json=episode_payload,
         )
         assert episode_response.status_code == 200
 
@@ -330,6 +675,8 @@ async def test_long_story_planning_api_persists_complete_planning_slice(
         assert project_list.json()["total"] == 1
         assert len(stage_list.json()["data"]) == 1
         assert len(episode_list.json()["data"]) == 1
+        assert episode_list.json()["data"][0]["dramatic_units"] == episode_payload["dramatic_units"]
+        assert episode_list.json()["data"][0]["protagonist_cost"] == episode_payload["protagonist_cost"]
 
     restarted_app = create_app()
     restarted_app.dependency_overrides[get_long_story_service] = (
@@ -340,8 +687,108 @@ async def test_long_story_planning_api_persists_complete_planning_slice(
         base_url="http://testserver",
     ) as client:
         persisted = await client.get("/story-projects/story_project.api_demo")
+        persisted_episodes = await client.get(
+            "/story-projects/story_project.api_demo/episode-plans?"
+            "start_episode=1&end_episode=1"
+        )
     assert persisted.status_code == 200
     assert persisted.json()["data"]["title"] == "The Price of Truth"
+    assert persisted_episodes.status_code == 200
+    assert persisted_episodes.json()["data"][0]["dramatic_units"] == episode_payload["dramatic_units"]
+    assert persisted_episodes.json()["data"][0]["protagonist_cost"] == episode_payload["protagonist_cost"]
+
+
+@pytest.mark.anyio
+async def test_story_bible_rejects_cross_project_version_without_blocking_owner(
+    long_story_app,
+) -> None:
+    app, _runtime = long_story_app
+    owner = build_project()
+    other = owner.model_copy(update={
+        "project_id": "story_project.other",
+        "content_spec_id": "content_spec.other",
+    })
+    bible = build_story_bible()
+    owner_url = (
+        f"/story-projects/{owner.project_id}/story-bibles/{bible.story_bible_id}"
+    )
+    other_url = (
+        f"/story-projects/{other.project_id}/story-bibles/{bible.story_bible_id}"
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        for project in (owner, other):
+            created = await client.put(
+                f"/story-projects/{project.project_id}",
+                json=project.model_dump(mode="json"),
+            )
+            assert created.status_code == 200, created.text
+
+        initial_response = await client.put(
+            f"{owner_url}/versions/1",
+            json=bible.model_dump(mode="json"),
+        )
+        assert initial_response.status_code == 200, initial_response.text
+        initial_draft = initial_response.json()["data"]
+
+        conflicting_response = await client.put(
+            f"{other_url}/versions/2",
+            json={
+                **initial_draft,
+                "story_project_id": other.project_id,
+                "content_spec_id": other.content_spec_id,
+                "version": 2,
+                "theme": "Another project's competing draft.",
+            },
+        )
+        assert conflicting_response.status_code == 409, conflicting_response.text
+        assert conflicting_response.json()["detail"] == (
+            "Story Bible identity already belongs to another Story Project."
+        )
+
+        owner_latest = await client.get(owner_url)
+        assert owner_latest.status_code == 200, owner_latest.text
+        assert owner_latest.json()["data"] == initial_draft
+        other_latest = await client.get(other_url)
+        assert other_latest.status_code == 404, other_latest.text
+
+        saved_response = await client.put(
+            f"{owner_url}/versions/2",
+            json={
+                **initial_draft,
+                "version": 2,
+                "theme": "The original author can continue developing the truth.",
+            },
+        )
+        assert saved_response.status_code == 200, saved_response.text
+        saved_draft = saved_response.json()["data"]
+        confirmed_response = await client.put(
+            f"{owner_url}/versions/3",
+            json={
+                **saved_draft,
+                "version": 3,
+                "status": "approved",
+                "approved_at": NOW.isoformat(),
+            },
+        )
+        assert confirmed_response.status_code == 200, confirmed_response.text
+        assert confirmed_response.json()["data"]["theme"] == saved_draft["theme"]
+
+        owner_latest = await client.get(owner_url)
+        assert owner_latest.status_code == 200, owner_latest.text
+        assert owner_latest.json()["data"] == confirmed_response.json()["data"]
+        historical = await client.get(owner_url, params={"version": 1})
+        assert historical.status_code == 200, historical.text
+        assert historical.json()["data"] == initial_draft
+        owner_project = await client.get(f"/story-projects/{owner.project_id}")
+        assert owner_project.status_code == 200, owner_project.text
+        assert owner_project.json()["data"]["active_story_bible_id"] == bible.story_bible_id
+        assert owner_project.json()["data"]["active_story_bible_version"] == 3
+        other_project = await client.get(f"/story-projects/{other.project_id}")
+        assert other_project.status_code == 200, other_project.text
+        assert other_project.json()["data"]["active_story_bible_id"] is None
 
 
 @pytest.mark.anyio
@@ -1328,11 +1775,13 @@ async def test_story_project_permanent_delete_removes_complete_owned_workspace(
     assert deleted.status_code == 200
     assert deleted.json()["data"]["deleted"] is True
     assert deleted.json()["data"]["deleted_records"] == {
+        "preproduction_storyboards": 0,
         "agent_steps": 0,
         "agent_runs": 0,
         "generation_job_checkpoints": 0,
         "episode_artifact_versions": 0,
         "generation_batches": 0,
+        "episode_plan_materializations": 0,
         "episode_plan_versions": 1,
         "continuity_ledger_versions": 0,
         "story_plan_node_versions": 0,
@@ -2145,3 +2594,74 @@ async def test_generation_task_checkpoint_can_resume_and_complete(
     assert completed_response.status_code == 200
     assert empty_recovery_response.status_code == 200
     assert empty_recovery_response.json()["data"] is None
+
+
+@pytest.mark.anyio
+async def test_generation_task_claim_is_leased_and_idempotent(long_story_app) -> None:
+    app, _runtime = long_story_app
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        await client.put(
+            "/story-projects/story_project.api_demo",
+            json=build_project().model_dump(mode="json"),
+        )
+        task = build_generation_task()
+        saved = await client.put(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001",
+            json=task.model_dump(mode="json"),
+        )
+        assert saved.status_code == 200, saved.text
+
+        first = await client.post(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001/claim",
+            json={"lease_id": "worker.api.1", "lease_ttl_seconds": 30},
+        )
+        same_worker = await client.post(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001/claim",
+            json={"lease_id": "worker.api.1", "lease_ttl_seconds": 30},
+        )
+        other_worker = await client.post(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001/claim",
+            json={"lease_id": "worker.api.2", "lease_ttl_seconds": 30},
+        )
+
+        claimed = first.json()["data"]
+        paused_payload = {
+            **claimed,
+            "batch": {
+                **claimed["batch"],
+                "revision": claimed["batch"]["revision"] + 1,
+                "status": "paused",
+            },
+            "checkpoint": {
+                **claimed["checkpoint"],
+                "revision": claimed["checkpoint"]["revision"] + 1,
+                "status": "paused",
+            },
+        }
+        released = await client.put(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001",
+            json=paused_payload,
+        )
+        reclaimed = await client.post(
+            "/story-projects/story_project.api_demo/generation-tasks/"
+            "generation-job.api_demo.001/claim",
+            json={"lease_id": "worker.api.2", "lease_ttl_seconds": 30},
+        )
+
+    assert first.status_code == 200, first.text
+    assert first.json()["data"]["checkpoint"]["lease_id"] == "worker.api.1"
+    assert same_worker.status_code == 200, same_worker.text
+    assert same_worker.json()["data"]["checkpoint"]["revision"] == claimed["checkpoint"]["revision"]
+    assert other_worker.status_code == 409, other_worker.text
+    assert released.status_code == 200, released.text
+    assert released.json()["data"]["checkpoint"]["lease_id"] is None
+    assert reclaimed.status_code == 200, reclaimed.text
+    assert reclaimed.json()["data"]["checkpoint"]["lease_id"] == "worker.api.2"

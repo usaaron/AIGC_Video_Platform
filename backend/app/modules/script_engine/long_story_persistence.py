@@ -244,6 +244,62 @@ class EpisodePlanVersionRecord(SQLModel, table=True):
     payload: dict[str, Any] = Field(sa_column=_json_payload_column())
 
 
+class EpisodePlanMaterializationRecord(SQLModel, table=True):
+    __tablename__ = "episode_plan_materializations"
+    __table_args__ = (
+        Index(
+            "ix_episode_plan_materializations_project_created",
+            "story_project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_episode_plan_materializations_project_range",
+            "story_project_id",
+            "start_episode",
+            "end_episode",
+        ),
+        ForeignKeyConstraint(
+            ["story_bible_id", "story_bible_version"],
+            ["story_bible_versions.story_bible_id", "story_bible_versions.version"],
+        ),
+        CheckConstraint(
+            "start_episode BETWEEN 1 AND 2000 AND "
+            "end_episode BETWEEN start_episode AND 2000",
+            name="ck_episode_plan_materialization_range",
+        ),
+        CheckConstraint(
+            "episode_count BETWEEN 1 AND 2000",
+            name="ck_episode_plan_materialization_count",
+        ),
+        CheckConstraint(
+            "status = 'draft'",
+            name="ck_episode_plan_materialization_status",
+        ),
+    )
+
+    materialization_id: str = Field(primary_key=True, max_length=120)
+    story_project_id: str = Field(
+        foreign_key="story_projects.project_id",
+        index=True,
+        max_length=120,
+    )
+    story_bible_id: str = Field(index=True, max_length=120)
+    story_bible_version: int
+    schema_version: str = Field(max_length=50)
+    source_fingerprint: str = Field(index=True, max_length=80)
+    start_episode: int
+    end_episode: int
+    episode_count: int
+    status: str = Field(index=True, max_length=20)
+    author_confirmed_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    payload: dict[str, Any] = Field(sa_column=_json_payload_column())
+
+
 class ContinuityLedgerVersionRecord(SQLModel, table=True):
     __tablename__ = "continuity_ledger_versions"
     __table_args__ = (

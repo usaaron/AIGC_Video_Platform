@@ -35,10 +35,15 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
     EpisodePlanListResponse,
+    EpisodePlanMaterializationCreate,
+    EpisodePlanMaterializationListResponse,
+    EpisodePlanMaterializationResponse,
     EpisodePlanResponse,
     EpisodeRoadmapDraftResponse,
     EpisodeRoadmapItemDraftResponse,
     GenerationTaskCheckpoint,
+    GenerationTaskClaimRequest,
+    GenerationTaskClaimResponse,
     GenerationTaskCheckpointResponse,
     LongStoryErrorResponse,
     NarrativeEventListResponse,
@@ -289,6 +294,29 @@ def get_recoverable_generation_task(
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
     return GenerationTaskCheckpointResponse(data=task)
+
+
+@router.post(
+    "/{project_id}/generation-tasks/{job_id}/claim",
+    response_model=GenerationTaskClaimResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+    },
+)
+def claim_generation_task(
+    project_id: str,
+    job_id: str,
+    payload: GenerationTaskClaimRequest,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> GenerationTaskClaimResponse:
+    try:
+        task = service.claim_generation_task(project_id, job_id, payload)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
+    return GenerationTaskClaimResponse(data=task)
 
 
 @router.get(
@@ -1774,6 +1802,54 @@ def list_story_stages(
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
     return StoryStagePlanListResponse(data=stages)
+
+
+@router.post(
+    "/{project_id}/episode-plan-materializations",
+    response_model=EpisodePlanMaterializationResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+    },
+)
+def create_episode_plan_materialization(
+    project_id: str,
+    payload: EpisodePlanMaterializationCreate,
+    service: LongStoryService = Depends(get_long_story_service),
+) -> EpisodePlanMaterializationResponse:
+    try:
+        materialization = service.create_episode_plan_materialization(
+            project_id,
+            payload,
+        )
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except (LongStoryPersistenceConflictError, LongStoryReferenceError) as exc:
+        _raise_conflict(exc)
+    return EpisodePlanMaterializationResponse(data=materialization)
+
+
+@router.get(
+    "/{project_id}/episode-plan-materializations",
+    response_model=EpisodePlanMaterializationListResponse,
+    responses={404: {"model": LongStoryErrorResponse}},
+)
+def list_episode_plan_materializations(
+    project_id: str,
+    story_bible_id: str | None = Query(default=None),
+    story_bible_version: int | None = Query(default=None, ge=1),
+    service: LongStoryService = Depends(get_long_story_service),
+) -> EpisodePlanMaterializationListResponse:
+    _validate_story_bible_lineage_query(story_bible_id, story_bible_version)
+    try:
+        materializations = service.list_episode_plan_materializations(
+            project_id,
+            story_bible_id=story_bible_id,
+            story_bible_version=story_bible_version,
+        )
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    return EpisodePlanMaterializationListResponse(data=materializations)
 
 
 @router.put(

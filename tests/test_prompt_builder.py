@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.modules.script_engine.models import GenerationStrategy, PromptBuildContext, PromptLibraryItem
 from app.modules.script_engine.prompt_builder import TemplatePromptBuilder
 
@@ -122,8 +124,13 @@ def test_partner_screenplay_contract_requires_interleaved_body_order() -> None:
     )
 
     assert "partner_screenplay.v1" in result.prompt_text
+    assert "partner_screenplay.content_complete.v1" in result.prompt_text
+    assert "episode_cast" in result.prompt_text
+    assert "content_manifest" in result.prompt_text
+    assert "正式正文" in result.prompt_text
     assert "body_order" in result.prompt_text
-    assert "不能先列完全部动作再集中列全部对白" in result.prompt_text
+    assert "不要机械地一动一说交替" in result.prompt_text
+    assert "有意义的沉默" in result.prompt_text
 
 
 def test_template_prompt_builder_injects_only_resolved_creative_context() -> None:
@@ -363,6 +370,7 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
     assert "不写小说、提纲、分集计划或框架" in result.prompt_text
     assert "人物名和人物对白直接使用简体中文" in result.prompt_text
     assert "不得生成英文人物名、英文对白或中英对照" in result.prompt_text
+    assert "中英对白逐句保留" not in result.prompt_text
     assert "不得少于75秒、不得超过115秒" in result.prompt_text
     assert "优先落在90至105秒安全区" in result.prompt_text
     assert "中文对白约每秒4.2个汉字" in result.prompt_text
@@ -371,14 +379,21 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
     assert "一场可以完成本集时不得强行拆场" in result.prompt_text
     assert "scene_execution_plan" in result.prompt_text
     assert "approved_episode_plan.layer_contracts" in result.prompt_text
-    assert "冲突-决定-局部回报-压力升级-退出状态因果链" in result.prompt_text
+    assert "不要把字段名称翻译成固定" in result.prompt_text
+    assert "事件因果、人物选择、可验证结果和退出状态" in result.prompt_text
     assert "不得重新设计场景结构" in result.prompt_text
     assert "INT.或EXT." in result.prompt_text
     assert "（O.S.）、（V.O.）" in result.prompt_text
     assert "写完整的竖屏短剧执行稿" in result.prompt_text
     assert "对白采用短剧所需的短句" in result.prompt_text
     assert "整部作品的目标成片总时长不少于100分钟" in result.prompt_text
-    assert "通常安排2至3次短循环" in result.prompt_text
+    assert "不要为了满足数量而套用统一的节拍模板" in result.prompt_text
+    assert "EpisodeViewingValueContract:" in result.prompt_text
+    assert "a twist, irreversible state change" in result.prompt_text
+    assert "本集至少提供一项具体的观看价值" in result.prompt_text
+    assert "把所有观看价值推迟到后集" in result.prompt_text
+    assert "本集需要完成至少一个不可逆或难以撤销的有效变化" not in result.prompt_text
+    assert "通常安排2至3次短循环" not in result.prompt_text
     assert "character_actions" in result.prompt_text
     assert "dialogues" in result.prompt_text
     assert "统一添加△" in result.prompt_text
@@ -391,9 +406,128 @@ def test_template_prompt_builder_requires_mainland_production_script_body() -> N
     assert "Compression must never omit a material death" in result.prompt_text
     assert "SerialEpisodeHookContract:" in result.prompt_text
     assert "previous_episode_question" in result.prompt_text
-    assert "For every non-final episode" in result.prompt_text
-    assert "For the series finale" in result.prompt_text
+    assert "For every serial_hook episode" in result.prompt_text
+    assert "for series_finale" in result.prompt_text
     assert "每项是一个可独立拍摄" in result.prompt_text
+
+
+@pytest.mark.parametrize("serialized", [False, True])
+def test_prompt_keeps_exit_state_and_evidence_rules_in_both_context_paths(
+    serialized: bool,
+) -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_state_001",
+            "content_spec_title": "Evidence and handoff",
+            "creative_brief_summary": "Advance the approved episode through visible action.",
+            "platform_profile_id": "overseas_tiktok_v1",
+            "audience_profile_summary": "US vertical drama viewers",
+            "commercial_goal_summary": "Sustain episodic viewing",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {
+                "output_language": "en",
+                **(
+                    {"episode_context_json": json.dumps({"episode_number": 2})}
+                    if serialized
+                    else {}
+                ),
+            },
+        }
+    )
+
+    result = TemplatePromptBuilder().build_master_prompt(
+        prompts=[PromptLibraryItem.model_validate(build_prompt_item())],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "job titles or inventory" in result.prompt_text
+    assert "item possession belongs in continuity_state_updates" in result.prompt_text
+    assert "after a handoff, the giver no longer holds the item" in result.prompt_text
+    assert "transferred requires an enacted transfer" in result.prompt_text
+    assert "schedule or obligation with established/changed" in result.prompt_text
+    assert "preserving its source and uncertainty" in result.prompt_text
+    assert "unverified causes, motives and announced events remain attributed claims or suspicions" in result.prompt_text
+    assert "a later publication alone is not proof of falsified event timing" in result.prompt_text
+    assert "show how a character learned a fact" in result.prompt_text
+    assert "Merely showing that a message arrived does not establish its contents" in result.prompt_text
+    assert "normally no more than 80 visible characters" in result.prompt_text
+    assert "Compression must never omit a material death" in result.prompt_text
+    assert result.prompt_text.count("EvidenceDisclosureContract:") == 1
+    assert result.prompt_text.count("KnowledgeStatusContract:") == 1
+    assert "status applies to the exact proposition" in result.prompt_text
+    assert "disproved only when that statement itself was refuted" in result.prompt_text
+    assert "does not make the comparison disproved" in result.prompt_text
+    assert "An earlier confirmation followed by a retraction" in result.prompt_text
+    assert "A message arriving after someone leaves does not inform that person" in result.prompt_text
+    assert "Preserve the narrower knowledge unless the scene enacts the information transfer" in result.prompt_text
+    assert "distinguish a screenshot of one device from photographing multiple devices" in result.prompt_text
+    assert "mentioning an attachment from actually sending it" in result.prompt_text
+    assert "A distant safety gesture establishes only its agreed signal" in result.prompt_text
+    assert "a speaker's sister does not become the listener's sister" in result.prompt_text
+    assert "saved updates merge by key" in result.prompt_text
+    assert "update that same key with the new episode-exit statement and status" in result.prompt_text
+    assert "their explicit acceptance of changed terms" in result.prompt_text
+    assert "leave setup_payoff_updates empty" in result.prompt_text
+    assert "permanent physical aftereffects only" in result.prompt_text
+    assert "道具交接只发生一次" in result.prompt_text
+    assert "数量词及其所指对象必须对应" in result.prompt_text
+    disclosure_contract = result.prompt_text.split(
+        "EvidenceDisclosureContract:", maxsplit=1
+    )[1].split("\n", maxsplit=1)[0]
+    assert "Track possession and disclosure separately for each material or distinct part" in disclosure_contract
+    assert "continuity_state_updates, current_state" in disclosure_contract
+    assert "qualify its channel and audience" in disclosure_contract
+    assert "change_cause and evidence_scene_numbers" in disclosure_contract
+    assert "operator-only preview, an audience-facing display and an external publication" in disclosure_contract
+    assert "disconnecting a display does not undo content already shown" in disclosure_contract
+    assert "exposed material separate from still-hidden material" in disclosure_contract
+    assert "Character knowledge must stay within evidenced access" in disclosure_contract
+    assert "不得把明确执行者的具体行为改写为无主体的结果" in result.prompt_text
+    assert "不得擅自补出原句未指明的执行者" in result.prompt_text
+    assert ("WorldStateContinuityContract:" in result.prompt_text) is serialized
+    assert ("ContinuityStateOutputContract:" in result.prompt_text) is not serialized
+    if serialized:
+        assert "preserving the prior exit location and enacted agreements" in result.prompt_text
+        assert "Preserve the approved scene order, assigned duties, action motives" in result.prompt_text
+        assert "character-specific voice, dialogue subtext, expressive reactions, pauses" in result.prompt_text
+        assert "Missing causal decisions remain planning gaps" in result.prompt_text
+        assert "wording or action the author explicitly requires" in result.prompt_text
+        assert "Convert it directly into the shortest causal scene sequence" not in result.prompt_text
+        assert "A transferred item remains available to its recorded recipient" in result.prompt_text
+        assert "lost/destroyed/transferred" not in result.prompt_text
+
+
+def test_partner_delivery_contract_uses_author_selected_rhythm_profile() -> None:
+    builder = TemplatePromptBuilder(builder_version="v0.3-test")
+    prompt = PromptLibraryItem.model_validate(build_prompt_item())
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    context = PromptBuildContext.model_validate(
+        {
+            "content_spec_id": "content_spec_rhythm_001",
+            "content_spec_title": "雨夜和解",
+            "creative_brief_summary": "让一次没有说出口的道歉改变两人的站位。",
+            "platform_profile_id": "cn_mainland_comic_drama_v1",
+            "audience_profile_summary": "中国大陆漫剧受众",
+            "commercial_goal_summary": "形成下一集追看理由",
+            "generation_strategy_id": strategy.id,
+            "extra_variables": {
+                "output_language": "zh",
+                "episode_rhythm_profile": "关系误读修正：沉默观察 -> 小动作试探 -> 代价兑现",
+            },
+        }
+    )
+
+    result = builder.build_master_prompt(
+        prompts=[prompt],
+        context=context,
+        strategy=strategy,
+    )
+
+    assert "本集节奏形态（由路线图或作者指定）：关系误读修正" in result.prompt_text
+    assert "优先让这种形态决定场景的进入、停顿、转折和结尾" in result.prompt_text
+    assert "通常安排2至3次短循环" not in result.prompt_text
 
 
 def test_partner_delivery_contract_localizes_only_overseas_dialogue_path() -> None:
@@ -432,6 +566,8 @@ def test_partner_delivery_contract_localizes_only_overseas_dialogue_path() -> No
     assert "OutputLanguage=en仅表示dialogues.text使用英文" in result.prompt_text
     assert "dialogues.chinese_character_name写该说话人的稳定中文名" in result.prompt_text
     assert "在同一次输出中写该句准确、自然的简体中文对照" in result.prompt_text
+    assert "中英对白逐句保留动作主体、对象或受益人、因果、否定、时态与确定程度" in result.prompt_text
+    assert "不得增补原句没有的动作或事实" in result.prompt_text
     assert "characters中的name、role、description、motivation全部只用简体中文" in result.prompt_text
     assert "绝不能据此新建重复人物" in result.prompt_text
     assert "写完整的竖屏短剧执行稿" in result.prompt_text

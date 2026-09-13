@@ -33,18 +33,26 @@ _NON_CURRENT_TIMELINE_MARKERS = (
     "recording",
     "video",
 )
-_CAPABILITY_RESTRICTION_MARKERS = (
-    "不能",
-    "无法",
-    "不可",
-    "失去",
-    "瘫痪",
-    "昏迷",
-    "cannot",
-    "unable",
-    "incapable",
-    "immobile",
-    "unconscious",
+_PHYSICAL_ACTION_RESTRICTION = re.compile(
+    r"(?:不能|无法|不可|没法)(?:独自|独立|正常|自由|继续|再|自行)*"
+    r"(?:行走|走路|奔跑|跑步|站立|起身|移动身体|移动四肢|抬起手臂|弯曲膝盖)"
+    r"|\b(?:cannot|can't|unable to|incapable of)\s+"
+    r"(?:(?:independently|freely|normally)\s+)?"
+    r"(?:walk(?:ing)?|run(?:ning)?|stand(?:ing)?|move|moving)"
+    r"(?=$|[\s.。])"
+    r"(?=\s*(?:$|[.。]|without\b|unassisted\b|unaided\b|due to\b|because\b|"
+    r"or (?:walk|run|stand)\b|and (?:walk|run|stand)\b|"
+    r"(?:her|his|their|my|the) (?:arms?|legs?|body|hands?)\b))",
+    re.IGNORECASE,
+)
+_PHYSICAL_STATE_RESTRICTION = re.compile(
+    r"(?:仍然?|已经|已|目前|暂时|持续|处于)*"
+    r"(?:(?:全身|下肢|双腿)?瘫痪|昏迷(?:不醒)?|失去(?:意识|行动能力|行走能力|视力|听力)|"
+    r"(?:双手|双脚|四肢)(?:被)?(?:捆绑|绑住|铐住))"
+    r"|(?:(?:still|currently|temporarily|remains?|is)\s+)*"
+    r"(?:unconscious|immobile|paraly[sz]ed|in a coma|"
+    r"(?:her |his |their )?(?:hands|feet|limbs) (?:are )?(?:tied|bound|cuffed))",
+    re.IGNORECASE,
 )
 
 
@@ -71,6 +79,7 @@ def evaluate_episode_continuity(
             status=ContinuityQCStatus.not_applicable,
             current_episode_number=context.episode_number if context else None,
         )
+    issues = _same_episode_state_issues(draft)
     checkpoint: dict[str, Any] = {}
     checkpoint_payload = (
         context.provisional_continuity_checkpoint
@@ -83,18 +92,17 @@ def evaluate_episode_continuity(
             decoded_checkpoint = None
         if isinstance(decoded_checkpoint, dict):
             checkpoint = decoded_checkpoint
-        elif not context.storyline_duties:
+        elif not context.storyline_duties and not issues:
             return ContinuityQCReport(
                 status=ContinuityQCStatus.not_applicable,
                 current_episode_number=context.episode_number,
             )
-    elif not context.storyline_duties:
+    elif not context.storyline_duties and not issues:
         return ContinuityQCReport(
             status=ContinuityQCStatus.not_applicable,
             current_episode_number=context.episode_number,
         )
 
-    issues: list[ContinuityQCIssue] = []
     aliases_by_entity = _aliases_by_entity(checkpoint)
     issues.extend(_character_issues(draft, checkpoint, aliases_by_entity))
     issues.extend(_world_state_issues(draft, checkpoint, aliases_by_entity))
@@ -102,7 +110,11 @@ def evaluate_episode_continuity(
     issues.extend(_storyline_duty_issues(draft, checkpoint, context))
     issues.extend(_setup_payoff_issues(draft, checkpoint, context))
     issues.extend(_hook_issues(draft, checkpoint, context))
-    issues = _deduplicate_issues(issues)[:50]
+    # The report cap must never let advisory findings displace a blocking conflict.
+    issues = sorted(
+        _deduplicate_issues(issues),
+        key=lambda issue: issue.severity != ContinuityQCIssueSeverity.blocking,
+    )[:50]
     blocking_count = sum(
         issue.severity == ContinuityQCIssueSeverity.blocking for issue in issues
     )
@@ -184,7 +196,7 @@ def _character_issues(
             value
             for value in _string_list(state.get("action_capabilities"))
             + _string_list(state.get("active_constraints"))
-            if any(marker in value.casefold() for marker in _CAPABILITY_RESTRICTION_MARKERS)
+            if _has_physical_capability_restriction(value)
         ]
         if restrictions and active_scenes and state.get("life_status") != "dead":
             issues.append(_issue(
@@ -228,6 +240,16 @@ def _character_issues(
                         suggested_action="补充重新得知或恢复记忆的可见剧情证据，或保持原认知状态。",
                     ))
     return issues
+
+
+def _has_physical_capability_restriction(value: str) -> bool:
+    # These free-text fields also carry ethical and creative constraints. Keep
+    # this advisory rule limited to explicit physical restrictions per clause.
+    return any(
+        _PHYSICAL_ACTION_RESTRICTION.search(clause.strip())
+        or _PHYSICAL_STATE_RESTRICTION.fullmatch(clause.strip())
+        for clause in re.split(r"[，,。；;.!！\n]", value)
+    )
 
 
 def _story_line_issues(
@@ -666,6 +688,256 @@ def _setup_payoff_issues(
     return issues
 
 
+def _same_episode_state_issues(draft: DraftMasterScript) -> list[ContinuityQCIssue]:
+    issues = _same_episode_knowledge_issues(draft)
+    for update in draft.continuity_state_updates:
+        if _unqualified_private_state(update.current_state):
+            disclosed = [
+                (scene.scene_number, action)
+                for scene in draft.scenes
+                if not _is_non_current_timeline_scene(scene)
+                for action in scene.character_actions
+                if _explicit_public_display(
+                    action, update.entity_name,
+                    [item.entity_name for item in draft.continuity_state_updates],
+                )
+            ]
+            if disclosed:
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.knowledge_conflict,
+                    severity=ContinuityQCIssueSeverity.warning,
+                    entity_key=update.entity_key,
+                    entity_name=update.entity_name,
+                    summary=f"{update.entity_name}在正文中有公开展示动作，但本集状态仍笼统记为未公开。",
+                    prior_state=f"本集状态：{update.current_state}",
+                    current_evidence="；".join(text for _, text in disclosed)[:500],
+                    prior_episode_number=None,
+                    scene_numbers=[number for number, _ in disclosed],
+                    suggested_action="分别核对已展示内容、观看范围与尚未发布的渠道；撤下展示或收回物品不能撤销已经发生的公开。保留未展示材料的独立状态。",
+                ))
+        if update.transition == "transferred" and _pending_transfer_state(
+            update.current_state, update.change_cause
+        ):
+            issues.append(_issue(
+                issue_type=ContinuityQCIssueType.unavailable_entity_usage,
+                severity=ContinuityQCIssueSeverity.warning,
+                entity_key=update.entity_key,
+                entity_name=update.entity_name,
+                summary=f"{update.entity_name}被标记为已转移，但当前状态只描述待发生的转移。",
+                prior_state="本集 continuity_state_updates.transition=transferred",
+                current_evidence=f"{update.current_state}；原因：{update.change_cause}",
+                prior_episode_number=None,
+                scene_numbers=list(update.evidence_scene_numbers),
+                suggested_action="核对场景证据；尚未发生的转移应记录为计划或时限状态，实际发生后再标记 transferred。",
+            ))
+        if update.entity_type != "item":
+            continue
+        # Only compare explicit custody statements, not inferred ownership or access.
+        holders = [
+            character.character_name
+            for character in draft.character_state_updates
+            if _explicit_item_possession(
+                update.current_state, update.entity_name, character.character_name
+            )
+        ]
+        if len(holders) != 1:
+            continue
+        for character in draft.character_state_updates:
+            if _normalize(character.character_name) == _normalize(holders[0]):
+                continue
+            conflicting = [
+                capability for capability in character.action_capabilities or []
+                if _explicit_item_possession(
+                    capability, update.entity_name, character.character_name,
+                    implicit_subject=True,
+                )
+            ]
+            if conflicting:
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.capability_conflict,
+                    severity=ContinuityQCIssueSeverity.warning,
+                    entity_key=update.entity_key,
+                    entity_name=update.entity_name,
+                    summary=f"{update.entity_name}由{holders[0]}持有，但{character.character_name}的本集能力表仍记录持有该物品。",
+                    prior_state=f"本集物品状态：{update.current_state}",
+                    current_evidence=f"{character.character_name} action_capabilities：{'；'.join(conflicting)}",
+                    prior_episode_number=None,
+                    scene_numbers=list(update.evidence_scene_numbers),
+                    suggested_action="按集末实际持有人同步人物能力表与物品状态；若是共同持有或不同副本，应明确说明。",
+                ))
+    return issues
+
+
+def _same_episode_knowledge_issues(draft: DraftMasterScript) -> list[ContinuityQCIssue]:
+    issues: list[ContinuityQCIssue] = []
+    for update in draft.character_state_updates:
+        # A later correction can legitimately supersede an earlier confirmation.
+        history = " ".join([
+            *update.knowledge_changes, update.change_summary, update.change_cause,
+        ])
+        if _has_knowledge_retraction(history):
+            continue
+        for state in update.knowledge_states or []:
+            if state.status != "disproved" or _has_knowledge_retraction(state.statement):
+                continue
+            statement_clauses = re.split(r"[，,。；;.!！]", state.statement)
+            proposition = _knowledge_comparison_text(statement_clauses[0])
+            if len(proposition) < 12:
+                continue
+            comparable = {_knowledge_comparison_text(state.statement)}
+            qualifiers = [clause.strip() for clause in statement_clauses[1:] if clause.strip()]
+            # Shared time-basis qualifiers may be omitted in the change summary;
+            # an arbitrary second claim or conditional must not be discarded.
+            if qualifiers and all(re.fullmatch(
+                r"两者(?:均)?为同一时区|(?:两者)?均为矿区当地时间"
+                r"|(?:both|all) times (?:are|use) (?:the )?same (?:local )?time zone",
+                clause, re.IGNORECASE,
+            ) for clause in qualifiers):
+                comparable.add(proposition)
+            confirmations = []
+            for change in update.knowledge_changes:
+                match = re.fullmatch(
+                    r"(?:(?:已(?:经)?)?(?:确认|核实|查实|证实)(?:了)?[：:\s]*"
+                    r"|(?:confirmed|verified|established)(?:\s+that)?[ :]+)(.+)",
+                    change.strip(), re.IGNORECASE,
+                )
+                if match and _knowledge_comparison_text(match.group(1)) in comparable:
+                    confirmations.append(change)
+            if confirmations:
+                issues.append(_issue(
+                    issue_type=ContinuityQCIssueType.knowledge_conflict,
+                    severity=ContinuityQCIssueSeverity.warning,
+                    entity_key=state.knowledge_key,
+                    entity_name=update.character_name,
+                    discriminator=_normalize(update.character_name),
+                    summary=f"{update.character_name}的本集知识变更明确确认同一陈述，但知识状态标为已证伪。",
+                    prior_state=f"本集 knowledge_states：{state.statement}[{state.status}]",
+                    current_evidence="；".join(confirmations)[:500],
+                    prior_episode_number=None,
+                    scene_numbers=list(update.evidence_scene_numbers),
+                    suggested_action="核对本集证据和集末认知：disproved 表示该 statement 本身被证伪，不表示其他假说未获证实。显式修订冲突字段后再用于后续记忆。",
+                ))
+    return issues
+
+
+def _knowledge_comparison_text(text: str) -> str:
+    return re.sub(r"\s+", "", text).strip("，,。；;.!！:：").casefold()
+
+
+def _has_knowledge_retraction(text: str) -> bool:
+    return bool(re.search(
+        r"证伪|推翻|撤回|更正|误判|错误|不成立|遗忘|忘记"
+        r"|\b(?:disprov\w*|refut\w*|retract\w*|recant\w*|correct\w*|"
+        r"mistaken|false|forgot\w*)\b",
+        text, re.IGNORECASE,
+    ))
+
+
+def _unqualified_private_state(text: str) -> bool:
+    # A channel-limited statement such as "not published online" can remain true.
+    return any(
+        re.fullmatch(pattern, clause.strip(), re.IGNORECASE)
+        for clause in re.split(r"[，,。；;.!！]", text)
+        for pattern in (
+            r"(?:仍|仍然)?(?:尚未|未曾|从未|未)(?:公开|曝光)(?:过)?",
+            r"(?:(?:it|the material)\s+(?:is|has)\s+)?(?:still\s+)?"
+            r"(?:private|undisclosed|not (?:yet )?(?:public|disclosed)|never (?:been )?disclosed)",
+        )
+    )
+
+
+def _explicit_public_display(action: str, entity_name: str, entity_names: list[str]) -> bool:
+    """Find narrow, affirmative public-screen actions, never dialogue assertions."""
+    if re.search(
+        r'["“”「」]|(?:说|声称|表示|写道|写着|转述|假设|想象|空无一人|无人|没有观众|仅供|测试|彩排|遮挡|遮住)'
+        r"|\b(?:says?|said|claims?|claimed|reads?|quoted|empty|nobody|no one|no audience|rehearsal|test|covered)\b",
+        action, re.IGNORECASE,
+    ):
+        return False
+    public_screen = r"(?:宴会厅|会场|礼堂|广场|公共大厅|大厅)(?:的)?(?:大屏|屏幕)"
+    patterns = (
+        rf"{public_screen}(?:上)?(?:正在|已经|已|正|短暂)?(?:显示|展示|呈现)(?P<entity>[\u3400-\u9fff]{{2,32}})",
+        r"\b(?:the\s+)?(?:public|banquet|conference|auditorium)\s+(?:hall\s+)?screen\s+"
+        r"(?:briefly\s+)?(?:displays|shows)\s+(?:the\s+)?(?P<entity>[a-z][a-z -]{2,60})",
+    )
+    for clause in re.split(r"[，,。；;.!！]", action):
+        if re.search(
+            r"[\"“”‘’]|(?:如果|假如|计划|打算|准备|即将|将要|尚未|未曾|没有|并未|并非|不曾|差点|险些|避免|阻止|以免|防止)"
+            r"|\b(?:if|would|will|might|could|plans?|intends?|not|never|almost|prevent\w*|imagine\w*)\b",
+            clause, re.IGNORECASE,
+        ):
+            continue
+        for pattern in patterns:
+            match = re.search(pattern, clause, re.IGNORECASE)
+            if match is None:
+                continue
+            visible_name = match.group("entity").strip().casefold()
+            name = entity_name.strip().casefold()
+            possible_names = {
+                candidate.strip().casefold() for candidate in entity_names
+                if candidate.strip().casefold() == visible_name
+                or (re.fullmatch(r"[\u3400-\u9fff]{4,}", visible_name)
+                    and candidate.strip().casefold().endswith(visible_name))
+            }
+            if possible_names != {name}:
+                continue
+            if visible_name == name:
+                return True
+            # Allow a qualified Chinese name to use its distinctive short name,
+            # but never match a bare category such as "截图" or "名单".
+            if (re.fullmatch(r"[\u3400-\u9fff]{4,}", visible_name)
+                    and name.endswith(visible_name)):
+                return True
+    return False
+
+
+def _explicit_item_possession(
+    text: str, item_name: str, character_name: str, *, implicit_subject: bool = False
+) -> bool:
+    item = re.escape(item_name.strip())
+    character = re.escape(character_name.strip())
+    possess = r"(?:持有|保管)"
+    current = r"(?:目前|当前|现在)?(?:仍|仍然|正)?"
+    patterns = [
+        rf"{item}{current}由{character}{possess}",
+        rf"{character}{current}{possess}{item}",
+        rf"(?:the\s+)?{item}\s+is\s+(?:(?:currently|still)\s+)?(?:held|kept)\s+by\s+{character}",
+        rf"{character}\s+(?:(?:currently|still)\s+)?(?:holds|possesses)\s+(?:the\s+)?{item}",
+    ]
+    if implicit_subject:
+        patterns.extend([
+            rf"{current}{possess}{item}",
+            rf"(?:(?:currently|still)\s+)?(?:holds?|possesses?|in possession of)\s+(?:the\s+)?{item}",
+        ])
+    return any(
+        re.fullmatch(pattern + r"[。.!！]?", text.strip(), re.IGNORECASE)
+        for pattern in patterns
+    )
+
+
+def _pending_transfer_state(current_state: str, change_cause: str) -> bool:
+    transfer = r"(?:转移|转交|转运|移交|交付|交接)"
+    pending = (
+        rf"(?:尚未|还未|尚待|等待|计划|准备|将要|即将|将于|将被|就要)[^。；;]{{0,24}}{transfer}",
+        rf"{transfer}[^。；;]{{0,8}}(?:计划|时限|期限)",
+        r"\b(?:will|scheduled to|going to|awaiting|pending|not yet|plans? to)\b[^.;]{0,50}\b(?:transfer\w*|hand(?:ed)? over|deliver\w*|ship\w*)\b",
+    )
+    if not any(re.search(pattern, current_state, re.IGNORECASE) for pattern in pending):
+        return False
+    # A later scheduled move does not undo an already completed handover.
+    completed = (
+        rf"(?:已经|已|刚刚|完成了)[^。；;]{{0,16}}{transfer}",
+        rf"{transfer}[^。；;]{{0,5}}(?:完毕|完成|给了|到了)",
+        r"\b(?:(?:has|have|had)\s+(?:already\s+)?been|was|were)\s+(?:transferred|delivered|shipped)\b",
+        r"\bhanded\s+(?:\w+\s+){0,3}over\b",
+    )
+    return not any(
+        re.search(pattern, text, re.IGNORECASE)
+        for text in (current_state, change_cause)
+        for pattern in completed
+    )
+
+
 def _world_state_issues(
     draft: DraftMasterScript,
     checkpoint: dict[str, Any],
@@ -713,7 +985,7 @@ def _world_state_issues(
                 suggested_action="保持原状态，或使用恢复、修复、重新获得等明确转换并在场景中提供证据。",
             ))
 
-        if transition not in {"destroyed", "lost", "transferred"}:
+        if transition not in {"destroyed", "lost"}:
             continue
         if update is not None and _allowed_lifecycle_transition(
             transition, update.transition
@@ -830,7 +1102,6 @@ def _allowed_lifecycle_transition(previous: str, current: str) -> bool:
     allowed = {
         "destroyed": {"repaired", "recovered"},
         "lost": {"acquired", "recovered"},
-        "transferred": {"acquired", "transferred", "recovered"},
         "died": set(),
     }
     return current in allowed.get(previous, {current})
@@ -856,8 +1127,11 @@ def _issue(
     prior_episode_number: int | None,
     scene_numbers: list[int],
     suggested_action: str,
+    discriminator: str = "",
 ) -> ContinuityQCIssue:
     signature = "\0".join((issue_type.value, entity_key, ",".join(map(str, scene_numbers))))
+    if discriminator:
+        signature += f"\0{discriminator}"
     return ContinuityQCIssue(
         issue_id=f"continuity_issue.{hashlib.sha256(signature.encode()).hexdigest()[:20]}",
         issue_type=issue_type,

@@ -1,6 +1,5 @@
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
-import { episodeEndingLabel, episodeEndingText } from "./episode-ending.ts";
 import {
   applyChineseCharacterNames,
   mergeOverseasCharacterNames,
@@ -165,16 +164,52 @@ function episodeParagraphs(
       size: 19,
     })],
   }));
+  paragraphs.push(screenplayMarker(docx, "本集信息"));
+  const cast = [...new Set(
+    (draft.episode_cast?.length
+      ? draft.episode_cast
+      : draft.scenes.flatMap((scene) => scene.character_refs ?? scene.dialogues.map((line) => line.chinese_character_name || line.character_name)))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )];
+  const locations = [...new Set(
+    (draft.locations?.length
+      ? draft.locations
+      : draft.scenes.map((scene) => scene.content_manifest?.location ?? scene.scene_heading ?? scene.setting_hint ?? scene.setting ?? scene.slug))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )];
+  const infoRows = [
+    `剧情梗概：${overseasNarrativeText(dialoguePresentation, "synopsis", draft.synopsis)}`,
+    `本集目标：${overseasNarrativeText(dialoguePresentation, "episode_goal", draft.episode_goal ?? "")}`,
+    `本集出场人物：${cast.join("、") || "待补充"}`,
+    `使用场地：${locations.join("、") || "待补充"}`,
+    ...draft.scenes.map((scene, index) => {
+      const manifest = scene.content_manifest;
+      const refs = (manifest?.character_refs ?? scene.character_refs ?? scene.dialogues.map((line) => line.chinese_character_name || line.character_name)).join("、");
+      return `场景${index + 1}｜出场：${refs || "待补充"}｜任务：${manifest?.objective ?? scene.purpose}｜结果：${manifest?.outcome ?? scene.turning_point ?? scene.beat_summary}｜道具：${manifest?.props?.join("、") || "无特别道具"}`;
+    }),
+  ];
+  for (const row of infoRows) {
+    paragraphs.push(new docx.Paragraph({
+      keepNext: true,
+      spacing: { after: 70, line: 250 },
+      children: [new docx.TextRun({ text: row, color: COLORS.charcoal, size: 18 })],
+    }));
+  }
+  paragraphs.push(screenplayMarker(docx, "正式正文"));
   paragraphs.push(screenplayMarker(docx, "FADE IN / 淡入："));
 
   draft.scenes.forEach((scene, sceneIndex) => {
     const setting = applyChineseCharacterNames(
       clientSceneHeading(overseasNarrativeText(
         dialoguePresentation,
-        scene.setting_hint
-          ? `scenes.${sceneIndex}.setting_hint`
-          : `scenes.${sceneIndex}.slug`,
-        scene.setting_hint ?? scene.setting ?? scene.slug,
+        scene.scene_heading
+          ? `scenes.${sceneIndex}.scene_heading`
+          : scene.setting_hint
+            ? `scenes.${sceneIndex}.setting_hint`
+            : `scenes.${sceneIndex}.slug`,
+        scene.scene_heading ?? scene.setting_hint ?? scene.setting ?? scene.slug,
       )),
       characterNames,
     );
@@ -292,15 +327,6 @@ function episodeParagraphs(
   });
 
   paragraphs.push(screenplayMarker(docx, "FADE OUT / 淡出。"));
-  paragraphs.push(new docx.Paragraph({
-    spacing: { before: 100 },
-    children: [new docx.TextRun({
-      text: `（${episodeEndingLabel(draft)}：${applyChineseCharacterNames(episodeEndingText(draft), characterNames)}）`,
-      italics: true,
-      color: COLORS.burgundy,
-      size: 19,
-    })],
-  }));
   return paragraphs;
 }
 

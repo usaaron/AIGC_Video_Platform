@@ -79,11 +79,13 @@ from app.modules.script_engine.models import (
 )
 from app.modules.script_engine.repository import GenerationStrategyRepository
 from app.modules.script_engine.story_planning_service import (
+    STORY_BIBLE_IMPORT_INSTRUCTION,
     TECHNICAL_STORY_ROOT_MARKER,
     StoryPlanningInputError,
     StoryPlanningService,
     StoryPlanningTransientOutputError,
     apply_episode_roadmap_modification_scope,
+    _creative_decision_prompt_contract,
     _without_adapter_metadata,
     _bounded_decomposition_child_repair_sources,
     _compact_json_schema_for_prompt,
@@ -99,10 +101,12 @@ from app.modules.script_engine.story_planning_service import (
     infer_story_bible_modification_scope,
     merge_interactive_story_bible_framework,
     merge_story_bible_repair_candidates,
+    normalize_episode_plan_generation_item,
     normalize_interactive_story_bible_sections,
     normalize_story_bible_generation_output,
     normalize_story_plan_node_generation_output,
     planning_payload_for_validation,
+    _normalize_escalation_stage,
     repair_deterministic_story_bible_identity_issues,
     story_bible_character_consistency_issues,
     story_bible_non_chinese_fields,
@@ -2275,6 +2279,18 @@ def test_interactive_story_bible_historical_relationship_and_escalation_shapes_a
     assert output.escalation_stages[0].stage_opposition == "对手阻断证据来源。"
 
 
+def test_missing_escalation_stage_fields_remain_editorial_placeholders() -> None:
+    normalized = _normalize_escalation_stage({"level": 2, "stage": "关系代价"}, 2)
+
+    assert normalized["title"] == "关系代价"
+    assert str(normalized["stage_goal"]).startswith("待补充：")
+    assert str(normalized["stage_opposition"]).startswith("待补充：")
+    assert str(normalized["stage_payoff"]).startswith("待补充：")
+    assert str(normalized["escalation_to_next"]).startswith("待补充：")
+    assert "取得阶段性结果" not in str(normalized["stage_payoff"])
+    assert "更高一级压力" not in str(normalized["escalation_to_next"])
+
+
 def test_interactive_story_bible_merge_keeps_valid_model_when_approved_framework_is_bad() -> None:
     generated = StoryBibleGenerationOutput.model_validate(
         {
@@ -3521,6 +3537,7 @@ def test_story_planning_service_repairs_non_chinese_narrative_once(tmp_path) -> 
                     "version",
                     "status",
                     "creative_decisions",
+                    "imported_source_document",
                     "created_at",
                     "approved_at",
                 }
@@ -4364,28 +4381,48 @@ def test_episode_roadmap_uses_streaming_for_the_full_collection() -> None:
     assert len(output.episode_plans) == 5
 
 
-def test_episode_roadmap_starts_with_short_ordered_segments() -> None:
+@pytest.mark.parametrize("recovery", [False, True])
+def test_episode_roadmap_starts_with_short_ordered_segments(recovery: bool, monkeypatch) -> None:
     adapter = RecordingSegmentedEpisodeRoadmapAdapter()
     service = object.__new__(StoryPlanningService)
     service._llm_adapter = adapter
     service._episode_plan_llm_adapter = adapter
 
-    output = service._generate_segmented_episode_roadmap(
-        prompt=(
+    prompt = (
             "Create Episode Plans 1-8 for a Chinese mainland serialized comic story. "
             "knowledge_bundle.draft.cn_mainland_longform_foundation.v1. "
             "Use these principles as bounded guidance, not rigid plot formulas."
-        ),
-        strategy=build_strategy(),
-        expected_episode_numbers=list(range(1, 9)),
     )
+    streams = []
+    generate_stream = adapter.generate_structured_output_stream
+
+    def stream(*args, **kwargs):
+        streams.append(kwargs.get("output_schema"))
+        return generate_stream(*args, **kwargs)
+
+    monkeypatch.setattr(adapter, "generate_structured_output_stream", stream)
+    schema = EpisodePlanBatchGenerationOutput.model_json_schema()
+    schema["description"] = "Caller-provided roadmap schema."
+    if recovery:
+        service._episode_plan_llm_adapter = EmptyEpisodeRoadmapAdapter()
+        output = service._recover_segmented_episode_roadmap(
+            llm_adapter=adapter, contract_prompt=prompt, strategy=build_strategy(),
+            output_schema=schema, expected_episode_numbers=list(range(1, 9)),
+        )
+        assert streams == [schema, schema]
+    else:
+        output = service._generate_segmented_episode_roadmap(
+            prompt=prompt, strategy=build_strategy(),
+            expected_episode_numbers=list(range(1, 9)),
+        )
+    assert len(streams) == 2
 
     assert [item.episode_number for item in output.episode_plans] == list(range(1, 9))
     assert len(adapter.prompts) == 2
     assert "exact order:\n[1, 2, 3, 4, 5, 6]" in adapter.prompts[0]
     assert "exact order:\n[7, 8]" in adapter.prompts[1]
     assert '"episode_goal"' not in adapter.prompts[1]
-    assert all(tokens <= 7_000 for tokens in adapter.max_tokens)
+    assert adapter.max_tokens == [16_000, 6_400]
 
 
 def test_episode_roadmap_recovers_empty_large_segments_by_splitting() -> None:
@@ -4860,8 +4897,127 @@ def test_story_bible_prompt_contains_author_control_instruction() -> None:
     assert "强化主角与证人的互不信任，但不要提前揭示最终真相" in prompt
     assert '"decision_key":"ending.direction"' in prompt
     assert "unresolved values must remain visibly open" in prompt
-    assert "它不自动授权新增身份、秘密、背叛、死亡、关系结果、主题结论或结局" in prompt
+    assert "ordinary unspecified content may be developed" in prompt
+    assert "Explicit unresolved/deferred decisions" in prompt
+    assert "AI草案（待确认）" in prompt
+    assert "它不自动授权覆盖用户已定事实" in prompt
     assert "可以选择、组合或补充候选方向" not in prompt
+
+
+@pytest.mark.parametrize("source_import", [False, True])
+def test_story_bible_candidate_permission_keeps_source_import_strict(source_import: bool) -> None:
+    request = StoryBibleDraftRequest(
+        story_project_id="story_project.outline_candidates",
+        generation_strategy_id="strategy.outline_candidates",
+        creative_prompt="一名记者调查旧案，具体真相和结局尚未填写。",
+        author_instruction=STORY_BIBLE_IMPORT_INSTRUCTION if source_import else "",
+        preserve_source_document=source_import,
+    )
+    prompt = StoryPlanningService._build_prompt(
+        payload=request,
+        project_title="旧案",
+        content_spec=SimpleNamespace(story_goal="形成可连载的完整故事。", tags=[]),
+        knowledge_context="KnowledgeBundle: bounded",
+    )
+
+    assert ("ordinary unspecified content may be developed" in prompt) is not source_import
+    assert "generating or repairing a draft never approves it" in prompt
+    assert "默认向创作者说明结局与已有核心悬念的真相" in prompt
+    assert "创作者知道真相不等于观众提前知道" in prompt
+    assert "episode-level hooks in this step" in prompt
+    assert "If a family member's name is unknown, use a stable role label" in prompt
+    assert "原文导入只忠实整理，不适用补全创作权限" in prompt
+    if source_import:
+        assert STORY_BIBLE_IMPORT_INSTRUCTION in prompt
+        assert "原文没有明确的高影响内容必须保留为“待定”" in prompt
+    else:
+        assert "Missing input alone does not mean the author explicitly deferred" in prompt
+        assert "When an ambiguity could change the user's intended story" in prompt
+        assert "核心对抗、主角主动选择及其后果" in prompt
+        assert "说明全剧最终反转、核心对抗" not in prompt
+
+
+def test_author_contract_does_not_extend_outline_candidates_to_downstream_planning() -> None:
+    outline = _creative_decision_prompt_contract([], allow_outline_candidates=True)
+    downstream = _creative_decision_prompt_contract([])
+
+    assert "ordinary unspecified content may be developed" in outline
+    assert "ordinary unspecified content may be developed" not in downstream
+    assert "Missing core plot decisions" in downstream
+    assert "not silently invented episode facts" in downstream
+    for prompt in (outline, downstream):
+        assert "including decisions the author has deferred" in prompt
+        assert "suggest_only permits a provisional draft direction" in prompt
+        assert "generating or repairing a draft never approves it" in prompt
+
+
+def test_generated_outline_proposal_remains_draft_until_author_approval(tmp_path) -> None:
+    proposed_ending = "AI草案（待确认）：主角公开完整证据，保护知情者并承担公开真相的代价。"
+
+    class ProposalAdapter(FixedStoryBibleAdapter):
+        def generate_structured_output(self, prompt, *, strategy, output_schema=None):
+            assert "ordinary unspecified content may be developed" in prompt
+            generated = super().generate_structured_output(
+                prompt, strategy=strategy, output_schema=output_schema,
+            )
+            generated["ending_direction"] = proposed_ending
+            return generated
+
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'outline_proposal.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    content_specs = ContentSpecRepository()
+    strategies = GenerationStrategyRepository()
+    content_spec = content_specs.save(build_content_spec())
+    strategy = strategies.save(build_strategy())
+    long_story = LongStoryService(runtime)
+    project_id = "story_project.outline_proposal"
+    long_story.save_project(StoryProject(
+        project_id=project_id,
+        title="旧案调查",
+        content_spec_id=content_spec.id,
+        planned_episode_count=100,
+    ))
+    service = StoryPlanningService(
+        long_story_service=long_story,
+        content_spec_repository=content_specs,
+        generation_strategy_repository=strategies,
+        llm_adapter=ProposalAdapter(),
+    )
+    try:
+        draft = service.generate_story_bible_draft(StoryBibleDraftRequest(
+            story_project_id=project_id,
+            content_spec_id=content_spec.id,
+            generation_strategy_id=strategy.id,
+            creative_prompt="一名记者调查被掩盖的旧案。",
+            target_episode_count=100,
+        ))
+        stored = long_story.get_story_bible(project_id, draft.story_bible_id)
+        assert stored.status == PlanningApprovalStatus.draft
+        assert stored.approved_at is None
+        assert stored.ending_direction == proposed_ending
+        assert [decision.decision_key for decision in stored.creative_decisions] == [
+            "creative_input.original"
+        ]
+
+        revised_draft = long_story.save_story_bible(stored.model_copy(update={
+            "version": stored.version + 1,
+            "ending_direction": proposed_ending.removeprefix("AI草案（待确认）："),
+            "status": PlanningApprovalStatus.draft,
+            "approved_at": None,
+        }))
+        approved = long_story.save_story_bible(revised_draft.model_copy(update={
+            "version": revised_draft.version + 1,
+            "status": PlanningApprovalStatus.approved,
+            "approved_at": datetime.now(timezone.utc),
+        }))
+        assert approved.status == PlanningApprovalStatus.approved
+        assert approved.creative_decisions[-1].source.value == "user_input"
+        assert approved.creative_decisions[-1].decision_key == (
+            f"author_revision.story_bible_v{revised_draft.version}"
+        )
+        assert approved.creative_decisions[-1].authority.value == "canonical"
+    finally:
+        runtime.engine.dispose()
 
 
 def test_direct_story_bible_edit_becomes_new_author_owned_direction() -> None:
@@ -5527,6 +5683,155 @@ def build_active_lineage_episode_item(episode_number: int = 1) -> dict[str, obje
     }
 
 
+def build_episode_dramatic_design() -> dict[str, object]:
+    return {
+        "dramatic_units": [{
+            "trigger": "证人拒绝独自离开，要求主角交出安全屋钥匙。",
+            "choice": "主角把唯一一把钥匙留给证人，自己返回档案室。",
+            "visible_consequence": "证人可以藏身，主角却失去了原定退路。",
+            "change_type": "资源与信任",
+            "evidence_hint": "证人攥住钥匙，主角合上空了的钥匙扣。",
+        }],
+        "protagonist_cost": "主角把安全屋让给证人，当晚无法再回去藏身。",
+    }
+
+
+@pytest.mark.parametrize(
+    ("units_key", "cost_key"),
+    [
+        ("dramatic_units", "protagonist_cost"),
+        ("戏剧单位", "主角代价"),
+        ("戏剧单位", "人物代价"),
+    ],
+)
+def test_episode_item_normalizes_optional_dramatic_design(
+    units_key: str, cost_key: str,
+) -> None:
+    design = build_episode_dramatic_design()
+    normalized = normalize_episode_plan_generation_item(
+        {
+            **build_active_lineage_episode_item(),
+            units_key: design["dramatic_units"],
+            cost_key: design["protagonist_cost"],
+        },
+        expected_episode_number=1,
+    )
+    item = EpisodePlanGenerationItem.model_validate(normalized)
+
+    assert item.model_dump(mode="json")["dramatic_units"] == design["dramatic_units"]
+    assert item.protagonist_cost == design["protagonist_cost"]
+    assert {"dramatic_units", "protagonist_cost"} <= item.model_fields_set
+
+
+def test_episode_roadmap_rewrite_preserves_dramatic_design_omitted_by_legacy_output() -> None:
+    source = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(),
+        **build_episode_dramatic_design(),
+    })
+    candidate = EpisodePlanGenerationItem.model_validate(
+        normalize_episode_plan_generation_item(
+            build_active_lineage_episode_item(),
+            expected_episode_number=1,
+        )
+    )
+    allowed_fields = infer_episode_roadmap_modification_scope(
+        instruction="整体重写本集路线图。",
+        selection_context=None,
+        revision_mode="rewrite",
+    )
+
+    assert {"dramatic_units", "protagonist_cost"} <= allowed_fields
+    assert not {"dramatic_units", "protagonist_cost"} & candidate.model_fields_set
+    revised = apply_episode_roadmap_modification_scope(source, candidate, allowed_fields)
+
+    assert revised.dramatic_units == source.dramatic_units
+    assert revised.protagonist_cost == source.protagonist_cost
+
+
+@pytest.mark.parametrize("cost_key", ["protagonist_cost", "人物代价"])
+def test_episode_roadmap_revision_can_explicitly_clear_optional_dramatic_design(
+    cost_key: str,
+) -> None:
+    source = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(),
+        **build_episode_dramatic_design(),
+    })
+    normalized = normalize_episode_plan_generation_item(
+        {**build_active_lineage_episode_item(), "dramatic_units": [], cost_key: None},
+        expected_episode_number=1,
+    )
+    candidate = EpisodePlanGenerationItem.model_validate(normalized)
+    allowed_fields = infer_episode_roadmap_modification_scope(
+        instruction="清空戏剧单位和人物代价。",
+        selection_context=None,
+        revision_mode="targeted",
+    )
+
+    assert {"dramatic_units", "protagonist_cost"} <= candidate.model_fields_set
+    assert {"dramatic_units", "protagonist_cost"} <= allowed_fields
+    revised = apply_episode_roadmap_modification_scope(source, candidate, allowed_fields)
+
+    assert revised.dramatic_units == []
+    assert revised.protagonist_cost is None
+
+
+def test_episode_roadmap_title_revision_preserves_existing_dramatic_design() -> None:
+    source = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(),
+        **build_episode_dramatic_design(),
+        "episode_title": "钥匙易手",
+    })
+    candidate = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(),
+        "episode_title": "无处藏身",
+        "dramatic_units": [],
+        "protagonist_cost": None,
+    })
+    allowed_fields = infer_episode_roadmap_modification_scope(
+        instruction="只修改标题。",
+        selection_context=None,
+        revision_mode="targeted",
+    )
+    revised = apply_episode_roadmap_modification_scope(source, candidate, allowed_fields)
+
+    assert revised.episode_title == candidate.episode_title
+    assert revised.dramatic_units == source.dramatic_units
+    assert revised.protagonist_cost == source.protagonist_cost
+
+
+def test_episode_dramatic_design_obeys_mainland_language_contract() -> None:
+    chinese_item = {
+        **build_active_lineage_episode_item(),
+        **build_episode_dramatic_design(),
+    }
+    chinese_output = EpisodePlanBatchGenerationOutput.model_validate({
+        "episode_plans": [chinese_item],
+    })
+    assert planning_output_chinese_issues(chinese_output) == []
+
+    english_output = EpisodePlanBatchGenerationOutput.model_validate({
+        "episode_plans": [{
+            **chinese_item,
+            "dramatic_units": [{
+                "trigger": "The witness demands the key before leaving.",
+                "choice": "Mara hands over her only key.",
+                "visible_consequence": "Mara loses her planned escape route.",
+                "change_type": "resources and trust",
+                "evidence_hint": "The witness grips the key while Mara walks away.",
+            }],
+            "protagonist_cost": "Mara cannot return to her hiding place tonight.",
+        }],
+    })
+    assert set(planning_output_chinese_issues(english_output)) == {
+        "episode_plans.0.protagonist_cost",
+        "episode_plans.0.dramatic_units.0.trigger",
+        "episode_plans.0.dramatic_units.0.choice",
+        "episode_plans.0.dramatic_units.0.visible_consequence",
+        "episode_plans.0.dramatic_units.0.change_type",
+        "episode_plans.0.dramatic_units.0.evidence_hint",
+    }
+
+
 def test_episode_item_fallback_builds_an_executable_scene_blueprint() -> None:
     item = EpisodePlanGenerationItem.model_validate(build_active_lineage_episode_item())
 
@@ -5550,6 +5855,20 @@ def test_episode_title_quality_rejects_planning_report_language() -> None:
     assert "report_prefix" in _episode_title_quality_issues("完成送货员救援")
     assert "planning_suffix" in _episode_title_quality_issues("追查行动")
     assert "format" in _episode_title_quality_issues("第12集：追查")
+
+
+def test_episode_plan_diversity_compares_the_chinese_core_of_bilingual_titles() -> None:
+    first = EpisodePlanGenerationItem.model_validate(
+        {**build_active_lineage_episode_item(), "episode_number": 1, "episode_title": "FIRST｜原始工单"}
+    )
+    second = EpisodePlanGenerationItem.model_validate(
+        {**build_active_lineage_episode_item(), "episode_number": 2, "episode_title": "SECOND｜原始工单"}
+    )
+
+    assert "episode_title" in StoryPlanningService._episode_plan_diversity_issues(
+        [first, second],
+        focus_episode_number=2,
+    )
 
 
 def test_episode_roadmap_modification_scope_keeps_title_in_sync_with_goal() -> None:
@@ -5769,6 +6088,64 @@ def build_episode_item_generation_service(adapter: object) -> tuple[
     return service, source
 
 
+def test_scene_blueprint_completion_receives_schema_and_preserves_existing_scenes():
+    from app.modules.script_engine.long_story_models import EpisodeSceneExecutionBeat
+
+    scene = EpisodeSceneExecutionBeat(
+        scene_number=1, scene_heading="INT. 档案室 - 夜", character_refs=["character.mara"],
+        scene_objective="主角核验原始凭证。", visible_action="主角将原始凭证放在灯下。",
+        turn_or_reveal="编号与账本一致。", dialogue_objective="确认材料的原始来源。",
+        dialogue_line_target=8, shot_target=5, exit_state="原始来源得到核验。",
+    )
+    item = EpisodePlanGenerationItem.model_validate({
+        **build_active_lineage_episode_item(), **build_episode_dramatic_design(),
+        "scene_execution_plan": [
+            scene.model_copy(update={
+                "scene_number": number,
+                "shot_target": 6 if number == 3 else 5,
+                "dialogue_line_target": 10 if number == 3 else 8,
+            }).model_dump(mode="json")
+            for number in range(1, 4)
+        ],
+    })
+    calls = []
+
+    class CompletionAdapter:
+        def get_model_info(self):
+            return SimpleNamespace(provider="openai_compatible", model_name="deepseek-v4-pro")
+
+        def generate_structured_output_stream(self, prompt, *, strategy, output_schema):
+            calls.append(prompt)
+            assert scene.visible_action in prompt
+            assert "普通承接场景用简短任务说明" in prompt
+            assert "已有动机和必要因果不能为了压缩而省略" in prompt
+            assert "不提前展开成完整对白或逐镜脚本" in prompt
+            assert output_schema["required"] == ["scene_execution_plan"]
+            properties = output_schema["$defs"]["EpisodeSceneExecutionBeat"]["properties"]
+            assert properties["evidence_requirements"]["items"] == {"type": "string"}
+            assert properties["visible_action"]["type"] == "string"
+            return {"scene_execution_plan": [
+                {**scene.model_dump(mode="json"), "scene_number": number,
+                 "opposition": "证人不愿公开身份。", "information_shift": "凭证来源已经核实。",
+                 "choice_or_cost": "主角放弃即时公开机会。", "evidence_requirements": ["原始凭证"],
+                 "dialogue_line_target": 10 if number == 3 else 8,
+                 "shot_target": 6 if number == 3 else 5}
+                for number in range(1, 4)
+            ]}
+
+    original = item.model_dump(mode="json")
+    service = object.__new__(StoryPlanningService)
+    result = service._complete_episode_scene_execution_plan(
+        item, adapter=CompletionAdapter(), strategy=build_strategy(),
+    )
+    assert len(calls) == 1
+    assert len(result.scene_execution_plan) == 3
+    assert result.scene_execution_plan[0].visible_action == scene.visible_action
+    assert result.episode_goal == item.episode_goal
+    assert result.execution_ready is True
+    assert item.model_dump(mode="json") == original
+
+
 def episode_item_request(source: StoryPlanNode) -> EpisodePlanItemDraftRequest:
     return EpisodePlanItemDraftRequest(
         story_project_id=source.story_project_id,
@@ -5780,8 +6157,218 @@ def episode_item_request(source: StoryPlanNode) -> EpisodePlanItemDraftRequest:
     )
 
 
-def test_episode_chunk_generates_six_items_per_model_call_and_resumes_prefix() -> None:
+@pytest.mark.parametrize("prompt_kind", ["batch", "item", "modification", "diversity"])
+def test_episode_planning_prompts_include_optional_dramatic_design_contract(
+    prompt_kind: str,
+) -> None:
+    service, node = build_episode_item_generation_service(object())
+    common = {
+        "node": node,
+        "story_bible": build_active_lineage_story_bible(),
+        "knowledge_context": "",
+    }
+    if prompt_kind == "batch":
+        prompt = service._build_episode_plan_prompt(
+            **common, start_episode=1, end_episode=8,
+        )
+    elif prompt_kind == "item":
+        prompt = service._build_episode_plan_item_prompt(
+            **common, episode_number=1, accepted_plans=[], predecessor_plan=None,
+        )
+    elif prompt_kind == "modification":
+        prompt = service._build_episode_plan_item_modification_prompt(
+            **common,
+            current_plan=EpisodePlanGenerationItem.model_validate(
+                build_active_lineage_episode_item()
+            ),
+            accepted_plans=[],
+            predecessor_plan=None,
+            instruction="只修改标题。",
+            revision_mode="targeted",
+            selection_context=None,
+        )
+    else:
+        prompt = service._build_episode_plan_item_diversity_repair_prompt(
+            node=node,
+            story_bible=common["story_bible"],
+            item=EpisodePlanGenerationItem.model_validate(build_active_lineage_episode_item()),
+            accepted_plans=[],
+            issues=["episode_payoff repeats the preceding episode"],
+        )
+
+    if prompt_kind != "diversity":
+        assert "【可选编导设计】" in prompt
+        assert "列表为空也合法；七项只是存储上限，不是写作目标" in prompt
+        assert "dramatic_units=[]、protagonist_cost=null" in prompt
+        assert "清空必须是本次修订的明确意图" in prompt
+        assert "两项内容仍须纳入整集路线图篇幅预算" in prompt
+        assert "250-650 字作为软参考" in prompt
+        assert "不作为逐场蓝图或整份规划的硬性字数门禁" in prompt
+        assert "within 250-650 Chinese characters" not in prompt
+    assert "【单集观看价值与正文准备】" in prompt
+    assert "信息变化、人物理解、情绪体验或期待变化" in prompt
+    assert "不要求每集都出现不可逆变化、反转、冲突解决或关系定局" in prompt
+    assert "本集已批准事件中的具体动作、对白意图" in prompt
+    assert "不免除本集已批准事件、状态交接与伏笔兑现的执行义务" in prompt
+    assert "人物知情依据、铺垫及兑现时机" in prompt
+    assert "钩子不等于必须反转" in prompt
+    assert "普通承接场景用简短任务说明" in prompt
+    assert "已有动机和必要因果不能为了压缩而省略" in prompt
+    assert "正文的创造空间主要是人物声音、对白潜台词" in prompt
+    assert "作者明确提供或要求保留的台词、动作和镜头仍须准确承接" in prompt
+    assert "Every episode must create at least one irreversible" not in prompt
+    assert "episode_payoff must be a visible local result, not preparation" not in prompt
+    assert "Make episode_payoff a distinct visible action result" not in prompt
+
+
+def run_episode_dramatic_design_repair(
+    operation: str,
+    first: dict[str, object],
+    second: dict[str, object],
+) -> EpisodePlanGenerationItem:
+    class RepairAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_structured_output(self, *args, **kwargs):
+            self.calls += 1
+            return first if self.calls == 1 else second
+
+    adapter = RepairAdapter()
+    service, node = build_episode_item_generation_service(adapter)
+    request = episode_item_request(node)
+    if operation == "generate":
+        result = service.generate_episode_plan_item(request)
+    else:
+        result = service.modify_episode_plan_item(EpisodePlanItemModificationRequest(
+            **request.model_dump(),
+            current_plan=build_active_lineage_episode_item(),
+            revision_mode="rewrite",
+        ))
+    assert adapter.calls == 2
+    return result
+
+
+@pytest.mark.parametrize("operation", ["generate", "modify"])
+@pytest.mark.parametrize("failure", ["schema", "language"])
+def test_episode_item_bounded_repair_preserves_valid_omitted_dramatic_design(
+    operation: str, failure: str,
+) -> None:
+    design = build_episode_dramatic_design()
+    first = {**build_active_lineage_episode_item(), **design}
+    first.update(
+        {"episode_goal": "短"}
+        if failure == "schema"
+        else {"central_conflict": "The rival locks the witness inside the archive."}
+    )
+    result = run_episode_dramatic_design_repair(
+        operation, first, build_active_lineage_episode_item(),
+    )
+
+    assert result.model_dump(mode="json")["dramatic_units"] == design["dramatic_units"]
+    assert result.protagonist_cost == design["protagonist_cost"]
+
+
+@pytest.mark.parametrize("operation", ["generate", "modify"])
+def test_episode_item_bounded_repair_respects_explicit_dramatic_design_clearing(
+    operation: str,
+) -> None:
+    result = run_episode_dramatic_design_repair(
+        operation,
+        {**build_active_lineage_episode_item(), **build_episode_dramatic_design(), "episode_goal": "短"},
+        {**build_active_lineage_episode_item(), "dramatic_units": [], "人物代价": None},
+    )
+
+    assert result.dramatic_units == []
+    assert result.protagonist_cost is None
+
+
+@pytest.mark.parametrize("operation", ["generate", "modify"])
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("dramatic_units", [{"trigger": "证人拒绝离开档案室。"}]),
+        ("dramatic_units", [{
+            **build_episode_dramatic_design()["dramatic_units"][0],
+            "choice": "Mara gives the witness her only key and returns alone.",
+        }]),
+        ("protagonist_cost", "短"),
+        ("protagonist_cost", "Mara gives up her only hiding place for the witness."),
+    ],
+)
+def test_episode_item_bounded_repair_does_not_inherit_invalid_dramatic_design(
+    operation: str, field: str, invalid_value: object,
+) -> None:
+    design = build_episode_dramatic_design()
+    result = run_episode_dramatic_design_repair(
+        operation,
+        {**build_active_lineage_episode_item(), **design, field: invalid_value},
+        build_active_lineage_episode_item(),
+    )
+
+    serialized = result.model_dump(mode="json")
+    assert serialized[field] == ([] if field == "dramatic_units" else None)
+    other_field = "protagonist_cost" if field == "dramatic_units" else "dramatic_units"
+    assert serialized[other_field] == design[other_field]
+
+
+@pytest.mark.parametrize("repair_kind", ["format", "language"])
+def test_episode_batch_repair_preserves_omitted_dramatic_design(repair_kind: str) -> None:
+    design = build_episode_dramatic_design()
+    first_item = {**build_active_lineage_episode_item(), **design}
+    first_item.update(
+        {"episode_goal": "短"}
+        if repair_kind == "format"
+        else {"central_conflict": "The rival locks the witness inside the archive."}
+    )
+
+    class BatchRepairAdapter(FixedStoryBibleAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_structured_output(self, *args, **kwargs):
+            self.calls += 1
+            return {"episode_plans": [
+                first_item if repair_kind == "format" and self.calls == 1
+                else build_active_lineage_episode_item()
+            ]}
+
+        def generate_structured_output_stream(self, *args, **kwargs):
+            return self.generate_structured_output(*args, **kwargs)
+
+    adapter = BatchRepairAdapter()
+    service, _ = build_episode_item_generation_service(adapter)
+    common = {
+        "strategy": build_strategy(),
+        "output_model": EpisodePlanBatchGenerationOutput,
+        "artifact_name": "Episode roadmap",
+    }
+    if repair_kind == "format":
+        output = service._generate_planning_output(
+            **common, prompt="修复当前分集计划。", expected_episode_numbers=[1],
+        )
+        assert adapter.calls == 2
+    else:
+        output = service._ensure_mainland_planning_language(
+            **common,
+            original_prompt="当前分集计划采用简体中文。",
+            output=EpisodePlanBatchGenerationOutput.model_validate({"episode_plans": [first_item]}),
+        )
+        assert adapter.calls == 1
+
+    assert output.episode_plans[0].model_dump(mode="json")["dramatic_units"] == design["dramatic_units"]
+    assert output.episode_plans[0].protagonist_cost == design["protagonist_cost"]
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 6])
+def test_episode_chunk_streams_configured_size_and_resumes_prefix(chunk_size) -> None:
     class ChunkAdapter(CountingFixedStoryBibleAdapter):
+        stream_calls = 0
+
+        def generate_structured_output_stream(self, *args, **kwargs):
+            self.stream_calls += 1
+            return self.generate_structured_output(*args, **kwargs)
+
         def generate_structured_output(self, *args, **kwargs):
             assert kwargs["output_schema"] is None
             kwargs["output_schema"] = (
@@ -5794,6 +6381,7 @@ def test_episode_chunk_generates_six_items_per_model_call_and_resumes_prefix() -
 
     adapter = ChunkAdapter()
     service, source = build_episode_item_generation_service(adapter)
+    service._episode_plan_chunk_size = chunk_size
     service._knowledge_context = lambda **_kwargs: (
         "Creative knowledge bundle: "
         "knowledge_bundle.draft.cn_mainland_longform_foundation.v1\n"
@@ -5801,18 +6389,17 @@ def test_episode_chunk_generates_six_items_per_model_call_and_resumes_prefix() -
     )
     request = episode_item_request(source)
 
-    first_chunk = service.generate_episode_plan_chunk(request)
-    second_chunk = service.generate_episode_plan_chunk(
-        request.model_copy(update={
-            "episode_number": 7,
-            "accepted_plans": first_chunk,
-        })
-    )
-
-    roadmap = [*first_chunk, *second_chunk]
-    assert adapter.calls == 2
-    assert [item.episode_number for item in first_chunk] == [1, 2, 3, 4, 5, 6]
-    assert [item.episode_number for item in second_chunk] == [7, 8]
+    roadmap = []
+    while len(roadmap) < 8:
+        first = len(roadmap) + 1
+        chunk = service.generate_episode_plan_chunk(request.model_copy(update={
+            "episode_number": first, "accepted_plans": list(roadmap),
+        }))
+        assert [item.episode_number for item in chunk] == list(range(first, min(first + chunk_size, 9)))
+        roadmap.extend(chunk)
+    expected_calls = (8 + chunk_size - 1) // chunk_size
+    assert adapter.calls == expected_calls
+    assert adapter.stream_calls == expected_calls
     assert [item.episode_number for item in roadmap] == list(range(1, 9))
     assert all(
         len(item.scene_execution_plan) == item.planned_scene_count
@@ -5820,11 +6407,16 @@ def test_episode_chunk_generates_six_items_per_model_call_and_resumes_prefix() -
     )
 
 
-def test_episode_item_uses_native_json_without_schema_transport() -> None:
+def test_episode_item_streams_native_json_without_schema_transport() -> None:
     class NativeJsonEpisodeItemAdapter(FixedStoryBibleAdapter):
         def __init__(self) -> None:
             self.schemas: list[dict[str, Any] | None] = []
             self.max_tokens: list[int] = []
+            self.stream_calls = 0
+
+        def generate_structured_output_stream(self, *args, **kwargs):
+            self.stream_calls += 1
+            return self.generate_structured_output(*args, **kwargs)
 
         def generate_structured_output(
             self,
@@ -5843,6 +6435,7 @@ def test_episode_item_uses_native_json_without_schema_transport() -> None:
     item = service.generate_episode_plan_item(episode_item_request(source))
 
     assert adapter.schemas == [None]
+    assert adapter.stream_calls == 1
     assert adapter.max_tokens == [2_800]
     assert len(item.scene_execution_plan) == item.planned_scene_count
 
@@ -6477,6 +7070,10 @@ def test_decomposition_keeps_all_siblings_when_provider_recovery_is_exhausted() 
         for index in range(2, len(children))
     )
     assert children[-1].exit_state == source.exit_state
+    assert children[0].unit_story_beats[0].startswith("行动入口：")
+    assert children[0].unit_story_beats[1].startswith("阻力与代价：")
+    assert children[0].unit_story_beats[2].startswith("选择与兑现：")
+    assert children[0].unit_story_beats[3].startswith("结果余波：")
     assert all("模型输出连续失败" in child.decomposition_reason for child in children)
 
 
@@ -7504,7 +8101,7 @@ def test_ai_planning_modifications_remain_unpersisted_candidates(tmp_path) -> No
     )
     assert "Target episode count: 80" in adapter.prompts[0]
     assert "75-115 seconds" in adapter.prompts[0]
-    assert "at least 100 minutes" in adapter.prompts[0]
+    assert "Never impose a fixed whole-series minimum" in adapter.prompts[0]
     assert "3-5 genuinely different whole-story milestones" in adapter.prompts[0]
     for section in (
         "一、故事定位",
@@ -7704,3 +8301,58 @@ def test_artifact_model_routing_keeps_each_planning_role_isolated() -> None:
     assert service._adapter_for_artifact("Story Plan Node repair") is story_architect
     assert service._adapter_for_artifact("Episode roadmap repair") is episode_plan
     assert service._adapter_for_artifact("Unscoped planning artifact") is root
+
+
+@pytest.mark.parametrize("artifact", [
+    "Story Bible modification",
+    "Story Plan Node modification",
+    "Episode roadmap item modification",
+])
+def test_explicit_planning_editor_handles_modifications_and_schema_repairs(artifact) -> None:
+    editor = RepairingPlanningOutputAdapter(invalid_json=False)
+    generation = RepairingPlanningOutputAdapter(invalid_json=False)
+    service = StoryPlanningService(
+        long_story_service=SimpleNamespace(),
+        content_spec_repository=ContentSpecRepository(),
+        generation_strategy_repository=GenerationStrategyRepository(),
+        llm_adapter=generation,
+        planning_editor_llm_adapter=editor,
+    )
+    output = service._generate_planning_output(
+        prompt=(
+            "Plan a Chinese mainland serialized comic. "
+            "All human-readable output values must be written in Simplified Chinese. "
+            "knowledge_bundle.draft.cn_mainland_longform_foundation.v1 "
+            "Use these principles as bounded guidance, not rigid plot formulas."
+        ),
+        strategy=build_strategy(), output_model=StoryPlanNodeGenerationOutput,
+        artifact_name=artifact,
+    )
+    assert output.central_conflict.startswith("主角必须")
+    assert editor.calls == 2
+    assert generation.calls == 0
+    assert service._adapter_for_artifact("Story Bible") is generation
+    assert service._adapter_for_artifact("Story Plan Node") is generation
+
+
+@pytest.mark.parametrize("stage", ["modification_language_patch", "modification_quality_repair"])
+def test_story_bible_followup_modification_repairs_use_shared_editor(stage, monkeypatch) -> None:
+    editor = RepairingPlanningOutputAdapter(invalid_json=False)
+    generation = RepairingPlanningOutputAdapter(invalid_json=False)
+    service = StoryPlanningService(
+        long_story_service=SimpleNamespace(),
+        content_spec_repository=ContentSpecRepository(),
+        generation_strategy_repository=GenerationStrategyRepository(),
+        llm_adapter=generation, planning_editor_llm_adapter=editor,
+    )
+    calls = []
+    def record(*args, **kwargs):
+        calls.append(stage)
+        return {"revised": True}
+    monkeypatch.setattr(editor, "generate_structured_output", record)
+    monkeypatch.setattr(editor, "generate_structured_output_stream", record)
+    assert service._generate_story_bible_model_output(
+        "Repair the requested modification.", strategy=build_strategy(), output_schema={}, stage=stage,
+    ) == {"revised": True}
+    assert calls == [stage]
+    assert generation.calls == 0

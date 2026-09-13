@@ -9,31 +9,33 @@ interface InputReadinessApiResponse {
   data?: unknown;
 }
 
-/**
- * Analyze creative input without mutating the project. A missing or incompatible
- * readiness service is intentionally indistinguishable from the legacy flow.
- */
 export async function analyzeInputReadiness(
   draft: ProjectDraft,
-): Promise<InputReadinessAnalysis | null> {
+  options: { signal?: AbortSignal; useModel?: boolean } = {},
+): Promise<InputReadinessAnalysis> {
   const controller = new AbortController();
-  // Input classification is advisory, but a premature timeout would silently
-  // discard the user's high-completion import path. Keep the legacy fallback
-  // while allowing the configured model enough time to return a decision.
-  const timeout = window.setTimeout(() => controller.abort(), 60_000);
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abort();
+  options.signal?.addEventListener("abort", abort, { once: true });
+  // Leave room for the server's 60-second model budget and local fallback.
+  const timeout = window.setTimeout(() => controller.abort(), 75_000);
   try {
     const response = await apiRequest<InputReadinessApiResponse | unknown>(
       "/input-readiness/analyze",
       {
         method: "POST",
         signal: controller.signal,
-        body: JSON.stringify(buildInputReadinessRequest(draft)),
+        body: JSON.stringify({ ...buildInputReadinessRequest(draft), ...(options.useModel === false ? { use_model: false } : {}) }),
       },
     );
-    return parseInputReadinessResponse(response);
-  } catch {
-    return null;
+    const analysis = parseInputReadinessResponse(response);
+    if (!analysis) throw new Error("输入识别结果无法读取，请重试识别。");
+    return analysis;
+  } catch (error) {
+    if (controller.signal.aborted && !options.signal?.aborted) throw new Error("输入识别超时，资料已保留，请重试识别。");
+    throw error;
   } finally {
     window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
   }
 }

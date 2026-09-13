@@ -9,9 +9,12 @@ import {
   GitBranch,
   ListTree,
   LockKeyhole,
+  Plus,
   Save,
   SlidersHorizontal,
+  Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
@@ -42,6 +45,7 @@ import {
 } from "@/lib/episode-roadmap-generation";
 import {
   generateTopLevelStoryPlanNodes,
+  confirmEpisodePlanMaterialization,
   loadChildStoryPlanNodes,
   loadActiveStoryPlanNodes,
   loadTopLevelStoryPlanNodes,
@@ -83,8 +87,16 @@ import {
 } from "@/lib/generation-planning";
 import {
   buildEpisodePlanImportDraft,
+  fingerprintEpisodePlanSource,
   type EpisodePlanImportDraft,
 } from "@/lib/episode-plan-import-adapter";
+import {
+  buildEpisodePlanMaterializationDraft,
+  buildEpisodeRoadmapDraftsFromMaterialization,
+  type EpisodePlanMaterializationDraft,
+  type EpisodePlanMaterializerBlock,
+  type EpisodePlanRoadmapDraftBlock,
+} from "@/lib/episode-plan-materializer";
 import { buildImportedSourceSnapshot } from "@/lib/input-import-adapter";
 import {
   loadWorkspaceChatMessages,
@@ -92,6 +104,7 @@ import {
   subscribeWorkspaceChatMessages,
 } from "@/lib/workspace-section-memory";
 import type {
+  EpisodeDramaticUnit,
   EpisodeRoadmapItem,
   ScriptProject,
 } from "@/lib/types";
@@ -103,6 +116,15 @@ type ProjectUpdate = Partial<ScriptProject>
 type ProjectUpdateHandler = (
   patch: ProjectUpdate,
 ) => Promise<boolean | void> | boolean | void;
+
+const DRAMATIC_UNIT_FIELDS = [
+  { key: "trigger", label: "触发事件", minLength: 3, maxLength: 300 },
+  { key: "choice", label: "人物选择", minLength: 3, maxLength: 300 },
+  { key: "visible_consequence", label: "可见后果", minLength: 3, maxLength: 300 },
+  { key: "change_type", label: "变化类型", minLength: 2, maxLength: 40 },
+  { key: "evidence_hint", label: "动作或对白证据", minLength: 3, maxLength: 300 },
+] as const;
+const MAX_DRAMATIC_UNITS = 7;
 
 const NODE_QUICK_ACTIONS = [
   { id: "continue", label: "续写", instruction: "请补充选中内容之后的下一步发展，保持前后因果、人物状态和交接压力一致。" },
@@ -268,8 +290,14 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const [episodePlanImportDraft, setEpisodePlanImportDraft] = useState<EpisodePlanImportDraft | null>(
     () => project.episodePlanImportDraft ?? null,
   );
+  const [episodePlanMaterializationBusy, setEpisodePlanMaterializationBusy] = useState<"preview" | "confirm" | null>(null);
+  const [episodePlanMaterializationDraft, setEpisodePlanMaterializationDraft] = useState<EpisodePlanMaterializationDraft | null>(null);
+  const [episodePlanMaterializationBlocks, setEpisodePlanMaterializationBlocks] = useState<EpisodePlanMaterializerBlock[]>([]);
+  const [episodePlanRoadmapDraftBlocks, setEpisodePlanRoadmapDraftBlocks] = useState<EpisodePlanRoadmapDraftBlock[]>([]);
   const planningActionInFlightRef = useRef(false);
   const latestProjectRef = useRef(project);
+  const latestTreeNodesRef = useRef(activeTreeNodes);
+  latestTreeNodesRef.current = activeTreeNodes;
   const planningLocked = project.planningSession?.phase === "script"
     && project.planningSession.status === "approved";
   const planningCheckpointSaved = project.planningSession?.status === "active";
@@ -309,6 +337,9 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   useEffect(() => {
     setEpisodePlanImportDraft(project.episodePlanImportDraft ?? null);
     setEpisodePlanImportMessage(null);
+    setEpisodePlanMaterializationDraft(null);
+    setEpisodePlanMaterializationBlocks([]);
+    setEpisodePlanRoadmapDraftBlocks([]);
   }, [project.id, project.episodePlanImportDraft]);
   useEffect(() => {
     setRevisionHistory([]);
@@ -875,6 +906,11 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   );
   const episodePlanImportDraftIsCurrent = episodePlanImportDraftMatchesSource
     && episodePlanImportDraftMatchesLineage;
+  const currentEpisodePlanMaterializationReceipt = (project.episodePlanMaterializations ?? []).find(
+    (item) => item.sourceFingerprint === episodePlanImportDraft?.sourceFingerprint
+      && item.storyBibleId === storyBible.story_bible_id
+      && item.storyBibleVersion === storyBible.version,
+  );
 
   async function inspectEpisodePlanSource() {
     if (
@@ -908,6 +944,200 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       setEpisodePlanImportMessage(userFacingError(error, "分集原文检查失败，请稍后重试。"));
     } finally {
       setEpisodePlanImportBusy(false);
+    }
+  }
+
+  async function buildCurrentEpisodePlanMaterialization(createdAt?: string) {
+    if (!episodePlanImportDraft || !episodePlanImportDraftIsCurrent) return null;
+    const sourceFingerprint = await fingerprintEpisodePlanSource(
+      importedPlanningSnapshot.document,
+    );
+    const approvedEpisodeReadyNodes = activeTreeNodes
+      .filter((node) => node.status === "approved" && node.expansion_status === "episode_ready")
+      .map((node) => ({
+        nodeId: node.node_id,
+        version: node.version,
+        storyBibleId: node.story_bible_id,
+        storyBibleVersion: node.story_bible_version,
+        plannedStartEpisode: node.planned_start_episode ?? undefined,
+        plannedEndEpisode: node.planned_end_episode ?? undefined,
+        status: node.status,
+        expansionStatus: node.expansion_status,
+      }));
+    const currentNodeVersions = Object.fromEntries(
+      approvedEpisodeReadyNodes.map((node) => [node.nodeId, node.version]),
+    );
+    const currentProject = latestProjectRef.current;
+    return buildEpisodePlanMaterializationDraft({
+      draft: episodePlanImportDraft,
+      sourceDocument: importedPlanningSnapshot.document,
+      currentSourceFingerprint: sourceFingerprint.value,
+      approvedStoryBible: {
+        id: storyBible.story_bible_id,
+        version: storyBible.version,
+      },
+      approvedEpisodeReadyNodes,
+      currentNodeVersions,
+      occupations: [
+        ...(currentProject.episodeRoadmaps ?? []).map((item) => ({ episodeNumber: item.episode_number, kind: "roadmap" as const })),
+        ...(currentProject.episodes ?? []).map((item) => ({ episodeNumber: item.episodeNumber, kind: "body" as const })),
+      ],
+      createdAt,
+    });
+  }
+
+  async function previewEpisodePlanMaterialization() {
+    if (!episodePlanImportDraft || !episodePlanImportDraftIsCurrent || episodePlanMaterializationBusy) return;
+    setEpisodePlanMaterializationBusy("preview");
+    setEpisodePlanImportMessage(null);
+    try {
+      const result = await buildCurrentEpisodePlanMaterialization();
+      if (!result) return;
+      if (result.ok) {
+        const roadmapResult = buildEpisodeRoadmapDraftsFromMaterialization(result.draft, {
+          targetDurationSeconds: project.generationSettings.preferredEpisodeDurationMinutes * 60,
+          plannedSceneCount: project.generationSettings.sceneCount,
+        });
+        setEpisodePlanMaterializationDraft(result.draft);
+        setEpisodePlanMaterializationBlocks([]);
+        setEpisodePlanRoadmapDraftBlocks(roadmapResult.blocks);
+      } else {
+        setEpisodePlanMaterializationDraft(null);
+        setEpisodePlanMaterializationBlocks(result.blocks);
+        setEpisodePlanRoadmapDraftBlocks([]);
+      }
+    } catch (error) {
+      setEpisodePlanImportMessage(userFacingError(error, "物料化预览失败，请重新检查原文。"));
+    } finally {
+      setEpisodePlanMaterializationBusy(null);
+    }
+  }
+
+  async function confirmEpisodePlanMaterializationDraft() {
+    if (
+      !episodePlanMaterializationDraft
+      || !episodePlanImportDraft
+      || !episodePlanImportDraftIsCurrent
+      || episodePlanMaterializationBusy
+      || planningLocked
+    ) return;
+    const existingReceipt = (latestProjectRef.current.episodePlanMaterializations ?? []).find(
+      (item) => item.sourceFingerprint === episodePlanMaterializationDraft.sourceFingerprint
+        && item.storyBibleId === episodePlanMaterializationDraft.storyBibleId
+        && item.storyBibleVersion === episodePlanMaterializationDraft.storyBibleVersion,
+    );
+    if (existingReceipt) {
+      setEpisodePlanImportMessage("这份来源映射已经保存为可审阅草稿。");
+      return;
+    }
+    const roadmapPreview = buildEpisodeRoadmapDraftsFromMaterialization(
+      episodePlanMaterializationDraft,
+      {
+        targetDurationSeconds: project.generationSettings.preferredEpisodeDurationMinutes * 60,
+        plannedSceneCount: project.generationSettings.sceneCount,
+      },
+    );
+    const confirmationMessage = roadmapPreview.ok
+      ? `确认保存 ${episodePlanMaterializationDraft.mappings.length} 集来源映射，并创建同数量的待审阅路线图草稿？此操作不会批准路线图或生成正文。`
+      : `确认保存 ${episodePlanMaterializationDraft.mappings.length} 集来源映射草稿？其中仍有 ${roadmapPreview.blocks.length} 项必需字段缺失，本次不会创建路线图。`;
+    if (!window.confirm(confirmationMessage)) return;
+
+    setEpisodePlanMaterializationBusy("confirm");
+    setEpisodePlanImportMessage(null);
+    try {
+      const revalidated = await buildCurrentEpisodePlanMaterialization(
+        episodePlanMaterializationDraft.createdAt,
+      );
+      if (!revalidated?.ok
+          || JSON.stringify(revalidated.draft) !== JSON.stringify(episodePlanMaterializationDraft)) {
+        setEpisodePlanMaterializationDraft(null);
+        setEpisodePlanMaterializationBlocks(revalidated?.ok ? [] : revalidated?.blocks ?? []);
+        throw new Error("原文、占用情况或规划节点已变化，请重新生成物料化预览。");
+      }
+      const requestProject = latestProjectRef.current;
+      const syncState = await syncProjectSnapshot(requestProject);
+      if (syncState.status !== "synced") {
+        throw new Error(syncState.error ?? t("storyBible.syncRequired"));
+      }
+      const receiptBase = await confirmEpisodePlanMaterialization(
+        requestProject.id,
+        revalidated.draft,
+        importedPlanningSnapshot.document,
+      );
+      const roadmapResult = buildEpisodeRoadmapDraftsFromMaterialization(
+        revalidated.draft,
+        {
+          targetDurationSeconds: requestProject.generationSettings.preferredEpisodeDurationMinutes * 60,
+          plannedSceneCount: requestProject.generationSettings.sceneCount,
+        },
+      );
+      const receipt = {
+        ...receiptBase,
+        roadmapDraftCount: roadmapResult.ok ? roadmapResult.roadmaps.length : 0,
+      };
+      const targetEpisodes = new Set(revalidated.draft.mappings.map((mapping) => mapping.episodeNumber));
+      const materializationIsCurrent = (current: ScriptProject) => (
+        current.id === requestProject.id
+        && (current.storyBibleVersion ?? storyBible.version) === revalidated.draft.storyBibleVersion
+        && buildImportedSourceSnapshot(current).document === importedPlanningSnapshot.document
+        && !(current.planningSession?.phase === "script" && current.planningSession.status === "approved")
+        && !(current.episodeRoadmaps ?? []).some((item) => targetEpisodes.has(item.episode_number))
+        && !current.episodes.some((item) => targetEpisodes.has(item.episodeNumber))
+        && revalidated.draft.mappings.every((mapping) => latestTreeNodesRef.current.some((node) => (
+          node.node_id === mapping.targetNodeId
+          && node.version === mapping.targetNodeVersion
+          && node.story_bible_id === revalidated.draft.storyBibleId
+          && node.story_bible_version === revalidated.draft.storyBibleVersion
+          && node.status === "approved"
+          && node.expansion_status === "episode_ready"
+          && node.planned_start_episode === mapping.targetEpisodeRange.start
+          && node.planned_end_episode === mapping.targetEpisodeRange.end
+        )))
+      );
+      const conflictMessage = "原文、占用情况或规划节点已变化，请重新生成物料化预览。";
+      const sessionProject = latestProjectRef.current;
+      if (!materializationIsCurrent(sessionProject)) throw new Error(conflictMessage);
+      let planningSession = sessionProject.planningSession;
+      if (roadmapResult.ok) {
+        planningSession = await savePlanningSession(
+          sessionProject,
+          updatePlanningSession(sessionProject, {
+            phase: "episode_roadmap",
+            status: "awaiting_review",
+          }),
+        );
+      }
+      let conflict = false;
+      await persistProjectUpdate(onProjectUpdate, (current) => {
+        // Recheck inside the local update so concurrent edits cannot be overwritten.
+        if (!materializationIsCurrent(current)) {
+          conflict = true;
+          return {};
+        }
+        return {
+          episodePlanMaterializations: [
+            ...(current.episodePlanMaterializations ?? []).filter(
+              (item) => item.materializationId !== receipt.materializationId,
+            ),
+            receipt,
+          ],
+          ...(roadmapResult.ok ? {
+            episodeRoadmaps: mergeEpisodeRoadmaps(current.episodeRoadmaps ?? [], roadmapResult.roadmaps),
+          } : {}),
+          ...(planningSession && current.planningSession === sessionProject.planningSession ? { planningSession } : {}),
+        };
+      });
+      if (conflict) throw new Error(conflictMessage);
+      setEpisodePlanRoadmapDraftBlocks(roadmapResult.blocks);
+      setEpisodePlanImportMessage(
+        roadmapResult.ok
+          ? `已保存来源审计记录，并创建 ${roadmapResult.roadmaps.length} 集待审阅路线图；需逐集确认后才可进入正文。`
+          : `已保存来源审计记录；仍有 ${roadmapResult.blocks.length} 项必需字段缺失，尚未创建路线图。`,
+      );
+    } catch (error) {
+      setEpisodePlanImportMessage(userFacingError(error, "来源映射保存失败，请重新预览后重试。"));
+    } finally {
+      setEpisodePlanMaterializationBusy(null);
     }
   }
   async function undoLatestRevision() {
@@ -1255,6 +1485,73 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
                   <small className="story-plan-import-review-fingerprint">
                     来源指纹：{episodePlanImportDraft.sourceFingerprint.slice(0, 28)}…
                   </small>
+                  <div className="story-plan-import-materialize-preview">
+                    <div className="story-plan-import-materialize-actions">
+                      <button
+                        className="outline-action"
+                        disabled={planningLocked || Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || Boolean(episodePlanMaterializationBusy)}
+                        onClick={() => void previewEpisodePlanMaterialization()}
+                        type="button"
+                      >
+                        <ListTree aria-hidden="true" size={15} />
+                        {episodePlanMaterializationBusy === "preview" ? "校验中" : "生成物料化预览"}
+                      </button>
+                      {episodePlanMaterializationDraft ? (
+                        <button
+                          className="primary-action"
+                          disabled={planningLocked || Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || Boolean(episodePlanMaterializationBusy) || Boolean(currentEpisodePlanMaterializationReceipt)}
+                          onClick={() => void confirmEpisodePlanMaterializationDraft()}
+                          type="button"
+                        >
+                          <Check aria-hidden="true" size={15} />
+                          {currentEpisodePlanMaterializationReceipt
+                            ? "已保存草稿"
+                            : episodePlanMaterializationBusy === "confirm"
+                              ? "保存中"
+                              : "确认并保存草稿"}
+                        </button>
+                      ) : null}
+                    </div>
+                    <small>预览不写入数据；作者确认后保存独立审计记录，字段完整的分集会成为待审阅路线图。</small>
+                    {episodePlanMaterializationBlocks.length ? (
+                      <details open className="story-plan-import-review-warnings">
+                        <summary>预览被阻止（{episodePlanMaterializationBlocks.length} 项）</summary>
+                        <ul>
+                          {episodePlanMaterializationBlocks.slice(0, 12).map((item, index) => (
+                            <li key={`${item.code}-${item.episodeNumber ?? "all"}-${index}`}>{item.message}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
+                    {episodePlanMaterializationDraft ? (
+                      <details open className="story-plan-import-review-rows">
+                        <summary>映射预览（{episodePlanMaterializationDraft.mappings.length} 集，仍需作者确认）</summary>
+                        <ol>
+                          {episodePlanMaterializationDraft.mappings.slice(0, 12).map((mapping) => (
+                            <li key={`${mapping.sourceRowOrdinal}-${mapping.episodeNumber}`}>
+                              第{mapping.episodeNumber}集 → {mapping.targetNodeId} v{mapping.targetNodeVersion}
+                              {mapping.unresolvedFields.length ? `；待处理字段：${mapping.unresolvedFields.join("、")}` : "；字段来源完整"}
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
+                    ) : null}
+                    {episodePlanRoadmapDraftBlocks.length ? (
+                      <details open className="story-plan-import-review-warnings">
+                        <summary>路线图字段仍待补充（{episodePlanRoadmapDraftBlocks.length} 项）</summary>
+                        <ul>
+                          {episodePlanRoadmapDraftBlocks.slice(0, 12).map((item, index) => (
+                            <li key={`${item.code}-${item.episodeNumber}-${index}`}>{item.message}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
+                    {currentEpisodePlanMaterializationReceipt ? (
+                      <small className="story-plan-import-review-ok">
+                        已于 {new Date(currentEpisodePlanMaterializationReceipt.authorConfirmedAt).toLocaleString()} 保存；创建 {currentEpisodePlanMaterializationReceipt.roadmapDraftCount} 集路线图草稿。
+                      </small>
+                    ) : null}
+                  </div>
                 </>
               ) : (
                 <small className="story-plan-import-review-preview">
@@ -1265,7 +1562,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
               )}
               {episodePlanImportMessage ? <div className="inline-notice" role="status">{episodePlanImportMessage}</div> : null}
               <div className="inline-notice story-plan-import-review-guardrail">
-                此操作不会创建或修改剧情树、路线图或正文，也不会批准规划；只有这份来源审计草稿会写入项目检查点。
+                原文检查只写入来源草稿。作者确认会写入独立、不可覆盖的审计批次；路线图始终以 draft 创建，不修改剧情树、不生成正文，也不自动批准规划。
               </div>
             </section>
           ) : null}
@@ -1794,16 +2091,48 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
 
   function updateRoadmapTextField(
     item: EpisodeRoadmapItem,
-    field: "episode_title" | "synopsis" | "locations" | "episode_goal" | "central_conflict" | "ending_hook_type" | "cliffhanger",
+    field: "episode_title" | "synopsis" | "locations" | "episode_goal" | "central_conflict" | "protagonist_cost" | "ending_hook_type" | "cliffhanger",
     value: string,
   ) {
     requestRoadmapManualRevision(item, (latest) => ({
       ...latest,
-      [field]: field === "episode_title"
+      [field]: field === "episode_title" || field === "protagonist_cost"
         ? value.trim() || null
         : field === "locations"
           ? value.split(/[、,，;；\n]/).map((location) => location.trim()).filter(Boolean)
           : value,
+    }));
+  }
+
+  function updateRoadmapDramaticUnit(
+    item: EpisodeRoadmapItem,
+    index: number,
+    field: keyof EpisodeDramaticUnit,
+    value: string,
+  ) {
+    requestRoadmapManualRevision(item, (latest) => ({
+      ...latest,
+      dramatic_units: (latest.dramatic_units ?? []).map((unit, unitIndex) => (
+        unitIndex === index
+          ? { ...unit, [field]: field === "evidence_hint" ? value.trim() || null : value.trim() }
+          : unit
+      )),
+    }));
+  }
+
+  function addRoadmapDramaticUnit(item: EpisodeRoadmapItem, unit: EpisodeDramaticUnit) {
+    requestRoadmapManualRevision(item, (latest) => ({
+      ...latest,
+      dramatic_units: (latest.dramatic_units ?? []).length < MAX_DRAMATIC_UNITS
+        ? [...(latest.dramatic_units ?? []), unit]
+        : latest.dramatic_units,
+    }));
+  }
+
+  function removeRoadmapDramaticUnit(item: EpisodeRoadmapItem, index: number) {
+    requestRoadmapManualRevision(item, (latest) => ({
+      ...latest,
+      dramatic_units: (latest.dramatic_units ?? []).filter((_, unitIndex) => unitIndex !== index),
     }));
   }
 
@@ -1930,7 +2259,8 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
         data-depth={depth}
         id={storyPlanNodeAnchor(node.node_id)}
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest("summary")) event.preventDefault();
+          const summary = (event.target as HTMLElement).closest("summary");
+          if (summary?.parentElement === event.currentTarget) event.preventDefault();
           onAssistantFocus?.(node.node_id);
         }}
         onToggle={(event) => {
@@ -2093,6 +2423,27 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
                       value={item.central_conflict}
                     />
                   </p>
+                  <p>
+                    人物代价：
+                    <InlinePlanningText
+                      label={`第${item.episode_number}集人物代价`}
+                      locked={roadmapRevisionLocked}
+                      allowEmpty
+                      minLength={3}
+                      maxLength={500}
+                      onChange={(value) => updateRoadmapTextField(item, "protagonist_cost", value)}
+                      value={item.protagonist_cost ?? ""}
+                    />
+                  </p>
+                  <RoadmapDramaticUnits
+                    episodeNumber={item.episode_number}
+                    locked={roadmapRevisionLocked}
+                    structuralLocked={roadmapRevisionLocked || Boolean(busy)}
+                    onAdd={(unit) => addRoadmapDramaticUnit(item, unit)}
+                    onRemove={(index) => removeRoadmapDramaticUnit(item, index)}
+                    onUpdate={(index, field, value) => updateRoadmapDramaticUnit(item, index, field, value)}
+                    units={item.dramatic_units ?? []}
+                  />
                   <small>
                     {item.target_duration_seconds ?? 90} 秒 · {item.planned_scene_count ?? 3} 场 · {normalizeEpisodeDialogueLines(item.planned_dialogue_line_count)} 句台词 · {item.planned_shot_count ?? 16} 镜头
                   </small>
@@ -2395,30 +2746,161 @@ function PlanField({ editing, label, locked = false, onChange, showLabel = true,
   );
 }
 
-function InlinePlanningText({ label, locked = false, onChange, value }: {
+function RoadmapDramaticUnits({ episodeNumber, locked, structuralLocked, onAdd, onRemove, onUpdate, units }: {
+  episodeNumber: number;
+  locked: boolean;
+  structuralLocked: boolean;
+  onAdd: (unit: EpisodeDramaticUnit) => void;
+  onRemove: (index: number) => void;
+  onUpdate: (index: number, field: keyof EpisodeDramaticUnit, value: string) => void;
+  units: EpisodeDramaticUnit[];
+}) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <details className="roadmap-scene-blueprint roadmap-dramatic-units">
+      <summary>戏剧单位{units.length ? `（${units.length}）` : "（可选）"}</summary>
+      {units.length ? (
+        <ol>
+          {units.map((unit, index) => (
+            <li key={`${episodeNumber}-dramatic-unit-${index}`}>
+              {DRAMATIC_UNIT_FIELDS.map(({ key, label, minLength, maxLength }) => (
+                <p key={key}>
+                  {label}：
+                  <InlinePlanningText
+                    allowEmpty={key === "evidence_hint"}
+                    label={`第${episodeNumber}集第${index + 1}个戏剧单位${label}`}
+                    locked={locked}
+                    minLength={minLength}
+                    maxLength={maxLength}
+                    onChange={(value) => onUpdate(index, key, value)}
+                    value={unit[key] ?? ""}
+                  />
+                </p>
+              ))}
+              {!locked ? (
+                <button
+                  aria-label={`删除第${index + 1}个戏剧单位`}
+                  className="small-icon-button danger"
+                  disabled={structuralLocked}
+                  onClick={() => onRemove(index)}
+                  title="删除戏剧单位"
+                  type="button"
+                >
+                  <Trash2 aria-hidden="true" />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {adding && !locked ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (structuralLocked || units.length >= MAX_DRAMATIC_UNITS) return;
+            const data = new FormData(event.currentTarget);
+            const unit = Object.fromEntries(DRAMATIC_UNIT_FIELDS.map(({ key }) => [
+              key, String(data.get(key) ?? "").trim(),
+            ])) as unknown as EpisodeDramaticUnit;
+            const invalidField = DRAMATIC_UNIT_FIELDS.find(({ key, minLength }) => (
+              (key !== "evidence_hint" || unit[key]) && (unit[key]?.length ?? 0) < minLength
+            ));
+            if (invalidField) {
+              const input = event.currentTarget.elements.namedItem(invalidField.key) as HTMLTextAreaElement;
+              input.setCustomValidity(`请填写至少${invalidField.minLength}个字。`);
+              input.reportValidity();
+              return;
+            }
+            onAdd({ ...unit, evidence_hint: unit.evidence_hint || null });
+            setAdding(false);
+          }}
+        >
+          {DRAMATIC_UNIT_FIELDS.map(({ key, label, minLength, maxLength }) => (
+            <label className="story-bible-field" key={key}>
+              <span>{label}{key === "evidence_hint" ? "（可选）" : ""}</span>
+              <textarea
+                aria-label={`第${episodeNumber}集新增戏剧单位${label}`}
+                disabled={structuralLocked}
+                minLength={minLength}
+                maxLength={maxLength}
+                name={key}
+                onInput={(event) => event.currentTarget.setCustomValidity("")}
+                required={key !== "evidence_hint"}
+                rows={key === "change_type" ? 1 : 2}
+              />
+            </label>
+          ))}
+          <div className="character-card-actions">
+            <button aria-label="保存戏剧单位" className="small-icon-button" disabled={structuralLocked} title="保存戏剧单位" type="submit">
+              <Save aria-hidden="true" />
+            </button>
+            <button aria-label="取消添加" className="small-icon-button" onClick={() => setAdding(false)} title="取消添加" type="button">
+              <X aria-hidden="true" />
+            </button>
+          </div>
+        </form>
+      ) : !locked ? (
+        <button
+          aria-label="添加戏剧单位"
+          className="small-icon-button"
+          disabled={structuralLocked || units.length >= MAX_DRAMATIC_UNITS}
+          onClick={() => setAdding(true)}
+          title={units.length >= MAX_DRAMATIC_UNITS ? "戏剧单位已达上限" : "添加戏剧单位"}
+          type="button"
+        >
+          <Plus aria-hidden="true" />
+        </button>
+      ) : null}
+    </details>
+  );
+}
+
+function InlinePlanningText({ allowEmpty = false, label, locked = false, minLength, maxLength, onChange, value }: {
+  allowEmpty?: boolean;
   label: string;
   locked?: boolean;
+  minLength?: number;
+  maxLength?: number;
   onChange: (value: string) => void;
   value: string;
 }) {
+  const [validationError, setValidationError] = useState<string | null>(null);
   return (
+    <>
     <span
       aria-label={label}
+      aria-invalid={Boolean(validationError)}
       aria-multiline="true"
+      aria-placeholder={allowEmpty ? "未填写" : undefined}
       aria-readonly={locked}
       className="story-bible-inline-editable"
       contentEditable={!locked}
       data-planning-field={label}
       data-planning-field-text={value}
       onBlur={(event) => {
-        const nextValue = event.currentTarget.textContent ?? "";
+        const rawValue = event.currentTarget.textContent ?? "";
+        const nextValue = minLength === undefined ? rawValue : rawValue.trim();
+        if (!(allowEmpty && !nextValue) && minLength !== undefined && nextValue.length < minLength) {
+          event.currentTarget.textContent = value;
+          setValidationError(`请填写至少${minLength}个字。`);
+          return;
+        }
+        if (maxLength !== undefined && nextValue.length > maxLength) {
+          event.currentTarget.textContent = value;
+          setValidationError(`请控制在${maxLength}个字以内。`);
+          return;
+        }
+        setValidationError(null);
         if (nextValue !== value) onChange(nextValue);
       }}
+      onInput={() => setValidationError(null)}
       role="textbox"
-      style={{ display: "inline" }}
+      style={value ? { display: "inline" } : { display: "inline-block", minWidth: "4em", minHeight: "1.5em", borderBottom: "1px solid var(--line)", verticalAlign: "bottom" }}
       suppressContentEditableWarning
     >
       {value}
     </span>
+    {validationError ? <small role="alert">{validationError}</small> : null}
+    </>
   );
 }

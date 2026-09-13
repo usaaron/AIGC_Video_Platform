@@ -96,11 +96,13 @@ ContentSpec, Story Project, Workspace Snapshot, planning versions and Episode mi
 
 - Authentication, payment, community and social features.
 - Admin tools, analytics dashboard and Data Intelligence dashboard.
-- Dynamic RAG, Knowledge management UI and Prompt editing.
-- Video, Storyboard, Voice, Animation and Seedance workflows.
+- Dynamic RAG, Knowledge management UI and internal generation Prompt Library editing. Editing the planned downstream image/video prompt artifacts is covered by the preproduction extension below.
+- Actual image, video, voice and animation generation, editing and provider execution; these belong to the downstream team.
 - Automatic application of Deepening shadow candidates.
 
 ## 4. Information Architecture
+
+2026-09-08 planned extension, not implemented: add one peer section, “分镜”, after “正文”. Keep episode/scene navigation and an ordered shot list; visual rules, asset designs, image/video prompts and delivery review use progressive disclosure within that section. No infinite canvas. Preproduction has an independent lifecycle and must not be added to the existing `PlanningPhase` state machine without accounting for its script recovery rules. The complete scope, controls and acceptance criteria are in [44_PREPRODUCTION_STORYBOARD_PLAN.md](44_PREPRODUCTION_STORYBOARD_PLAN.md). The routes below describe the existing baseline, not a shipped storyboard route.
 
 Recommended routes:
 

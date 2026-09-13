@@ -92,8 +92,9 @@ export async function apiEventStream<TEvent>(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let previousChunkEndedWithCR = false;
 
-  function consumeFrame(frame: string) {
+  function consumeFrame(frame: string, endedWithoutBoundary = false) {
     const data = frame
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))
@@ -101,21 +102,48 @@ export async function apiEventStream<TEvent>(
       .join("\n")
       .trim();
     if (!data) return;
-    onEvent(JSON.parse(data) as TEvent);
+    let parsed: TEvent;
+    try {
+      parsed = JSON.parse(data) as TEvent;
+    } catch (error) {
+      if (!endedWithoutBoundary) throw error;
+      throw new ApiError(
+        "The streaming response ended during an event.",
+        503,
+        { retryable: true, failureClass: "stream_incomplete", errorType: "stream_incomplete" },
+      );
+    }
+    onEvent(parsed);
   }
 
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary >= 0) {
-      consumeFrame(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf("\n\n");
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      let chunk = decoder.decode(value, { stream: !done });
+      if (chunk) {
+        // CR is a complete line ending; discard its LF even across network chunks.
+        if (previousChunkEndedWithCR && chunk.startsWith("\n")) {
+          chunk = chunk.slice(1);
+        }
+        previousChunkEndedWithCR = chunk.endsWith("\r");
+        buffer += chunk.replace(/\r\n?/g, "\n");
+      }
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        consumeFrame(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (done) break;
     }
-    if (done) break;
+    if (buffer.trim()) consumeFrame(buffer, true);
+  } catch (error) {
+    // Cleanup failures must not replace the parse, callback, or transport error.
+    await reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
-  if (buffer.trim()) consumeFrame(buffer);
 }
 
 function responseFailureMetadata(response: Response): {

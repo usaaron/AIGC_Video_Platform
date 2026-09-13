@@ -14,20 +14,20 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Download,
-  Lightbulb,
   LoaderCircle,
   Pencil,
   RefreshCw,
   Save,
-  Sparkles,
   Square,
   Undo2,
 } from "lucide-react";
 
 import { ArrowIcon, CloseIcon } from "@/components/icons";
 import { SectionHelp } from "@/components/section-help";
+import { CreationSettingSummary } from "@/components/creation-setting-summary";
+import { StoryInspirationEditor } from "@/components/story-inspiration-editor";
+import { CONTINUE_CREATION_REFINEMENT_MESSAGE, creationBriefWithInput, initialCreationSettingStep, type CreationSettingStep } from "@/lib/creation-setting-flow";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { isRequestAborted, userFacingError } from "@/lib/api-error";
@@ -58,6 +58,7 @@ import {
 } from "@/lib/story-planning-state";
 import {
   boundStoryBibleAuthorInstruction,
+  seedInspirationBriefFromInput,
   shouldApplyImportedStoryBibleConstraints,
   storyBibleInstructionWithImportConstraints,
 } from "@/lib/input-readiness-workflow";
@@ -65,12 +66,12 @@ import { buildImportedSourceSnapshot } from "@/lib/input-import-adapter";
 import { updatePlanningSession } from "@/lib/planning-session";
 import type {
   ScriptProject,
+  InputReadinessAnalysis,
   StoryInspirationBrief,
   StoryInspirationFrontierQuestion,
   StoryInspirationMessage,
   StoryInspirationSession,
 } from "@/lib/types";
-import { getTag } from "@/lib/tag-catalog";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 import {
@@ -94,16 +95,21 @@ import {
 } from "@/lib/story-inspiration-session";
 import {
   buildStoryInspirationRoundMessage,
-  recommendedChoiceForQuestion,
+  INSPIRATION_ROUND_DRAFT_KEY,
+  inspirationRoundDraftFromSections,
   previewStoryInspirationBrief,
+  replaceStoryInspirationCandidates,
+  retainStoryInspirationRoundAnswers,
+  storyInspirationRoundNavigation,
   storyInspirationAnswerIsComplete,
-  type StoryInspirationAnswerKind,
   type StoryInspirationRoundAnswer,
 } from "@/lib/story-inspiration-round";
 import {
   storyBibleMarkdown,
   storyBibleMarkdownFilename,
 } from "@/lib/story-bible-export";
+
+const EMPTY_INSPIRATION_QUESTIONS: StoryInspirationFrontierQuestion[] = [];
 
 const STORY_BIBLE_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
   { id: "rewrite", label: "重写", instruction: "请重写选中内容，保留它在总纲中的结构职责，并确保前后因果一致。" },
@@ -362,6 +368,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         episodeRoadmapRequired: true,
         episodeRoadmaps: [],
         episodePlanImportDraft: undefined,
+        episodePlanMaterializations: [],
       });
       void savePlanningSession(project, confirmedSession)
         .then((saved) => onProjectUpdate?.({ planningSession: saved }))
@@ -388,6 +395,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         storyBibleStatus: saved.status,
         storyBibleVersion: saved.version,
         episodePlanImportDraft: undefined,
+        episodePlanMaterializations: [],
       });
       setIsEditing(false);
       setMessage(t("storyBible.saved"));
@@ -546,6 +554,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         storyBibleStatus: restored.status,
         storyBibleVersion: restored.version,
         episodePlanImportDraft: undefined,
+        episodePlanMaterializations: [],
         episodePlansReadyThrough: undefined,
         episodeRoadmaps: [],
       });
@@ -833,17 +842,18 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
           onImport={recommendedHighCompletionInput
             ? () => void generateDraft({ importSource: true })
             : undefined}
-          onComplete={(completed) => {
+          onComplete={(completed, requestProject) => {
             setStoryBible(completed);
             onProjectUpdate?.((current) => ({
-              ...storyBibleRegenerationPatch(current, completed),
-              // The interactive builder has already awaited the final
-              // planning-session checkpoint. Keep that latest session while
-              // applying the generated Story Bible to the workspace.
+              ...storyBibleRegenerationPatch(requestProject, completed),
+              storyBibleAuthorInstruction: requestProject.storyBibleAuthorInstruction,
+              // Retain the session checkpoint and the exact inputs used by
+              // generation, even while its remote save is still pending.
               planningSession: updatePlanningSession(current, {
                 phase: "story_bible",
                 status: "awaiting_review",
                 storyBibleStep: "safeguards",
+                storyBibleAuthorInstruction: requestProject.storyBibleAuthorInstruction ?? "",
               }),
             }));
             setMessage(t("storyBible.generated"));
@@ -1101,18 +1111,18 @@ function InteractiveStoryBibleBuilder({
   onImport?: () => void;
   project: ScriptProject;
   onProjectUpdate?: ProjectUpdateCallback;
-  onComplete: (storyBible: StoryBible) => void;
+  onComplete: (storyBible: StoryBible, requestProject: ScriptProject) => void;
 }) {
   const { syncProjectSnapshot } = useProjects();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [creationSaveState, setCreationSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [creationSaveState, setCreationSaveState] = useState<"idle" | "loaded" | "saving" | "saved" | "error">(
+    () => project.planningSession?.storyBibleSections?.[INSPIRATION_SESSION_KEY] ? "loaded" : "idle",
+  );
   const [finalGenerationStartedAt, setFinalGenerationStartedAt] = useState<number | null>(null);
   const [finalGenerationElapsedMs, setFinalGenerationElapsedMs] = useState(0);
   const [finalGenerationLastDurationMs, setFinalGenerationLastDurationMs] = useState<number | null>(null);
-  const [creationMode, setCreationMode] = useState<"direct" | "grill">("direct");
   const [creationOpen, setCreationOpen] = useState(true);
-  const [inspirationOpen, setInspirationOpen] = useState(false);
   const [inspirationBusy, setInspirationBusy] = useState(false);
   const [inspirationTurnStartedAt, setInspirationTurnStartedAt] = useState<number | null>(null);
   const [inspirationTurnElapsedMs, setInspirationTurnElapsedMs] = useState(0);
@@ -1120,11 +1130,32 @@ function InteractiveStoryBibleBuilder({
   const [inspirationError, setInspirationError] = useState<string | null>(null);
   const [pendingInspirationMessage, setPendingInspirationMessage] = useState<string | null>(null);
   const [failedInspirationMessage, setFailedInspirationMessage] = useState<string | null>(null);
-  const [inspirationRoundState, setInspirationRoundState] = useState({ active: false, complete: false });
+  const [failedInspirationCandidateKey, setFailedInspirationCandidateKey] = useState<string | null>(null);
   const [inspirationSession, setInspirationSession] = useState<StoryInspirationSession>(
-    () => storyInspirationSessionForSections(project.planningSession?.storyBibleSections),
+    () => {
+      const session = storyInspirationSessionForSections(project.planningSession?.storyBibleSections);
+      return { ...session, brief: seedInspirationBriefFromInput(project, session.brief) };
+    },
   );
+  const [sourceReadiness, setSourceReadiness] = useState<InputReadinessAnalysis | undefined>(project.inputReadiness);
+  const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
   const [directInput, setDirectInput] = useState("");
+  const [roundAnswers, setRoundAnswers] = useState<Record<string, StoryInspirationRoundAnswer>>(() =>
+    inspirationRoundDraftFromSections(project.planningSession?.storyBibleSections, inspirationSession.messages.at(-1)));
+  const [creationStep, setCreationStep] = useState<CreationSettingStep>(() => initialCreationSettingStep(inspirationSession, recommendedHighCompletionInput, Object.keys(roundAnswers).length > 0));
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const creationDialogRef = useRef<HTMLDialogElement>(null);
+  const creationBodyRef = useRef<HTMLDivElement>(null);
+  const frontierId = inspirationSession.messages.at(-1)?.id;
+  const draftFrontierRef = useRef(frontierId);
+  const creationBrief = creationBriefWithInput(previewStoryInspirationBrief(inspirationSession.brief,
+    inspirationSession.messages.at(-1)?.questions ?? EMPTY_INSPIRATION_QUESTIONS, roundAnswers), directInput, project.creativePrompt);
+  const lastMessage = inspirationSession.messages.at(-1);
+  const activeQuestions = !inspirationSession.readyToGenerate && lastMessage?.role === "assistant"
+    ? lastMessage.questions : EMPTY_INSPIRATION_QUESTIONS;
+  const roundNavigation = storyInspirationRoundNavigation(activeQuestions, roundAnswers, activeQuestionIndex);
+  const inspirationRoundState = { active: creationStep === "questions" && activeQuestions.length > 0, complete: roundNavigation.complete };
+  const currentAnswerComplete = storyInspirationAnswerIsComplete(roundAnswers[activeQuestions[roundNavigation.index]?.decision_key]);
   const activeProjectRef = useRef(project);
   const finalGenerationRequestInFlightRef = useRef(false);
   const inspirationAbortControllerRef = useRef<AbortController | null>(null);
@@ -1136,13 +1167,40 @@ function InteractiveStoryBibleBuilder({
     || project.selectedTagIds.length,
   );
   const canGenerateStoryBible = inspirationSession.readyToGenerate
-    || (creationMode === "direct" && Boolean(directInput.trim()))
-    || (creationMode === "direct" && hasExistingCreativeDirection);
-  const tagLabels = project.selectedTagIds.map((tagId) => {
-    const custom = project.customTags?.find((tag) => tag.id === tagId);
-    return custom?.label ?? getTag(tagId)?.labelZh ?? getTag(tagId)?.label ?? tagId;
-  });
-  const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
+    || Boolean(directInput.trim()) || hasExistingCreativeDirection;
+  const controlsBusy = busy || importBusy || inspirationBusy || creationSaveState === "saving";
+
+  useEffect(() => {
+    const dialog = creationDialogRef.current;
+    if (creationOpen && dialog && !dialog.open) dialog.showModal();
+  }, [creationOpen]);
+
+  useEffect(() => {
+    setRoundAnswers((current) => retainStoryInspirationRoundAnswers(activeQuestions, current));
+  }, [activeQuestions]);
+
+  useEffect(() => {
+    creationBodyRef.current?.scrollTo({ top: 0 });
+  }, [creationStep, frontierId, activeQuestionIndex]);
+
+  useEffect(() => {
+    if (message) creationBodyRef.current?.scrollTo({ top: 0 });
+  }, [message]);
+
+  useEffect(() => {
+    if (draftFrontierRef.current === frontierId) return;
+    draftFrontierRef.current = frontierId;
+    setRoundAnswers({});
+    setActiveQuestionIndex(0);
+  }, [frontierId]);
+
+  useEffect(() => {
+    if (!sourceReadiness) return;
+    setInspirationSession((current) => {
+      const brief = seedInspirationBriefFromInput({ ...project, inputReadiness: sourceReadiness }, current.brief);
+      return brief === current.brief ? current : { ...current, brief };
+    });
+  }, [project, sourceReadiness]);
 
   useEffect(() => () => {
     inspirationAbortControllerRef.current?.abort();
@@ -1171,8 +1229,7 @@ function InteractiveStoryBibleBuilder({
     activeProjectRef.current = project;
   }, [project]);
 
-  async function ensurePlanningProject(): Promise<ScriptProject> {
-    const currentProject = activeProjectRef.current;
+  async function ensurePlanningProject(currentProject = activeProjectRef.current): Promise<ScriptProject> {
     const signature = storyPlanningInputSignature(currentProject);
     if (
       currentProject.contentSpecId
@@ -1196,19 +1253,28 @@ function InteractiveStoryBibleBuilder({
     return preparedProject;
   }
 
-  async function persistInspirationSession(nextSession: StoryInspirationSession) {
+  async function persistInspirationSession(
+    nextSession: StoryInspirationSession,
+    authorInstruction = inspirationBriefInstruction(nextSession.brief),
+  ) {
     const baseProject = activeProjectRef.current;
     const baseSections = baseProject.planningSession?.storyBibleSections ?? {};
     const nextSections = {
       ...baseSections,
       [INSPIRATION_SESSION_KEY]: nextSession,
+      [INSPIRATION_ROUND_DRAFT_KEY]: {
+        messageId: nextSession.messages.at(-1)?.id,
+        answers: nextSession.messages.at(-1)?.id === frontierId
+          ? retainStoryInspirationRoundAnswers(nextSession.messages.at(-1)?.questions ?? EMPTY_INSPIRATION_QUESTIONS, roundAnswers)
+          : {},
+      },
     };
     setInspirationSession(nextSession);
     const nextPlanningSession = updatePlanningSession(baseProject, {
       phase: "story_bible",
       status: "awaiting_review",
       storyBibleSections: nextSections,
-      storyBibleAuthorInstruction: inspirationBriefInstruction(nextSession.brief),
+      storyBibleAuthorInstruction: authorInstruction,
     });
     const nextProject = {
       ...baseProject,
@@ -1245,9 +1311,10 @@ function InteractiveStoryBibleBuilder({
       replaceMessageId?: string;
       briefCheckpoint?: StoryInspirationBrief;
       directSetting?: boolean;
+      candidateDecisionKey?: string;
     },
   ) {
-    if (inspirationBusy) return;
+    if (inspirationBusy || creationSaveState === "saving" || inspirationAbortControllerRef.current) return;
     const submitted = userMessage.trim();
     const replaceMessageIndex = options?.replaceMessageId
       ? inspirationSession.messages.findIndex((item) => item.id === options.replaceMessageId)
@@ -1287,8 +1354,9 @@ function InteractiveStoryBibleBuilder({
     setInspirationTurnElapsedMs(0);
     setInspirationError(null);
     setFailedInspirationMessage(null);
-    setPendingInspirationMessage(submitted || null);
-    setInspirationInput("");
+    setFailedInspirationCandidateKey(null);
+    setPendingInspirationMessage(options?.candidateDecisionKey ? null : submitted || null);
+    if (!options?.candidateDecisionKey) setInspirationInput("");
     try {
       const requestProject = await ensurePlanningProject();
       const result = await generateStoryInspirationTurn(
@@ -1297,26 +1365,36 @@ function InteractiveStoryBibleBuilder({
         baseSession.brief,
         submitted,
         controller.signal,
+        options?.candidateDecisionKey,
       );
         const nextQuestions = result.questions ?? [];
         if (!storyInspirationTurnIsActionable(result.ready_to_generate, nextQuestions)) {
           throw new Error("本轮没有返回可回答的问题，已停止保存这次无效响应。请重新加载本轮。");
         }
-        const nextMessages = [
-          ...baseSession.messages,
-          ...(submitted ? [inspirationMessage("user", submitted)] : []),
-          inspirationMessage(
-            "assistant",
-            result.assistant_message.trim(),
-            nextQuestions,
-          ),
-        ].slice(-30);
+        const candidateReplacement = options?.candidateDecisionKey
+          ? nextQuestions.find((question) => question.decision_key === options.candidateDecisionKey)
+          : undefined;
+        if (options?.candidateDecisionKey && !candidateReplacement) {
+          throw new Error("本次未返回当前决定的候选方案，已有方案和答案已保留。");
+        }
+        const nextMessages = options?.candidateDecisionKey
+          ? replaceStoryInspirationCandidates(baseSession.messages, candidateReplacement!)
+          : [
+              ...baseSession.messages,
+              ...(submitted ? [inspirationMessage("user", submitted)] : []),
+              inspirationMessage(
+                "assistant",
+                result.assistant_message.trim(),
+                nextQuestions,
+              ),
+            ].slice(-30);
         const nextSession: StoryInspirationSession = {
           schemaVersion: "v1",
-          status: result.ready_to_generate ? "ready" : "active",
+          status: !options?.candidateDecisionKey && result.ready_to_generate ? "ready" : "active",
           messages: nextMessages,
-          brief: mergeStoryInspirationBrief(baseSession.brief, result.brief),
-          readyToGenerate: result.ready_to_generate,
+          brief: options?.candidateDecisionKey ? baseSession.brief
+            : mergeStoryInspirationBrief(baseSession.brief, result.brief),
+          readyToGenerate: !options?.candidateDecisionKey && result.ready_to_generate,
           updatedAt: new Date().toISOString(),
         };
         let persisted = true;
@@ -1326,13 +1404,14 @@ function InteractiveStoryBibleBuilder({
           persisted = false;
           setInspirationSession(nextSession);
         }
+        setCreationSaveState(persisted ? "saved" : "error");
+        if (!options?.candidateDecisionKey) setCreationStep(result.ready_to_generate ? "review" : "questions");
         if (options?.directSetting) {
           setDirectInput("");
-          setCreationSaveState(persisted ? "saved" : "error");
-          if (persisted) setMessage("补充内容已整理并保存到当前创作设定。");
         }
     } catch (error) {
       if (isRequestAborted(error, controller.signal)) {
+        if (options?.candidateDecisionKey) return;
         const pausedSession: StoryInspirationSession = {
           ...baseSession,
           status: "active",
@@ -1350,6 +1429,7 @@ function InteractiveStoryBibleBuilder({
         }
       } else {
         setFailedInspirationMessage(submitted || null);
+        setFailedInspirationCandidateKey(options?.candidateDecisionKey ?? null);
         const errorMessage = userFacingError(error, "灵感对话暂时没有完成本轮回答，请重试。");
         setInspirationError(errorMessage);
         if (options?.directSetting) {
@@ -1377,81 +1457,84 @@ function InteractiveStoryBibleBuilder({
     finalInspirationGenerationAbortControllerRef.current?.abort();
   }
 
-  function switchCreationMode(mode: "direct" | "grill") {
-    if (mode === "grill" && recommendedHighCompletionInput) return;
-    setCreationMode(mode);
-    setInspirationOpen(mode === "grill");
-    setCreationSaveState("idle");
+  function goToCreationStep(step: CreationSettingStep) {
+    if (controlsBusy || (step === "questions" && recommendedHighCompletionInput)) return;
+    setCreationStep(step);
     setMessage(null);
-    if (mode !== "grill") setInspirationRoundState({ active: false, complete: false });
-    if (mode === "grill") setInspirationError(null);
+  }
+
+  function continueCreationRound(answers = roundAnswers) {
+    if (inspirationBusy || creationSaveState === "saving") return;
+    const navigation = storyInspirationRoundNavigation(activeQuestions, answers, activeQuestionIndex);
+    if (navigation.complete) {
+      const briefCheckpoint = creationBriefWithInput(previewStoryInspirationBrief(inspirationSession.brief, activeQuestions, answers), directInput, project.creativePrompt);
+      void requestInspirationTurn(buildStoryInspirationRoundMessage(activeQuestions, answers), { briefCheckpoint });
+    } else {
+      setActiveQuestionIndex(navigation.nextIndex);
+    }
+  }
+
+  function skipCreationQuestion() {
+    const question = activeQuestions[roundNavigation.index];
+    if (!question || controlsBusy) return;
+    const answers = { ...roundAnswers, [question.decision_key]: { kind: "unsure" as const, value: "", note: roundAnswers[question.decision_key]?.note ?? "" } };
+    setRoundAnswers(answers);
+    setCreationSaveState("idle");
+    continueCreationRound(answers);
   }
 
   async function saveCreationSetting() {
-    if (busy || inspirationBusy || inspirationRoundState.active) return;
+    if (busy || inspirationBusy || creationSaveState === "saving") return;
     setCreationSaveState("saving");
     setMessage(null);
-    const rawInput = directInput.trim();
-    const hasNewDirectInput = creationMode === "direct"
-      && Boolean(rawInput)
-      && rawInput !== project.creativePrompt.trim()
-      && !inspirationSession.brief.additional_notes.includes(rawInput);
-    const nextSession = hasNewDirectInput
-      ? {
-          ...inspirationSession,
-          status: "ready" as const,
-          brief: {
-            ...inspirationSession.brief,
-            additional_notes: [...inspirationSession.brief.additional_notes, rawInput].slice(-12),
-          },
-          readyToGenerate: true,
-          updatedAt: new Date().toISOString(),
-        }
-      : {
-          ...inspirationSession,
-          updatedAt: new Date().toISOString(),
-        };
+    const nextSession = { ...inspirationSession, brief: creationBrief, updatedAt: new Date().toISOString() };
     try {
       await persistInspirationSession(nextSession);
       setCreationSaveState("saved");
-      setMessage("创作设定已保存，后续生成将严格遵守当前方向。");
     } catch (error) {
       setCreationSaveState("error");
       setMessage(userFacingError(error, "创作设定暂时未能保存，请稍后重试。"));
     }
   }
 
-  function submitDirectSetting() {
+  function continueCreationIdea() {
+    if (controlsBusy) return;
+    if (recommendedHighCompletionInput || (!directInput.trim() && inspirationSession.readyToGenerate)) {
+      goToCreationStep("review");
+      return;
+    }
     const value = directInput.trim();
-    if (!value || inspirationBusy) return;
+    if (!value) { goToCreationStep("questions"); return; }
     inspirationRecoveryAttemptedRef.current = true;
     setCreationSaveState("idle");
     setMessage(null);
-    void requestInspirationTurn(value, { directSetting: true });
+    void requestInspirationTurn(value, { directSetting: true, briefCheckpoint: creationBrief });
   }
 
   const inspirationNeedsTurn = storyInspirationSessionNeedsTurn(inspirationSession);
   useEffect(() => {
-    if (!inspirationOpen || creationMode !== "grill") {
+    if (!creationOpen || creationStep !== "questions") {
       inspirationRecoveryAttemptedRef.current = false;
       return;
     }
     if (inspirationBusy || !inspirationNeedsTurn || inspirationRecoveryAttemptedRef.current) return;
     inspirationRecoveryAttemptedRef.current = true;
     void requestInspirationTurn();
-  }, [creationMode, inspirationBusy, inspirationNeedsTurn, inspirationOpen]);
+  }, [creationOpen, creationStep, inspirationBusy, inspirationNeedsTurn]);
 
   async function generateStoryBibleFromInspiration() {
     const rawDirectInput = directInput.trim();
     const additionalDirectInput = rawDirectInput !== project.creativePrompt.trim()
       ? rawDirectInput
       : "";
-    const hasDirectDirection = creationMode === "direct"
+    const hasDirectDirection = creationStep === "review"
       && Boolean(rawDirectInput || project.creativePrompt.trim() || project.referenceMaterials.length);
     const hasConversationDirection = inspirationSession.messages.some((item) => item.role === "user");
     if (
       busy
+      || creationStep !== "review"
       || inspirationBusy
+      || creationSaveState === "saving"
       || finalGenerationRequestInFlightRef.current
       || (!inspirationSession.readyToGenerate && !hasDirectDirection && !hasConversationDirection)
     ) return;
@@ -1467,30 +1550,27 @@ function InteractiveStoryBibleBuilder({
     const controller = new AbortController();
     finalInspirationGenerationAbortControllerRef.current = controller;
     try {
-      const completedBrief = additionalDirectInput
-        && !inspirationSession.brief.additional_notes.includes(additionalDirectInput)
-        ? {
-            ...inspirationSession.brief,
-            additional_notes: [...inspirationSession.brief.additional_notes, additionalDirectInput].slice(-12),
-          }
-        : inspirationSession.brief;
       const completedSession: StoryInspirationSession = {
         ...inspirationSession,
         status: "completed",
-        brief: completedBrief,
+        brief: creationBrief,
         readyToGenerate: true,
         updatedAt: new Date().toISOString(),
       };
-      const requestProject = await ensurePlanningProject();
+      const authorInstruction = inspirationBriefInstruction(completedSession.brief, additionalDirectInput);
+      const requestProject = await ensurePlanningProject({
+        ...activeProjectRef.current,
+        storyBibleAuthorInstruction: authorInstruction,
+      });
       const completed = await generateStoryBibleDraft(
         requestProject,
         undefined,
         shouldApplyImportedStoryBibleConstraints(requestProject)
           ? storyBibleInstructionWithImportConstraints(
-              inspirationBriefInstruction(completedSession.brief, additionalDirectInput),
+              authorInstruction,
             )
           : boundStoryBibleAuthorInstruction(
-              inspirationBriefInstruction(completedSession.brief, additionalDirectInput),
+              authorInstruction,
             ),
         controller.signal,
         completedSession.brief.creative_decisions,
@@ -1498,19 +1578,14 @@ function InteractiveStoryBibleBuilder({
       // Start persistence only after generation succeeds, but do not keep the
       // completed Story Bible behind another network round trip. The session
       // save queue continues in the background after the workspace opens.
-      void persistInspirationSession(completedSession).catch(() => undefined);
-      setInspirationOpen(false);
-      onComplete(completed);
+      void persistInspirationSession(completedSession, authorInstruction).catch(() => undefined);
+      onComplete(completed, requestProject);
     } catch (error) {
       const errorMessage = isRequestAborted(error, controller.signal)
         ? "已暂停总纲生成，灵感对话和已保存内容均已保留。"
         : userFacingError(error, "根据灵感对话生成总纲失败，已保存的对话不会丢失。");
-      if (isRequestAborted(error, controller.signal)) {
-        setInspirationError(errorMessage);
-      } else {
-        setInspirationError(errorMessage);
-      }
-      if (creationMode === "direct") setMessage(errorMessage);
+      setInspirationError(errorMessage);
+      setMessage(errorMessage);
     } finally {
       if (finalInspirationGenerationAbortControllerRef.current === controller) {
         finalInspirationGenerationAbortControllerRef.current = null;
@@ -1525,644 +1600,104 @@ function InteractiveStoryBibleBuilder({
 
   return (
     <>
-      {!creationOpen ? (
-        <div className="interactive-story-bible-resume">
-          <strong>创作设定尚未完成</strong>
-          <span>已保留当前故事方向和深入打磨进度。</span>
-          <button className="primary-action" onClick={() => setCreationOpen(true)} type="button">继续创作设定</button>
-        </div>
-      ) : null}
-      {creationOpen ? <div aria-labelledby="interactive-story-bible-title" aria-modal="true" className="tag-dialog-backdrop creation-setting-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !busy && !importBusy) setCreationOpen(false); }} role="dialog">
-        <div className="tag-dialog interactive-story-bible-dialog unified-creation-dialog">
-          <button aria-label="关闭创作设定" className="tag-dialog-close" disabled={busy || importBusy} onClick={() => setCreationOpen(false)} type="button"><CloseIcon /></button>
-          <div className="interactive-story-bible-heading">
-            <div>
-              <span className="section-kicker">总纲生成前的创作控制台</span>
-              <h3 id="interactive-story-bible-title">创作设定</h3>
-              <p>{creationMode === "grill" ? "剧本大师会根据已明确的方向提出当前最关键的取舍；每轮统一提交，答案仍可随时修改。" : "先整理你已经确定的想法，再用深入打磨补足会影响总纲的关键取舍。"}</p>
-            </div>
-            <div className="interactive-story-bible-heading-actions">
-              <span className="interactive-story-bible-progress">已明确 {Object.values(inspirationSession.brief).filter((value) => typeof value === "string" ? value.trim() : value.length).length} 项</span>
-            </div>
+      {!creationOpen && <div className="interactive-story-bible-resume">
+        <strong>创作设定</strong>
+        <span>{inspirationSession.readyToGenerate ? "已完成整理" : "当前进度已保留"}</span>
+        <button className="primary-action" onClick={() => setCreationOpen(true)} type="button">继续创作设定</button>
+      </div>}
+      {creationOpen && <dialog aria-labelledby="interactive-story-bible-title" className="creation-setting-modal" onCancel={(event) => {
+        event.preventDefault();
+        if (!busy && !importBusy && !inspirationBusy) setCreationOpen(false);
+      }} onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, summary, [tabindex]'))
+          .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && element.getClientRects().length > 0);
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }} ref={creationDialogRef}>
+        <header className="creation-setting-heading">
+          <div><h3 id="interactive-story-bible-title">创作设定</h3><span>{project.title}</span></div>
+          <div className="creation-heading-actions">
+            <span aria-live="polite" className={"creation-save-status" + (creationSaveState === "error" ? " is-error" : "")} role="status">{creationSaveState === "error" ? "同步失败" : creationSaveState === "saving" ? "正在保存" : creationSaveState === "saved" ? "已保存" : creationSaveState === "loaded" ? "已恢复设定" : "草稿未保存"}</span>
+            <button aria-label="保存草稿" className="workspace-tool" disabled={controlsBusy} onClick={() => void saveCreationSetting()} title="保存草稿" type="button">{creationSaveState === "saved" ? <Check aria-hidden="true" size={17} /> : <Save aria-hidden="true" size={17} />}</button>
+            <button aria-label="关闭创作设定" className="workspace-tool" disabled={busy || importBusy || inspirationBusy} onClick={() => setCreationOpen(false)} title="关闭创作设定" type="button"><CloseIcon /></button>
           </div>
-          <div className="creation-setting-tabs" role="tablist" aria-label="创作设定模式">
-            <button aria-selected={creationMode === "direct"} className={creationMode === "direct" ? "is-active" : ""} onClick={() => switchCreationMode("direct")} role="tab" type="button">自由整理</button>
-            {!recommendedHighCompletionInput ? (
-              <button aria-selected={creationMode === "grill"} className={creationMode === "grill" ? "is-active" : ""} onClick={() => switchCreationMode("grill")} role="tab" type="button"><Lightbulb aria-hidden="true" size={15} />深入打磨</button>
-            ) : null}
-          </div>
-          <div className="interactive-story-bible-context">
-            <strong>已保留已有创作输入</strong>
-            <span>{project.creativePrompt.trim() || "已上传参考资料作为创作来源"}</span>
-            {tagLabels.length ? <small>标签：{tagLabels.join("、")}</small> : null}
-          </div>
-          {creationMode === "direct" ? <>
-            <div className="interactive-story-bible-context">
-              <strong>自由整理会写入同一份创作设定</strong>
-              <span>你可以先写下完整想法，系统只负责拆成可检查的方向，不会替你静默改变核心要求。</span>
-            </div>
-            <label className="creation-setting-direct-input">
-              <span>补充或改写创作方向 <small>可选，初始输入已在上方保留</small></span>
-              <textarea aria-label="补充或改写创作方向" maxLength={2_000} onChange={(event) => { setDirectInput(event.target.value); setCreationSaveState("idle"); setMessage(null); }} placeholder="例如：补充主角必须保护谁、最不能接受什么，或改写结局希望留下的代价……" rows={7} value={directInput} />
-            </label>
-            <div className="creation-setting-direct-preview">
-              <strong>当前创作方向</strong>
-              <dl>
-                {[
-                  ["故事承诺", inspirationSession.brief.story_promise],
-                  ["主角与目标", inspirationSession.brief.protagonist_and_goal],
-                  ["核心阻力", inspirationSession.brief.core_obstacle],
-                  ["失败代价", inspirationSession.brief.stakes],
-                  ["人物关系", inspirationSession.brief.relationship_direction],
-                  ["秘密或反转", inspirationSession.brief.reveal_or_twist],
-                  ["结局方向", inspirationSession.brief.ending_direction],
-                  ["情绪与节奏", inspirationSession.brief.tone_and_pacing],
-                ].map(([label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{value || "待定"}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-            {directInput.trim() ? (
-              <div className="creation-setting-direct-actions">
-                <button className="outline-action" disabled={inspirationBusy} onClick={submitDirectSetting} type="button"><Sparkles aria-hidden="true" size={14} />{inspirationBusy ? "正在整理……" : "整理进创作设定"}</button>
-              </div>
-            ) : null}
-          </> : null}
-          {(!recommendedHighCompletionInput && creationMode === "grill") || finalGenerationStartedAt !== null ? (
-        <StoryInspirationDialog
-          busy={inspirationBusy}
-          error={inspirationError}
-          failedMessage={failedInspirationMessage}
-          generationElapsedMs={finalGenerationElapsedMs}
-          generatingStoryBible={finalGenerationStartedAt !== null}
-          input={inspirationInput}
-          onClose={() => switchCreationMode("direct")}
-          onEditMessage={editInspirationMessage}
-          onInputChange={setInspirationInput}
-          onPause={pauseInspirationThinking}
-          onRetry={() => void requestInspirationTurn(failedInspirationMessage ?? "")}
-          onSend={(value, briefCheckpoint) => void requestInspirationTurn(
-            value,
-            briefCheckpoint ? { briefCheckpoint } : undefined,
-          )}
-          onFrontierStateChange={(active, complete) => setInspirationRoundState({ active, complete })}
-          pendingMessage={pendingInspirationMessage}
-          session={inspirationSession}
-          thinkingElapsedMs={inspirationTurnElapsedMs}
-          embedded
-        />
-          ) : null}
-          {message ? <p className={`inline-notice${creationSaveState === "error" ? " is-error" : ""}`}>{message}</p> : null}
-          <footer className="creation-setting-footer">
-            <span>{creationSaveState === "saving" ? "正在保存创作设定……" : creationSaveState === "saved" ? "创作设定已保存" : creationSaveState === "error" ? "本次云端同步失败，当前页面内容仍已保留" : inspirationRoundState.active ? (inspirationRoundState.complete ? "本轮问题已全部回答，请点击“提交本轮并继续”；提交后会自动保存" : "请先回答本轮全部问题，回答完点击“提交本轮并继续”") : canGenerateStoryBible ? "已有可用创作方向，可以生成总纲或继续深入打磨" : inspirationSession.messages.length ? "每轮提交后会自动保存，也可以手动保存当前设定" : "输入想法后整理，或直接进入深入打磨"}</span>
-            <div>
-              {onImport ? (
-                <button
-                  className="outline-action"
-                  disabled={busy || importBusy || inspirationBusy || inspirationRoundState.active}
-                  onClick={onImport}
-                  type="button"
-                >
-                  {importBusy ? "正在按原文整理……" : "按原文导入为总纲草稿"}
-                </button>
-              ) : null}
-              <button className="outline-action" disabled={busy || importBusy || inspirationBusy || inspirationRoundState.active || creationSaveState === "saving"} onClick={() => void saveCreationSetting()} type="button"><Save aria-hidden="true" size={14} />{inspirationRoundState.active ? "先提交本轮" : creationSaveState === "saving" ? "保存中" : creationSaveState === "saved" ? "已保存" : "保存创作设定"}</button>
-              <button className="primary-action" disabled={!canGenerateStoryBible || busy || importBusy || inspirationBusy} onClick={() => void generateStoryBibleFromInspiration()} type="button">生成故事总纲</button>
-            </div>
-          </footer>
-        </div>
-      </div> : null}
-    </>
-  );
-}
-
-function StoryInspirationDialog({
-  busy,
-  error,
-  failedMessage,
-  generationElapsedMs,
-  generatingStoryBible,
-  input,
-  onClose,
-  onEditMessage,
-  onInputChange,
-  onPause,
-  onRetry,
-  onSend,
-  onFrontierStateChange,
-  pendingMessage,
-  session,
-  thinkingElapsedMs,
-  embedded = false,
-}: {
-  busy: boolean;
-  error: string | null;
-  failedMessage: string | null;
-  generationElapsedMs: number;
-  generatingStoryBible: boolean;
-  input: string;
-  onClose: () => void;
-  onEditMessage: (messageId: string, text: string) => void;
-  onInputChange: (value: string) => void;
-  onPause: () => void;
-  onRetry: () => void;
-  onSend: (value: string, briefCheckpoint?: StoryInspirationBrief) => void;
-  onFrontierStateChange?: (active: boolean, complete: boolean) => void;
-  pendingMessage: string | null;
-  session: StoryInspirationSession;
-  thinkingElapsedMs: number;
-  embedded?: boolean;
-}) {
-  const transcriptRef = useRef<HTMLDivElement>(null);
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [editingMessageText, setEditingMessageText] = useState("");
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-  const [roundAnswers, setRoundAnswers] = useState<Record<string, StoryInspirationRoundAnswer>>({});
-  const frontierStateRef = useRef("");
-  const latestMessage = session.messages.at(-1);
-  const activeFrontierMessage = !session.readyToGenerate
-    && latestMessage?.role === "assistant"
-    && latestMessage.questions.length
-    ? latestMessage
-    : null;
-  const activeQuestions = activeFrontierMessage?.questions ?? [];
-  const activeQuestion = activeQuestions[activeQuestionIndex] ?? null;
-  const activeAnswer = activeQuestion ? roundAnswers[activeQuestion.decision_key] : undefined;
-  const activeRecommendedChoice = activeQuestion
-    ? recommendedChoiceForQuestion(activeQuestion)
-    : null;
-  const answeredQuestionCount = activeQuestions.filter((question) => (
-    storyInspirationAnswerIsComplete(roundAnswers[question.decision_key])
-  )).length;
-  const roundIsComplete = activeQuestions.length > 0
-    && answeredQuestionCount === activeQuestions.length;
-  const userAnswerCount = session.messages.filter((item) => item.role === "user").length;
-  const normalizedBrief = normalizeStoryInspirationSession(session).brief;
-  const previewBrief = previewStoryInspirationBrief(
-    normalizedBrief,
-    activeQuestions,
-    roundAnswers,
-  );
-  const summaryFields = [
-    ["story_promise", "故事承诺", previewBrief.story_promise],
-    ["protagonist_and_goal", "主角与目标", previewBrief.protagonist_and_goal],
-    ["core_obstacle", "核心阻力", previewBrief.core_obstacle],
-    ["stakes", "失败代价", previewBrief.stakes],
-    ["relationship_direction", "人物关系", previewBrief.relationship_direction],
-    ["reveal_or_twist", "秘密或反转", previewBrief.reveal_or_twist],
-    ["ending_direction", "结局方向", previewBrief.ending_direction],
-    ["tone_and_pacing", "情绪与节奏", previewBrief.tone_and_pacing],
-  ] as const;
-  const summary = summaryFields.filter(([, , value]) => value.trim());
-  const handledDecisionFields = new Set(previewBrief.creative_decisions
-    .filter((decision) => decision.status === "unresolved" || decision.status === "delegated")
-    .map((decision) => decision.decision_key.split(".", 1)[0]));
-  const missingSummary = summaryFields
-    .filter(([field, , value]) => !value.trim() && !handledDecisionFields.has(field))
-    .map(([, label]) => label);
-  const deferredDecisions = previewBrief.creative_decisions
-    .filter((decision) => decision.status === "unresolved")
-    .map((decision) => decision.title);
-  const delegatedDecisions = previewBrief.creative_decisions
-    .filter((decision) => decision.status === "delegated")
-    .map((decision) => decision.title);
-
-  useEffect(() => {
-    const transcript = transcriptRef.current;
-    if (transcript) transcript.scrollTop = transcript.scrollHeight;
-  }, [busy, pendingMessage, session.messages.length]);
-
-  useEffect(() => {
-    setActiveQuestionIndex(0);
-    setRoundAnswers({});
-  }, [activeFrontierMessage?.id]);
-
-  useEffect(() => {
-    const stateKey = `${activeQuestions.length}:${roundIsComplete ? "complete" : "pending"}`;
-    if (frontierStateRef.current === stateKey) return;
-    frontierStateRef.current = stateKey;
-    onFrontierStateChange?.(activeQuestions.length > 0, roundIsComplete);
-  }, [activeQuestions.length, onFrontierStateChange, roundIsComplete]);
-
-  if (generatingStoryBible) {
-    return (
-      <div aria-labelledby="story-bible-generation-title" aria-modal="true" className="tag-dialog-backdrop story-inspiration-backdrop" role="dialog">
-        <section aria-live="polite" className="story-bible-generation-transition" role="status">
-          <div aria-hidden="true" className="story-bible-generation-transition-mark">
-            <LoaderCircle size={22} />
-          </div>
-          <span className="section-kicker">总纲生成中</span>
-          <h3 id="story-bible-generation-title">正在生成故事总纲</h3>
-          <p>灵感对话已保存，正在整理为完整总纲。生成完成后会自动进入总纲页面。</p>
-          <div className="story-bible-generation-transition-timer">
-            已用时间 {formatGenerationDuration(generationElapsedMs)}
-          </div>
-          <button className="outline-action" onClick={onPause} type="button">
-            暂停本次生成
-          </button>
-        </section>
-      </div>
-    );
-  }
-
-  async function copyInspirationMessage(message: StoryInspirationMessage) {
-    try {
-      await navigator.clipboard.writeText(message.content);
-      setCopiedMessageId(message.id);
-      window.setTimeout(() => {
-        setCopiedMessageId((current) => current === message.id ? null : current);
-      }, 1_500);
-    } catch {
-      setCopiedMessageId(null);
-    }
-  }
-
-  function submitEditedInspirationMessage(messageId: string) {
-    const nextText = editingMessageText.trim();
-    if (!nextText || busy) return;
-    setEditingMessageId(null);
-    setEditingMessageText("");
-    onEditMessage(messageId, nextText);
-  }
-
-  function selectRoundAnswer(kind: StoryInspirationAnswerKind, value = "") {
-    if (!activeQuestion) return;
-    setRoundAnswers((current) => ({
-      ...current,
-      [activeQuestion.decision_key]: {
-        kind,
-        value,
-        note: current[activeQuestion.decision_key]?.note ?? "",
-      },
-    }));
-  }
-
-  function updateRoundAnswerValue(value: string) {
-    if (!activeQuestion) return;
-    setRoundAnswers((current) => ({
-      ...current,
-      [activeQuestion.decision_key]: {
-        kind: "custom",
-        value: value.slice(0, 260),
-        note: current[activeQuestion.decision_key]?.note ?? "",
-      },
-    }));
-  }
-
-  function updateRoundAnswerNote(note: string) {
-    if (!activeQuestion) return;
-    setRoundAnswers((current) => ({
-      ...current,
-      [activeQuestion.decision_key]: {
-        kind: current[activeQuestion.decision_key]?.kind ?? "custom",
-        value: current[activeQuestion.decision_key]?.value ?? "",
-        note: note.slice(0, 140),
-      },
-    }));
-  }
-
-  function submitInspirationRound() {
-    if (!roundIsComplete || busy) return;
-    onSend(
-      buildStoryInspirationRoundMessage(activeQuestions, roundAnswers),
-      previewBrief,
-    );
-  }
-
-  return (
-    <div aria-labelledby="story-inspiration-title" aria-modal="true" className={`tag-dialog-backdrop story-inspiration-backdrop${embedded ? " is-embedded" : ""}`} role="dialog">
-      <section className="story-inspiration-dialog">
-        <header className="story-inspiration-header">
-          <div>
-            <span className="section-kicker">剧本创作范围</span>
-            <h3 id="story-inspiration-title">深入打磨</h3>
-          </div>
-          <button aria-label="关闭深入打磨" className="tag-dialog-close" disabled={busy} onClick={onClose} type="button"><CloseIcon /></button>
         </header>
-        <div className="story-inspiration-layout">
-          <aside className="story-inspiration-summary">
-            <strong>当前创作方向</strong>
-            {summary.length ? (
-              <dl>
-                {summary.map(([, label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : <p>对话中的明确选择会整理在这里。</p>}
-            {missingSummary.length ? <p><b>还可细化</b>{missingSummary.join("、")}</p> : null}
-            {deferredDecisions.length ? <p><b>以后再决定</b>{deferredDecisions.join("、")}</p> : null}
-            {delegatedDecisions.length ? <p><b>剧本大师先提方案</b>{delegatedDecisions.join("、")}</p> : null}
-            {previewBrief.must_keep.length ? <p><b>必须保留</b>{previewBrief.must_keep.join("；")}</p> : null}
-            {previewBrief.must_avoid.length ? <p><b>必须避免</b>{previewBrief.must_avoid.join("；")}</p> : null}
-          </aside>
-          <div className="story-inspiration-chat">
-            <div className="story-inspiration-transcript" ref={transcriptRef}>
-              {session.messages.map((message) => (
-                <div className={`story-inspiration-message is-${message.role}${message.questions.length ? " has-frontier" : ""}`} key={message.id}>
-                  <div className="conversation-message-heading">
-                    <small>{message.role === "user" ? "你" : "剧本大师"}</small>
-                    <span className="conversation-message-actions">
-                      <button
-                        aria-label={copiedMessageId === message.id ? "已复制" : "复制消息"}
-                        onClick={() => void copyInspirationMessage(message)}
-                        title={copiedMessageId === message.id ? "已复制" : "复制"}
-                        type="button"
-                      >
-                        {copiedMessageId === message.id ? <Check aria-hidden="true" size={13} /> : <Copy aria-hidden="true" size={13} />}
-                      </button>
-                      {message.role === "user" ? (
-                        <button
-                          aria-label="编辑并重新发送消息"
-                          disabled={busy}
-                          onClick={() => {
-                            setEditingMessageId(message.id);
-                            setEditingMessageText(message.content);
-                          }}
-                          title="编辑并重新发送"
-                          type="button"
-                        >
-                          <Pencil aria-hidden="true" size={13} />
-                        </button>
-                      ) : null}
-                    </span>
-                  </div>
-                  {editingMessageId === message.id ? (
-                    <div className="conversation-message-editor">
-                      <textarea
-                        aria-label="编辑已发送消息"
-                        autoFocus
-                        maxLength={2_000}
-                        onChange={(event) => setEditingMessageText(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") {
-                            setEditingMessageId(null);
-                            setEditingMessageText("");
-                          } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                            event.preventDefault();
-                            submitEditedInspirationMessage(message.id);
-                          }
-                        }}
-                        rows={3}
-                        value={editingMessageText}
-                      />
-                      <div>
-                        <button className="conversation-message-edit-cancel" onClick={() => {
-                          setEditingMessageId(null);
-                          setEditingMessageText("");
-                        }} type="button">取消</button>
-                        <button className="conversation-message-edit-submit" disabled={!editingMessageText.trim()} onClick={() => submitEditedInspirationMessage(message.id)} type="button">发送</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <p>{message.content}</p>
-                      {message.questions.length ? (
-                        message.id === activeFrontierMessage?.id && activeQuestion ? (
-                          <div className="story-inspiration-frontier">
-                            <article className="story-inspiration-question">
-                              <header>
-                                <span>{activeQuestion.question_id}</span>
-                                <strong>{activeQuestion.title}</strong>
-                                <small>{activeQuestionIndex + 1} / {activeQuestions.length}</small>
-                              </header>
-                              <div className="story-inspiration-question-body">{activeQuestion.question}</div>
-                              <div aria-label={activeQuestion.title} className="story-inspiration-question-choices" role="radiogroup">
-                                {activeQuestion.choices.map((choice) => {
-                                  const selected = activeAnswer?.kind === "choice" && activeAnswer.value === choice;
-                                  const recommended = activeRecommendedChoice === choice;
-                                  return (
-                                    <button
-                                      aria-checked={selected}
-                                      className={`${selected ? "is-selected" : ""}${recommended ? " is-recommended" : ""}`}
-                                      disabled={busy}
-                                      key={choice}
-                                      onClick={() => selectRoundAnswer("choice", choice)}
-                                      role="radio"
-                                      type="button"
-                                    >
-                                      <span aria-hidden="true" className="story-inspiration-choice-indicator" />
-                                      <span className="story-inspiration-choice-copy">
-                                        <span>{choice}</span>
-                                        {recommended ? (
-                                          <small>{activeQuestion.recommended_answer}</small>
-                                        ) : null}
-                                      </span>
-                                      {recommended ? <b>推荐</b> : null}
-                                    </button>
-                                  );
-                                })}
-                                <button
-                                  aria-checked={activeAnswer?.kind === "custom"}
-                                  className={activeAnswer?.kind === "custom" ? "is-selected" : ""}
-                                  disabled={busy}
-                                  onClick={() => selectRoundAnswer("custom", activeAnswer?.kind === "custom" ? activeAnswer.value : "")}
-                                  role="radio"
-                                  type="button"
-                                >
-                                  <span aria-hidden="true" className="story-inspiration-choice-indicator" />
-                                  <span className="story-inspiration-choice-copy"><span>自定义方向</span></span>
-                                </button>
-                                <button
-                                  aria-checked={activeAnswer?.kind === "unsure"}
-                                  className={activeAnswer?.kind === "unsure" ? "is-selected" : ""}
-                                  disabled={busy}
-                                  onClick={() => selectRoundAnswer("unsure")}
-                                  role="radio"
-                                  type="button"
-                                >
-                                  <span aria-hidden="true" className="story-inspiration-choice-indicator" />
-                                  <span className="story-inspiration-choice-copy">
-                                      <span>还没想好</span>
-                                      <small>暂时不确定，保留到真正需要时再决定，不会自动补成剧情。</small>
-                                  </span>
-                                </button>
-                                <button
-                                  aria-checked={activeAnswer?.kind === "delegate"}
-                                  className={activeAnswer?.kind === "delegate" ? "is-selected" : ""}
-                                  disabled={busy}
-                                  onClick={() => selectRoundAnswer("delegate")}
-                                  role="radio"
-                                  type="button"
-                                >
-                                  <span aria-hidden="true" className="story-inspiration-choice-indicator" />
-                                  <span className="story-inspiration-choice-copy">
-                                    <span>你先给个方案</span>
-                                    <small>只提出一个可修改的方案，未经确认不会成为故事事实。</small>
-                                  </span>
-                                </button>
-                              </div>
-                              {activeAnswer?.kind === "custom" ? (
-                                <label className="story-inspiration-question-input">
-                                  <span>写下你的方向</span>
-                                  <textarea
-                                    autoFocus
-                                    maxLength={260}
-                                    onChange={(event) => updateRoundAnswerValue(event.target.value)}
-                                    placeholder="说明你希望故事怎样发展，或直接反驳上面的选项……"
-                                    rows={3}
-                                    value={activeAnswer.value}
-                                  />
-                                </label>
-                              ) : null}
-                              {activeAnswer ? (
-                                <label className="story-inspiration-question-input is-note">
-                                  <span>补充说明 <small>可选</small></span>
-                                  <textarea
-                                    maxLength={140}
-                                    onChange={(event) => updateRoundAnswerNote(event.target.value)}
-                                    placeholder="补充必须保留、必须避免或需要调整的条件……"
-                                    rows={2}
-                                    value={activeAnswer.note}
-                                  />
-                                </label>
-                              ) : null}
-                              <nav aria-label="本轮问题切换" className="story-inspiration-question-navigation">
-                                <button
-                                  disabled={busy || activeQuestionIndex === 0}
-                                  onClick={() => setActiveQuestionIndex((current) => Math.max(0, current - 1))}
-                                  type="button"
-                                >
-                                  <ChevronLeft aria-hidden="true" size={15} />
-                                  上一题
-                                </button>
-                                <span>已回答 {answeredQuestionCount} / {activeQuestions.length}</span>
-                                {roundIsComplete || activeQuestionIndex === activeQuestions.length - 1 ? (
-                                  <button
-                                    className="is-submit"
-                                    disabled={busy || !roundIsComplete}
-                                    onClick={submitInspirationRound}
-                                    type="button"
-                                  >
-                                    提交本轮并继续
-                                    <ArrowUp aria-hidden="true" size={14} />
-                                  </button>
-                                ) : (
-                                  <button
-                                    disabled={busy}
-                                    onClick={() => setActiveQuestionIndex((current) => Math.min(activeQuestions.length - 1, current + 1))}
-                                    type="button"
-                                  >
-                                    下一题
-                                    <ChevronRight aria-hidden="true" size={15} />
-                                  </button>
-                                )}
-                              </nav>
-                            </article>
-                          </div>
-                        ) : (
-                          <details className="story-inspiration-history-frontier">
-                            <summary>本轮提出了 {message.questions.length} 个创作决定</summary>
-                            <ol>
-                              {message.questions.map((question) => (
-                                <li key={question.decision_key}>{question.title}</li>
-                              ))}
-                            </ol>
-                          </details>
-                        )
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              ))}
-              {pendingMessage ? (
-                <div className="story-inspiration-message is-user is-pending">
-                  <small>你</small>
-                  <p>{pendingMessage}</p>
-                </div>
-              ) : null}
-              {failedMessage ? (
-                <div className="story-inspiration-message is-user is-failed">
-                  <small>你</small>
-                  <p>{failedMessage}</p>
-                </div>
-              ) : null}
-              {busy && !generatingStoryBible ? (
-                <div aria-live="polite" className="story-inspiration-thinking">
-                  <LoaderCircle aria-hidden="true" size={15} />
-                  <span>
-                    剧本大师正在思考 · {formatGenerationDuration(thinkingElapsedMs)}
-                    {thinkingElapsedMs >= 30_000 ? (
-                      <small>响应较慢，最迟 60 秒切换快速问题模式</small>
-                    ) : null}
-                  </span>
-                </div>
-              ) : null}
-              {generatingStoryBible ? (
-                <div aria-live="polite" className="story-inspiration-thinking">
-                  <LoaderCircle aria-hidden="true" size={15} />
-                  正在根据对话生成总纲
-                </div>
-              ) : null}
+        <div className="creation-setting-toolbar">
+          <ol aria-label="创作进度" className="creation-steps">
+            {([["idea", "补充想法"], ["questions", "确认方向"], ["review", "检查生成"]] as const).map(([step, label], index) => <li aria-current={creationStep === step ? "step" : undefined} key={step}><span>{index + 1}</span>{label}</li>)}
+          </ol>
+        </div>
+        <div className="creation-setting-body" ref={creationBodyRef}>
+          {message && <p className={"inline-notice creation-flow-message" + (creationSaveState === "error" || inspirationError ? " is-error" : "")} role={creationSaveState === "error" || inspirationError ? "alert" : "status"}>{message}</p>}
+          <div className={"creation-setting-layout is-" + creationStep}>
+            <div className="creation-setting-editor" id="creation-setting-editor" hidden={creationStep === "review" && finalGenerationStartedAt === null}>
+              {finalGenerationStartedAt !== null ? <section aria-live="polite" className="story-bible-generation-transition creation-generating" role="status">
+                <LoaderCircle aria-hidden="true" size={26} /><h4>正在生成故事总纲</h4>
+                <span>{formatGenerationDuration(finalGenerationElapsedMs)}</span>
+              </section> : creationStep === "idea" ? <>
+                <h4 className="creation-step-title">还有哪些想法？</h4>
+                <label className="creation-setting-direct-input">
+                  <span>补充想法 <small>可选</small></span>
+                  <textarea aria-label="补充想法" disabled={controlsBusy} maxLength={2_000} onChange={(event) => { setDirectInput(event.target.value); setCreationSaveState("idle"); setMessage(null); }} placeholder="例如：保留原作结局，让两位主角从敌对逐渐走向合作……" rows={6} value={directInput} />
+                </label>
+                <div className="creation-direct-actions"><span>{directInput.length} / 2000</span></div>
+                {inspirationBusy && <div aria-live="polite" className="creation-thinking" role="status"><LoaderCircle aria-hidden="true" size={17} />正在整理 <span>{formatGenerationDuration(inspirationTurnElapsedMs)}</span></div>}
+              </> : <StoryInspirationEditor
+                session={inspirationSession}
+                questions={activeQuestions}
+                index={roundNavigation.index}
+                answers={roundAnswers}
+                onAnswersChange={(update) => { setCreationSaveState("idle"); setRoundAnswers(update); }}
+                onQuestionChange={setActiveQuestionIndex}
+                busy={inspirationBusy}
+                saving={creationSaveState === "saving"}
+                error={inspirationError}
+                candidateRequest={Boolean(failedInspirationCandidateKey)}
+                pendingMessage={pendingInspirationMessage}
+                failedMessage={failedInspirationCandidateKey ? null : failedInspirationMessage}
+                input={inspirationInput}
+                onInputChange={setInspirationInput}
+                onSend={(value, candidateDecisionKey) => void requestInspirationTurn(value, { candidateDecisionKey })}
+                onEditMessage={editInspirationMessage}
+                onRetry={() => void requestInspirationTurn(failedInspirationMessage ?? "", { candidateDecisionKey: failedInspirationCandidateKey ?? undefined })}
+                onRefreshQuestions={(briefCheckpoint) => void requestInspirationTurn("", { briefCheckpoint })}
+                brief={creationBrief}
+                thinkingElapsedMs={inspirationTurnElapsedMs}
+              />}
             </div>
-            {error ? (
-              <div className="inline-notice is-error story-inspiration-error" role="alert">
-                <span>{error}</span>
-                <button className="outline-action" disabled={busy} onClick={onRetry} type="button">重新加载本轮</button>
-              </div>
-            ) : null}
-            {!activeFrontierMessage && !session.readyToGenerate && !busy ? (
-              <form className="story-inspiration-composer" onSubmit={(event) => {
-                event.preventDefault();
-                if (input.trim()) onSend(input);
-              }}>
-                <textarea
-                  aria-label="补充创作方向"
-                  disabled={generatingStoryBible}
-                  maxLength={2000}
-                  onChange={(event) => onInputChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                      event.preventDefault();
-                      if (input.trim()) onSend(input);
-                    }
-                  }}
-                  placeholder="直接补充新的创作条件……"
-                  rows={3}
-                  value={input}
-                />
-                <button
-                  aria-label="发送"
-                  disabled={!input.trim()}
-                  title="发送"
-                  type="submit"
-                >
-                  <ArrowUp aria-hidden="true" size={17} />
-                </button>
-              </form>
-            ) : null}
+            <CreationSettingSummary brief={creationBrief} project={project} onAnalysis={setSourceReadiness} presentation={creationStep === "questions" ? "collapsed" : creationStep === "review" ? "review" : "aside"} />
           </div>
         </div>
-        <footer className="story-inspiration-footer">
-          {!embedded ? <button className="outline-action" disabled={busy} onClick={onClose} type="button">返回自由整理</button> : null}
-          <span>
-            {activeQuestions.length
-              ? `本轮共 ${activeQuestions.length} 题，已回答 ${answeredQuestionCount}/${activeQuestions.length} · 回答完后提交并继续`
-              : session.readyToGenerate
-                ? "创作方向已经明确，可以生成总纲；也可以继续深入一轮"
-                : busy
-                  ? "正在准备下一轮关键问题"
-                  : userAnswerCount
-                    ? `已完成 ${userAnswerCount} 轮有效对话`
-                    : "正在准备第一轮问题"}
-          </span>
-          {busy ? (
-            <button className="outline-action" onClick={onPause} type="button">
-              <Square aria-hidden="true" size={12} />
-              暂停思考
-            </button>
-          ) : session.readyToGenerate ? (
-            <button className="outline-action" onClick={() => onSend("请继续深入一轮，找出当前创作设定中仍可能影响总纲质量、连续性或人物选择、但尚未明确的关键取舍；不要重复已经回答的问题。")} type="button">继续深入一轮</button>
-          ) : null}
+        <footer className="creation-setting-footer">
+          <div className="creation-back-actions">
+            {creationStep !== "idea" && <button aria-label={creationStep === "questions" && roundNavigation.index > 0 ? "上一题" : "返回修改想法"} className="creation-text-action" disabled={controlsBusy} onClick={() => creationStep === "questions" && roundNavigation.index > 0 ? setActiveQuestionIndex(roundNavigation.index - 1) : goToCreationStep("idea")} type="button"><ChevronLeft aria-hidden="true" size={16} />返回</button>}
+          </div>
+          <nav aria-label="创作步骤操作" className="creation-footer-actions">
+            {inspirationBusy && <button className="outline-action" onClick={pauseInspirationThinking} type="button"><Square aria-hidden="true" size={13} />{busy ? "暂停生成" : "暂停思考"}</button>}
+            {!inspirationBusy && creationStep === "idea" && <>
+              {canGenerateStoryBible && <button className="creation-text-action" disabled={controlsBusy} onClick={() => goToCreationStep("review")} type="button">直接检查设定</button>}
+              <button className="primary-action" disabled={controlsBusy || !canGenerateStoryBible} onClick={continueCreationIdea} type="button">{directInput.trim() && !recommendedHighCompletionInput ? "整理并继续" : "下一步"}<ChevronRight aria-hidden="true" size={16} /></button>
+            </>}
+            {!inspirationBusy && inspirationRoundState.active && <>
+              <button className="creation-text-action" disabled={controlsBusy} onClick={skipCreationQuestion} type="button">暂时跳过</button>
+              <button className="primary-action" disabled={controlsBusy || !currentAnswerComplete} onClick={() => continueCreationRound()} type="button">确认并继续<ChevronRight aria-hidden="true" size={16} /></button>
+            </>}
+            {!inspirationBusy && creationStep === "questions" && inspirationSession.readyToGenerate && <button className="primary-action" disabled={controlsBusy} onClick={() => goToCreationStep("review")} type="button">检查设定<ChevronRight aria-hidden="true" size={16} /></button>}
+            {creationStep === "review" && !inspirationBusy && <>
+              {!recommendedHighCompletionInput && <button className="creation-text-action" disabled={controlsBusy} onClick={() => {
+                goToCreationStep("questions");
+                if (inspirationSession.readyToGenerate) void requestInspirationTurn(CONTINUE_CREATION_REFINEMENT_MESSAGE, { briefCheckpoint: creationBrief });
+              }} type="button">继续完善</button>}
+              {onImport && <button className="outline-action" disabled={controlsBusy} onClick={onImport} type="button">{importBusy ? "正在导入" : "按原文导入"}</button>}
+              <button className="primary-action" disabled={!canGenerateStoryBible || controlsBusy} onClick={() => void generateStoryBibleFromInspiration()} type="button">生成故事总纲<ChevronRight aria-hidden="true" size={16} /></button>
+            </>}
+          </nav>
         </footer>
-      </section>
-    </div>
+      </dialog>}
+    </>
   );
 }
 
