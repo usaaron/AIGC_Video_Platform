@@ -15,7 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { MenuIcon } from "@/components/icons";
@@ -25,6 +25,7 @@ import { ProjectSidebar } from "@/components/project-sidebar";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
+import { DEFAULT_GENERATION_SETTINGS } from "@/lib/types";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -38,12 +39,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     resolution: "use_local" | "use_cloud";
   } | null>(null);
   const [syncResolutionError, setSyncResolutionError] = useState<string | null>(null);
+  const hostBootstrapRef = useRef<string | null>(null);
   const {
     projects,
     isReady,
     storageError,
     deleteProject,
     resolveProjectSyncConflict,
+    createProject,
   } = useProjects();
   const { t } = useLocale();
   const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
@@ -53,6 +56,33 @@ export function AppShell({ children }: { children: ReactNode }) {
   const conflictedProjects = projects.filter((project) => (
     project.serverSync?.status === "conflict"
   ));
+
+  useEffect(() => {
+    if (!isReady) return;
+    const hostProjectId = new URLSearchParams(window.location.search).get("host_project_id");
+    if (!hostProjectId || hostBootstrapRef.current === hostProjectId) return;
+    if (projects.some((project) => project.id === hostProjectId)) {
+      hostBootstrapRef.current = hostProjectId;
+      if (!pathname.includes(hostProjectId)) router.replace(`/projects/${hostProjectId}/planning`);
+      return;
+    }
+    hostBootstrapRef.current = hostProjectId;
+    void createProject({
+      id: hostProjectId,
+      title: "主项目长剧本",
+      titleSource: "derived",
+      creativePrompt: "",
+      referenceMaterials: [],
+      selectedTagIds: [],
+      customTags: [],
+      characters: [],
+      generationSettings: DEFAULT_GENERATION_SETTINGS,
+    }).then((created) => {
+      router.replace(`/projects/${created.id}/planning`);
+    }).catch(() => {
+      hostBootstrapRef.current = null;
+    });
+  }, [createProject, isReady, pathname, projects, router]);
 
   useEffect(() => {
     setProjectMenuOpen(false);

@@ -1,20 +1,17 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readSource } from "./helpers/read-source.mjs";
 import test from "node:test";
 
-const workspace = await readFile(
+const workspace = await readSource(
   new URL("../components/script-workspace.tsx", import.meta.url),
-  "utf8",
 );
-const directory = await readFile(
+const directory = await readSource(
   new URL("../components/workspace-section-directory.tsx", import.meta.url),
-  "utf8",
 );
-const globalStatus = await readFile(
+const globalStatus = await readSource(
   new URL("../components/background-generation-status.tsx", import.meta.url),
-  "utf8",
 );
-const authorWorkflow = await readFile(new URL("../components/use-script-author-workflow.ts", import.meta.url), "utf8");
+const authorWorkflow = await readSource(new URL("../components/use-script-author-workflow.ts", import.meta.url));
 
 test("script workspace uses the shared directory without the legacy episode rail", () => {
   assert.doesNotMatch(workspace, /EpisodeTreeNavigation/);

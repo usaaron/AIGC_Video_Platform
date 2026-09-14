@@ -16,7 +16,21 @@ def build_openapi_schema() -> dict[str, Any]:
     sys.path.insert(0, str(BACKEND_ROOT))
     from app.main import create_app
 
-    return create_app().openapi()
+    schema = create_app().openapi()
+    # HTTPStatus renamed these phrases in newer Python; keep exports reproducible.
+    status_descriptions = {
+        "413": ("Request Entity Too Large", "Content Too Large"),
+        "422": ("Unprocessable Entity", "Unprocessable Content"),
+    }
+    for path_item in schema.get("paths", {}).values():
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            for code, (legacy, current) in status_descriptions.items():
+                response = operation.get("responses", {}).get(code, {})
+                if response.get("description") in {legacy, current}:
+                    response["description"] = current
+    return schema
 
 
 def write_openapi_schema(output_path: Path) -> None:

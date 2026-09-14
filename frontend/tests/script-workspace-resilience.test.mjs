@@ -1,18 +1,15 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readSource } from "./helpers/read-source.mjs";
 import test from "node:test";
 
-const workspace = await readFile(
+const workspace = await readSource(
   new URL("../components/script-workspace.tsx", import.meta.url),
-  "utf8",
 );
-const generationClient = await readFile(
+const generationClient = await readSource(
   new URL("../lib/generation-client.ts", import.meta.url),
-  "utf8",
 );
-const authorWorkflow = await readFile(
+const authorWorkflow = await readSource(
   new URL("../components/use-script-author-workflow.ts", import.meta.url),
-  "utf8",
 );
 
 test("canonical episode persistence never schedules a compatibility translation pass", () => {

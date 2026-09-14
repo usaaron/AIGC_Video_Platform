@@ -14,7 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import DatabaseConfigurationError
 from app.dependencies import get_hongguo_trends_service, get_long_story_database_runtime
-from app.host_integration import HostAuthorizer, RequestObservationMiddleware, authorize_host_request
+from app.host_integration import (
+    HostAuthorizer,
+    RequestObservationMiddleware,
+    authorize_host_request,
+    environment_host_authorizer,
+)
 
 from app.api.routes.assets import router as asset_router
 from app.api.routes.agent_runs import router as agent_run_router
@@ -182,4 +187,11 @@ def _frontend_origins() -> list[str]:
     return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
-app = create_app()
+app = create_app(
+    host_authorizer=environment_host_authorizer(),
+    require_host_context=bool(
+        os.getenv("HOST_INTEGRATION_REQUIRED", "false").casefold() in {"true", "1", "yes"}
+        or os.getenv("HOST_INTEGRATION_SECRET", "").strip()
+        or os.getenv("SCRIPT_MASTER_SHARED_SECRET", "").strip()
+    ),
+)

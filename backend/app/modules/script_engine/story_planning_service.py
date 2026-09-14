@@ -11872,10 +11872,11 @@ Return only JSON matching the provided schema."""
         for index, item in enumerate(materials, start=1):
             purpose = item.purpose.value
             note = item.purpose_note.strip()
+            purpose_note = f"\nUser purpose note: {note}" if note else ""
             metadata = (
                 f"Reference {index}: {item.file_name}\n"
                 f"Purpose rule: {purpose_rules[purpose]}"
-                f"{f'\nUser purpose note: {note}' if note else ''}"
+                f"{purpose_note}"
             )
             content_budget = max(300, per_file_budget - len(metadata) - 40)
             text = item.extracted_text.strip()

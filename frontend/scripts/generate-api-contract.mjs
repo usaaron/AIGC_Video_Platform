@@ -1,23 +1,23 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(frontendRoot, "..");
 const schemaTarget = join(frontendRoot, "openapi", "openapi.json");
 const typesTarget = join(frontendRoot, "lib", "generated", "api-schema.d.ts");
-const generator = join(frontendRoot, "node_modules", ".bin", "openapi-typescript");
+const generator = join(frontendRoot, "node_modules", "openapi-typescript", "bin", "cli.js");
 const checkOnly = process.argv.includes("--check");
 
 function pythonExecutable() {
   const candidates = [
     process.env.PYTHON_BIN,
-    join(repositoryRoot, ".venv", "bin", "python"),
+    join(repositoryRoot, ".venv", process.platform === "win32" ? "Scripts" : "bin", process.platform === "win32" ? "python.exe" : "python"),
     "python3",
   ].filter(Boolean);
-  return candidates.find((candidate) => !candidate.includes("/") || existsSync(candidate));
+  return candidates.find((candidate) => !isAbsolute(candidate) || existsSync(candidate));
 }
 
 function run(command, args) {
@@ -45,7 +45,7 @@ function generate(schemaOutput, typesOutput) {
     "--output",
     schemaOutput,
   ]);
-  run(generator, [schemaOutput, "--output", typesOutput]);
+  run(process.execPath, [generator, schemaOutput, "--output", typesOutput]);
 }
 
 if (!checkOnly) {
@@ -64,7 +64,8 @@ try {
     [typesTarget, temporaryTypes],
   ].filter(([current, generated]) => (
     !existsSync(current)
-    || !readFileSync(current).equals(readFileSync(generated))
+    || readFileSync(current, "utf8").replace(/\r\n/g, "\n")
+      !== readFileSync(generated, "utf8").replace(/\r\n/g, "\n")
   ));
   if (staleFiles.length) {
     process.stderr.write(

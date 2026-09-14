@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readSource } from "./helpers/read-source.mjs";
 import test from "node:test";
 
 async function source(path) {
-  return readFile(new URL(`../${path}`, import.meta.url), "utf8");
+  return readSource(new URL(`../${path}`, import.meta.url));
 }
 
 test("creation settings guide ideas, decisions and explicit generation review", async () => {

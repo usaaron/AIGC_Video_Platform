@@ -77,8 +77,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     listStoredProjects()
       .then(async (localProjects) => {
         if (!active) return;
-        projectsRef.current = localProjects;
-        setProjects(localProjects);
+        const hostProjectId = new URLSearchParams(window.location.search).get("host_project_id");
+        const scopedLocalProjects = hostProjectId
+          ? localProjects.filter((project) => project.id === hostProjectId)
+          : localProjects;
+        projectsRef.current = scopedLocalProjects;
+        setProjects(scopedLocalProjects);
         setIsReady(true);
 
         const serverResult = await loadServerProjects();
@@ -133,8 +137,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const generationSettings = draft.generationSettings ?? DEFAULT_GENERATION_SETTINGS;
     const marketProfile = marketProfileForReleaseRegion(generationSettings.releaseRegion);
     const project: ScriptProject = {
-      id: crypto.randomUUID(),
       ...draft,
+      id: draft.id ?? crypto.randomUUID(),
       referenceMaterials: draft.referenceMaterials ?? [],
       marketProfile,
       generationSettings: enforceMarketDeliveryContract(

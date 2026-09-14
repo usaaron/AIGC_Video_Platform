@@ -6,6 +6,26 @@ export { visibleApiError } from "@/lib/api-error";
 export type { ApiPaths };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
+const HOST_TOKEN_STORAGE_KEY = "seqora.script-master.host-token";
+
+export function hostToken(): string | null {
+  if (typeof window === "undefined" || !window.location) return null;
+  const token = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("host_token");
+  if (token) {
+    try {
+      window.sessionStorage.setItem(HOST_TOKEN_STORAGE_KEY, token);
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    } catch {
+      // Embedded browsers can deny storage; retain the fragment for subsequent requests.
+    }
+    return token;
+  }
+  try {
+    return window.sessionStorage.getItem(HOST_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -35,10 +55,12 @@ export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const token = hostToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   });
@@ -62,11 +84,13 @@ export async function apiEventStream<TEvent>(
   init: RequestInit,
   onEvent: (event: TEvent) => void,
 ): Promise<void> {
+  const token = hostToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Accept": "text/event-stream",
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
   });

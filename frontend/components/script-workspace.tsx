@@ -132,6 +132,7 @@ import {
   buildSeriesDeliveryConfirmation,
   isSeriesDeliveryConfirmationCurrent,
 } from "@/lib/episode-delivery-confirmation";
+import { deliverSeriesToHost, hostDeliveryConfigured } from "@/lib/host-delivery";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
 } from "@/lib/project-sync";
@@ -407,6 +408,7 @@ export function ScriptWorkspace() {
   });
   const [seriesExportProductionPackage, setSeriesExportProductionPackage] = useState(true);
   const [seriesExportBusy, setSeriesExportBusy] = useState(false);
+  const [hostDeliveryBusy, setHostDeliveryBusy] = useState(false);
   const [episodeExportFormat, setEpisodeExportFormat] = useState<EpisodeDocumentFormat>("markdown");
   const [generationIntentConsumed, setGenerationIntentConsumed] = useState(false);
   const streamBatch = backgroundScriptTask?.progress ?? [];
@@ -1282,6 +1284,21 @@ export function ScriptWorkspace() {
     }
   }
 
+  async function deliverToHost() {
+    const exportProject = getConfirmedSeriesExportProject();
+    if (!exportProject || hostDeliveryBusy) return;
+    setHostDeliveryBusy(true);
+    setMessage(null);
+    try {
+      await deliverSeriesToHost(exportProject);
+      setMessage(t("workspace.deliveryCompleted"));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t("workspace.confirmSeriesDeliveryFailed"));
+    } finally {
+      setHostDeliveryBusy(false);
+    }
+  }
+
   function downloadSeriesData() {
     if (!allPlannedEpisodesSaved) {
       setMessage(t("workspace.exportSaveRequiredSeries"));
@@ -1730,6 +1747,16 @@ export function ScriptWorkspace() {
               </div>
             ) : null}
             <div className="tag-dialog-actions">
+              {hostDeliveryConfigured() ? (
+                <button
+                  className="text-action series-export-data"
+                  disabled={seriesExportBusy || hostDeliveryBusy || !seriesDeliveryConfirmed}
+                  onClick={() => void deliverToHost()}
+                  type="button"
+                >
+                  {hostDeliveryBusy ? t("workspace.exportPackaging") : t("workspace.deliverToHost")}
+                </button>
+              ) : null}
               <button className="text-action series-export-data" disabled={seriesExportBusy || !seriesDeliveryConfirmed} onClick={downloadSeriesData} type="button">{t("workspace.exportAllData")}</button>
               <button className="outline-action" disabled={seriesExportBusy} onClick={() => setSeriesExportOpen(false)} type="button">{t("tags.cancelCustom")}</button>
               <button

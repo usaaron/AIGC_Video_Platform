@@ -1,7 +1,7 @@
 import logging
 from typing import NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import ValidationError
 
 from app.dependencies import (
@@ -401,6 +401,7 @@ def save_story_project(
 
 @router.get("", response_model=StoryProjectListResponse)
 def list_story_projects(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     include_archived: bool = Query(default=False),
@@ -411,6 +412,10 @@ def list_story_projects(
         offset=offset,
         include_archived=include_archived,
     )
+    host_context = getattr(request.state, "host_context", None)
+    if host_context is not None and host_context.project_id:
+        projects = [project for project in projects if project.project_id == host_context.project_id]
+        total = len(projects)
     return StoryProjectListResponse(
         data=projects,
         total=total,

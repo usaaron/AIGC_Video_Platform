@@ -1594,6 +1594,12 @@ class RealLLMAdapter(LLMAdapter):
             if self._is_deepseek
             else "JSON OUTPUT SHAPE CONTRACT"
         )
+        dynamic_object_guidance = (
+            "For unbounded dictionary fields represented as strings by the response schema, "
+            "return a JSON-encoded object string; the runtime will restore it to a native object.\n"
+            if uses_stringified_dynamic_objects
+            else ""
+        )
         return f"""{prompt}
 
 {contract_title}
@@ -1605,7 +1611,7 @@ child object or nested collection into a quoted JSON string unless the response 
 explicitly represents an unbounded dictionary as a JSON-encoded string. Do not return this example
 inside another wrapper. The first and only JSON object must be the complete root object,
 never one scene, character, state update, episode, dialogue, child, or array item.
-{("For unbounded dictionary fields represented as strings by the response schema, return a JSON-encoded object string; the runtime will restore it to a native object.\n" if uses_stringified_dynamic_objects else "")}
+{dynamic_object_guidance}
 {root_identity}<json_shape>
 {json.dumps(shape, ensure_ascii=False, separators=(',', ':'))}
 </json_shape>

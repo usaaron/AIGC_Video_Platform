@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readSource } from "./helpers/read-source.mjs";
 import test from "node:test";
 
 import {
@@ -12,7 +12,7 @@ import {
   workspaceSectionAccess,
 } from "../lib/workspace-stage.ts";
 
-const source = (relativePath) => readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
+const source = (relativePath) => readSource(new URL(`../${relativePath}`, import.meta.url));
 
 function project(overrides = {}) {
   return {

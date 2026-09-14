@@ -1,8 +1,15 @@
 """Trusted host authorization boundary; client headers never establish identity."""
 
 from collections.abc import Awaitable, Callable
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 import logging
+import os
 import re
+from time import time
 from time import perf_counter
 from uuid import uuid4
 
@@ -23,6 +30,7 @@ class HostRequestContext(BaseModel):
     actor_id: str = Field(min_length=1, max_length=120)
     roles: frozenset[str] = frozenset()
     permissions: frozenset[str] = frozenset()
+    project_id: str | None = Field(default=None, max_length=160)
     request_id: str = Field(min_length=1, max_length=120)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
 
@@ -30,6 +38,75 @@ class HostRequestContext(BaseModel):
 # The host must authenticate AND authorize this operation, including every
 # project/content ID in its path, query and body, before returning a context.
 HostAuthorizer = Callable[[Request], Awaitable[HostRequestContext]]
+
+
+def environment_host_authorizer() -> HostAuthorizer | None:
+    """Build the production handoff authorizer used by the host application.
+
+    The host puts the signed token in the launch URL fragment. The frontend
+    moves it into an Authorization header before making API requests, so the
+    token is not sent as a normal request URL or referrer.
+    """
+
+    secret = (
+        os.getenv("HOST_INTEGRATION_SECRET", "").strip()
+        or os.getenv("SCRIPT_MASTER_SHARED_SECRET", "").strip()
+    )
+    if not secret:
+        return None
+
+    async def authorize(request: Request) -> HostRequestContext:
+        header = request.headers.get("authorization", "")
+        if not header.startswith("Bearer "):
+            raise HTTPException(401, "Script Master host authorization is required.")
+        token = header.removeprefix("Bearer ").strip()
+        claims = _verify_handoff_token(token, secret)
+        requested_project_id = _project_id_from_path(request.url.path)
+        token_project_id = claims.get("projectId")
+        if token_project_id and requested_project_id and token_project_id != requested_project_id:
+            raise HTTPException(403, "The host token cannot access this project.")
+        return HostRequestContext(
+            tenant_id=claims["tenantId"],
+            actor_id=claims["actorId"],
+            roles=frozenset(claims.get("roles", [])),
+            permissions=frozenset(claims.get("permissions", [])),
+            project_id=token_project_id,
+            request_id=request.headers.get("x-request-id") or claims["tokenId"],
+        )
+
+    return authorize
+
+
+def _verify_handoff_token(token: str, secret: str) -> dict[str, object]:
+    try:
+        encoded_payload, encoded_signature = token.split(".", 1)
+        supplied_signature = base64.urlsafe_b64decode(encoded_signature + "===")
+        expected_signature = hmac.new(
+            secret.encode("utf-8"), encoded_payload.encode("ascii"), hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(supplied_signature, expected_signature):
+            raise ValueError("signature")
+        claims = json.loads(base64.urlsafe_b64decode(encoded_payload + "==="))
+    except (ValueError, TypeError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(401, "The Script Master host token is invalid.") from None
+    if not isinstance(claims, dict):
+        raise HTTPException(401, "The Script Master host token is invalid.")
+    if claims.get("version") != 1 or claims.get("issuer") != "seqora" or claims.get("audience") != "script-master":
+        raise HTTPException(401, "The Script Master host token is invalid.")
+    expires_at = claims.get("expiresAt")
+    if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= int(time()):
+        raise HTTPException(401, "The Script Master host token has expired.")
+    for field in ("tenantId", "actorId", "tokenId"):
+        if not isinstance(claims.get(field), str) or not claims[field]:
+            raise HTTPException(401, "The Script Master host token is invalid.")
+    if claims.get("projectId") is not None and not isinstance(claims.get("projectId"), str):
+        raise HTTPException(401, "The Script Master host token is invalid.")
+    return claims
+
+
+def _project_id_from_path(path: str) -> str | None:
+    match = re.search(r"/(?:story-projects|projects)/([^/]+)", path)
+    return match.group(1) if match else None
 
 
 async def authorize_host_request(request: Request) -> HostRequestContext | None:
