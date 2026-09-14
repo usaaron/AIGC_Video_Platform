@@ -7,6 +7,9 @@ import {
   LoaderCircle,
   LockKeyhole,
   Mail,
+  MessageCircle,
+  Phone,
+  QrCode,
   ShieldCheck,
   Ticket,
   UserPlus,
@@ -20,7 +23,7 @@ export function LoginPage() {
     typeof window === 'undefined' ? '' : window.location.search,
     typeof window === 'undefined' ? '' : window.location.pathname,
   )
-  const { login, register } = useAuth()
+  const { login, loginWithPhone, completeWechatQrLogin } = useAuth()
   const [mode, setMode] = useState(registrationEntry.mode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -34,6 +37,14 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [errorCode, setErrorCode] = useState('')
   const [success, setSuccess] = useState('')
+  const [loginMethod, setLoginMethod] = useState('password')
+  const [phone, setPhone] = useState('')
+  const [phoneCode, setPhoneCode] = useState('')
+  const [phoneCodeSent, setPhoneCodeSent] = useState(false)
+  const [phoneResendSeconds, setPhoneResendSeconds] = useState(0)
+  const [qrSession, setQrSession] = useState(null)
+  const [qrStatus, setQrStatus] = useState('idle')
+  const [qrMessage, setQrMessage] = useState('')
 
   const isRegistering = mode === 'register'
   const isForgotPassword = mode === 'forgot'
@@ -45,6 +56,38 @@ export function LoginPage() {
     }, 1_000)
     return () => window.clearInterval(timer)
   }, [resendSeconds])
+
+  useEffect(() => {
+    if (phoneResendSeconds <= 0) return undefined
+    const timer = window.setInterval(() => {
+      setPhoneResendSeconds((seconds) => Math.max(0, seconds - 1))
+    }, 1_000)
+    return () => window.clearInterval(timer)
+  }, [phoneResendSeconds])
+
+  useEffect(() => {
+    if (!qrSession) return undefined
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const result = await api.pollWechatQrLogin(qrSession.sessionId)
+        if (cancelled) return
+        setQrStatus(result.status)
+        setQrMessage(result.message ?? '')
+        if (result.status === 'completed') await completeWechatQrLogin()
+      } catch (requestError) {
+        if (!cancelled) {
+          setQrStatus('error')
+          setQrMessage(authErrorMessage(requestError))
+        }
+      }
+    }
+    const timer = window.setInterval(poll, qrSession.pollAfterMs)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [qrSession])
 
   const resetRegistrationCode = () => {
     setCodeSent(false)
@@ -61,6 +104,32 @@ export function LoginPage() {
     setCodeSent(true)
     setResendSeconds(result.resendAfterSeconds)
     setSuccess(`验证码已发送至 ${email.trim()}，10 分钟内有效。`)
+  }
+
+  const requestPhoneCode = async () => {
+    const result = await api.requestPhoneLoginCode({ phone: phone.trim() })
+    setPhoneCodeSent(true)
+    setPhoneResendSeconds(result.resendAfterSeconds)
+    setSuccess(`验证码已发送至 ${phone.trim()}，10 分钟内有效。`)
+  }
+
+  const startWechatQrLogin = async () => {
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+    setQrMessage('')
+    setQrStatus('loading')
+    try {
+      const result = await api.startWechatQrLogin()
+      setQrSession(result)
+      setQrStatus(result.status)
+    } catch (requestError) {
+      setQrSession(null)
+      setQrStatus('error')
+      setQrMessage(authErrorMessage(requestError))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const submit = async (event) => {
@@ -85,6 +154,12 @@ export function LoginPage() {
             verificationCode,
           })
         }
+      } else if (loginMethod === 'phone') {
+        if (!phoneCodeSent) {
+          await requestPhoneCode()
+        } else {
+          await loginWithPhone({ phone: phone.trim(), verificationCode: phoneCode })
+        }
       } else {
         if (password.trim().toUpperCase() === 'RESET REQUIRED') {
           throw new LoginInputError(
@@ -107,6 +182,26 @@ export function LoginPage() {
     setErrorCode('')
     setSuccess('')
     if (nextMode !== 'register') resetRegistrationCode()
+    if (nextMode !== 'login') {
+      setLoginMethod('password')
+      setPhoneCodeSent(false)
+      setPhoneCode('')
+      setQrSession(null)
+      setQrStatus('idle')
+    }
+  }
+
+  const switchLoginMethod = (nextMethod) => {
+    setLoginMethod(nextMethod)
+    setError('')
+    setErrorCode('')
+    setSuccess('')
+    setPhoneCodeSent(false)
+    setPhoneCode('')
+    setPhoneResendSeconds(0)
+    setQrSession(null)
+    setQrStatus('idle')
+    setQrMessage('')
   }
 
   const resendRegistrationCode = async () => {
@@ -202,6 +297,38 @@ export function LoginPage() {
             </button>
           </div>
 
+          {!isRegistering && !isForgotPassword && (
+            <div className="login-method-switch" role="tablist" aria-label="登录方式">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loginMethod === 'password'}
+                className={loginMethod === 'password' ? 'is-active' : ''}
+                onClick={() => switchLoginMethod('password')}
+              >
+                <Mail size={14} /> 邮箱密码
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loginMethod === 'phone'}
+                className={loginMethod === 'phone' ? 'is-active' : ''}
+                onClick={() => switchLoginMethod('phone')}
+              >
+                <Phone size={14} /> 手机验证码
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loginMethod === 'wechat'}
+                className={loginMethod === 'wechat' ? 'is-active' : ''}
+                onClick={() => switchLoginMethod('wechat')}
+              >
+                <MessageCircle size={14} /> 微信扫码
+              </button>
+            </div>
+          )}
+
           {isRegistering && (
             <>
               <label>
@@ -224,24 +351,95 @@ export function LoginPage() {
             </>
           )}
 
-          <label>
-            <span>邮箱</span>
-            <div className="login-input">
-              <Mail size={17} />
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value)
-                  if (isRegistering) resetRegistrationCode()
-                }}
-                autoComplete="email"
-                placeholder="请输入账号邮箱"
-                autoFocus
-                required
-              />
+          {loginMethod === 'wechat' && !isRegistering && !isForgotPassword ? (
+            <div className="login-qr-panel" aria-label="微信扫码登录">
+              <div className="login-qr-frame">
+                {qrSession?.qrCodeUrl ? (
+                  <img src={qrSession.qrCodeUrl} alt="微信登录二维码" />
+                ) : (
+                  <QrCode size={44} />
+                )}
+              </div>
+              <strong>{qrStatus === 'waiting' ? '请使用微信扫描二维码' : '微信扫码登录'}</strong>
+              <p>{qrMessage || '二维码由服务端生成，登录状态会自动确认。'}</p>
+              <button
+                className="login-secondary-button"
+                type="button"
+                onClick={startWechatQrLogin}
+                disabled={submitting || qrStatus === 'waiting'}
+              >
+                {submitting ? <LoaderCircle size={17} className="spin" /> : <QrCode size={17} />}
+                {qrStatus === 'waiting' ? '等待扫码' : '获取登录二维码'}
+              </button>
             </div>
-          </label>
+          ) : (
+            <label>
+              <span>邮箱</span>
+              <div className="login-input">
+                <Mail size={17} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value)
+                    if (isRegistering) resetRegistrationCode()
+                  }}
+                  autoComplete="email"
+                  placeholder="请输入账号邮箱"
+                  autoFocus
+                  required
+                />
+              </div>
+            </label>
+          )}
+          {loginMethod === 'phone' && !isRegistering && !isForgotPassword && (
+            <>
+              <label>
+                <span>手机号</span>
+                <div className="login-input">
+                  <Phone size={17} />
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(event) => {
+                      setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))
+                      setPhoneCodeSent(false)
+                    }}
+                    autoComplete="tel"
+                    placeholder="请输入 11 位手机号"
+                    required
+                  />
+                </div>
+              </label>
+              {phoneCodeSent && (
+                <label>
+                  <span>短信验证码</span>
+                  <div className="login-input registration-code-input">
+                    <ShieldCheck size={17} />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={phoneCode}
+                      onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                      autoComplete="one-time-code"
+                      placeholder="6 位验证码"
+                      maxLength={6}
+                      pattern="[0-9]{6}"
+                      required
+                    />
+                  </div>
+                  <button
+                    className="login-code-resend"
+                    type="button"
+                    disabled={submitting || phoneResendSeconds > 0}
+                    onClick={requestPhoneCode}
+                  >
+                    {phoneResendSeconds > 0 ? `${phoneResendSeconds} 秒后可重新发送` : '重新发送验证码'}
+                  </button>
+                </label>
+              )}
+            </>
+          )}
           {isRegistering && codeSent && (
             <>
               <label>
@@ -289,30 +487,33 @@ export function LoginPage() {
               </label>
             </>
           )}
-          {!isForgotPassword && (!isRegistering || codeSent) && (
-            <label>
-              <span>密码</span>
-              <div className="login-input">
-                <LockKeyhole size={17} />
-                <input
-                  type={visible ? 'text' : 'password'}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete={isRegistering ? 'new-password' : 'current-password'}
-                  placeholder={isRegistering ? '至少 8 位密码' : '请输入密码'}
-                  required
-                  minLength={isRegistering ? 8 : undefined}
-                />
-                <button
-                  type="button"
-                  onClick={() => setVisible((value) => !value)}
-                  aria-label={visible ? '隐藏密码' : '显示密码'}
-                >
-                  {visible ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
-              </div>
-            </label>
-          )}
+          {!isForgotPassword &&
+            loginMethod !== 'wechat' &&
+            (!isRegistering || codeSent) &&
+            loginMethod !== 'phone' && (
+              <label>
+                <span>密码</span>
+                <div className="login-input">
+                  <LockKeyhole size={17} />
+                  <input
+                    type={visible ? 'text' : 'password'}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                    placeholder={isRegistering ? '至少 8 位密码' : '请输入密码'}
+                    required
+                    minLength={isRegistering ? 8 : undefined}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setVisible((value) => !value)}
+                    aria-label={visible ? '隐藏密码' : '显示密码'}
+                  >
+                    {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
+                </div>
+              </label>
+            )}
           {error && (
             <div className="login-error">
               <span>{error}</span>
@@ -324,22 +525,28 @@ export function LoginPage() {
             </div>
           )}
           {success && <div className="login-success">{success}</div>}
-          <button className="login-submit" disabled={submitting}>
-            {submitting ? (
-              <LoaderCircle size={18} className="spin" />
-            ) : (
-              <>
-                {isForgotPassword
-                  ? '发送重置邮件'
-                  : isRegistering
-                    ? codeSent
-                      ? '验证并创建账号'
-                      : '发送邮箱验证码'
-                    : '进入工作台'}{' '}
-                <ArrowRight size={17} />
-              </>
-            )}
-          </button>
+          {loginMethod !== 'wechat' && (
+            <button className="login-submit" disabled={submitting}>
+              {submitting ? (
+                <LoaderCircle size={18} className="spin" />
+              ) : (
+                <>
+                  {isForgotPassword
+                    ? '发送重置邮件'
+                    : isRegistering
+                      ? codeSent
+                        ? '验证并创建账号'
+                        : '发送邮箱验证码'
+                      : loginMethod === 'phone'
+                        ? phoneCodeSent
+                          ? '验证码登录'
+                          : '发送手机验证码'
+                        : '进入工作台'}{' '}
+                  <ArrowRight size={17} />
+                </>
+              )}
+            </button>
+          )}
           {!isRegistering && (
             <button
               className="login-link-button"
@@ -355,7 +562,11 @@ export function LoginPage() {
               ? '重置邮件会发送到已注册邮箱'
               : isRegistering
                 ? '邀请码将在首次发送验证码时绑定当前邮箱'
-                : '仅限已开通账号'}
+                : loginMethod === 'phone'
+                  ? '短信验证码仅用于身份认证，不会展示或保存明文验证码'
+                  : loginMethod === 'wechat'
+                    ? '微信只会返回经过授权的登录身份，不会读取聊天内容'
+                    : '仅限已开通账号'}
           </p>
         </form>
       </section>
@@ -409,6 +620,8 @@ export function authErrorMessage(error, { isRegistering = false, isForgotPasswor
           : '请检查邮箱和密码。'
     case 'SERVICE_UNAVAILABLE':
       return '登录服务暂时不可用，请稍后重试'
+    case 'AUTH_PROVIDER_NOT_CONFIGURED':
+      return '该登录方式尚未配置，请联系管理员或使用邮箱密码登录'
     default:
       if (error?.status >= 500 || error?.name === 'TypeError') {
         return '无法连接登录服务，请确认 API 已启动后重试'

@@ -364,6 +364,83 @@
   background: #a9ca2e;
 }
 
+.login-method-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: -4px 0 19px;
+  padding: 4px;
+  border: 1px solid var(--login-line);
+  border-radius: 7px;
+  background: rgba(237, 239, 231, 0.72);
+}
+
+.login-method-switch button {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #747b6f;
+  cursor: pointer;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.login-method-switch button.is-active {
+  background: #fff;
+  color: #252b20;
+  box-shadow: 0 3px 10px rgba(36, 42, 31, 0.08);
+}
+
+.login-qr-panel {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  margin: 2px 0 18px;
+  text-align: center;
+}
+
+.login-qr-frame {
+  width: 176px;
+  height: 176px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--login-line);
+  border-radius: 7px;
+  background: #fff;
+  color: #9ca497;
+}
+
+.login-qr-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.login-qr-panel strong {
+  color: #30382b;
+  font-size: 12px;
+}
+
+.login-qr-panel p {
+  max-width: 270px;
+  margin: 0;
+  color: var(--login-muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.login-qr-panel .login-secondary-button {
+  width: min(100%, 270px);
+}
+
 .login-form > label {
   display: block;
   margin-bottom: 14px;

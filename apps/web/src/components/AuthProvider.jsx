@@ -24,6 +24,18 @@ export function AuthProvider({ children }) {
     return nextSession
   }
 
+  const loginWithPhone = async (input, options = {}) => {
+    const nextSession = await api.loginByPhone(input, options)
+    setSession(nextSession)
+    return nextSession
+  }
+
+  const completeWechatQrLogin = async (options = {}) => {
+    const nextSession = await api.session(options)
+    setSession(nextSession)
+    return nextSession
+  }
+
   const register = async (input) => {
     const nextSession = await api.register(input)
     setSession(nextSession)
@@ -47,7 +59,9 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider
+      value={{ session, loading, login, loginWithPhone, completeWechatQrLogin, register, logout, refresh }}
+    >
       {children}
     </AuthContext.Provider>
   )

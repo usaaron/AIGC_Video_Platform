@@ -5,22 +5,21 @@ import { FunctionStackPage } from './FunctionStackPage'
 describe('function stack pages', () => {
   it.each([
     ['agent-studio', '对话一句成片', '一句成片 Agent 工作台'],
-    ['writing-studio', '剧本大师', '剧本大师接入说明'],
+    ['writing-studio', '剧本大师', '剧本大师工作台'],
   ])('renders %s as a standalone workspace', (tool, title, region) => {
     const html = renderToStaticMarkup(<FunctionStackPage tool={tool} />)
 
     expect(html).toContain(title)
     expect(html).toContain(`aria-label="${region}"`)
-    expect(html).toContain(tool === 'agent-studio' ? '自动编排已启用' : '外部模块 · 等待接入')
+    expect(html).toContain(tool === 'agent-studio' ? '自动编排已启用' : '正在连接剧本大师')
   })
 
-  it('does not present fake long-form progress while the external module is unavailable', () => {
+  it('shows a safe connection state while the external module is unavailable', () => {
     const html = renderToStaticMarkup(<FunctionStackPage tool="writing-studio" />)
 
-    expect(html).toContain('返回单集剧本')
-    expect(html).toContain('不会创建生成任务')
-    expect(html).not.toContain('结构草稿 · 自动保存')
-    expect(html).not.toContain('当前阶段')
+    expect(html).toContain('正在读取独立服务的启动信息。')
+    expect(html).toContain('重新连接')
+    expect(html).not.toContain('长剧本能力尚未接入当前版本')
   })
 
   it('renders image-studio as the formal image2 workspace', () => {

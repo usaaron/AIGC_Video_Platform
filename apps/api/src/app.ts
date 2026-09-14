@@ -139,7 +139,17 @@ async function registerHttpPlugins(app: FastifyInstance, config: AppConfig): Pro
   })
   await app.register(cookie)
   await app.register(cors, {
-    origin: config.WEB_ORIGIN,
+    origin: (origin, callback) => {
+      const allowedOrigins = new Set([config.WEB_ORIGIN])
+      if (config.SCRIPT_MASTER_URL) {
+        try {
+          allowedOrigins.add(new URL(config.SCRIPT_MASTER_URL).origin)
+        } catch {
+          // Configuration validation reports malformed URLs before startup.
+        }
+      }
+      callback(null, !origin || allowedOrigins.has(origin))
+    },
     credentials: true,
     exposedHeaders: ['ETag'],
   })

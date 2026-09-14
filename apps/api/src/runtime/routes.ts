@@ -23,6 +23,7 @@ import { registerNovelRoutes } from '../modules/novels/routes.js'
 import { registerProjectRoutes } from '../modules/projects/routes.js'
 import { registerQuickStartRoutes } from '../modules/quickStart/routes.js'
 import { registerTrustedAssetRoutes } from '../modules/trustedAssets/routes.js'
+import { registerScriptMasterRoutes } from '../modules/scriptMaster/routes.js'
 import {
   assetLibraryProviderName,
   textProviderName,
@@ -113,6 +114,12 @@ export async function registerRuntimeRoutes(input: {
       await registerMediaRoutes(api, services.mediaService, config.MAX_UPLOAD_BYTES)
       await registerLibraryRoutes(api, services.assetLibraryService)
       await registerTrustedAssetRoutes(api, services.trustedAssetService)
+      await registerScriptMasterRoutes(
+        api,
+        config,
+        services.projectService,
+        repositories.scriptMasterDeliveryRepository,
+      )
       await registerAiJobRoutes(api, services.aiJobService)
       await registerImage2Routes(api, services.image2BatchService)
       await registerGenerationRoutes(api, services.generationService)

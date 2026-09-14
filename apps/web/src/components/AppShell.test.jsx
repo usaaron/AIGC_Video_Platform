@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { AppSidebar } from './AppShell'
+import { AppHeader, AppSidebar } from './AppShell'
 
 const sidebarProps = {
   activeStep: 'settings',
@@ -13,6 +13,18 @@ const sidebarProps = {
 }
 
 describe('app shell account entry', () => {
+  it('keeps organization accounts out of personal purchase navigation', () => {
+    const billing = { plan: 'free', credits: 320, billingScope: 'organization' }
+    const sidebar = renderToStaticMarkup(<AppSidebar {...sidebarProps} billing={billing} />)
+    const header = renderToStaticMarkup(<AppHeader billing={billing} runningJobs={[]} />)
+    expect(sidebar).toContain('组织共享积分')
+    expect(sidebar).not.toContain('会员中心')
+    expect(sidebar).not.toContain('积分充值')
+    expect(header).toContain('组织账户')
+    expect(header).toContain('组织共享积分账单')
+    expect(header).not.toContain('免费版')
+  })
+
   it('places the function stack between the project library and creative flow', () => {
     const html = renderToStaticMarkup(
       <AppSidebar {...sidebarProps} canOpenAdminAccounts={false} adminConsoleUrl="http://localhost:5174/" />,
@@ -29,7 +41,7 @@ describe('app shell account entry', () => {
     expect(html).toContain('生图大师')
     expect(html).toContain('剧本大师')
     expect(html.match(/已启用/g)).toHaveLength(2)
-    expect(html.match(/开发中/g)).toHaveLength(1)
+    expect(html.match(/独立模块/g)).toHaveLength(1)
   })
 
   it('hides the admin console link from ordinary members', () => {

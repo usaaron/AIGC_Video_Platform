@@ -8319,6 +8319,8 @@
 .plan-button {
   border: 1px solid var(--line);
   background: #fff;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .plan-button.is-member {
   color: #4d5d13;
@@ -15802,6 +15804,56 @@
   animation: writing-cursor-blink 1.1s steps(1) infinite;
 }
 
+.writing-studio-embed-shell {
+  min-height: 720px;
+  display: grid;
+  grid-template-rows: auto minmax(560px, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: #f3f5ee;
+}
+
+.writing-studio-embed-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+  color: #697264;
+  font-size: 11px;
+}
+
+.writing-studio-embed-actions > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.writing-studio-embed {
+  width: 100%;
+  min-height: 560px;
+  display: block;
+  border: 1px solid #d1d7c2;
+  background: #fffef9;
+}
+
+.writing-studio-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.writing-studio-live.loading i,
+.writing-studio-live.ready i {
+  background: #8eae2e;
+}
+
+.writing-studio-live.error i,
+.writing-studio-live.unavailable i {
+  background: #c75c4d;
+}
+
 .writing-studio-progress {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -15945,6 +15997,21 @@
 
   .writing-studio-boundaries {
     grid-template-columns: 1fr;
+  }
+
+  .writing-studio-embed-shell {
+    min-height: 620px;
+    grid-template-rows: auto minmax(470px, 1fr);
+    padding: 8px;
+  }
+
+  .writing-studio-embed {
+    min-height: 470px;
+  }
+
+  .writing-studio-embed-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .writing-studio-progress > div:nth-child(2) {
@@ -17907,5 +17974,21 @@
 
   .shot-reference-source-actions {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 380px) {
+  .topbar .plan-button {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .topbar .plan-button-label {
+    display: none;
+  }
+
+  .topbar .avatar {
+    flex-shrink: 0;
   }
 }

@@ -258,12 +258,18 @@ export function SettingsPage({
               <p>积分与用量</p>
               <h2>当前创作额度</h2>
             </div>
-            <span className="account-plan-chip">{billing?.plan === 'member' ? '会员版' : '基础版'}</span>
+            <span className="account-plan-chip">
+              {billing?.billingScope === 'organization'
+                ? '组织统一结算'
+                : billing?.plan === 'member'
+                  ? '会员版'
+                  : '基础版'}
+            </span>
           </div>
           <div className="account-credit-total">
             <Wallet size={20} />
             <strong>{formatNumber(availableCredits)}</strong>
-            <span>可用积分</span>
+            <span>{billing?.billingScope === 'organization' ? '组织共享积分' : '可用积分'}</span>
           </div>
           <div className="account-usage-grid">
             <div>

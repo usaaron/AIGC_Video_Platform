@@ -15,6 +15,7 @@ export function GenerationPage({
   jobs,
   concurrency,
   member,
+  billingScope = 'membership',
   onUpgrade,
   onPause,
   onResume,
@@ -105,7 +106,7 @@ export function GenerationPage({
           </span>
         </div>
       </section>
-      {!member && (
+      {!member && billingScope !== 'organization' && (
         <section className="upgrade-banner">
           <div className="upgrade-visual">
             <Crown size={24} />

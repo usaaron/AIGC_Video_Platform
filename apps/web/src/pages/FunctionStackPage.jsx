@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Sparkles,
   WandSparkles,
+  ExternalLink,
 } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { PageHeader } from '../components/ui'
@@ -45,7 +46,7 @@ export function FunctionStackPage({
           </span>
         ) : item.id === 'writing-studio' ? (
           <span className="tool-development-badge">
-            <CircleDashed size={13} /> 外部模块 · 等待接入
+            <CircleDashed size={13} /> 独立模块 · 服务化接入
           </span>
         ) : null}
       </PageHeader>
@@ -62,7 +63,7 @@ export function FunctionStackPage({
           onOpenBilling={onOpenBilling}
         />
       ) : null}
-      {item.id === 'writing-studio' ? <WritingStudio onOpenScript={onOpenScript} /> : null}
+      {item.id === 'writing-studio' ? <WritingStudio project={project} onOpenScript={onOpenScript} /> : null}
     </div>
   )
 }
@@ -682,9 +683,41 @@ function upsertRun(setter, run) {
   setter((current) => [run, ...current.filter((item) => item.id !== run.id)])
 }
 
-function WritingStudio({ onOpenScript }) {
+function WritingStudio({ project, onOpenScript }) {
+  const [state, setState] = useState({ status: 'loading', launchUrl: '', message: '' })
+
+  const load = async () => {
+    setState((current) => ({ ...current, status: 'loading', message: '' }))
+    try {
+      const config = await api.scriptMasterConfig()
+      if (!config.enabled) {
+        setState({
+          status: 'unavailable',
+          launchUrl: '',
+          message: config.configured
+            ? '剧本大师服务缺少宿主鉴权配置，请先完成服务端接入。'
+            : '剧本大师服务地址尚未配置。配置后即可从这里进入完整工作台。',
+        })
+        return
+      }
+      const launch = await api.scriptMasterLaunch(project?.id)
+      if (!launch.enabled || !launch.launchUrl) throw new Error('剧本大师启动信息暂时不可用。')
+      setState({ status: 'ready', launchUrl: launch.launchUrl, message: '' })
+    } catch (error) {
+      setState({
+        status: 'error',
+        launchUrl: '',
+        message: error?.message || '剧本大师暂时无法连接，请稍后重试。',
+      })
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [project?.id])
+
   return (
-    <section className="tool-studio-frame writing-studio-frame" aria-label="剧本大师接入说明">
+    <section className="tool-studio-frame writing-studio-frame" aria-label="剧本大师工作台">
       <header className="tool-frame-header">
         <div className="tool-frame-identity">
           <span className="tool-frame-mark">
@@ -692,34 +725,54 @@ function WritingStudio({ onOpenScript }) {
           </span>
           <div>
             <strong>剧本大师</strong>
-            <span>长篇故事与批量分集由外部团队研发</span>
+            <span>长篇故事、批量分集与交付计划</span>
           </div>
         </div>
-        <div className="tool-frame-status">等待接口接入</div>
+        <div className={`tool-frame-status writing-studio-live ${state.status}`}>
+          <i />{' '}
+          {state.status === 'ready' ? '服务已连接' : state.status === 'loading' ? '正在连接' : '等待配置'}
+        </div>
       </header>
-      <div className="writing-studio-handoff">
-        <span className="eyebrow">LONG-FORM HANDOFF</span>
-        <h2>长剧本能力尚未接入当前版本</h2>
-        <p>
-          当前工作台只负责单集剧本生成。长篇世界观、人物关系、批量分集和数十万字正文由剧本大师团队独立研发，接口完成后再接入这里。
-        </p>
-        <div className="writing-studio-boundaries">
-          <div>
-            <strong>当前可用</strong>
-            <span>单次生成 1 集、6～8 个可制作场次，并继续进入资产与分镜。</span>
+      {state.status === 'ready' ? (
+        <div className="writing-studio-embed-shell">
+          <div className="writing-studio-embed-actions">
+            <span>当前项目：{project?.name || '独立创作项目'}</span>
+            <a className="button secondary" href={state.launchUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={15} /> 新标签页打开
+            </a>
           </div>
-          <div>
-            <strong>等待接入</strong>
-            <span>长篇总纲、人物档案、分集规划，以及按集按场次的批量交付。</span>
+          <iframe title="剧本大师独立工作台" src={state.launchUrl} className="writing-studio-embed" />
+        </div>
+      ) : (
+        <div className="writing-studio-handoff">
+          <span className="eyebrow">SCRIPT MASTER / HOSTED MODULE</span>
+          <h2>{state.status === 'loading' ? '正在连接剧本大师' : '剧本大师尚未就绪'}</h2>
+          <p>{state.message || '正在读取独立服务的启动信息。'}</p>
+          <div className="writing-studio-boundaries">
+            <div>
+              <strong>独立能力</strong>
+              <span>保留长剧本、世界观、人物关系、分集规划、修订和导出功能。</span>
+            </div>
+            <div>
+              <strong>主项目链路</strong>
+              <span>正式交付时由当前项目统一承接资产、分镜、生成队列、积分和成片任务。</span>
+            </div>
+          </div>
+          <div className="writing-studio-handoff-actions">
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => void load()}
+              disabled={state.status === 'loading'}
+            >
+              <RefreshCw size={15} /> 重新连接
+            </button>
+            <button type="button" className="button secondary" onClick={onOpenScript}>
+              <ArrowLeft size={15} /> 返回单集剧本
+            </button>
           </div>
         </div>
-        <p className="writing-studio-safe-note">
-          此页面不会创建生成任务，也不会显示虚假的“生成中”或“自动保存”状态。
-        </p>
-        <button type="button" className="button primary" onClick={onOpenScript}>
-          <ArrowLeft size={15} /> 返回单集剧本
-        </button>
-      </div>
+      )}
     </section>
   )
 }

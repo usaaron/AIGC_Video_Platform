@@ -34,6 +34,7 @@ import { NovelRepository } from '../modules/novels/repository.js'
 import { NovelService } from '../modules/novels/service.js'
 import { ProjectRepository } from '../modules/projects/repository.js'
 import { ProjectService } from '../modules/projects/service.js'
+import { ScriptMasterDeliveryRepository } from '../modules/scriptMaster/deliveryRepository.js'
 import { QuickStartService } from '../modules/quickStart/service.js'
 import { TrustedAssetService } from '../modules/trustedAssets/service.js'
 import { TrustedValidationSessionRepository } from '../modules/trustedAssets/validationSessionRepository.js'
@@ -45,6 +46,7 @@ export type RuntimeRepositories = {
   authAccounts: AuthRepository | UserRepository
   adminRepository: AdminRepository | null
   projectRepository: ProjectRepository
+  scriptMasterDeliveryRepository: ScriptMasterDeliveryRepository
   generationTaskRepository: GenerationTaskRepository
   mediaRepository: MediaRepository
   aiJobRepository: AiJobRepository
@@ -90,6 +92,7 @@ export async function createRuntimeRepositories(input: {
   await users.refreshRuntimeCacheFromDatabase()
 
   const projectRepository = new ProjectRepository(store, database)
+  const scriptMasterDeliveryRepository = new ScriptMasterDeliveryRepository(database)
 
   const assetLibraryRepository = new AssetLibraryRepository(store, database)
   const trustedValidationSessionRepository = new TrustedValidationSessionRepository(store, database)
@@ -149,6 +152,7 @@ export async function createRuntimeRepositories(input: {
     authAccounts: database ? new AuthRepository(database) : users,
     adminRepository: database ? new AdminRepository(database) : null,
     projectRepository,
+    scriptMasterDeliveryRepository,
     generationTaskRepository,
     mediaRepository,
     aiJobRepository,

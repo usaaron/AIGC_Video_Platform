@@ -28,6 +28,32 @@ export const loginSchema = z.object({
   password: passwordSchema,
 })
 
+export const phoneNumberSchema = z.string().regex(/^1[3-9]\d{9}$/, '请输入有效的中国大陆手机号')
+export const phoneVerificationCodeSchema = z.string().regex(/^\d{6}$/, '验证码必须为 6 位数字')
+export const requestPhoneLoginCodeSchema = z.object({ phone: phoneNumberSchema })
+export const phoneLoginSchema = z.object({
+  phone: phoneNumberSchema,
+  verificationCode: phoneVerificationCodeSchema,
+})
+export const phoneLoginCodeResultSchema = z.object({
+  ok: z.literal(true),
+  expiresInSeconds: z.number().int().positive(),
+  resendAfterSeconds: z.number().int().nonnegative(),
+})
+export const wechatQrLoginStartResultSchema = z.object({
+  sessionId: z.string().min(16).max(256),
+  qrCodeUrl: z.string().url(),
+  expiresInSeconds: z.number().int().positive(),
+  pollAfterMs: z.number().int().min(500).max(30_000),
+  status: z.literal('waiting'),
+})
+export const wechatQrLoginPollStatusSchema = z.enum(['waiting', 'scanned', 'expired', 'completed'])
+export const wechatQrLoginPollResultSchema = z.object({
+  sessionId: z.string().min(16).max(256),
+  status: wechatQrLoginPollStatusSchema,
+  message: z.string().max(200).optional(),
+})
+
 export const changePasswordSchema = z
   .object({
     currentPassword: passwordSchema,
@@ -72,6 +98,11 @@ export type Plan = z.infer<typeof planSchema>
 export type EmailVerificationStatus = z.infer<typeof emailVerificationStatusSchema>
 export type Session = z.infer<typeof sessionSchema>
 export type LoginInput = z.infer<typeof loginSchema>
+export type RequestPhoneLoginCodeInput = z.infer<typeof requestPhoneLoginCodeSchema>
+export type PhoneLoginInput = z.infer<typeof phoneLoginSchema>
+export type PhoneLoginCodeResult = z.infer<typeof phoneLoginCodeResultSchema>
+export type WechatQrLoginStartResult = z.infer<typeof wechatQrLoginStartResultSchema>
+export type WechatQrLoginPollResult = z.infer<typeof wechatQrLoginPollResultSchema>
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
 export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>
 export type RequestPasswordResetResult = z.infer<typeof requestPasswordResetResultSchema>

@@ -64,6 +64,8 @@ export function AppHeader({
   const unread = notifications.filter((item) => !item.read)
   const hasUnreadFailure = unread.some((item) => item.status === 'failed')
   const hasUnreadSuccess = unread.some((item) => item.status === 'completed')
+  const planLabel =
+    billing?.billingScope === 'organization' ? '组织账户' : billing?.plan === 'member' ? '创作会员' : '免费版'
 
   useEffect(() => {
     if (!notificationOpen) return undefined
@@ -196,14 +198,21 @@ export function AppHeader({
             </div>
           )}
         </div>
-        <button className="credit-button" onClick={onCreditsClick}>
+        <button
+          className="credit-button"
+          onClick={onCreditsClick}
+          title={billing?.billingScope === 'organization' ? '组织共享积分账单' : '积分充值'}
+        >
           <Zap size={15} fill="currentColor" /> {billing?.credits ?? 0} 积分
         </button>
         <button
-          className={`plan-button ${billing?.plan === 'member' ? 'is-member' : ''}`}
+          className={`plan-button ${billing?.plan === 'member' && billing?.billingScope !== 'organization' ? 'is-member' : ''}`}
           onClick={onPlanClick}
+          aria-label={planLabel}
+          title={planLabel}
         >
-          <Crown size={15} /> {billing?.plan === 'member' ? '创作会员' : '免费版'}
+          <Crown size={15} />
+          <span className="plan-button-label">{planLabel}</span>
         </button>
         <button className="avatar" onClick={onAccountClick} title="账号设置">
           {account?.name?.slice(0, 1) ?? '用'}
@@ -262,7 +271,7 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>{item.id === 'writing-studio' ? '开发中' : '已启用'}</small>
+              <small>{item.id === 'writing-studio' ? '独立模块' : '已启用'}</small>
             </button>
           )
         })}
@@ -299,6 +308,22 @@ export function AppSidebar({
       >
         <CircleDollarSign size={17} /> 积分账单
       </button>
+      {billing?.billingScope !== 'organization' && (
+        <button
+          className={`sidebar-link ${activeStep === 'membership' ? 'active' : ''}`}
+          onClick={() => onNavigate('membership')}
+        >
+          <Crown size={17} /> 会员中心
+        </button>
+      )}
+      {billing?.billingScope !== 'organization' && (
+        <button
+          className={`sidebar-link ${activeStep === 'recharge' ? 'active' : ''}`}
+          onClick={() => onNavigate('recharge')}
+        >
+          <Zap size={17} /> 积分充值
+        </button>
+      )}
       <button
         className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
         onClick={() => onNavigate('settings')}
@@ -317,7 +342,7 @@ export function AppSidebar({
         style={{ '--usage-progress': `${usagePercent}%` }}
       >
         <div>
-          <span>可用积分</span>
+          <span>{billing?.billingScope === 'organization' ? '组织共享积分' : '可用积分'}</span>
           <strong>{billing?.credits ?? 0} 积分</strong>
         </div>
         <div className="usage-track">

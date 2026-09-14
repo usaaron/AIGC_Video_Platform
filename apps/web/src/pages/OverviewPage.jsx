@@ -188,7 +188,13 @@ export function OverviewPage({
             <Crown size={19} />
           </div>
           <div>
-            <span className="eyebrow">{billing.plan === 'member' ? '创作会员' : '免费版'}</span>
+            <span className="eyebrow">
+              {billing.billingScope === 'organization'
+                ? '组织统一结算'
+                : billing.plan === 'member'
+                  ? '创作会员'
+                  : '免费版'}
+            </span>
             <h2>{billing.concurrency} 路任务并发</h2>
             <p>可用 {billing.credits} 积分，所有消耗都记录在积分账单。</p>
           </div>

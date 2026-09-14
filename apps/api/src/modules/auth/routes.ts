@@ -1,6 +1,8 @@
 import {
   changePasswordSchema,
   loginSchema,
+  phoneLoginSchema,
+  requestPhoneLoginCodeSchema,
   requestEmailVerificationSchema,
   requestPasswordResetSchema,
   resetPasswordSchema,
@@ -36,6 +38,34 @@ export async function registerAuthRoutes(
       return session
     },
   )
+
+  app.post(
+    '/auth/phone/code',
+    { config: { rateLimit: { max: 3, timeWindow: '10 minutes' } } },
+    async (request) => {
+      const parsed = requestPhoneLoginCodeSchema.safeParse(request.body)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      throw new AppError(503, 'AUTH_PROVIDER_NOT_CONFIGURED', 'Phone verification login is not configured')
+    },
+  )
+
+  app.post(
+    '/auth/phone/login',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request) => {
+      const parsed = phoneLoginSchema.safeParse(request.body)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      throw new AppError(503, 'AUTH_PROVIDER_NOT_CONFIGURED', 'Phone verification login is not configured')
+    },
+  )
+
+  app.post('/auth/wechat/qr', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async () => {
+    throw new AppError(503, 'AUTH_PROVIDER_NOT_CONFIGURED', 'WeChat QR login is not configured')
+  })
+
+  app.get('/auth/wechat/qr/:sessionId', async () => {
+    throw new AppError(503, 'AUTH_PROVIDER_NOT_CONFIGURED', 'WeChat QR login is not configured')
+  })
 
   app.post('/auth/logout', async (request, reply) => {
     await service.logout(request.cookies[SESSION_COOKIE], sessionMetadataFromRequest(request))

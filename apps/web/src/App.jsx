@@ -16,8 +16,10 @@ import {
   FilmPage,
   FunctionStackPage,
   GenerationPage,
+  MembershipPage,
   OverviewPage,
   ProjectHomePage,
+  RechargePage,
   ScriptPage,
   SettingsPage,
   StoryboardPage,
@@ -378,11 +380,32 @@ function App() {
       return (
         <BillingPage
           billing={billing}
-          onPlanChange={async (plan) => {
-            setBilling(await api.updatePlan(plan))
-            await refreshSession()
-            setToast(plan === 'member' ? '会员已开通，赠送 500 积分' : '已切换为免费版')
-          }}
+          onRefreshBilling={refreshBilling}
+          onOpenRecharge={() => navigateTo('recharge')}
+          onOpenMembership={() => navigateTo('membership')}
+        />
+      )
+    }
+    if (activeStep === 'membership') {
+      return (
+        <MembershipPage
+          key={[session.account.id, session.account.organizationId, billing.billingScope, billing.plan].join(
+            ':',
+          )}
+          billing={billing}
+          onOpenBilling={() => navigateTo('billing')}
+          onOpenRecharge={() => navigateTo('recharge')}
+        />
+      )
+    }
+    if (activeStep === 'recharge') {
+      return (
+        <RechargePage
+          key={[session.account.id, session.account.organizationId, billing.billingScope, billing.plan].join(
+            ':',
+          )}
+          billing={billing}
+          onOpenBilling={() => navigateTo('billing')}
         />
       )
     }
@@ -792,7 +815,8 @@ function App() {
           jobs={tasks}
           concurrency={billing.concurrency}
           member={billing.plan === 'member'}
-          onUpgrade={() => navigateTo('billing')}
+          billingScope={billing.billingScope}
+          onUpgrade={() => navigateTo('membership')}
           onPause={async (taskId) => {
             try {
               await api.pauseTask(taskId)
@@ -912,8 +936,8 @@ function App() {
         onNotificationsClear={clearNotifications}
         onOpenNav={() => setMobileNav(true)}
         onProjectClick={() => setProjectMenuOpen(true)}
-        onCreditsClick={() => navigateTo('billing')}
-        onPlanClick={() => navigateTo('billing')}
+        onCreditsClick={() => navigateTo(billing.billingScope === 'organization' ? 'billing' : 'recharge')}
+        onPlanClick={() => navigateTo(billing.billingScope === 'organization' ? 'billing' : 'membership')}
         onAccountClick={() => navigateTo('settings')}
       />
       <AppSidebar

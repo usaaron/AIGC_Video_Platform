@@ -126,7 +126,16 @@ export async function waitForProjectScriptUpdate(
 
 export const api = {
   health: () => request('/health'),
+  scriptMasterConfig: () => request('/script-master/config'),
+  scriptMasterLaunch: (projectId) =>
+    request(`/script-master/launch${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
   login: (input) => request('/auth/login', json('POST', input)),
+  requestPhoneLoginCode: (input, options = {}) =>
+    request('/auth/phone/code', { ...json('POST', input), ...options }),
+  loginByPhone: (input, options = {}) => request('/auth/phone/login', { ...json('POST', input), ...options }),
+  startWechatQrLogin: (options = {}) => request('/auth/wechat/qr', { ...json('POST', {}), ...options }),
+  pollWechatQrLogin: (sessionId, options = {}) =>
+    request(`/auth/wechat/qr/${encodeURIComponent(sessionId)}`, { ...options }),
   register: (input) => request('/auth/register', json('POST', input)),
   requestRegistrationCode: (input) => request('/auth/registration-code/request', json('POST', input)),
   requestEmailVerification: (input) => request('/auth/email-verification/request', json('POST', input)),
