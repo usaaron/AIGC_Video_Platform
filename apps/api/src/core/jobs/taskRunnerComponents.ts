@@ -1014,11 +1014,11 @@ export class ImageTaskExecutor {
         (item) => item.id === stored.projectId && item.tenantId === stored.tenantId,
       )
       const attributes = objectValue(stored.metadata.attributes)
-      const assetKind = imageAssetKind(stored)
       const userNegativePrompt = stringValue(stored.metadata.userNegativePrompt, stored.negativePrompt)
       const quality = compileQualityRules({
         mediaKind: 'image',
-        assetKind,
+        assetKind: imageAssetKind(stored),
+        subjectType: attributes.subjectType === 'animal' ? 'animal' : 'human',
         visualStyles: typeof attributes.visualStyle === 'string' ? [attributes.visualStyle] : [],
         emptyScene: attributes.emptyScene === true,
         sourcePrompt: stored.prompt,

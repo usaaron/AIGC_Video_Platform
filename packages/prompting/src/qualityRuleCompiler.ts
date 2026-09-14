@@ -1,8 +1,9 @@
-export const QUALITY_RULE_VERSION = 'quality-floor-v1'
+export const QUALITY_RULE_VERSION = 'quality-floor-v2'
 
 export type QualityRuleInput = {
   mediaKind: 'image' | 'video'
   assetKind?: 'character' | 'scene' | 'prop' | 'costume' | 'brand' | 'storyboard'
+  subjectType?: 'human' | 'animal'
   contentType?: 'short-drama' | 'advertisement' | 'animation'
   visualStyles?: string[]
   emptyScene?: boolean
@@ -28,6 +29,9 @@ const PHOTOREAL_VIDEO =
 
 const CHARACTER_BASE =
   '不要玻璃眼、空洞眼神、无瞳孔、斜视和眼睛不对称；不要歪鼻子、鼻子融化和缺眉毛；不要歪嘴、缺牙和不对称笑容；不要多余手指、手指粘连、手部扭曲、身体扭曲、关节断裂、长脖子和双躯干'
+
+const HUMAN_CHARACTER_BASE =
+  '不要将人类角色生成为动物、拟人动物或兽人；不要将人类五官和肢体替换为动物口鼻、喙、爪、蹄、尾巴或动物耳朵'
 
 const PHOTOREAL_CHARACTER =
   '不要磨皮过度、塑料皮肤、假人感、娃娃脸和蜡像脸；不要卡通、动漫、低质量3D渲染和塑料材质感'
@@ -66,6 +70,7 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
   }
   if (input.assetKind === 'character') {
     presets.push(['character-anatomy', CHARACTER_BASE])
+    if (input.subjectType !== 'animal') presets.push(['human-character', HUMAN_CHARACTER_BASE])
     if (photorealistic) presets.push(['photoreal-character', PHOTOREAL_CHARACTER])
   }
   if (input.assetKind === 'prop') {

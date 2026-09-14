@@ -21,9 +21,9 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
     stageParts = [
       isAnimal
         ? '动物头部身份照，头部和肩颈完整入镜，面部特征与毛发纹理清晰可调整'
-        : '人物面部大头照，头部和肩部完整入镜，五官清晰可调整',
+        : '人类人物面部大头照，头部和肩部完整入镜，五官清晰可调整',
       '正面平视镜头，自然中性表情，均匀平光',
-      '不出现手部、前爪、文字和饰边',
+      isAnimal ? '不出现前爪、文字和饰边' : '不出现手部、文字和饰边',
       '画面比例1:1',
     ]
   } else if (stage === 'turnaround') {
@@ -73,7 +73,7 @@ function characterIdentityParts(attributes) {
     ]
   }
   return [
-    '人物角色',
+    '人类人物角色，保持人类五官和身体结构',
     optionLabel('gender', attributes.gender),
     attributes.exactAge ? `${attributes.exactAge}岁` : optionLabel('ageGroup', attributes.ageGroup),
     ...characterAppearanceParts(attributes),

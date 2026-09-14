@@ -30,6 +30,36 @@ describe('compileQualityRules', () => {
     expect(result.negativePrompt).toContain('不要多余手指')
   })
 
+  it.each(['human', undefined] as const)('constrains human identity for subjectType %s', (subjectType) => {
+    const result = compileQualityRules({
+      mediaKind: 'image',
+      assetKind: 'character',
+      ...(subjectType ? { subjectType } : {}),
+    })
+
+    expect(result.presetIds).toContain('human-character')
+    expect(result.negativePrompt).toContain('不要将人类角色生成为动物、拟人动物或兽人')
+    expect(result.negativePrompt).toContain('不要将人类五官和肢体替换为动物口鼻')
+    expect(result.negativePrompt).not.toContain('单个完整人类')
+    expect(result.negativePrompt).not.toContain('羽毛')
+  })
+
+  it('does not impose human identity on intentional animals or other asset kinds', () => {
+    const inputs = [
+      { assetKind: 'character', subjectType: 'animal' },
+      { assetKind: 'scene' },
+      { assetKind: 'storyboard' },
+      { assetKind: 'prop' },
+      { assetKind: 'costume' },
+      { assetKind: 'brand' },
+    ] as const
+    for (const input of inputs) {
+      const result = compileQualityRules({ mediaKind: 'image', ...input })
+      expect(result.presetIds).not.toContain('human-character')
+      expect(result.negativePrompt).not.toContain('不要将人类角色生成为动物')
+    }
+  })
+
   it('keeps fog when requested and blocks unrequested people in an empty scene', () => {
     const result = compileQualityRules({
       mediaKind: 'image',

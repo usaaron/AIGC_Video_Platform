@@ -189,6 +189,39 @@ describe('asset prompt compiler', () => {
     expect(prompt).toContain('白色头发')
   })
 
+  it.each(['face', 'body', 'turnaround'])('preserves human identity in the %s stage', (stage) => {
+    const asset = {
+      name: '林夏',
+      description: '',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPrompt: '',
+      attributes: createDefaultAttributes('character'),
+    }
+
+    const prompt = compileCharacterStagePrompt(asset, '1:1', stage)
+    expect(prompt).toContain('人类人物角色')
+    expect(prompt).toContain('保持人类五官和身体结构')
+    expect(prompt).not.toContain('前爪')
+    if (stage === 'face') expect(prompt).not.toContain('全身')
+  })
+
+  it('preserves edited advanced prompts across repeated compilation', () => {
+    const asset = {
+      name: '林夏',
+      promptMode: 'advanced',
+      attributes: {
+        ...createDefaultAttributes('character'),
+        stagePrompts: { face: '女性面部特写，穿羽毛装饰外套' },
+      },
+    }
+    const first = compileCharacterStagePrompt(asset, '1:1', 'face')
+    asset.attributes.stagePrompts.face = `${first}，黑色短发`
+    const edited = compileCharacterStagePrompt(asset, '1:1', 'face')
+    asset.attributes.stagePrompts.face = edited
+    expect(compileCharacterStagePrompt(asset, '1:1', 'face')).toBe('女性面部特写，穿羽毛装饰外套，黑色短发')
+  })
+
   it('does not inject human gender or age into animal prompts', () => {
     const attributes = createDefaultAttributes('character')
     Object.assign(attributes, {
@@ -213,6 +246,7 @@ describe('asset prompt compiler', () => {
     expect(prompt).not.toContain('女性')
     expect(prompt).not.toContain('青年')
     expect(prompt).not.toContain('22岁')
+    expect(prompt).not.toContain('保持人类五官和身体结构')
   })
 
   it('always reserves an empty stage for scene production', () => {

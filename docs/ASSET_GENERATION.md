@@ -172,9 +172,13 @@ StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Pro
 
 ### 服务端质量下限
 
-资产图片和分镜视频的负面提示词不是只在前端展示。Worker 在真正调用 Provider 前通过共享包 `packages/prompting/src/qualityRuleCompiler.ts` 编译，当前版本为 `quality-floor-v1`，并把以下审计字段保存到任务：`qualityRuleVersion`、`qualityPresetIds`、`compiledNegativePrompt`、`userNegativePrompt`。
+资产图片和分镜视频的负面提示词不是只在前端展示。Worker 在真正调用 Provider 前通过共享包 `packages/prompting/src/qualityRuleCompiler.ts` 编译，当前版本为 `quality-floor-v2`，并把以下审计字段保存到任务：`qualityRuleVersion`、`qualityPresetIds`、`compiledNegativePrompt`、`userNegativePrompt`。
 
-规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 将质量约束编入最终提示词；图片 Provider 使用 `negativePrompt` 字段。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
+人物图片按任务快照 `metadata.attributes.subjectType` 区分人类与动物。明确为 `animal` 的任务保留动物生成能力；`human` 或旧任务缺少该字段时，启用 `human-character` 规则，防止把人类角色或五官肢体生成为动物形态。规则适用于面部、全身、三视图和资产建议后的图片任务，不对场景、分镜、物品或服装施加人类身份限制，也不改变景别或禁止服装上的羽毛装饰。
+
+标准模式提示词明确人类五官与身体结构；高级模式继续保留各阶段的完整自定义提示词，系统质量约束由 Worker 统一合入，不回写到可编辑提示词，避免反复编辑产生重复追加。TokenAdvent 图片适配器将内部 `negativePrompt` 合入实际 JSON 或 multipart 请求的 `prompt`；即使高级提示词完全覆盖，也会携带质量约束。此处是提示词约束，没有图像物种识别或自动拦截机制；已有错误图片需要重新生成并人工验收。
+
+规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 将质量约束编入最终提示词；图片 Provider 接收内部 `negativePrompt` 后按上游协议提交。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
 
 生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的视频仅在 Provider 提供远端 `cancel` 时调用；DoraRouter 当前没有该接口，服务端标记跳过远端取消后按本地规则退款，不会重复请求导致白屏或报错。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
 
