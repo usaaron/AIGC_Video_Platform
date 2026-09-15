@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { PlusIcon, ScriptIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { LanguageToggle } from "@/components/language-toggle";
+import { HostReturnLink } from "@/components/host-return-link";
 import { formatRelativeTime } from "@/lib/format";
 import { projectTagLabel } from "@/lib/tag-catalog";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
@@ -14,12 +15,13 @@ import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
 interface ProjectSidebarProps {
+  hostHref?: string;
   isOpen: boolean;
   onClose: () => void;
   onNavigate: () => void;
 }
 
-export function ProjectSidebar({ isOpen, onClose, onNavigate }: ProjectSidebarProps) {
+export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: ProjectSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { projects, isReady, deleteProject, serverPersistenceAvailable } = useProjects();
@@ -47,6 +49,7 @@ export function ProjectSidebar({ isOpen, onClose, onNavigate }: ProjectSidebarPr
         type="button"
       />
       <aside id="project-navigation" aria-label={t("nav.projects")} aria-hidden={!isOpen} inert={!isOpen} className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
+        {hostHref && <div className="sidebar-host-return"><HostReturnLink href={hostHref} detail /><p>新标签页打开，当前创作继续保留</p></div>}
         <div className="sidebar-module-head">
           <span className="sidebar-module-icon"><ScriptIcon /></span>
           <span>

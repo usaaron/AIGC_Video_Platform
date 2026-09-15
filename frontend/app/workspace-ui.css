@@ -610,13 +610,26 @@
 .story-bible-panel.is-creation-mode { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .host-return-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 10px; border-radius: 4px; color: var(--ink-soft); font-size: 12px; white-space: nowrap; }
 .host-return-link:hover { color: var(--ink); background: var(--paper-deep); }
+.host-return-button { justify-content: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--ink); border-radius: 6px; color: var(--paper-bright); background: var(--ink); }
+.host-return-button:hover { color: var(--paper-bright); background: #414c39; border-color: #414c39; }
+.host-return-button:focus-visible { outline: 3px solid var(--lime-deep); outline-offset: 3px; }
+.host-return-button > svg { flex-shrink: 0; color: var(--lime); }
+.host-return-button strong { font-size: 13px; font-weight: 650; }
+.host-return-button.is-sidebar { width: 100%; justify-content: flex-start; padding: 14px 12px; }
+.host-return-button.is-sidebar > span { display: grid; gap: 6px; }
+.host-return-button.is-sidebar > svg:last-child { margin-left: auto; }
+.host-return-button.is-sidebar small { color: #d4dccb; font-size: 10px; }
+.sidebar-host-return { margin-bottom: 20px; }
+.sidebar-host-return p { margin: 9px 0 0; color: var(--ink-soft); font-size: 10px; text-align: center; }
 @media (max-width: 600px) {
   .planning-workspace:has(> .story-bible-panel.is-creation-mode) { padding-top: 20px; }
   .planning-workspace:has(> .story-bible-panel.is-creation-mode) > .planning-workspace-header { align-items: start; gap: 12px; margin-bottom: 24px; padding-bottom: 20px; }
   .planning-workspace-header-actions .outline-action { min-height: 36px; padding: 8px; font-size: 11px; }
   .creation-setting-heading > div:first-child > span { max-width: 210px; white-space: normal; }
   .creation-step-description { margin-bottom: 20px; font-size: 13px; }
-  .mobile-header .host-return-link { padding-right: 0; padding-left: 0; }
+  .mobile-header .host-return-button { gap: 5px; min-height: 36px; padding: 7px 9px; }
+  .mobile-header .host-return-button strong { font-size: 12px; }
+  .mobile-header .host-return-button > svg:last-child { display: none; }
 }
 
 /* The project list is shared by the desktop rail and mobile drawer. */

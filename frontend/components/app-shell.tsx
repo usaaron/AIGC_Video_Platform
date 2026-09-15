@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   CloudDownload,
   CloudUpload,
   FolderKanban,
@@ -18,6 +17,7 @@ import { MenuIcon } from "@/components/icons";
 import { BackgroundGenerationStatus } from "@/components/background-generation-status";
 import { LanguageToggle } from "@/components/language-toggle";
 import { ProjectSidebar } from "@/components/project-sidebar";
+import { HostReturnLink } from "@/components/host-return-link";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
@@ -48,6 +48,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
   const hostHref = hostWorkspaceHref(currentProject?.hostDeliveryTargetProjectId ?? currentHostProjectId());
   const showHostReturn = Boolean(process.env.NEXT_PUBLIC_HOST_LAUNCH_URL);
+  const BrandHome = showHostReturn ? "a" : Link;
+  const brandHomeProps = {
+    href: showHostReturn ? hostHref : "/",
+    "aria-label": showHostReturn ? "序幕主站" : t("nav.projectLibrary"),
+    title: showHostReturn ? "在新标签页打开序幕主站，保留当前剧本" : t("nav.projectLibrary"),
+    ...(showHostReturn ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+  };
   const conflictedProjects = projects.filter((project) => (
     project.serverSync?.status === "conflict"
   ));
@@ -119,9 +126,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className={`app-shell${sidebarOpen ? " is-sidebar-open" : ""}`}>
       <header className="desktop-topbar">
-        <Link className="topbar-brand-link" href="/">
+        <BrandHome className="topbar-brand-link" {...brandHomeProps}>
           <BrandLogo spin />
-        </Link>
+        </BrandHome>
         <span className="topbar-divider" aria-hidden="true" />
         <button
           aria-controls="project-navigation"
@@ -139,12 +146,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{currentProject?.title ?? t("nav.projectLibrary")}</span>
         </Link>
         <div className="topbar-actions">
-          {showHostReturn && <a className="host-return-link" href={hostHref} target="_blank" rel="noopener noreferrer" title="在新标签页返回主站，保留当前创作进度"><ArrowLeft aria-hidden="true" size={15} />返回主站</a>}
+          {showHostReturn && <HostReturnLink href={hostHref} />}
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </div>
       </header>
-      <ProjectSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigate={onSidebarNavigate} />
+      <ProjectSidebar hostHref={showHostReturn ? hostHref : undefined} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigate={onSidebarNavigate} />
       <div className="app-main">
         <header className="mobile-header">
           <button
@@ -157,8 +164,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <MenuIcon />
           </button>
-          <BrandLogo compact spin />
-          {showHostReturn && <a className="host-return-link" href={hostHref} target="_blank" rel="noopener noreferrer" aria-label="返回主站" title="在新标签页返回主站，保留当前创作进度"><ArrowLeft aria-hidden="true" size={16} /><span>主站</span></a>}
+          <BrandHome className="topbar-brand-link" {...brandHomeProps}><BrandLogo compact spin /></BrandHome>
+          {showHostReturn && <HostReturnLink href={hostHref} />}
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </header>
