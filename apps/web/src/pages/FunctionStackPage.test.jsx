@@ -11,14 +11,15 @@ describe('function stack pages', () => {
 
     expect(html).toContain(title)
     expect(html).toContain(`aria-label="${region}"`)
-    expect(html).toContain(tool === 'agent-studio' ? '自动编排已启用' : '正在连接剧本大师')
+    expect(html).toContain(tool === 'agent-studio' ? '自动编排已启用' : '正在打开剧本大师')
   })
 
   it('shows a safe connection state while the external module is unavailable', () => {
     const html = renderToStaticMarkup(<FunctionStackPage tool="writing-studio" />)
 
-    expect(html).toContain('正在读取独立服务的启动信息。')
-    expect(html).toContain('重新连接')
+    expect(html).toContain('正在准备你的剧本工作台…')
+    expect(html).toContain('返回单集剧本')
+    expect(html).not.toContain('<iframe')
     expect(html).not.toContain('长剧本能力尚未接入当前版本')
   })
 

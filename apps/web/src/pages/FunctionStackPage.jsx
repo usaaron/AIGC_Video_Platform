@@ -6,7 +6,6 @@ import {
   BookOpenText,
   Check,
   ChevronRight,
-  CircleDashed,
   Download,
   LoaderCircle,
   Pause,
@@ -15,7 +14,6 @@ import {
   RefreshCw,
   Sparkles,
   WandSparkles,
-  ExternalLink,
 } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { PageHeader } from '../components/ui'
@@ -37,16 +35,14 @@ export function FunctionStackPage({
 }) {
   const item = FUNCTION_STACK_ITEMS.find((entry) => entry.id === tool) ?? FUNCTION_STACK_ITEMS[0]
 
+  if (item.id === 'writing-studio') return <WritingStudio project={project} onOpenScript={onOpenScript} />
+
   return (
     <div className={`page tool-studio-page ${item.id}`}>
       <PageHeader eyebrow={item.eyebrow} title={item.title} description={item.description}>
         {item.id === 'agent-studio' ? (
           <span className="tool-development-badge agent-live-badge">
             <i /> 自动编排已启用
-          </span>
-        ) : item.id === 'writing-studio' ? (
-          <span className="tool-development-badge">
-            <CircleDashed size={13} /> 独立模块 · 服务化接入
           </span>
         ) : null}
       </PageHeader>
@@ -63,7 +59,6 @@ export function FunctionStackPage({
           onOpenBilling={onOpenBilling}
         />
       ) : null}
-      {item.id === 'writing-studio' ? <WritingStudio project={project} onOpenScript={onOpenScript} /> : null}
     </div>
   )
 }
@@ -685,94 +680,60 @@ function upsertRun(setter, run) {
 
 function WritingStudio({ project, onOpenScript }) {
   const [state, setState] = useState({ status: 'loading', launchUrl: '', message: '' })
-
-  const load = async () => {
-    setState((current) => ({ ...current, status: 'loading', message: '' }))
-    try {
-      const config = await api.scriptMasterConfig()
-      if (!config.enabled) {
-        setState({
-          status: 'unavailable',
-          launchUrl: '',
-          message: config.configured
-            ? '剧本大师服务缺少宿主鉴权配置，请先完成服务端接入。'
-            : '剧本大师服务地址尚未配置。配置后即可从这里进入完整工作台。',
-        })
-        return
-      }
-      const launch = await api.scriptMasterLaunch(project?.id)
-      if (!launch.enabled || !launch.launchUrl) throw new Error('剧本大师启动信息暂时不可用。')
-      setState({ status: 'ready', launchUrl: launch.launchUrl, message: '' })
-    } catch (error) {
-      setState({
-        status: 'error',
-        launchUrl: '',
-        message: error?.message || '剧本大师暂时无法连接，请稍后重试。',
-      })
-    }
-  }
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
-    void load()
-  }, [project?.id])
+    let active = true
+    setState({ status: 'loading', launchUrl: '', message: '' })
+    void api
+      .scriptMasterLaunch(project?.id)
+      .then((launch) => {
+        if (!active) return
+        if (!launch.enabled || !launch.launchUrl) throw new Error('剧本大师暂未配置，请联系管理员。')
+        const url = new URL(launch.launchUrl)
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('剧本大师工作台地址无效。')
+        setState({ status: 'ready', launchUrl: url.href, message: '' })
+        window.location.assign(url.href)
+      })
+      .catch((error) => {
+        if (active)
+          setState({
+            status: 'error',
+            launchUrl: '',
+            message: error?.message || '剧本大师暂时无法连接，请稍后重试。',
+          })
+      })
+    return () => {
+      active = false
+    }
+  }, [project?.id, attempt])
 
   return (
-    <section className="tool-studio-frame writing-studio-frame" aria-label="剧本大师工作台">
-      <header className="tool-frame-header">
-        <div className="tool-frame-identity">
-          <span className="tool-frame-mark">
-            <BookOpenText size={18} />
-          </span>
-          <div>
-            <strong>剧本大师</strong>
-            <span>长篇故事、批量分集与交付计划</span>
-          </div>
-        </div>
-        <div className={`tool-frame-status writing-studio-live ${state.status}`}>
-          <i />{' '}
-          {state.status === 'ready' ? '服务已连接' : state.status === 'loading' ? '正在连接' : '等待配置'}
-        </div>
-      </header>
-      {state.status === 'ready' ? (
-        <div className="writing-studio-embed-shell">
-          <div className="writing-studio-embed-actions">
-            <span>当前项目：{project?.name || '独立创作项目'}</span>
-            <a className="button secondary" href={state.launchUrl} target="_blank" rel="noreferrer">
-              <ExternalLink size={15} /> 新标签页打开
-            </a>
-          </div>
-          <iframe title="剧本大师独立工作台" src={state.launchUrl} className="writing-studio-embed" />
-        </div>
-      ) : (
-        <div className="writing-studio-handoff">
-          <span className="eyebrow">SCRIPT MASTER / HOSTED MODULE</span>
-          <h2>{state.status === 'loading' ? '正在连接剧本大师' : '剧本大师尚未就绪'}</h2>
-          <p>{state.message || '正在读取独立服务的启动信息。'}</p>
-          <div className="writing-studio-boundaries">
-            <div>
-              <strong>独立能力</strong>
-              <span>保留长剧本、世界观、人物关系、分集规划、修订和导出功能。</span>
-            </div>
-            <div>
-              <strong>主项目链路</strong>
-              <span>正式交付时由当前项目统一承接资产、分镜、生成队列、积分和成片任务。</span>
-            </div>
-          </div>
-          <div className="writing-studio-handoff-actions">
-            <button
-              type="button"
-              className="button primary"
-              onClick={() => void load()}
-              disabled={state.status === 'loading'}
-            >
-              <RefreshCw size={15} /> 重新连接
-            </button>
-            <button type="button" className="button secondary" onClick={onOpenScript}>
-              <ArrowLeft size={15} /> 返回单集剧本
-            </button>
-          </div>
-        </div>
-      )}
+    <section
+      className="page writing-studio-launch"
+      aria-label="剧本大师工作台"
+      aria-busy={state.status === 'loading'}
+    >
+      <BookOpenText size={32} aria-hidden="true" />
+      <h1>{state.status === 'error' ? '暂时无法打开剧本大师' : '正在打开剧本大师'}</h1>
+      <p role={state.status === 'error' ? 'alert' : 'status'}>{state.message || '正在准备你的剧本工作台…'}</p>
+      <div className="writing-studio-handoff-actions">
+        {state.launchUrl && (
+          <a className="button primary" href={state.launchUrl}>
+            进入工作台
+          </a>
+        )}
+        {state.status === 'error' && (
+          <button type="button" className="button primary" onClick={() => setAttempt((value) => value + 1)}>
+            <RefreshCw size={15} />
+            重新连接
+          </button>
+        )}
+        <button type="button" className="button secondary" onClick={onOpenScript}>
+          <ArrowLeft size={15} />
+          返回单集剧本
+        </button>
+      </div>
     </section>
   )
 }

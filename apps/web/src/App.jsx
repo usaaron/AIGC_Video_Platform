@@ -41,6 +41,7 @@ import {
 } from './features/generation/projectTaskCache'
 import { useTaskNotifications } from './features/notifications/useTaskNotifications'
 import { exportProject } from './features/projects/exportProject'
+import { projectLinkTarget } from './features/projects/projectLink'
 import {
   assetSuggestionRevision,
   scriptGenerationTaskLabel,
@@ -161,13 +162,16 @@ function App() {
         setBilling(billingSummary)
         setProviderHealth(health)
         if (projectList[0] && activeProjectIdRef.current === null) {
-          const initialProjectId = projectList[0].id
+          const landing = projectLinkTarget(projectList, window.location.search)
+          const initialProject = landing?.project ?? projectList[0]
+          const initialProjectId = initialProject.id
           selectActiveProject(initialProjectId)
+          if (landing) setActiveStep(landing.view)
           const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(initialProjectId))
           if (cachedWorkspace) workspaceCacheRef.current.set(initialProjectId, cachedWorkspace)
           setWorkspace(
             cachedWorkspace || {
-              project: projectList[0],
+              project: initialProject,
               scriptEpisodes: [],
               assets: [],
               shots: [],
