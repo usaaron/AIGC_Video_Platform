@@ -1,11 +1,17 @@
 # SEQORA 项目开发记忆与接手手册
 
-> 最后更新：2026-08-03
+> 最后更新：2026-09-15
 > 仓库：`usaaron/AIGC_Video_Platform`
 > 本地目录：`C:\Users\admin\Desktop\图片\aigc-studio-demo`
 > 当前目标：稳定封闭客户测试，补齐服务端定价、带音轨完整成片、邮件运维告警和可恢复 Agent 编排。
 
 这份文档是按时间累积的长期开发记忆。**从“历史记录”开始的旧章节保留当时语境，其中使用“当前”“已完成”的句子只代表记录日期，不能覆盖 2026-08-03 快照。** 新开发者或新 Agent 必须先读根目录 `AGENTS.md`、`docs/CURRENT_STATE.md`、`docs/HANDOFF_GUIDE.md` 和目标模块代码，再按需查本文。文档只记录环境变量名称，**绝不记录真实 API Key、Cookie、云凭据或用户上传内容**。
+
+## 2026-09-15 生产 Seedance 配置与恢复记录
+
+`xumutv.com` 的 API/Worker 已加载新 DoraRouter 视频密钥，显式地址 `https://www.dorarouter.com`、模型 `doubao-seedance-2-0-260128`。只读模型目录鉴权通过，旧密钥视频查询返回无效令牌。新旧密钥的素材库请求均为 `404 Invalid URL`，未解决加白接口问题，也未执行付费生成验收。
+
+首次重建漏传 `deploy/release.env`，误选 8 月的 `seqora-api:local`，造成约 7 分钟不可用。随后同时加载应用和版本环境文件，恢复 `seqora-api:aeb0051ed306`，新视频配置保留，readiness 和 Worker 心跳恢复。不能把本次配置更新当作发布本地合并分支。备份标识与正确操作步骤见 [生产运维手册](OPERATIONS_RUNBOOK.md#2026-09-15-seedance-配置更新)。
 
 ## 2026-08-03 当前快照（覆盖下方历史表述）
 

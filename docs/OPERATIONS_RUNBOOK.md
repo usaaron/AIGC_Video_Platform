@@ -17,6 +17,26 @@
 
 生产密钥位于服务器 `/opt/seqora/deploy/demo.env`，权限应为 `600`。不要执行会把该文件内容输出到终端、聊天、CI 日志或文档的命令。
 
+### 2026-09-15 Seedance 配置更新
+
+- `VIDEO_PROVIDER=dora-router`，显式设置 `DORA_ROUTER_BASE_URL=https://www.dorarouter.com`、`DORA_ROUTER_VIDEO_MODEL=doubao-seedance-2-0-260128`，并更新服务器端 `DORA_ROUTER_API_KEY`。
+- API/Worker 继续使用 `seqora-api:aeb0051ed306`。这是环境配置更新，未发布本地合并分支代码。原环境文件备份为服务器上的 `deploy/demo.env.bak-dorarouter-20260915-044453`，权限为 `600`。
+- 从实际 Node.js API 容器查询 `/v1/models` 返回 `200`，模型列表包含指定模型；查询虚构视频任务返回 `task_not_exist`。旧密钥查询同一视频接口返回 `401 Invalid token`。未创建付费任务，不代表已验证实际生成和计费。
+- `/v1/material?Action=ListAssetGroups` 用新旧密钥均返回 `404 Invalid URL`；可信人像/加白接口仍需单独核对，健康接口的 `configured` 不能当作上游功能验收。
+- 本次首次重建遗漏 `release.env`，误选旧 `seqora-api:local` 导致服务约 7 分钟不可用；加载版本文件恢复原镜像后，health/readiness、Worker 心跳均正常。后续必须按下面的配置更新命令加载两个环境文件。
+
+### 已部署实例仅更新环境配置
+
+先保留权限为 `600` 的环境文件备份，核对当前镜像和运行任务，再修改目标配置。重建应用时必须同时加载 `deploy/release.env`，以免 Compose 回退到 `local` 镜像：
+
+```bash
+cd /opt/seqora
+docker compose --env-file deploy/demo.env --env-file deploy/release.env -f compose.demo.yml config --quiet
+docker compose --env-file deploy/demo.env --env-file deploy/release.env -f compose.demo.yml up -d --no-build --no-deps --force-recreate api worker
+```
+
+随后检查容器镜像标签、health/readiness、Worker 心跳和上游只读接口。失败时先恢复环境文件备份，再用同一固定镜像重建。不要输出完整 Compose 配置或容器环境变量。
+
 ## 日常健康检查
 
 公网检查：

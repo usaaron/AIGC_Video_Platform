@@ -128,6 +128,7 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 - API `8787` 不对公网开放；公网只开放 80/443，HTTPS 由 Caddy 处理。
 - 管理端随 Web 镜像构建到 `/admin/`，未授权访问由 Caddy 和 API 双层拒绝。
 - 2026-09-04 核对：健康接口 `status=ok`、readiness 为 true，Postgres、Redis、API、Worker 和 Web 均正常运行。
+- 2026-09-15：更新生产 DoraRouter 视频密钥，显式设置地址 `https://www.dorarouter.com`、模型 `doubao-seedance-2-0-260128`；API/Worker 仍为 `seqora-api:aeb0051ed306`，未发布本地合并分支。服务健康和新密钥模型目录查询通过，未做付费生成/计费验收。素材库 `/v1/material` 用新旧密钥均返回 `404`，加白链路存在待修复接口问题；切换期间镜像选择错误与恢复经过见 [运维记录](OPERATIONS_RUNBOOK.md#2026-09-15-seedance-配置更新)。
 
 生产凭据、邀请码和用户信息不得写进本文。具体巡检和发布见 `OPERATIONS_RUNBOOK.md`。
 

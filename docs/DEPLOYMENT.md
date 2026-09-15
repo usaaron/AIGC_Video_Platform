@@ -64,6 +64,8 @@ chmod 600 deploy/demo.env
 - `ARK_API_*` 只用于官方火山回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
 
+已部署实例的环境配置更新必须同时加载 `--env-file deploy/demo.env --env-file deploy/release.env`，使用 `--no-build --no-deps --force-recreate api worker` 保留发布镜像；不得省略版本文件，否则会选中默认 `local` 镜像。具体备份、验证与恢复步骤见 [生产运维手册](OPERATIONS_RUNBOOK.md#已部署实例仅更新环境配置)。2026-09-15 生产 Seedance 显式使用 `doubao-seedance-2-0-260128`；模板里的默认模型不能覆盖实例已验证的配置。
+
 启动前先检查最终配置，再构建并启动：
 
 ```bash
