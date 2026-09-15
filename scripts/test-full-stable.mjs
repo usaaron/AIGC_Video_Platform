@@ -4,6 +4,9 @@ import { platform } from 'node:os'
 const isWindows = platform() === 'win32'
 const pnpmCommand = isWindows ? 'pnpm.cmd' : 'pnpm'
 const dockerComposeTestArgs = ['compose', '-p', 'seqora-test', '-f', 'compose.local.yml', '--profile', 'test']
+const externalTestServices = Boolean(
+  (process.env.SEQORA_TEST_DATABASE_URL || process.env.TEST_DATABASE_URL) && process.env.TEST_REDIS_URL,
+)
 const testEnv = {
   ...process.env,
   SEQORA_TEST_DATABASE_URL:
@@ -14,7 +17,8 @@ const testEnv = {
     process.env.TEST_DATABASE_URL ||
     process.env.SEQORA_TEST_DATABASE_URL ||
     'postgres://seqora:seqora_test_password@127.0.0.1:5433/seqora_test',
-  REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6380',
+  TEST_REDIS_URL: process.env.TEST_REDIS_URL || 'redis://127.0.0.1:6380',
+  REDIS_URL: process.env.TEST_REDIS_URL || 'redis://127.0.0.1:6380',
 }
 
 const phases = [
@@ -29,18 +33,20 @@ const phases = [
 let testDbStarted = false
 
 try {
-  assertDockerAvailable()
+  if (!externalTestServices) assertDockerAvailable()
   for (const [name, args] of phases) {
     await runPnpm(name, args)
   }
-  await runDocker('start shared test database', [
-    ...dockerComposeTestArgs,
-    'up',
-    '-d',
-    'postgres-test',
-    'redis-test',
-  ])
-  testDbStarted = true
+  if (!externalTestServices) {
+    await runDocker('start shared test database', [
+      ...dockerComposeTestArgs,
+      'up',
+      '-d',
+      'postgres-test',
+      'redis-test',
+    ])
+    testDbStarted = true
+  }
   await runPnpm('api db integration tests', ['--filter', '@seqora/api', 'test:integration'], {
     env: testEnv,
   })
