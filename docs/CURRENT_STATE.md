@@ -123,13 +123,15 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 - 云平台：阿里云 ECS
 - 公网地址：`123.57.14.233`
 - 部署目录：`/opt/seqora`
-- 当前形态：单机 Docker Compose，Postgres、Redis、API、Worker、Web/Caddy 五个服务。
+- 当前形态：单机 Docker Compose，主项目 Postgres、Redis、API、Worker、Web/Caddy，加上独立剧本大师 API、Next.js、Postgres 三个服务。
 - 数据盘：约 99 GB 系统盘；2026-09-04 核对使用率约 3%。
 - API `8787` 不对公网开放；公网只开放 80/443，HTTPS 由 Caddy 处理。
 - 管理端随 Web 镜像构建到 `/admin/`，未授权访问由 Caddy 和 API 双层拒绝。
 - 2026-09-04 核对：健康接口 `status=ok`、readiness 为 true，Postgres、Redis、API、Worker 和 Web 均正常运行。
 - 2026-09-15：更新生产 DoraRouter 视频密钥，显式设置地址 `https://www.dorarouter.com`、模型 `doubao-seedance-2-0-260128`；API/Worker 仍为 `seqora-api:aeb0051ed306`，未发布本地合并分支。服务健康和新密钥模型目录查询通过，未做付费生成/计费验收。素材库 `/v1/material` 用新旧密钥均返回 `404`，加白链路存在待修复接口问题；切换期间镜像选择错误与恢复经过见 [运维记录](OPERATIONS_RUNBOOK.md#2026-09-15-seedance-配置更新)。
 - 2026-09-15 13:33（北京时间）：随后已发布主项目 `2f8058164f8a4ed6a8e0b81d996358a183f4cfbd`，API/Worker 使用 `seqora-api:2f8058164f8a`，Web 使用 `seqora-web:2f8058164f8a`，取代上一条配置更新阶段的旧镜像。迁移 `041_script_master_deliveries.sql`、health/readiness、Worker 心跳、未登录 API/Admin 拦截和新静态资源验证通过，DoraRouter 配置完整保留。服务器未部署 `project111-final2` 独立服务，也未配置 `SCRIPT_MASTER_URL/SHARED_SECRET`，因此剧本大师入口仍显示未配置；充值/会员仍为模拟支付。备份与验证详情见 [发布记录](OPERATIONS_RUNBOOK.md#2026-09-15-合并分支主项目发布)。
+
+- 2026-09-15 14:33 起：补齐剧本大师独立服务 `f3d62e11f9a88bc1c7fab16f81bc533b469da555`（从 `final2` 的 `d659fb0` 适配），生产地址 `https://xumutv.com/script-master`。主 API/Worker 保持 `seqora-api:2f8058164f8a`，Web 网关更新为 `seqora-web:2a13788-gateway`，已配置宿主 URL/共享密钥。线上实际 iframe、项目库、新建表单与标签正常，正式接口项目创建/更新/读取验证通过；未付费生成。独立服务增加账号数据库/缓存隔离、读写权限及主站短期票据续期。此次修复覆盖并取代上一条“独立服务未部署”的状态；完整证据见 [部署验收](SCRIPT_MASTER_DEPLOYMENT_2026-09-15.md)。
 
 生产凭据、邀请码和用户信息不得写进本文。具体巡检和发布见 `OPERATIONS_RUNBOOK.md`。
 
@@ -142,7 +144,7 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 3. 注册、重置和邮件投递虽已生产可用，仍需投递失败告警、退信处理和运营可见状态。
 4. CI/CD 工作流代码已存在，但在没有看到目标仓库最近一次成功生产发布前，运维不得假设自动发布一定可用。
 5. 备份恢复、Redis 故障、Worker 重启、重复 Outbox 投递和三路并发需要定期生产演练。
-6. 2026-09-14 本地剧本大师接入检查发现：未绑定项目的独立入口缺少账号/组织数据隔离，启动票据无续期，交接缺少事务及稳定分集映射。多组织开放前必须修复；全量检查尚未通过，详见 [本地测试报告](TEST_REPORT_2026-09-14.md)。
+6. 2026-09-14 本地剧本大师检查发现的问题中，账号数据库/缓存隔离及票据续期已在 2026-09-15 适配部署中修复；独立项目交接目标绑定、导入事务及稳定分集映射仍未完成。主项目全量检查仍被原有文件行数门禁阻断，不能宣称整个产品全量测试通过。历史见 [本地测试报告](TEST_REPORT_2026-09-14.md)，新增验证见 [部署验收](SCRIPT_MASTER_DEPLOYMENT_2026-09-15.md)。
 
 ### P1：正式收费前
 
