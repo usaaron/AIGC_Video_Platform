@@ -1,6 +1,6 @@
 # 分集素材、人物造型与账号资产库（2026-09-16）
 
-本次修改在主站分支 `codex/script-master-refresh-20260916`；剧本大师联动代码位于独立仓库 `project111-final2`。本次尚未发布到生产环境。
+本次修改在主站分支 `codex/script-master-refresh-20260916`；剧本大师联动代码位于独立仓库 `project111-final2`，推送到同一 GitHub 仓库的 `codex/script-master-service-20260916` 分支。2026-09-16 已发布到生产环境，详见 [发布与验收记录](./SERIES_RELEASE_VERIFICATION_2026-09-16.md)。
 
 ## 用户流程
 
