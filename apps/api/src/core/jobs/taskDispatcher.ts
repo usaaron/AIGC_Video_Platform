@@ -149,6 +149,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     })
     this.videoExecutor = new VideoTaskExecutor(store, {
       videoProvider,
+      mediaRepository: options.mediaRepository ?? null,
       objectStorage,
       leaseOwnerId,
       leaseTtlMs,

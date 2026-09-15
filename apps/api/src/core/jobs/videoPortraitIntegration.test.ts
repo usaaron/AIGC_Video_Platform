@@ -89,8 +89,21 @@ describe('DoraRouter portrait worker integration', () => {
     ['AIGC', 'tenant-seqora-demo', true],
     ['LivenessFace', 'tenant-seqora-demo', false],
     ['AIGC', 'another-tenant', false],
+    ['AIGC', 'postgres', true],
+    ['AIGC', 'postgres-denied', false],
   ] as const)('resolves %s with source tenant %s', async (groupType, tenant, allowed) => {
     const { store, task } = await fixture(groupType, tenant)
+    const mediaRepository = tenant.startsWith('postgres')
+      ? {
+          findSourceById: vi.fn(async () =>
+            tenant === 'postgres' ? { storageKey: 'private-face.png', contentType: 'image/png' } : null,
+          ),
+        }
+      : null
+    if (mediaRepository)
+      await store.mutate((state) => {
+        state.media = []
+      })
     const provider = {
       submit: vi.fn(async () => ({ providerTaskId: 'remote-test', status: 'queued' as const, progress: 0 })),
       getStatus: vi.fn(async () => ({ status: 'running' as const, progress: 5, error: null })),
@@ -105,7 +118,15 @@ describe('DoraRouter portrait worker integration', () => {
       videoProvider: provider,
       videoProviderName: 'dora-router-seedance',
       objectStorage: storage,
+      mediaRepository,
     }).tick()
+    if (mediaRepository)
+      expect(mediaRepository.findSourceById).toHaveBeenCalledWith(
+        'test-face',
+        task.projectId,
+        task.tenantId,
+        'image',
+      )
     if (allowed) {
       expect(provider.submit).toHaveBeenCalledWith(
         expect.objectContaining({
