@@ -36,7 +36,7 @@ describe('DoraRouterSeedanceProvider', () => {
       watermark: false,
     })
 
-    expect(capturedUrl).toBe('https://www.dorarouter.com/v1/video/generations')
+    expect(capturedUrl).toBe('https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks')
     expect(capturedInit?.headers).toMatchObject({
       Authorization: 'Bearer test-dora-token',
       'Content-Type': 'application/json',
@@ -126,8 +126,8 @@ describe('DoraRouterSeedanceProvider', () => {
     for await (const chunk of lastFrame.stream) frameChunks.push(chunk)
     expect(Buffer.concat(frameChunks)).toEqual(Buffer.from('last-frame-bytes'))
     expect(calls).toEqual([
-      'https://www.dorarouter.com/v1/video/generations/task_dora_2',
-      'https://www.dorarouter.com/v1/video/generations/task_dora_2',
+      'https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/task_dora_2',
+      'https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/task_dora_2',
       'https://storage.example/video.mp4?signature=test',
       'https://storage.example/last-frame.jpg?signature=test',
     ])
@@ -207,7 +207,7 @@ describe('DoraRouterSeedanceProvider', () => {
     for await (const chunk of content.stream) chunks.push(chunk)
     expect(Buffer.concat(chunks)).toEqual(Buffer.from('video-bytes'))
     expect(calls).toEqual([
-      'https://www.dorarouter.com/v1/video/generations/task_dora_envelope',
+      'https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/task_dora_envelope',
       'https://storage.example/enveloped-video.mp4?signature=test',
     ])
   })
@@ -275,6 +275,70 @@ describe('DoraRouterSeedanceProvider', () => {
     for await (const chunk of content.stream) chunks.push(chunk)
     expect(Buffer.concat(chunks)).toEqual(Buffer.from('local-last-frame'))
     expect(content.contentType).toBe('image/jpeg')
-    expect(calls).toEqual(['https://www.dorarouter.com/v1/video/generations/task_dora_4'])
+    expect(calls).toEqual(['https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/task_dora_4'])
+  })
+
+  it('reads historical tasks through the legacy route only for a native task_not_found', async () => {
+    const calls: string[] = []
+    const provider = new DoraRouterSeedanceProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-key',
+      defaultModel: 'doubao-seedance-2-0-260128',
+      requestTimeoutMs: 5000,
+      fetcher: async (input) => {
+        calls.push(String(input))
+        return calls.length === 1
+          ? Response.json({ error: { code: 'task_not_found', message: 'Task not found' } }, { status: 404 })
+          : Response.json({ status: 'succeeded', content: { video_url: 'https://media.example/legacy.mp4' } })
+      },
+    })
+    await expect(provider.getStatus('old-task')).resolves.toMatchObject({ status: 'completed' })
+    expect(calls).toEqual([
+      'https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/old-task',
+      'https://www.dorarouter.com/v1/video/generations/old-task',
+    ])
+  })
+
+  it.each([401, 403, 429, 500])('does not hide upstream HTTP %s behind another query', async (status) => {
+    let calls = 0
+    const provider = new DoraRouterSeedanceProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-key',
+      defaultModel: 'doubao-seedance-2-0-260128',
+      requestTimeoutMs: 5000,
+      fetcher: async () => {
+        calls += 1
+        return Response.json({ error: { message: 'denied' } }, { status })
+      },
+    })
+    await expect(provider.getStatus('task')).rejects.toThrow(`(${status})`)
+    expect(calls).toBe(1)
+  })
+
+  it('never retries a failed creation through a different paid endpoint', async () => {
+    let calls = 0
+    const provider = new DoraRouterSeedanceProvider({
+      baseUrl: 'https://www.dorarouter.com',
+      apiKey: 'test-key',
+      defaultModel: 'doubao-seedance-2-0-260128',
+      requestTimeoutMs: 5000,
+      fetcher: async () => {
+        calls += 1
+        return Response.json({ error: { code: 'task_not_found', message: 'unknown route' } }, { status: 404 })
+      },
+    })
+    await expect(
+      provider.submit({
+        taskId: 'local',
+        model: null,
+        prompt: 'test',
+        seconds: 5,
+        ratio: '16:9',
+        resolution: '480p',
+        images: [],
+        generateAudio: true,
+      }),
+    ).rejects.toThrow('(404)')
+    expect(calls).toBe(1)
   })
 })

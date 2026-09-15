@@ -60,6 +60,17 @@ export type DoraRouterLastFrameExtractor = (
 ) => Promise<Buffer>
 
 const execFileAsync = promisify(execFile)
+const SEEDANCE_TASK_PATH = '/doubao/api/v3/contents/generations/tasks'
+
+class DoraRouterHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | undefined,
+    message: string,
+  ) {
+    super(`DoraRouter请求失败 (${status})${message ? `: ${message}` : ''}`)
+  }
+}
 
 export type DoraRouterSeedanceOptions = {
   baseUrl: string
@@ -73,7 +84,7 @@ export type DoraRouterSeedanceOptions = {
   fetcher?: Fetcher
 }
 
-/** DoraRouter's Seedance-compatible API uses the OpenAI-style video task paths. */
+/** Seedance content arrays belong to the native task API, not the generic prompt API. */
 export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
   private readonly baseUrl: string
   private readonly fetcher: Fetcher
@@ -99,7 +110,7 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
       typeof image === 'string' ? { url: image, role: 'reference_image' as const } : image,
     )
 
-    const response = await this.requestJson('/v1/video/generations', {
+    const response = await this.requestJson(SEEDANCE_TASK_PATH, {
       method: 'POST',
       ...(request.idempotencyKey ? { headers: { 'Idempotency-Key': request.idempotencyKey } } : {}),
       body: JSON.stringify({
@@ -229,12 +240,19 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
   }
 
   private async readTask(providerTaskId: string, timeoutMs?: number): Promise<DoraTaskResponse> {
-    const response = await this.requestJson(
-      `/v1/video/generations/${encodeURIComponent(providerTaskId)}`,
-      { method: 'GET' },
-      timeoutMs,
-    )
-    return normalizeTaskResponse(response)
+    const id = encodeURIComponent(providerTaskId)
+    try {
+      return normalizeTaskResponse(
+        await this.requestJson(`${SEEDANCE_TASK_PATH}/${id}`, { method: 'GET' }, timeoutMs),
+      )
+    } catch (error) {
+      // Only legacy reads may fall back. Never resubmit a potentially billed POST.
+      if (!(error instanceof DoraRouterHttpError) || error.status !== 404 || error.code !== 'task_not_found')
+        throw error
+      return normalizeTaskResponse(
+        await this.requestJson(`/v1/video/generations/${id}`, { method: 'GET' }, timeoutMs),
+      )
+    }
   }
 
   private async readMedia(url: string, range: string | undefined, label: string): Promise<VideoContent> {
@@ -277,13 +295,19 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
 
     const body = await response.text().catch(() => '')
     let message = body.slice(0, 500)
+    let code: string | undefined
     try {
-      const parsed = JSON.parse(body) as { code?: string; message?: string; error?: { message?: string } }
+      const parsed = JSON.parse(body) as {
+        code?: string
+        message?: string
+        error?: { code?: string; message?: string }
+      }
+      code = parsed.error?.code ?? parsed.code
       message = parsed.message || parsed.error?.message || parsed.code || message
     } catch {
       // Keep the bounded response text when DoraRouter does not return JSON.
     }
-    throw new Error(`DoraRouter请求失败 (${response.status})${message ? `: ${message}` : ''}`)
+    throw new DoraRouterHttpError(response.status, code, message)
   }
 }
 

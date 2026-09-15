@@ -303,14 +303,23 @@ export function TrustedPortraitPanel({
       {attributes.subjectType === 'human' && portrait?.groupType !== 'LivenessFace' && (
         <div className="trusted-validation-box">
           <div className="trusted-validation-copy">
-            <span className="eyebrow">Dora 真人加白</span>
-            <strong>用手机完成一次真人认证，生成可复用的人像素材</strong>
-            <small>认证令牌只保存在服务端，认证成功后会自动把当前面部基准写入真人素材库。</small>
+            <span className="eyebrow">真人认证</span>
+            <strong>
+              {validationSetupBlocked
+                ? '当前未开放新建真人认证'
+                : '用手机完成一次真人认证，生成可复用的人像素材'}
+            </strong>
+            <small>
+              {validationSetupBlocked
+                ? 'AI 虚拟人物请使用上方“创建 AI 人像资源”；已有授权真人资源可在下方选择“已授权真人”后同步绑定。'
+                : '请由演员本人完成认证，成功后会自动把当前面部基准写入真人素材库。'}
+            </small>
           </div>
           <button
             className="button primary"
             type="button"
             disabled={
+              !configuration?.realValidationReady ||
               validationBusy ||
               busyAction !== null ||
               !assetId ||
@@ -326,13 +335,17 @@ export function TrustedPortraitPanel({
             ) : (
               <ShieldCheck size={15} />
             )}
-            {validationBusy
-              ? '正在创建认证页'
-              : validationSession?.status === 'uploading'
-                ? '认证成功，正在入库'
-                : validationSession?.status === 'failed' || validationSession?.status === 'expired'
-                  ? '重新开始真人认证'
-                  : '真人认证并加白'}
+            {validationSetupBlocked
+              ? '真人认证暂未开放'
+              : !configuration
+                ? '正在检查配置'
+                : validationBusy
+                  ? '正在创建认证页'
+                  : validationSession?.status === 'uploading'
+                    ? '认证成功，正在入库'
+                    : validationSession?.status === 'failed' || validationSession?.status === 'expired'
+                      ? '重新开始真人认证'
+                      : '真人认证并加白'}
           </button>
           {validationSession?.status === 'pending' && (
             <div className="trusted-validation-session" role="status" aria-live="polite">
