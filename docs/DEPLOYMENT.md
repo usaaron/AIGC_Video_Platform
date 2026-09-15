@@ -66,6 +66,8 @@ chmod 600 deploy/demo.env
 
 已部署实例的环境配置更新必须同时加载 `--env-file deploy/demo.env --env-file deploy/release.env`，使用 `--no-build --no-deps --force-recreate api worker` 保留发布镜像；不得省略版本文件，否则会选中默认 `local` 镜像。具体备份、验证与恢复步骤见 [生产运维手册](OPERATIONS_RUNBOOK.md#已部署实例仅更新环境配置)。2026-09-15 生产 Seedance 显式使用 `doubao-seedance-2-0-260128`；模板里的默认模型不能覆盖实例已验证的配置。
 
+2026-09-15 主项目已按源码包流程发布 `2f80581`，运行镜像标签为 `2f8058164f8a`。源码包不包含相邻目录的 `project111-final2`；生产剧本大师仍未配置独立服务。备份标识、迁移与冒烟验证结果见 [合并分支主项目发布记录](OPERATIONS_RUNBOOK.md#2026-09-15-合并分支主项目发布)。
+
 启动前先检查最终配置，再构建并启动：
 
 ```bash

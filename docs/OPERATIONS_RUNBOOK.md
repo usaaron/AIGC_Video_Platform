@@ -17,6 +17,15 @@
 
 生产密钥位于服务器 `/opt/seqora/deploy/demo.env`，权限应为 `600`。不要执行会把该文件内容输出到终端、聊天、CI 日志或文档的命令。
 
+### 2026-09-15 合并分支主项目发布
+
+- 13:33（北京时间）通过源码包发布 `codex/script-master-merged-20260914` 的提交 `2f8058164f8a4ed6a8e0b81d996358a183f4cfbd`。API/Worker 镜像为 `seqora-api:2f8058164f8a`，Web 为 `seqora-web:2f8058164f8a`。
+- 数据备份：`/opt/seqora-backups/manual/20260915T052431Z`；上一源码及配置：`/opt/seqora-backups/source-20260915-053217`；发布日志：`/var/tmp/seqora-deploy-2f80581.log`，退出码 `0`。备份脚本按现有流程短暂停止应用并恢复；GCS 未配置，跳过对象版本清单。
+- 源码包 SHA-256 为 `c0327e6bed7d2cb9a6c70667eebf948ccadd19e283c0bdf164642324568cc7df`，仅含 Git 跟踪文件；生产环境变量与密钥已对比确认保留，权限仍为 `600`。
+- 服务器 API/Web 构建与迁移通过；只读查询确认 `041_script_master_deliveries.sql` 已执行。公网页面与新容器 HTML 一致，支付占位图片可访问；health/readiness、Worker 心跳正常，未登录 `/auth/me`、剧本大师配置接口、`/admin/` 均返回 `401`。运行镜像的质量规则确认为 `quality-floor-v2`，人类约束与动物豁免均生效。
+- 此包只发布主项目及剧本大师接入代码；独立 `project111-final2` 服务尚未部署，服务器没有配置启动地址和共享密钥，入口显示未配置。充值/会员页面仍是模拟支付，素材库 `404` 未在此发布中修复。未创建付费生成任务，也未完成登录后的人工全流程验收。
+- 发布前已有相关 112 项测试、前后端构建和 lint 通过；全量检查仍受 `App.jsx` 与 `app.test.ts` 的既有行数超限阻断，不能将本次部署成功等同于全量测试通过。
+
 ### 2026-09-15 Seedance 配置更新
 
 - `VIDEO_PROVIDER=dora-router`，显式设置 `DORA_ROUTER_BASE_URL=https://www.dorarouter.com`、`DORA_ROUTER_VIDEO_MODEL=doubao-seedance-2-0-260128`，并更新服务器端 `DORA_ROUTER_API_KEY`。
