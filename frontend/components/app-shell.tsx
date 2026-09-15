@@ -4,16 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  BookOpenText,
-  ChevronDown,
   CloudDownload,
   CloudUpload,
   FolderKanban,
   LoaderCircle,
-  Plus,
   RefreshCw,
-  Search,
-  Trash2,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -34,8 +29,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const [projectSearch, setProjectSearch] = useState("");
   const [syncResolutionOpen, setSyncResolutionOpen] = useState(false);
   const [resolvingSync, setResolvingSync] = useState<{
     projectId: string;
@@ -48,7 +41,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     isReady,
     storageError,
     serverPersistenceAvailable,
-    deleteProject,
     resolveProjectSyncConflict,
     createProject,
   } = useProjects();
@@ -56,9 +48,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
   const hostHref = hostWorkspaceHref(currentProject?.hostDeliveryTargetProjectId ?? currentHostProjectId());
   const showHostReturn = Boolean(process.env.NEXT_PUBLIC_HOST_LAUNCH_URL);
-  const visibleProjects = projects.filter((project) => (
-    project.title.toLowerCase().includes(projectSearch.trim().toLowerCase())
-  ));
   const conflictedProjects = projects.filter((project) => (
     project.serverSync?.status === "conflict"
   ));
@@ -92,17 +81,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [createProject, isReady, pathname, projects, router, serverPersistenceAvailable]);
 
   useEffect(() => {
-    setProjectMenuOpen(false);
-  }, [pathname]);
+    const desktop = window.matchMedia("(min-width: 901px)");
+    const updateNavigation = () => setSidebarOpen(desktop.matches);
+    updateNavigation();
+    desktop.addEventListener("change", updateNavigation);
+    return () => desktop.removeEventListener("change", updateNavigation);
+  }, []);
 
-  useEffect(() => {
-    if (!projectMenuOpen) return;
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setProjectMenuOpen(false);
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [projectMenuOpen]);
+  function onSidebarNavigate() {
+    if (window.matchMedia("(max-width: 900px)").matches) setSidebarOpen(false);
+  }
 
   useEffect(() => {
     if (conflictedProjects.length) return;
@@ -129,102 +117,39 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarOpen ? " is-sidebar-open" : ""}`}>
       <header className="desktop-topbar">
         <Link className="topbar-brand-link" href="/">
           <BrandLogo spin />
         </Link>
         <span className="topbar-divider" aria-hidden="true" />
-        <div className="topbar-project-switcher">
-          <button
-            aria-expanded={projectMenuOpen}
-            className="topbar-project-link"
-            onClick={() => setProjectMenuOpen((open) => !open)}
-            type="button"
-          >
-            <FolderKanban aria-hidden="true" size={16} />
-            <span>{currentProject?.title ?? t("nav.projectLibrary")}</span>
-            <ChevronDown aria-hidden="true" className={projectMenuOpen ? "is-open" : ""} size={14} />
-          </button>
-          {projectMenuOpen ? (
-            <section aria-label={t("nav.projects")} className="topbar-project-menu">
-              <div className="topbar-project-menu-head">
-                <div>
-                  <strong>{t("nav.myScripts")}</strong>
-                  <small>{projects.length.toString().padStart(2, "0")}</small>
-                </div>
-                <Link className="topbar-new-project" href="/projects/new">
-                  <Plus aria-hidden="true" size={14} />
-                  {t("nav.create")}
-                </Link>
-              </div>
-              <label className="topbar-project-search">
-                <Search aria-hidden="true" size={14} />
-                <input
-                  autoFocus
-                  aria-label={t("nav.search")}
-                  onChange={(event) => setProjectSearch(event.target.value)}
-                  placeholder={t("nav.search")}
-                  value={projectSearch}
-                />
-              </label>
-              <nav className="topbar-project-list">
-                {!isReady ? (
-                  <div className="project-list-skeleton" aria-label={t("nav.loading")} />
-                ) : visibleProjects.length === 0 ? (
-                  <p className="topbar-project-empty">{projects.length ? t("nav.noMatches") : t("nav.empty")}</p>
-                ) : visibleProjects.map((project) => {
-                  const projectHref = currentWorkspaceHref(project);
-                  const active = pathname.includes(project.id);
-                  return (
-                    <div className={`topbar-project-row ${active ? "is-active" : ""}`} key={project.id}>
-                      <Link className="topbar-project-item" href={projectHref} onClick={() => setProjectMenuOpen(false)}>
-                        <span className="topbar-project-glyph"><BookOpenText aria-hidden="true" size={15} /></span>
-                        <span>
-                          <strong>{project.title}</strong>
-                          <small>{project.episodes.length} {t("workspace.episodes")}</small>
-                        </span>
-                        <i className={`status-dot status-${project.status}`} />
-                      </Link>
-                      <button
-                        aria-label={`${t("nav.delete")} ${project.title}`}
-                        className="topbar-project-delete"
-                        onClick={async () => {
-                          if (!window.confirm(t("nav.deleteConfirm"))) return;
-                          const deleted = await deleteProject(project.id);
-                          if (deleted && active) router.push("/");
-                        }}
-                        title={t("nav.delete")}
-                        type="button"
-                      >
-                        <Trash2 aria-hidden="true" size={13} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </nav>
-              <Link className="topbar-all-projects" href="/" onClick={() => setProjectMenuOpen(false)}>{t("nav.projectLibrary")}</Link>
-            </section>
-          ) : null}
-        </div>
+        <button
+          aria-controls="project-navigation"
+          aria-expanded={sidebarOpen}
+          aria-label={t(sidebarOpen ? "nav.close" : "nav.open")}
+          className="icon-button"
+          onClick={() => setSidebarOpen((open) => !open)}
+          title={t(sidebarOpen ? "nav.close" : "nav.open")}
+          type="button"
+        >
+          <MenuIcon />
+        </button>
+        <Link className="topbar-project-link" href={currentProject ? currentWorkspaceHref(currentProject) : "/"}>
+          <FolderKanban aria-hidden="true" size={16} />
+          <span>{currentProject?.title ?? t("nav.projectLibrary")}</span>
+        </Link>
         <div className="topbar-actions">
           {showHostReturn && <a className="host-return-link" href={hostHref} target="_blank" rel="noopener noreferrer" title="在新标签页返回主站，保留当前创作进度"><ArrowLeft aria-hidden="true" size={15} />返回主站</a>}
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </div>
       </header>
-      {projectMenuOpen ? (
-        <button
-          aria-label={t("nav.close")}
-          className="topbar-project-scrim"
-          onClick={() => setProjectMenuOpen(false)}
-          type="button"
-        />
-      ) : null}
-      <ProjectSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <ProjectSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigate={onSidebarNavigate} />
       <div className="app-main">
         <header className="mobile-header">
           <button
+            aria-controls="project-navigation"
+            aria-expanded={sidebarOpen}
             aria-label={t("nav.open")}
             className="icon-button"
             onClick={() => setSidebarOpen(true)}

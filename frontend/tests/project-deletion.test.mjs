@@ -23,7 +23,8 @@ test("project library and switcher both expose confirmed delete controls", async
   const sidebar = await source("components/project-sidebar.tsx");
   const locale = await source("providers/locale-provider.tsx");
 
-  for (const component of [home, shell, sidebar]) {
+  assert.match(shell, /<ProjectSidebar\s/);
+  for (const component of [home, sidebar]) {
     assert.match(component, /t\("nav\.deleteConfirm"\)/);
     assert.match(component, /deleteProject\((?:project|pendingProject)\.id\)|handleDelete\(project\.id\)/);
   }

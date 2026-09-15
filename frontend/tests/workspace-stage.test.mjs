@@ -101,7 +101,7 @@ test("page transitions and route guards share the planning session boundary", as
   assert.match(planningPanel, /phase:\s*"script"/);
   assert.match(planningPanel, /router\.push\([^)]*workspace`/);
   for (const navigationSource of [appShell, home, sidebar, editor]) {
-    assert.match(navigationSource, /currentWorkspaceHref\(project\)/);
+    assert.match(navigationSource, /currentWorkspaceHref\((?:project|currentProject)\)/);
     assert.doesNotMatch(navigationSource, /project\.episodes\.length\s*\?\s*`\/projects/);
   }
 });
