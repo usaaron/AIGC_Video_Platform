@@ -36,7 +36,7 @@ test("project library loads without browser or server errors", async ({ page }, 
   const health = monitorPageHealth(page);
   await page.goto("/", { waitUntil: "load" });
 
-  await expect(page.getByRole("heading", { name: "项目库", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "剧本项目库", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "新建剧本", exact: true }).first()).toBeVisible();
   await assertPerformanceBudget(page, testInfo, LIBRARY_BUDGET);
   health.assertHealthy();

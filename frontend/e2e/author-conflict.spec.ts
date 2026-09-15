@@ -163,6 +163,21 @@ async function mockApis(page: Page, initialProject: ScriptProject) {
     const request = route.request();
     const pathname = new URL(request.url()).pathname.replace(/^\/api/, "");
     const method = request.method();
+    if (pathname === "/input-readiness/analyze" && method === "POST") {
+      expect(request.postDataJSON().use_model).toBe(false);
+      await route.fulfill({ json: { data: {
+        schema_version: "input_readiness.v1",
+        detected_level: "premise",
+        confidence: 0.9,
+        coverage: { premise: 1, story_bible: 0, episode_plan: 0, script: 0 },
+        evidence: [],
+        missing_items: [],
+        recommended_stage: "story_bible",
+        requires_user_confirmation: true,
+        analysis_method: "heuristic",
+      } } });
+      return;
+    }
     if (pathname === "/script-generation/modify-draft") {
       const body = request.postDataJSON() as RequestBody;
       modificationRequests.push(body);
