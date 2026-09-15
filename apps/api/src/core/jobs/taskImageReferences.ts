@@ -1,7 +1,22 @@
 import type { GenerationTask } from '@seqora/contracts'
 import type { AppStore } from '../../infra/store.js'
+import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
 import { generatedDescriptors } from './taskWriteback.js'
+
+type ImageSource = { storageKey: string; contentType: string }
+export type VideoSourceUrl = (source: ImageSource) => string
+
+export async function videoImageUrl(
+  storage: ObjectStorage,
+  source: ImageSource,
+  sourceUrl: VideoSourceUrl | null,
+): Promise<string> {
+  if (sourceUrl) return sourceUrl(source)
+  const content = await storage.get(source.storageKey)
+  if (!content.length) throw new Error('视频参考图片内容为空，请重新上传参考图')
+  return `data:${source.contentType};base64,${content.toString('base64')}`
+}
 
 /** Uploaded media lives in Postgres in production; worker caches are not its source of truth. */
 export async function resolveStoredImageReference(

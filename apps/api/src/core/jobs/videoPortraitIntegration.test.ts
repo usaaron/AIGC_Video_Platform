@@ -2,9 +2,11 @@ import type { Asset, GenerationTask } from '@seqora/contracts'
 import { describe, expect, it, vi } from 'vitest'
 import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import type { VideoGenerationRequest } from '../generation/videoProvider.js'
 import { GenerationService } from '../../modules/generation/service.js'
 import type { GenerationTaskRepository } from '../../modules/generation/repository.js'
 import type { TaskDispatcher } from './taskDispatcher.js'
+import { createPublicMediaToken, verifyPublicMediaToken } from '../media/publicMediaToken.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
 
 async function fixture(groupType = 'AIGC', mediaTenant = 'tenant-seqora-demo') {
@@ -85,6 +87,38 @@ async function fixture(groupType = 'AIGC', mediaTenant = 'tenant-seqora-demo') {
 }
 
 describe('DoraRouter portrait worker integration', () => {
+  it('sends an expiring image link instead of embedding a large production image', async () => {
+    const { store } = await fixture()
+    const submit = vi.fn(async (_request: VideoGenerationRequest) => ({
+      providerTaskId: 'remote-test',
+      status: 'queued' as const,
+      progress: 0,
+    }))
+    const storage = { get: vi.fn(), put: vi.fn(), delete: vi.fn() } as ObjectStorage
+    const expiresAt = Date.now() + 60_000
+    await new GenerationTaskRunner(store, {
+      videoProvider: {
+        submit,
+        getStatus: vi.fn(async () => ({ status: 'running' as const, progress: 5, error: null })),
+        getContent: vi.fn(),
+      },
+      videoProviderName: 'dora-router-seedance',
+      objectStorage: storage,
+      videoSourceUrl: (source) =>
+        `https://app.example/api/v1/trusted-assets/source/${createPublicMediaToken(source, 'test-secret', expiresAt)}`,
+    }).tick()
+    const request = submit.mock.calls[0]?.[0] as unknown as { images: { url: string }[] }
+    const url = request.images[0]!.url
+    expect(url).toMatch(/^https:\/\/app.example\/api\/v1\/trusted-assets\/source\//)
+    const token = url.split('/').at(-1)!
+    expect(verifyPublicMediaToken(token, 'test-secret')).toMatchObject({
+      storageKey: 'private-face.png',
+      expiresAt,
+    })
+    expect(verifyPublicMediaToken(token, 'test-secret', expiresAt + 1)).toBeNull()
+    expect(verifyPublicMediaToken(token, 'wrong-secret')).toBeNull()
+    expect(storage.get).not.toHaveBeenCalled()
+  })
   it.each([
     ['AIGC', 'tenant-seqora-demo', true],
     ['LivenessFace', 'tenant-seqora-demo', false],

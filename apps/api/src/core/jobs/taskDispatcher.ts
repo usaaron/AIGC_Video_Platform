@@ -21,6 +21,7 @@ import {
 } from './taskRunnerComponents.js'
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
 import type { LocalGenerationTaskHandler } from './localTaskHandler.js'
+import type { VideoSourceUrl } from './taskImageReferences.js'
 
 export interface TaskDispatcher {
   dispatch(
@@ -43,6 +44,7 @@ export const noopTaskDispatcher: TaskDispatcher = {
 type GenerationTaskRunnerOptions = {
   videoProvider?: VideoGenerationProvider | null
   videoProviderName?: VideoProviderName
+  videoSourceUrl?: VideoSourceUrl | null
   imageProvider?: ImageGenerationProvider | null
   mediaRepository?: Pick<MediaRepository, 'findSourceById'> | null
   objectStorage?: ObjectStorage | null
@@ -149,6 +151,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     })
     this.videoExecutor = new VideoTaskExecutor(store, {
       videoProvider,
+      videoSourceUrl: videoProviderName === 'dora-router-seedance' ? (options.videoSourceUrl ?? null) : null,
       mediaRepository: options.mediaRepository ?? null,
       objectStorage,
       leaseOwnerId,

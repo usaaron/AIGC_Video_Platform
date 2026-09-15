@@ -38,7 +38,7 @@ import {
 } from './taskLease.js'
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import { DependencyResolver } from './taskDependencyResolver.js'
-import { resolveStoredImageReference } from './taskImageReferences.js'
+import { resolveStoredImageReference, videoImageUrl, type VideoSourceUrl } from './taskImageReferences.js'
 import {
   GenerationResultWriteback,
   generatedDescriptors,
@@ -753,6 +753,7 @@ export class VideoTaskExecutor {
     private readonly store: AppStore,
     private readonly options: {
       videoProvider: VideoGenerationProvider | null
+      videoSourceUrl: VideoSourceUrl | null
       mediaRepository: Pick<MediaRepository, 'findSourceById'> | null
       objectStorage: ObjectStorage | null
       leaseOwnerId: string
@@ -922,11 +923,8 @@ export class VideoTaskExecutor {
         (item) => item.view === 'last-frame',
       )
       if (!lastFrame) throw new Error('上一镜头没有可用尾帧，请重新生成上一镜头后再继续')
-      const content = await this.options.objectStorage.get(lastFrame.storageKey)
-      images.push({
-        url: `data:${lastFrame.contentType};base64,${content.toString('base64')}`,
-        role: 'first_frame',
-      })
+      const url = await videoImageUrl(this.options.objectStorage, lastFrame, this.options.videoSourceUrl)
+      images.push({ url, role: 'first_frame' })
     }
 
     if (!Array.isArray(task.metadata.images)) return images
@@ -950,11 +948,8 @@ export class VideoTaskExecutor {
         }
         continue
       }
-      const content = await this.options.objectStorage.get(stored.storageKey)
-      images.push({
-        url: `data:${stored.contentType};base64,${content.toString('base64')}`,
-        role: 'reference_image',
-      })
+      const url = await videoImageUrl(this.options.objectStorage, stored, this.options.videoSourceUrl)
+      images.push({ url, role: 'reference_image' })
     }
     return images
   }

@@ -2,7 +2,7 @@
   "apps/admin/src/App.jsx": 3006,
   "apps/api/src/app.test.ts": 5267,
   "apps/api/src/core/jobs/taskDispatcher.test.ts": 2720,
-  "apps/api/src/core/jobs/taskRunnerComponents.ts": 1977,
+  "apps/api/src/core/jobs/taskRunnerComponents.ts": 1972,
   "apps/api/src/modules/accountManagement/repository.ts": 1913,
   "apps/api/src/modules/accountManagement/routes.test.ts": 2074,
   "apps/api/src/modules/accountManagement/service.ts": 2000,
