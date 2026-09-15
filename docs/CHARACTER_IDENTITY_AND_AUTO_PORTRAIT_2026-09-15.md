@@ -29,4 +29,12 @@
 - `pnpm check` 格式通过，停在既有 `apps/api/src/app.test.ts` 的 5270 > 5267 行门禁；没有抬高门禁，不能称全仓完整检查通过。相关 Repository、Worker 文件通过拆分减行并收紧基线。
 - 此次测试库初轮经 SSH 隧道初始化超时后留下 schema，旧 migration 的跨 schema 约束名查询导致再次初始化失败。仅重建本次隔离测试容器后，在服务器内顺序运行通过；未修改已提交 migration 或生产数据库来迁就测试。
 
-部署结果将在发布后补充。此前 AI 图片上传、素材 Active、DoraRouter 视频播放下载的小样本实测见 [前次联调](PORTRAIT_VIDEO_VALIDATION_2026-09-15.md)。
+## 生产发布
+
+2026-09-15 22:27（北京时间）发布代码 `8caa3f2c3e41799bfa6e8a3deae3d53f8b9d3aa2`，API/Worker 为 `seqora-api:8caa3f2c3e41-identity`，Web 为 `seqora-web:8caa3f2c3e41-identity`。提交源码归档保存在 `/opt/seqora-releases/portrait-8caa3f2`；运行时代码与已验证的构建源逐文件核对一致。本地未跟踪的旧 `hero.png` 未打包，代码没有引用它。
+
+备份 `/opt/seqora-backups/portrait-identity-20260915T142716Z` 包含数据库 dump（5,182,296 字节）、环境与版本文件、Compose、Caddy 和旧镜像记录。发布前两次确认主项目无 queued/running 任务，migration 显示已是最新。环境配置文件逐字节核对未变化；独立剧本大师三个容器保持原镜像与运行状态。
+
+Readiness 的数据库、Redis、队列和 Worker 均 ready；Worker 使用 `quality-floor-v3`。匿名 auth/me、项目 API、Admin 与剧本大师均返回 401。线上网页正常加载；测试账号通过新确认接口重复确认现有 Active 人物，返回 200、保留原绑定、无新任务、账本摘要不变；AI 入库配置就绪，真人 H5 仍禁用。
+
+本次未新增付费出图或视频任务。此前 AI 图片上传、素材 Active、DoraRouter 视频播放下载的小样本实测见 [前次联调](PORTRAIT_VIDEO_VALIDATION_2026-09-15.md)。回滚时恢复备份的 `release.env`，同时加载现有 `demo.env` 和恢复后的 `release.env`，仅重建 api/worker/web。
