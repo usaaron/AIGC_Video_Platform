@@ -11,6 +11,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Field, SQLModel, select
 
 from app.database import DatabaseRuntime
+from app.account_context import AccountLocalRepository
 
 
 class ModuleDocumentRecord(SQLModel, table=True):
@@ -44,7 +45,11 @@ class DocumentRepository(Generic[DocumentT]):
         database_runtime_factory: Callable[[], DatabaseRuntime | None] | None = None,
     ) -> None:
         self._database_runtime_factory = database_runtime_factory
-        self._items: dict[str, DocumentT] = {}
+        self._memory = AccountLocalRepository(dict)
+
+    @property
+    def _items(self) -> dict[str, DocumentT]:
+        return self._memory._repository()
 
     def _database_runtime(self) -> DatabaseRuntime | None:
         return self._database_runtime_factory() if self._database_runtime_factory else None

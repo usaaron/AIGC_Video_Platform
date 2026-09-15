@@ -1,0 +1,89 @@
+name: script-master
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  script-master-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - path: ${SCRIPT_MASTER_SECRETS_DIR:-/opt/script-master/shared}/postgres.env
+        format: raw
+    volumes:
+      - script_master_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    cpus: 1
+    mem_limit: 768m
+    logging: *logging
+
+  script-master-api:
+    image: ${SCRIPT_MASTER_API_IMAGE:?Set immutable Script Master API image}
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: ${SCRIPT_MASTER_SECRETS_DIR:-/opt/script-master/shared}/backend.env
+        format: raw
+    volumes:
+      - script_master_reports:/var/lib/script-master
+    depends_on:
+      script-master-db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health/ready",timeout=5)']
+      interval: 15s
+      timeout: 7s
+      retries: 8
+      start_period: 30s
+    stop_grace_period: 120s
+    cpus: 2
+    mem_limit: 3g
+    pids_limit: 256
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
+
+  script-master-web:
+    image: ${SCRIPT_MASTER_WEB_IMAGE:?Set immutable Script Master web image}
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    init: true
+    restart: unless-stopped
+    depends_on:
+      script-master-api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', 'fetch("http://127.0.0.1:3000/script-master").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))']
+      interval: 15s
+      timeout: 7s
+      retries: 8
+      start_period: 30s
+    networks: [default, host]
+    cpus: 1
+    mem_limit: 1024m
+    pids_limit: 128
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
+
+networks:
+  host:
+    external: true
+    name: seqora-demo_default
+
+volumes:
+  script_master_postgres:
+  script_master_reports:

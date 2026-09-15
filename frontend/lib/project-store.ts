@@ -9,6 +9,7 @@ import {
   normalizeEpisodeRoadmaps,
 } from "@/lib/planning-coverage";
 import { migrateProjectScreenplayFormat } from "@/lib/canonical-character-names";
+import { assertHostSessionActive, ensureHostToken, projectStorageKey } from "@/lib/host-session";
 
 const DATABASE_NAME = "ai-comic-content-os";
 const DATABASE_VERSION = 1;
@@ -28,9 +29,11 @@ export function nextProjectUpdatedAt(
   return new Date(nextMilliseconds).toISOString();
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+async function openDatabase(): Promise<IDBDatabase> {
+  await ensureHostToken();
+  const databaseName = projectStorageKey(DATABASE_NAME);
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+    const request = indexedDB.open(databaseName, DATABASE_VERSION);
 
     request.onupgradeneeded = () => {
       const database = request.result;
@@ -40,7 +43,15 @@ function openDatabase(): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      try {
+        assertHostSessionActive();
+        resolve(request.result);
+      } catch (error) {
+        request.result.close();
+        reject(error);
+      }
+    };
     request.onerror = () => reject(request.error ?? new Error("Unable to open project storage."));
   });
 }
@@ -62,6 +73,7 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
       request.onsuccess = () => resolve(request.result as ScriptProject[]);
       request.onerror = () => reject(request.error ?? new Error("Unable to load projects."));
     });
+    assertHostSessionActive();
     return projects
       .map((project) => {
         const generationMode: ScriptProject["generationSettings"]["mode"] =
@@ -198,6 +210,7 @@ function enqueueProjectOperation(
 }
 
 export function saveStoredProject(project: ScriptProject): Promise<void> {
+  assertHostSessionActive();
   pendingProjectSaves.set(project.id, project);
   const active = activeProjectSaveFlushes.get(project.id);
   if (active) return active;
@@ -220,6 +233,7 @@ export function saveStoredProject(project: ScriptProject): Promise<void> {
 }
 
 export function deleteStoredProject(projectId: string): Promise<void> {
+  assertHostSessionActive();
   pendingProjectSaves.delete(projectId);
   return enqueueProjectOperation(projectId, () => removeStoredProject(projectId));
 }

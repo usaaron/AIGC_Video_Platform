@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Activity,
   Check,
@@ -1617,7 +1618,7 @@ export function ScriptWorkspace() {
           ) : currentEpisode.pendingAuthorConflict?.resolved?.project_id ? (
             <div className="candidate-decision-bar">
               <span>这次上游修改已建立新修订版本，原稿保留在当前项目。</span>
-              <a className="outline-action" href={`/projects/${currentEpisode.pendingAuthorConflict.resolved.project_id}/planning`}>打开修订版本</a>
+              <Link className="outline-action" href={`/projects/${currentEpisode.pendingAuthorConflict.resolved.project_id}/planning`}>打开修订版本</Link>
             </div>
           ) : null}
           {currentEpisode.deepeningRun && deepeningDraft ? (

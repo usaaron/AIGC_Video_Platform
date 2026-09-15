@@ -3,6 +3,7 @@ from collections.abc import Callable
 from sqlmodel import select
 
 from app.database import DatabaseRuntime
+from app.account_context import AccountLocalRepository
 from app.modules.content_spec.models import ContentSpec
 from app.modules.content_spec.persistence import ContentSpecRecord
 
@@ -14,8 +15,12 @@ class ContentSpecRepository:
         self,
         database_runtime_factory: Callable[[], DatabaseRuntime | None] | None = None,
     ) -> None:
-        self._items: dict[str, ContentSpec] = {}
+        self._memory = AccountLocalRepository(dict)
         self._database_runtime_factory = database_runtime_factory
+
+    @property
+    def _items(self) -> dict[str, ContentSpec]:
+        return self._memory._repository()
 
     def save(self, content_spec: ContentSpec) -> ContentSpec:
         runtime = self._database_runtime()

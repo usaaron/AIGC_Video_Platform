@@ -1,0 +1,25 @@
+# Docker receives source only; secrets and developer data never enter a layer.
+**
+!backend/**
+!evaluation/**
+!datasets/**
+!migrations/**
+!scripts/**
+!deploy/**
+!frontend/**
+!alembic.ini
+!pyproject.toml
+!README.md
+**/.env
+**/.env.*
+**/node_modules
+**/.next*
+**/__pycache__
+**/*.pyc
+**/*.log
+**/*.db
+**/*.sqlite*
+**/test-results*
+**/playwright-report
+**/*.tsbuildinfo
+deploy/*.env

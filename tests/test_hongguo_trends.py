@@ -561,7 +561,7 @@ def test_unusable_or_inconsistent_source_preserves_previous_good_snapshot(failur
     (b'{"rankList": []}', "application/json"),
     (b"x" * 4_000_001, "text/html"),
     (b"\xff", "text/html"),
-])
+], ids=["unexpected-json", "oversized-html", "invalid-encoding"])
 def test_source_response_type_size_and_encoding_limits(body, content_type):
     with httpx.Client(transport=httpx.MockTransport(
         lambda _: httpx.Response(200, content=body, headers={"Content-Type": content_type}),

@@ -1,6 +1,7 @@
 import json
 import inspect
 import logging
+from contextvars import copy_context
 import queue
 import threading
 import time
@@ -561,7 +562,8 @@ def stream_script_draft(
             finally:
                 events.put(None)
 
-        threading.Thread(target=generate, daemon=True).start()
+        generation_context = copy_context()
+        threading.Thread(target=generation_context.run, args=(generate,), daemon=True).start()
         try:
             yield ": connected\n\n"
             sequence = 0

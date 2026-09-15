@@ -3,6 +3,8 @@ from functools import lru_cache
 
 from fastapi import Depends, HTTPException, status
 
+from app.account_context import AccountLocalRepository
+
 from app.database import (
     DatabaseConfigurationError,
     DatabaseRuntime,
@@ -95,15 +97,15 @@ content_spec_repository = ContentSpecRepository(
 )
 master_script_repository = MasterScriptRepository(lambda: _optional_content_spec_database_runtime())
 orchestration_plan_repository = OrchestrationPlanRepository(lambda: _optional_content_spec_database_runtime())
-data_ingestion_job_repository = DataIngestionJobRepository()
-data_ingestion_run_history_repository = DataIngestionRunHistoryRepository()
-ingestion_dedup_repository = IngestionDedupRepository()
-trend_snapshot_repository = TrendSnapshotRepository()
+data_ingestion_job_repository = AccountLocalRepository(DataIngestionJobRepository)
+data_ingestion_run_history_repository = AccountLocalRepository(DataIngestionRunHistoryRepository)
+ingestion_dedup_repository = AccountLocalRepository(IngestionDedupRepository)
+trend_snapshot_repository = AccountLocalRepository(TrendSnapshotRepository)
 hongguo_trends_repository = HongguoTrendsRepository(lambda: _optional_content_spec_database_runtime())
 author_conflict_repository = AuthorConflictReviewRepository(lambda: _optional_content_spec_database_runtime())
-benchmark_result_repository = BenchmarkResultRepository()
+benchmark_result_repository = AccountLocalRepository(BenchmarkResultRepository)
 benchmark_runner = BenchmarkRunner()
-prompt_evaluation_result_repository = PromptEvaluationResultRepository()
+prompt_evaluation_result_repository = AccountLocalRepository(PromptEvaluationResultRepository)
 prompt_evaluation_runner = PromptEvaluationRunner()
 
 

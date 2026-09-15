@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { projectStorageKey } from "@/lib/host-session";
 
 
 export type PlanningTaskKind = "top_level" | "decompose" | "episode_roadmap" | "full_tree";
@@ -393,7 +394,7 @@ function mergeTaskSnapshots(
 function readPersistedTaskHistory(): PlanningTaskSnapshot[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(PLANNING_TASK_HISTORY_STORAGE_KEY);
+    const raw = window.localStorage.getItem(projectStorageKey(PLANNING_TASK_HISTORY_STORAGE_KEY));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -414,7 +415,7 @@ function persistFinishedTaskHistory(): void {
     .slice(0, 80);
   try {
     window.localStorage.setItem(
-      PLANNING_TASK_HISTORY_STORAGE_KEY,
+      projectStorageKey(PLANNING_TASK_HISTORY_STORAGE_KEY),
       JSON.stringify(snapshots),
     );
   } catch {

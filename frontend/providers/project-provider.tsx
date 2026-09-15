@@ -8,6 +8,13 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  assertHostSessionActive,
+  ensureHostToken,
+  hostProjectId,
+  HostSessionUnavailableError,
+  subscribeHostSessionFailure,
+} from "@/lib/host-session";
 
 import {
   deleteStoredProject,
@@ -66,6 +73,10 @@ function sortProjects(projects: ScriptProject[]): ScriptProject[] {
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ScriptProject[]>([]);
   const [isReady, setIsReady] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authRetryError, setAuthRetryError] = useState<string | null>(null);
+  const [authAttempt, setAuthAttempt] = useState(0);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [serverPersistenceAvailable, setServerPersistenceAvailable] = useState<boolean | null>(null);
   const automaticConflictRetries = useRef(new Set<string>());
@@ -74,12 +85,29 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    listStoredProjects()
+    setAuthRetryError(null);
+    const unsubscribe = subscribeHostSessionFailure((error) => {
+      active = false;
+      projectsRef.current = [];
+      setProjects([]);
+      setIsReady(false);
+      setAuthReady(false);
+      setAuthError(error.message);
+    });
+    const revalidateLogin = () => { void ensureHostToken(true).catch(() => {}); };
+    window.addEventListener("focus", revalidateLogin);
+    ensureHostToken()
+      .then(() => {
+        if (!active) return [];
+        setAuthReady(true);
+        return listStoredProjects();
+      })
       .then(async (localProjects) => {
         if (!active) return;
-        const hostProjectId = new URLSearchParams(window.location.search).get("host_project_id");
-        const scopedLocalProjects = hostProjectId
-          ? localProjects.filter((project) => project.id === hostProjectId)
+        assertHostSessionActive();
+        const scopedProjectId = hostProjectId();
+        const scopedLocalProjects = scopedProjectId
+          ? localProjects.filter((project) => project.id === scopedProjectId)
           : localProjects;
         projectsRef.current = scopedLocalProjects;
         setProjects(scopedLocalProjects);
@@ -87,6 +115,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
         const serverResult = await loadServerProjects();
         if (!active) return;
+        assertHostSessionActive();
         setServerPersistenceAvailable(serverResult.available);
         if (!serverResult.available) {
           const offlineProjects = projectsRef.current.map((project) => (
@@ -110,7 +139,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
         // The editor is usable while the server request is pending. Merge
         // against current state so that response cannot erase intervening edits.
-        const merged = mergeProjects(projectsRef.current, serverResult.projects);
+        const scopedServerProjects = scopedProjectId
+          ? serverResult.projects.filter((project) => project.id === scopedProjectId)
+          : serverResult.projects;
+        const merged = mergeProjects(projectsRef.current, scopedServerProjects);
         const nextProjects = sortProjects(merged.projects);
         projectsRef.current = nextProjects;
         setProjects(nextProjects);
@@ -119,6 +151,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (active) {
+          if (error instanceof HostSessionUnavailableError) {
+            setAuthRetryError(error.message);
+            return;
+          }
           setStorageError(
             error instanceof Error ? error.message : "Unable to load local projects.",
           );
@@ -129,16 +165,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       });
     return () => {
       active = false;
+      unsubscribe();
+      window.removeEventListener("focus", revalidateLogin);
     };
-  }, []);
+  }, [authAttempt]);
 
   async function createProject(draft: ProjectDraft): Promise<ScriptProject> {
+    await ensureHostToken();
+    const scopedProjectId = hostProjectId();
+    const existing = scopedProjectId ? projectsRef.current.find((project) => project.id === scopedProjectId) : undefined;
+    if (existing) return existing;
     const now = new Date().toISOString();
     const generationSettings = draft.generationSettings ?? DEFAULT_GENERATION_SETTINGS;
     const marketProfile = marketProfileForReleaseRegion(generationSettings.releaseRegion);
     const project: ScriptProject = {
       ...draft,
-      id: draft.id ?? crypto.randomUUID(),
+      id: scopedProjectId ?? draft.id ?? crypto.randomUUID(),
       referenceMaterials: draft.referenceMaterials ?? [],
       marketProfile,
       generationSettings: enforceMarketDeliveryContract(
@@ -178,6 +220,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     projectId: string,
     patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
   ): Promise<boolean> {
+    assertHostSessionActive();
     return new Promise((resolve) => {
       setProjects((current) => {
         const existing = current.find((project) => project.id === projectId);
@@ -304,6 +347,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     project: ScriptProject,
     options: { forceWorkspaceOverwrite?: boolean } = {},
   ): Promise<ProjectServerSyncState> {
+    await ensureHostToken();
     setProjects((current) => {
       const nextProjects = current.map((item) => (
         item.id === project.id && item.serverSync?.status === "conflict"
@@ -436,7 +480,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         getProject,
       }}
     >
-      {children}
+      {authError ? (
+        <main className="centered-state" role="alert"><h1>请重新进入剧本大师</h1><p>{authError}</p></main>
+      ) : !authReady ? (
+        <main className="centered-state" role="status">
+          {authRetryError ? <>
+            <p>{authRetryError}</p>
+            <button className="primary-action" onClick={() => setAuthAttempt((attempt) => attempt + 1)}>重试登录验证</button>
+          </> : "正在验证主站登录状态…"}
+        </main>
+      ) : children}
     </ProjectContext.Provider>
   );
 }

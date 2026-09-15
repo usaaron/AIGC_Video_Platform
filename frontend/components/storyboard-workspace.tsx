@@ -12,6 +12,7 @@ import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
 import type { ScriptProject } from "@/lib/types";
 import { useProjects } from "@/providers/project-provider";
+import { BASE_PATH } from "@/lib/base-path";
 
 export function StoryboardWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -161,7 +162,11 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
         setNotice({ kind: "error", text: "分镜正在处理，请等待本次操作完成后离开。整集编排可先暂停，已完成的场次会保留。" });
         return;
       }
-      setPendingNavigation(destination.pathname + destination.search + destination.hash);
+      // Next's router adds basePath; browser anchor URLs already contain it.
+      const pathname = BASE_PATH && (destination.pathname === BASE_PATH || destination.pathname.startsWith(`${BASE_PATH}/`))
+        ? destination.pathname.slice(BASE_PATH.length) || "/"
+        : destination.pathname;
+      setPendingNavigation(pathname + destination.search + destination.hash);
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", beforeLink, true);

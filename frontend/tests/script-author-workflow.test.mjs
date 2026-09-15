@@ -88,7 +88,7 @@ function harness(project = fixture()) {
     },
   };
   const context = {
-    exports: {}, AbortController, crypto: { randomUUID: () => "revision.new" },
+    exports: {}, AbortController, process: { env: {} }, crypto: { randomUUID: () => "revision.new" },
     window: { location: { assign: (path) => calls.navigations.push(path) } },
     require(name) {
       if (name === "react") return react;

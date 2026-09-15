@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import DatabaseConfigurationError
+from app.account_context import account_isolation_required, system_storage
 from app.dependencies import get_hongguo_trends_service, get_long_story_database_runtime
 from app.host_integration import (
     HostAuthorizer,
@@ -49,21 +50,27 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    if app.state.require_host_context and app.state.host_authorizer is not None:
+        runtime = get_long_story_database_runtime()
+        if runtime.engine.dialect.name != "postgresql":
+            raise DatabaseConfigurationError("Required host isolation needs PostgreSQL.")
+        await asyncio.to_thread(runtime.account_storage.upgrade_all)
     stop = Event()
     wake = asyncio.Event()
 
     async def refresh_hongguo():
-        service = get_hongguo_trends_service()
-        while not stop.is_set():
-            try:
-                await asyncio.to_thread(service.refresh_due, stop)
-            except Exception:
-                # A background feed failure must not stop serving screenplay requests.
-                logger.exception("Hongguo background refresh failed")
-            try:
-                await asyncio.wait_for(wake.wait(), timeout=60)
-            except TimeoutError:
-                pass
+        with system_storage("sm_feed"):
+            service = get_hongguo_trends_service()
+            while not stop.is_set():
+                try:
+                    await asyncio.to_thread(service.refresh_due, stop)
+                except Exception:
+                    # A background feed failure must not stop serving screenplay requests.
+                    logger.exception("Hongguo background refresh failed")
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=60)
+                except TimeoutError:
+                    pass
 
     task = asyncio.create_task(refresh_hongguo())
     try:
@@ -78,18 +85,22 @@ def create_app(
     *, host_authorizer: HostAuthorizer | None = None,
     require_host_context: bool | None = None,
 ) -> FastAPI:
+    required = (
+        account_isolation_required()
+        if require_host_context is None else require_host_context
+    )
     app = FastAPI(
         title="AI Comic Content OS",
         version="0.1.0",
         description="Backend scaffold for the AI Comic Content OS MVP content planning engine.",
         dependencies=[Depends(authorize_host_request)],
         lifespan=_lifespan,
+        docs_url=None if required else "/docs",
+        redoc_url=None if required else "/redoc",
+        openapi_url=None if required else "/openapi.json",
     )
     app.state.host_authorizer = host_authorizer
-    app.state.require_host_context = (
-        os.getenv("HOST_INTEGRATION_REQUIRED", "false").casefold() in {"true", "1", "yes"}
-        if require_host_context is None else require_host_context
-    )
+    app.state.require_host_context = required
     app.add_middleware(RequestObservationMiddleware)
 
     @app.get("/health/live", include_in_schema=False)
@@ -102,7 +113,7 @@ def create_app(
             not app.state.require_host_context or app.state.host_authorizer is not None
         )}
         try:
-            with get_long_story_database_runtime().session() as session:
+            with system_storage(), get_long_story_database_runtime().session() as session:
                 session.execute(text("SELECT 1 FROM module_documents LIMIT 1"))
             checks["database"] = True
         except (DatabaseConfigurationError, SQLAlchemyError):
@@ -189,9 +200,5 @@ def _frontend_origins() -> list[str]:
 
 app = create_app(
     host_authorizer=environment_host_authorizer(),
-    require_host_context=bool(
-        os.getenv("HOST_INTEGRATION_REQUIRED", "false").casefold() in {"true", "1", "yes"}
-        or os.getenv("HOST_INTEGRATION_SECRET", "").strip()
-        or os.getenv("SCRIPT_MASTER_SHARED_SECRET", "").strip()
-    ),
+    require_host_context=account_isolation_required(),
 )

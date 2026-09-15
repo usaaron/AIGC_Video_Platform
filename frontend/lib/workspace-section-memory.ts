@@ -1,3 +1,5 @@
+import { projectStorageKey } from "@/lib/host-session";
+
 export type WorkspaceSectionMemoryId = "story-bible" | "planning" | "script";
 
 export type WorkspaceSectionChatMessage = {
@@ -12,7 +14,7 @@ const memoryCache = new Map<string, WorkspaceSectionChatMessage[]>();
 const memoryListeners = new Map<string, Set<() => void>>();
 
 function storageKey(projectId: string, section: WorkspaceSectionMemoryId): string {
-  return `${STORAGE_PREFIX}:${projectId}:${section}`;
+  return projectStorageKey(`${STORAGE_PREFIX}:${projectId}:${section}`);
 }
 
 export function loadWorkspaceChatMessages(

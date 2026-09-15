@@ -1,31 +1,12 @@
 import { CURRENT_MARKET_PROFILE } from "@/lib/types";
 import { visibleApiError } from "@/lib/api-error";
 import type { paths as ApiPaths } from "@/lib/generated/api-schema";
+import { API_BASE_URL } from "@/lib/base-path";
+import { assertHostSessionActive, ensureHostToken, hostSessionSignal } from "@/lib/host-session";
 
 export { visibleApiError } from "@/lib/api-error";
 export type { ApiPaths };
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
-const HOST_TOKEN_STORAGE_KEY = "seqora.script-master.host-token";
-
-export function hostToken(): string | null {
-  if (typeof window === "undefined" || !window.location) return null;
-  const token = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("host_token");
-  if (token) {
-    try {
-      window.sessionStorage.setItem(HOST_TOKEN_STORAGE_KEY, token);
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    } catch {
-      // Embedded browsers can deny storage; retain the fragment for subsequent requests.
-    }
-    return token;
-  }
-  try {
-    return window.sessionStorage.getItem(HOST_TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
+export { hostToken, ensureHostToken } from "@/lib/host-session";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -55,9 +36,12 @@ export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const token = hostToken();
+  const token = await ensureHostToken();
+  const signal = init?.signal ? AbortSignal.any([init.signal, hostSessionSignal]) : hostSessionSignal;
+  signal.throwIfAborted();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    signal,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -76,7 +60,9 @@ export async function apiRequest<T>(
     );
   }
 
-  return response.json() as Promise<T>;
+  const result = await response.json() as T;
+  assertHostSessionActive();
+  return result;
 }
 
 export async function apiEventStream<TEvent>(
@@ -84,9 +70,12 @@ export async function apiEventStream<TEvent>(
   init: RequestInit,
   onEvent: (event: TEvent) => void,
 ): Promise<void> {
-  const token = hostToken();
+  const token = await ensureHostToken();
+  const signal = init.signal ? AbortSignal.any([init.signal, hostSessionSignal]) : hostSessionSignal;
+  signal.throwIfAborted();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    signal,
     headers: {
       "Accept": "text/event-stream",
       "Content-Type": "application/json",
@@ -119,6 +108,7 @@ export async function apiEventStream<TEvent>(
   let previousChunkEndedWithCR = false;
 
   function consumeFrame(frame: string, endedWithoutBoundary = false) {
+    assertHostSessionActive();
     const data = frame
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))

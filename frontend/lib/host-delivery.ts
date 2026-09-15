@@ -1,4 +1,5 @@
-import { hostToken } from "@/lib/api-client";
+import { ensureHostToken } from "@/lib/api-client";
+import { assertHostSessionActive, hostProjectId, hostSessionSignal } from "@/lib/host-session";
 import { toEpisodePlainText } from "@/lib/episode-export";
 import { resolveSavedDraft } from "@/lib/script-draft-state";
 import type { ScriptProject } from "@/lib/types";
@@ -32,16 +33,23 @@ export async function deliverSeriesToHost(project: ScriptProject): Promise<HostD
     });
   if (!episodes.length) throw new Error("At least one saved episode is required.");
   const sourceRevision = Math.max(1, project.deliveryContentRevision ?? project.storyBibleVersion ?? 1);
-  const token = hostToken();
+  const token = await ensureHostToken();
+  const targetProjectId = hostProjectId() ?? project.id;
+  assertHostSessionActive();
   const response = await fetch(HOST_DELIVERY_URL, {
     method: "POST",
+    // Host delivery must use the verified ticket identity, even if host cookies
+    // have changed since the most recent refresh.
+    credentials: token ? "omit" : "same-origin",
+    cache: "no-store",
+    signal: hostSessionSignal,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       "X-Idempotency-Key": `script-master:${project.id}:${sourceRevision}`,
     },
     body: JSON.stringify({
-      targetProjectId: project.id,
+      targetProjectId,
       sourceProjectId: project.id,
       sourceRevision,
       idempotencyKey: `script-master:${project.id}:${sourceRevision}`,
@@ -58,5 +66,7 @@ export async function deliverSeriesToHost(project: ScriptProject): Promise<HostD
     }
     throw new Error(message);
   }
-  return response.json() as Promise<HostDeliveryResult>;
+  const result = await response.json() as HostDeliveryResult;
+  assertHostSessionActive();
+  return result;
 }

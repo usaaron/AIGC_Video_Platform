@@ -268,7 +268,10 @@ export function useScriptAuthorWorkflow({
       await updateConflict((current) => ({
         ...current, resolved: { kind: "revise_upstream", option_id: selected.option_id, project_id: result.project_id, resolved_at: resolvedAt },
       }), "新版本已建立，但原项目的处理记录未能保存，请重试以恢复链接。", pending);
-      if (isVisible()) window.location.assign(`/projects/${result.project_id}/planning`);
+      if (isVisible()) {
+        const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/+$/, "");
+        window.location.assign(`${basePath}/projects/${result.project_id}/planning`);
+      }
     }, "处理未完成，原稿和处理方向均已保留。");
   }
 

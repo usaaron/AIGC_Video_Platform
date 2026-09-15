@@ -1,4 +1,5 @@
 import { ApiError, apiRequest } from "@/lib/api-client";
+import { projectStorageKey } from "@/lib/host-session";
 import type { components as ApiComponents } from "@/lib/generated/api-schema";
 import { shouldStartPersistenceCooldown } from "@/lib/persistence-availability";
 import { compactContinuityLedgerForGeneration } from "@/lib/continuity-checkpoint";
@@ -1018,10 +1019,11 @@ function toStoryProjectStatus(status: ScriptProject["status"]): string {
 }
 
 export function getClientInstanceId(): string {
-  const existing = window.localStorage.getItem(CLIENT_INSTANCE_KEY);
+  const key = projectStorageKey(CLIENT_INSTANCE_KEY);
+  const existing = window.localStorage.getItem(key);
   if (existing) return existing;
   const created = `client.${crypto.randomUUID()}`;
-  window.localStorage.setItem(CLIENT_INSTANCE_KEY, created);
+  window.localStorage.setItem(key, created);
   return created;
 }
 

@@ -1,4 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+import os
+import re
+
+from app.account_context import current_schema
 
 from app.dependencies import get_benchmark_service, get_prompt_evaluation_service
 from evaluation.benchmark_runner import MissingBenchmarkDatasetError
@@ -15,6 +20,20 @@ from evaluation.models import (
 router = APIRouter(prefix="/benchmarks", tags=["Benchmark"])
 
 
+def _account_evaluation_request(payload):
+    schema = current_schema()
+    if schema is None:
+        return payload
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,120}", payload.dataset_id):
+        raise HTTPException(422, "Invalid benchmark dataset identifier.")
+    if isinstance(payload, PromptEvaluationRunRequest):
+        # A host client must never choose a server filesystem path. Result
+        # documents and optional exports share the same account boundary.
+        root = Path(os.getenv("SCRIPT_MASTER_REPORT_ROOT", "var/account-reports"))
+        return payload.model_copy(update={"report_dir": str(root / schema)})
+    return payload
+
+
 @router.post(
     "/run",
     response_model=BenchmarkRunResponse,
@@ -29,7 +48,7 @@ def run_benchmark(
     service=Depends(get_benchmark_service),
 ) -> BenchmarkRunResponse:
     try:
-        result = service.run(payload)
+        result = service.run(_account_evaluation_request(payload))
     except MissingBenchmarkDatasetError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return BenchmarkRunResponse(data=result)
@@ -74,7 +93,7 @@ def run_prompt_evaluation(
     service=Depends(get_prompt_evaluation_service),
 ) -> PromptEvaluationRunResponse:
     try:
-        result = service.run(payload)
+        result = service.run(_account_evaluation_request(payload))
     except MissingBenchmarkDatasetError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return PromptEvaluationRunResponse(data=result)

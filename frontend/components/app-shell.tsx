@@ -26,6 +26,7 @@ import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 import { DEFAULT_GENERATION_SETTINGS } from "@/lib/types";
+import { hostProjectId as currentHostProjectId } from "@/lib/host-session";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -44,6 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     projects,
     isReady,
     storageError,
+    serverPersistenceAvailable,
     deleteProject,
     resolveProjectSyncConflict,
     createProject,
@@ -59,13 +61,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isReady) return;
-    const hostProjectId = new URLSearchParams(window.location.search).get("host_project_id");
+    const hostProjectId = currentHostProjectId();
     if (!hostProjectId || hostBootstrapRef.current === hostProjectId) return;
     if (projects.some((project) => project.id === hostProjectId)) {
       hostBootstrapRef.current = hostProjectId;
       if (!pathname.includes(hostProjectId)) router.replace(`/projects/${hostProjectId}/planning`);
       return;
     }
+    if (serverPersistenceAvailable !== true) return;
     hostBootstrapRef.current = hostProjectId;
     void createProject({
       id: hostProjectId,
@@ -82,7 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     }).catch(() => {
       hostBootstrapRef.current = null;
     });
-  }, [createProject, isReady, pathname, projects, router]);
+  }, [createProject, isReady, pathname, projects, router, serverPersistenceAvailable]);
 
   useEffect(() => {
     setProjectMenuOpen(false);

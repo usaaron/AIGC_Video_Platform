@@ -25,9 +25,10 @@ def test_authorizer_can_read_body_and_deny_access_before_endpoint_runs():
         if payload["project_id"] != "allowed":
             raise HTTPException(403, "Project access denied.")
         return HostRequestContext(tenant_id="tenant-1", actor_id="actor-1",
-                                  request_id="host-trace-id", permissions={"read"})
+                                  request_id="host-trace-id", permissions={"project.write"})
 
-    app = create_app(host_authorizer=authorizer, require_host_context=True)
+    # Adapter/body contract independent of the PostgreSQL production gate.
+    app = create_app(host_authorizer=authorizer, require_host_context=False)
     @app.post("/test-host-boundary")
     async def operation(request: Request):
         authorized.append(request.state.host_context)
@@ -52,3 +53,20 @@ def test_readiness_checks_migrated_database(monkeypatch):
             assert client.get("/health/ready").json()["status"] == "ready"
     finally:
         runtime.engine.dispose()
+
+
+def test_required_host_experimental_routes_reject_unavailable_isolated_storage(monkeypatch):
+    from app.database import DatabaseConfigurationError
+    async def authorizer(request):
+        return HostRequestContext(tenant_id="tenant", actor_id="actor", request_id="test-request", permissions={"project.read"})
+    def unavailable():
+        raise DatabaseConfigurationError("Missing test database")
+    monkeypatch.setattr("app.dependencies.get_long_story_database_runtime", unavailable)
+    app = create_app(host_authorizer=authorizer, require_host_context=True)
+    # No lifespan: this specifically tests the request gate, independent of the
+    # startup migration gate (which also fails closed when storage is missing).
+    client = TestClient(app)
+    try:
+        assert client.get("/benchmarks").status_code == 503
+    finally:
+        client.close()

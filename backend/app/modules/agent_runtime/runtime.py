@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextvars import copy_context
 from collections.abc import Callable
 from datetime import datetime, timezone
 from time import perf_counter
@@ -196,7 +197,8 @@ class AgentSession:
                         type(error).__name__,
                     )
 
-        worker = threading.Thread(target=renew_lease, daemon=True)
+        heartbeat_context = copy_context()
+        worker = threading.Thread(target=heartbeat_context.run, args=(renew_lease,), daemon=True)
         worker.start()
         try:
             return operation()

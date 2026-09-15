@@ -15,8 +15,11 @@ from uuid import uuid4
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from app.account_context import StorageScope, account_schema, storage_scope
 
 
 logger = logging.getLogger(__name__)
@@ -71,7 +74,7 @@ def environment_host_authorizer() -> HostAuthorizer | None:
             roles=frozenset(claims.get("roles", [])),
             permissions=frozenset(claims.get("permissions", [])),
             project_id=token_project_id,
-            request_id=request.headers.get("x-request-id") or claims["tokenId"],
+            request_id=getattr(request.state, "request_id", None) or claims["tokenId"],
         )
 
     return authorize
@@ -101,6 +104,14 @@ def _verify_handoff_token(token: str, secret: str) -> dict[str, object]:
             raise HTTPException(401, "The Script Master host token is invalid.")
     if claims.get("projectId") is not None and not isinstance(claims.get("projectId"), str):
         raise HTTPException(401, "The Script Master host token is invalid.")
+    if any(len(claims[field]) > 120 for field in ("tenantId", "actorId", "tokenId")):
+        raise HTTPException(401, "The Script Master host token is invalid.")
+    for field in ("roles", "permissions"):
+        values = claims.get(field, [])
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise HTTPException(401, "The Script Master host token is invalid.")
+    if claims.get("projectId") is not None and not 1 <= len(claims["projectId"]) <= 160:
+        raise HTTPException(401, "The Script Master host token is invalid.")
     return claims
 
 
@@ -118,9 +129,62 @@ async def authorize_host_request(request: Request) -> HostRequestContext | None:
             raise HTTPException(503, "Host authorization adapter is not configured.")
         return None
     context = HostRequestContext.model_validate(await authorizer(request))
+    permission = "project.read" if request.method in {"GET", "HEAD", "OPTIONS"} else "project.write"
+    if permission not in context.permissions:
+        raise HTTPException(403, f"Missing permission: {permission}")
+    await _check_project_scope(request, context.project_id)
+    scope = storage_scope.get()
+    if scope is None:
+        raise HTTPException(503, "Request storage boundary is not configured.")
+    scope.schema = account_schema(context.tenant_id, context.actor_id)
+    if request.app.state.require_host_context:
+        from app.database import DatabaseConfigurationError
+        from app.dependencies import get_long_story_database_runtime
+        from sqlalchemy.exc import SQLAlchemyError
+        try:
+            runtime = get_long_story_database_runtime()
+            await run_in_threadpool(runtime.prepare_account, scope.schema)
+        except (DatabaseConfigurationError, SQLAlchemyError):
+            raise HTTPException(503, "Isolated account storage is unavailable.") from None
     request.state.host_context = context
     request.state.request_id = context.request_id
     return context
+
+
+async def _check_project_scope(request: Request, project_id: str | None) -> None:
+    if project_id is None:
+        return
+    keys = {"project_id", "projectId", "story_project_id", "storyProjectId", "host_project_id"}
+
+    def check(value):
+        if value is not None and value != project_id:
+            raise HTTPException(403, "The host token cannot access this project.")
+
+    check(_project_id_from_path(request.url.path))
+    for key, value in request.query_params.multi_items():
+        if key in keys:
+            check(value)
+
+    def visit(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in keys:
+                    check(item)
+                else:
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    # FastAPI shares this cached body with endpoint validation; SSE is unbuffered.
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        try:
+            payload = await request.json()
+        except (ValueError, UnicodeDecodeError):
+            return  # Let the endpoint return its usual malformed-body response.
+        visit(payload)
+        if isinstance(payload, dict) and re.fullmatch(r"/story-projects(?:/[^/]+)?/?", request.url.path):
+            check(payload.get("id"))
 
 
 class RequestObservationMiddleware:
@@ -136,6 +200,8 @@ class RequestObservationMiddleware:
         supplied_id = Headers(scope=scope).get("x-request-id", "")
         request_id = supplied_id if re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", supplied_id) else uuid4().hex
         state = scope.setdefault("state", {})
+        request_scope = StorageScope(required=scope["app"].state.require_host_context)
+        storage_token = storage_scope.set(request_scope)
         state["request_id"] = request_id
         started = perf_counter()
         status_code = 500
@@ -150,6 +216,9 @@ class RequestObservationMiddleware:
         try:
             await self.app(scope, receive, observe_send)
         finally:
+            # Copied contexts in SSE/thread workers share this revocation marker.
+            request_scope.active = False
+            storage_scope.reset(storage_token)
             context = state.get("host_context")
             route = scope.get("route")
             logger.info(
