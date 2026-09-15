@@ -106,4 +106,4 @@ docker compose --env-file deploy/demo.env --env-file deploy/release.env -f compo
 
 已知边界：实验采集/评估结果仍为进程内存持久期；账号隔离不会自动变成组织协作共享。
 独立生成仍遵循原来的前端调度与后端检查点设计；未新增后台脱离浏览器的全剧任务队列。
-独立入口可原样导出，交接到宿主需要绑定一个宿主项目，导入事务/分集映射仍需专项完善。
+独立入口可原样导出；新版批量交接使用主站 v2 导入事务、来源分集映射和目标选择，详见 [HOST_BULK_IMPORT.md](HOST_BULK_IMPORT.md)。

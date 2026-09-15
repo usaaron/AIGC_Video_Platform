@@ -27,7 +27,7 @@ import { ArrowIcon, CloseIcon } from "@/components/icons";
 import { SectionHelp } from "@/components/section-help";
 import { CreationSettingSummary } from "@/components/creation-setting-summary";
 import { StoryInspirationEditor } from "@/components/story-inspiration-editor";
-import { CONTINUE_CREATION_REFINEMENT_MESSAGE, creationBriefWithInput, initialCreationSettingStep, type CreationSettingStep } from "@/lib/creation-setting-flow";
+import { CONTINUE_CREATION_REFINEMENT_MESSAGE, creationBriefWithInput, initialCreationSettingStep, inspirationRequestProject, type CreationSettingStep } from "@/lib/creation-setting-flow";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { isRequestAborted, userFacingError } from "@/lib/api-error";
@@ -1358,7 +1358,7 @@ function InteractiveStoryBibleBuilder({
     setPendingInspirationMessage(options?.candidateDecisionKey ? null : submitted || null);
     if (!options?.candidateDecisionKey) setInspirationInput("");
     try {
-      const requestProject = await ensurePlanningProject();
+      const requestProject = await ensurePlanningProject(inspirationRequestProject(activeProjectRef.current, submitted, baseSession.brief));
       const result = await generateStoryInspirationTurn(
         requestProject,
         baseSession.messages,
@@ -1558,10 +1558,10 @@ function InteractiveStoryBibleBuilder({
         updatedAt: new Date().toISOString(),
       };
       const authorInstruction = inspirationBriefInstruction(completedSession.brief, additionalDirectInput);
-      const requestProject = await ensurePlanningProject({
+      const requestProject = await ensurePlanningProject(inspirationRequestProject({
         ...activeProjectRef.current,
         storyBibleAuthorInstruction: authorInstruction,
-      });
+      }, additionalDirectInput, completedSession.brief));
       const completed = await generateStoryBibleDraft(
         requestProject,
         undefined,

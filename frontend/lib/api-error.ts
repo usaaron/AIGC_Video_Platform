@@ -20,6 +20,10 @@ const authorConflictMessages = new Set([
 ]);
 
 const inspirationMessages = new Set([
+  "仅使用“我的标签”时，需要补充创作描述或选择至少一个系统标签。",
+  "当前项目尚未形成创作规格，无法开始寻找灵感。",
+  "创作规格尚未同步，请稍后重试。",
+  "本轮没有返回可回答的问题，已停止保存这次无效响应。请重新加载本轮。",
   "当前创作决定已变化，请重新打开这一轮后再获取方案。",
   "本次方案生成超时，已有方案和答案已保留，请重新获取。",
   "本次没有生成有效候选，已有方案和答案已保留，请重新获取。",
@@ -77,6 +81,8 @@ export function visibleApiError(
 
 export function userFacingError(error: unknown, fallback: string): string {
   if (!error || typeof error !== "object") return fallback;
+  if ("name" in error && error.name === "HostSessionError") return "主站登录状态已失效或账号发生变化，请从主站重新打开剧本大师。";
+  if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) return "连接暂时中断，你的输入已保留，请检查网络后重试。";
   const candidate = error as { message?: unknown; status?: unknown };
   if (typeof candidate.message !== "string" || !candidate.message.trim()) {
     return fallback;

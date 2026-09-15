@@ -192,6 +192,7 @@ export function enforceMarketDeliveryContract(
 
 export interface ScriptProject {
   id: string;
+  hostDeliveryTargetProjectId?: string;
   title: string;
   titleSource: ProjectTitleSource;
   marketProfile: ProjectMarketProfile;

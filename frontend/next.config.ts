@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
     return [
       // The browser uses its own origin for host cookies. These exact host
       // endpoints must win over the independent FastAPI proxy in local dev.
-      ...(hostApiUrl ? ["launch", "deliveries"].map((endpoint) => ({
+      ...(hostApiUrl ? ["launch", "deliveries", "targets", "imports"].map((endpoint) => ({
         source: `/api/v1/script-master/${endpoint}`,
         destination: `${hostApiUrl}/api/v1/script-master/${endpoint}`,
         basePath: false as const,

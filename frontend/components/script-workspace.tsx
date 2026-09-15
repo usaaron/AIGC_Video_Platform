@@ -133,7 +133,8 @@ import {
   buildSeriesDeliveryConfirmation,
   isSeriesDeliveryConfirmationCurrent,
 } from "@/lib/episode-delivery-confirmation";
-import { deliverSeriesToHost, hostDeliveryConfigured } from "@/lib/host-delivery";
+import { hostDeliveryConfigured } from "@/lib/host-delivery";
+import { HostImportPanel } from "@/components/host-import-panel";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
 } from "@/lib/project-sync";
@@ -401,6 +402,7 @@ export function ScriptWorkspace() {
     searchParams.get("view") === "continuity" ? "continuity" : "script",
   );
   const [seriesExportOpen, setSeriesExportOpen] = useState(false);
+  const [hostImportOpen, setHostImportOpen] = useState(false);
   const [seriesExportMode, setSeriesExportMode] = useState<SeriesExportMode>("episodes");
   const [seriesExportFormats, setSeriesExportFormats] = useState<Record<EpisodeDocumentFormat, boolean>>({
     markdown: true,
@@ -409,7 +411,6 @@ export function ScriptWorkspace() {
   });
   const [seriesExportProductionPackage, setSeriesExportProductionPackage] = useState(true);
   const [seriesExportBusy, setSeriesExportBusy] = useState(false);
-  const [hostDeliveryBusy, setHostDeliveryBusy] = useState(false);
   const [episodeExportFormat, setEpisodeExportFormat] = useState<EpisodeDocumentFormat>("markdown");
   const [generationIntentConsumed, setGenerationIntentConsumed] = useState(false);
   const streamBatch = backgroundScriptTask?.progress ?? [];
@@ -1285,21 +1286,6 @@ export function ScriptWorkspace() {
     }
   }
 
-  async function deliverToHost() {
-    const exportProject = getConfirmedSeriesExportProject();
-    if (!exportProject || hostDeliveryBusy) return;
-    setHostDeliveryBusy(true);
-    setMessage(null);
-    try {
-      await deliverSeriesToHost(exportProject);
-      setMessage(t("workspace.deliveryCompleted"));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : t("workspace.confirmSeriesDeliveryFailed"));
-    } finally {
-      setHostDeliveryBusy(false);
-    }
-  }
-
   function downloadSeriesData() {
     if (!allPlannedEpisodesSaved) {
       setMessage(t("workspace.exportSaveRequiredSeries"));
@@ -1557,6 +1543,7 @@ export function ScriptWorkspace() {
                   <button aria-pressed={workspaceView === "continuity"} className="document-edit-toolbar-action" onClick={() => setWorkspaceView((current) => current === "script" ? "continuity" : "script")} title={t("workspace.continuityView")} type="button"><Activity aria-hidden="true" size={14} /><span>{t("workspace.continuityView")}</span></button>
                   <button aria-expanded={lengthDetailsOpen} className="document-edit-toolbar-action" onClick={() => setLengthDetailsOpen((current) => !current)} title={t("workspace.length.title")} type="button"><ShieldCheck aria-hidden="true" size={14} /><span>{progressPercent.toFixed(0)}%</span></button>
                   {allPlannedEpisodesSaved ? <button className="document-edit-toolbar-action is-export-ready" onClick={() => setSeriesExportOpen(true)} title={t("workspace.exportAll")} type="button"><Download aria-hidden="true" size={14} /><span>{t("workspace.exportAll")}</span></button> : null}
+                  {hostDeliveryConfigured() && (currentProject.characters.length > 0 || currentProject.episodes.some(episode => resolveSavedDraft(episode))) ? <button className="document-edit-toolbar-action" onClick={() => setHostImportOpen(true)} type="button">批量导入主项目</button> : null}
                 </div>
               </div>
 
@@ -1665,6 +1652,7 @@ export function ScriptWorkspace() {
         />
       </div>
 
+      {hostImportOpen && <HostImportPanel project={currentProject} onTarget={id => void updateProject(currentProject.id, { hostDeliveryTargetProjectId: id })} onClose={() => setHostImportOpen(false)} />}
       {seriesExportOpen && allPlannedEpisodesSaved ? (
         <div className="tag-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !seriesExportBusy) setSeriesExportOpen(false); }}>
           <div aria-labelledby="series-export-title" aria-modal="true" className="tag-dialog series-export-dialog" role="dialog">
@@ -1751,11 +1739,11 @@ export function ScriptWorkspace() {
               {hostDeliveryConfigured() ? (
                 <button
                   className="text-action series-export-data"
-                  disabled={seriesExportBusy || hostDeliveryBusy || !seriesDeliveryConfirmed}
-                  onClick={() => void deliverToHost()}
+                  disabled={seriesExportBusy}
+                  onClick={() => { setSeriesExportOpen(false); setHostImportOpen(true); }}
                   type="button"
                 >
-                  {hostDeliveryBusy ? t("workspace.exportPackaging") : t("workspace.deliverToHost")}
+                  批量导入主项目
                 </button>
               ) : null}
               <button className="text-action series-export-data" disabled={seriesExportBusy || !seriesDeliveryConfirmed} onClick={downloadSeriesData} type="button">{t("workspace.exportAllData")}</button>

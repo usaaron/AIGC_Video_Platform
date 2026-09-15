@@ -1,4 +1,11 @@
-import type { StoryInspirationBrief, StoryInspirationSession } from "./types.ts";
+import type { ScriptProject, StoryInspirationBrief, StoryInspirationSession } from "./types.ts";
+
+/** The first idea is also the source for resolving an empty host-created project. */
+export function inspirationRequestProject(project: ScriptProject, submitted: string, brief: StoryInspirationBrief): ScriptProject {
+  if (project.creativePrompt.trim() || project.referenceMaterials?.length) return project;
+  const idea = submitted.trim() || [brief.story_promise, brief.protagonist_and_goal, ...brief.additional_notes].filter(Boolean).join("\n");
+  return idea ? { ...project, creativePrompt: idea } : project;
+}
 
 export type CreationSettingStep = "idea" | "questions" | "review";
 

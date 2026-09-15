@@ -592,3 +592,17 @@
 @media (prefers-reduced-motion: reduce) {
   .ui-spinner, .library-loading span { animation: none; }
 }
+/* Uses the existing workspace colors and buttons. */
+.host-import-dialog { width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; padding: 24px; color: var(--ink); background: var(--paper-bright); }
+.host-import-dialog::backdrop { background: #15151166; }
+.host-import-dialog header { display: flex; gap: 16px; justify-content: space-between; align-items: start; }
+.host-import-dialog header button { flex-shrink: 0; white-space: nowrap; }
+.host-import-dialog h3 { margin-top: 0; }
+.host-import-dialog p, .host-import-dialog li { line-height: 1.6; overflow-wrap: anywhere; }
+.host-import-dialog fieldset { margin-top: 16px; border: 0; padding: 0; }
+.host-import-dialog label { display: flex; gap: 8px; align-items: start; margin: 12px 0; }
+.host-import-dialog .host-import-target { flex-direction: column; }
+.host-import-target select { width: 100%; min-height: 40px; font: inherit; }
+.host-import-episodes { max-height: 230px; overflow: auto; margin: 12px 0; }
+.host-import-episodes button { margin-right: 16px; }
+@media (max-width: 600px) { .host-import-dialog { padding: 16px; } }

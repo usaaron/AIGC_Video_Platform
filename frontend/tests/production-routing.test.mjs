@@ -28,22 +28,24 @@ test("local host refresh and delivery route to the host before the general FastA
   const config = evaluate("next.config.ts", env).default;
   assert.equal(config.basePath, "");
   const rewrites = await config.rewrites();
-  assert.equal(rewrites.length, 3);
-  for (const [index, endpoint] of ["launch", "deliveries"].entries()) {
+  assert.equal(rewrites.length, 5);
+  for (const [index, endpoint] of ["launch", "deliveries", "targets", "imports"].entries()) {
     assert.equal(rewrites[index].source, `/api/v1/script-master/${endpoint}`);
     assert.equal(rewrites[index].destination, `http://localhost:8787/api/v1/script-master/${endpoint}`);
     assert.equal(rewrites[index].basePath, false);
   }
-  assert.equal(rewrites[2].destination, "http://127.0.0.1:8000/:path*");
+  assert.equal(rewrites[4].destination, "http://127.0.0.1:8000/:path*");
   assert.equal(evaluate("lib/base-path.ts", env).API_BASE_URL, "/api");
 });
 
-test("explicit HOST_API_URL works with a production base path and changes only the two host routes", async () => {
+test("explicit HOST_API_URL keeps all host routes separate from the independent API", async () => {
   const env = { NODE_ENV: "production", NEXT_PUBLIC_BASE_PATH: "/script-master", HOST_API_URL: "http://localhost:9898/" };
   const rewrites = await evaluate("next.config.ts", env).default.rewrites();
   assert.equal(rewrites[0].destination, "http://localhost:9898/api/v1/script-master/launch");
   assert.equal(rewrites[1].destination, "http://localhost:9898/api/v1/script-master/deliveries");
   assert.equal(rewrites[0].basePath, false);
-  assert.equal(rewrites[2].source, "/api/:path*");
-  assert.equal(rewrites[2].basePath, undefined);
+  assert.equal(rewrites[2].destination, "http://localhost:9898/api/v1/script-master/targets");
+  assert.equal(rewrites[3].destination, "http://localhost:9898/api/v1/script-master/imports");
+  assert.equal(rewrites[4].source, "/api/:path*");
+  assert.equal(rewrites[4].basePath, undefined);
 });
