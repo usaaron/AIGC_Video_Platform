@@ -42,6 +42,7 @@ import {
   videoProviderName,
 } from './runtime/providers.js'
 import { databaseOptions } from './runtime/database.js'
+import { createPublicMediaUrlSigner } from './core/media/publicMediaToken.js'
 
 const config = loadConfig()
 const store = new AppStore(
@@ -194,6 +195,7 @@ const novelService = new NovelService(
 )
 const taskRunner = new GenerationTaskRunner(store, {
   videoProvider,
+  videoSourceUrl: createPublicMediaUrlSigner(config.AUTH_SECRET, config.PUBLIC_API_BASE_URL),
   videoProviderName: videoProviderName(config),
   imageProvider,
   mediaRepository,

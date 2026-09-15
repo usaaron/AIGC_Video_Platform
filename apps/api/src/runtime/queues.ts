@@ -15,7 +15,7 @@ import { createLocalGenerationTaskHandler } from '../core/jobs/localTaskHandler.
 import type { ProjectService } from '../modules/projects/service.js'
 import type { TrustedAssetService } from '../modules/trustedAssets/service.js'
 import { AgentRunner } from '../modules/agent/runner.js'
-import { createPublicMediaToken } from '../core/media/publicMediaToken.js'
+import { createPublicMediaUrlSigner } from '../core/media/publicMediaToken.js'
 
 export type ManagedTaskDispatcher = TaskDispatcher & {
   close?: () => Promise<void>
@@ -105,12 +105,7 @@ export async function createRuntimeQueues(input: {
   const generationRunner = new GenerationTaskRunner(store, {
     videoProvider: providers.videoProvider,
     videoProviderName: videoProviderName(config),
-    videoSourceUrl: config.PUBLIC_API_BASE_URL
-      ? (source) => {
-          const token = createPublicMediaToken(source, config.AUTH_SECRET, Date.now() + 24 * 60 * 60_000)
-          return `${config.PUBLIC_API_BASE_URL.replace(/\/+$/, '')}/api/v1/trusted-assets/source/${token}`
-        }
-      : null,
+    videoSourceUrl: createPublicMediaUrlSigner(config.AUTH_SECRET, config.PUBLIC_API_BASE_URL),
     imageProvider: providers.imageProvider,
     mediaRepository: repositories.mediaRepository,
     objectStorage,

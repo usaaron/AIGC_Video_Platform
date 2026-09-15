@@ -9,6 +9,17 @@ const payloadSchema = z.object({
 
 export type PublicMediaPayload = z.infer<typeof payloadSchema>
 
+export function createPublicMediaUrlSigner(
+  secret: string,
+  baseUrl: string,
+): ((source: Omit<PublicMediaPayload, 'expiresAt'>) => string) | null {
+  if (!baseUrl) return null
+  return (source) => {
+    const token = createPublicMediaToken(source, secret, Date.now() + 24 * 60 * 60_000)
+    return `${baseUrl.replace(/\/+$/, '')}/api/v1/trusted-assets/source/${token}`
+  }
+}
+
 export function createPublicMediaToken(
   input: Omit<PublicMediaPayload, 'expiresAt'>,
   secret: string,
