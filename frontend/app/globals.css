@@ -1,14 +1,14 @@
 :root {
   --lime: #d9f36a;
   --lime-deep: #c9e34e;
-  --ink: #22292b;
-  --ink-soft: #5c686c;
+  --ink: #272e26;
+  --ink-soft: #687064;
   --ink-faint: #6e7a7e;
-  --paper: #f5f7f8;
+  --paper: #f7f8f4;
   --paper-bright: #ffffff;
-  --paper-deep: #edf1f2;
-  --line: #dfe5e7;
-  --line-strong: #c6d0d3;
+  --paper-deep: #eef1e8;
+  --line: #e1e5da;
+  --line-strong: #cbd3c5;
   --vermillion: #65791a;
   --vermillion-dark: #475610;
   --moss: #5d6a57;
@@ -118,7 +118,6 @@ select:focus-visible {
 
 .topbar-brand-link { display: flex; align-items: center; }
 .topbar-divider { width: 1px; height: 24px; background: var(--line); }
-.topbar-module,
 .topbar-project-link,
 .service-indicator {
   display: inline-flex;
@@ -128,13 +127,6 @@ select:focus-visible {
   color: var(--ink-soft);
   font-size: 11px;
   font-weight: 600;
-}
-.topbar-module {
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--paper);
-  color: var(--ink);
 }
 .topbar-project-switcher { position: relative; margin-left: 8px; }
 .topbar-project-link {

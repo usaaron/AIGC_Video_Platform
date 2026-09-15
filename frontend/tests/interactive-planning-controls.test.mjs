@@ -36,7 +36,7 @@ test("creation settings guide ideas, decisions and explicit generation review", 
   assert.match(bible, /storyBibleSections/);
   assert.match(bible, /finalGenerationRequestInFlightRef/);
   assert.match(bible, /story-bible-generation-transition/);
-  assert.match(bible, /dialog\.showModal\(\)/);
+  assert.doesNotMatch(bible, /dialog\.showModal\(\)/);
   assert.match(bible, /CreationSettingSummary/);
   assert.match(bible, /StoryInspirationEditor/);
   assert.match(bible, /step === "questions" && recommendedHighCompletionInput/);

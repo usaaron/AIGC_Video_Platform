@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { hostProjectId } from "@/lib/host-session";
+import { hostWorkspaceHref } from "@/lib/host-navigation";
 import { importMaterial, loadImportTargets, readImportMaterial, type ImportReceipt } from "@/lib/host-import";
 import type { ImportMaterial } from "@/lib/host-import-payload";
 import type { ScriptProject } from "@/lib/types";
@@ -72,6 +73,6 @@ export function HostImportPanel({ project, onTarget, onClose }: { project: Scrip
       <p>重复导入会复用来源记录；已定稿资产保留。来源中删除的条目不会删除主项目内容。</p>
       <button className="primary-action" disabled={!target || (!episodeIds.length && !(includeAssets && material.assets.length))} onClick={() => void submit()} type="button">确认导入所选内容</button>
     </fieldset>}
-    {receipt && <p className="inline-notice" role="status" ref={receiptElement}>导入完成：新增 {receipt.importedEpisodes} 集、更新 {receipt.updatedEpisodes} 集；新增 {receipt.importedShots} 镜、更新 {receipt.updatedShots} 镜；新增 {receipt.importedAssets} 项资产、更新 {receipt.updatedAssets} 项、保留 {receipt.preservedAssets} 项定稿资产。请返回主项目查看。</p>}
+    {receipt && <p className="inline-notice" role="status" ref={receiptElement}>导入完成：新增 {receipt.importedEpisodes} 集、更新 {receipt.updatedEpisodes} 集；新增 {receipt.importedShots} 镜、更新 {receipt.updatedShots} 镜；新增 {receipt.importedAssets} 项资产、更新 {receipt.updatedAssets} 项、保留 {receipt.preservedAssets} 项定稿资产。<a className="host-return-link" href={hostWorkspaceHref(receipt.targetProjectId)} target="_blank" rel="noopener noreferrer">返回主项目查看</a></p>}
   </dialog>;
 }

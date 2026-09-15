@@ -746,8 +746,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   }
 
   return (
-    <section className={`story-bible-panel${storyBible ? " is-canvas-mode" : ""}`}>
-      <div className="story-bible-heading">
+    <section className={`story-bible-panel${storyBible ? " is-canvas-mode" : " is-creation-mode"}`}>
+      {storyBible && <div className="story-bible-heading">
         <div>
           <span className="section-kicker">{t("storyBible.kicker")}</span>
           <div className="section-title-with-help">
@@ -807,7 +807,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
             </button>
           ) : null}
         </div>
-      </div>
+      </div>}
 
       {busy === "generate" ? (
         <div aria-live="polite" className="story-bible-generation-timer">
@@ -1144,8 +1144,9 @@ function InteractiveStoryBibleBuilder({
     inspirationRoundDraftFromSections(project.planningSession?.storyBibleSections, inspirationSession.messages.at(-1)));
   const [creationStep, setCreationStep] = useState<CreationSettingStep>(() => initialCreationSettingStep(inspirationSession, recommendedHighCompletionInput, Object.keys(roundAnswers).length > 0));
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-  const creationDialogRef = useRef<HTMLDialogElement>(null);
+  const creationWorkspaceRef = useRef<HTMLElement>(null);
   const creationBodyRef = useRef<HTMLDivElement>(null);
+  const creationPositionRef = useRef<string | null>(null);
   const frontierId = inspirationSession.messages.at(-1)?.id;
   const draftFrontierRef = useRef(frontierId);
   const creationBrief = creationBriefWithInput(previewStoryInspirationBrief(inspirationSession.brief,
@@ -1171,8 +1172,7 @@ function InteractiveStoryBibleBuilder({
   const controlsBusy = busy || importBusy || inspirationBusy || creationSaveState === "saving";
 
   useEffect(() => {
-    const dialog = creationDialogRef.current;
-    if (creationOpen && dialog && !dialog.open) dialog.showModal();
+    if (creationOpen) creationWorkspaceRef.current?.focus({ preventScroll: true });
   }, [creationOpen]);
 
   useEffect(() => {
@@ -1180,12 +1180,13 @@ function InteractiveStoryBibleBuilder({
   }, [activeQuestions]);
 
   useEffect(() => {
-    creationBodyRef.current?.scrollTo({ top: 0 });
+    if (creationPositionRef.current !== null) creationBodyRef.current?.scrollIntoView({ block: "start" });
+    creationPositionRef.current = `${creationStep}:${frontierId}:${activeQuestionIndex}`;
   }, [creationStep, frontierId, activeQuestionIndex]);
 
   useEffect(() => {
-    if (message) creationBodyRef.current?.scrollTo({ top: 0 });
-  }, [message]);
+    if (message && (creationSaveState === "error" || inspirationError)) creationBodyRef.current?.scrollIntoView({ block: "start" });
+  }, [message, creationSaveState, inspirationError]);
 
   useEffect(() => {
     if (draftFrontierRef.current === frontierId) return;
@@ -1605,24 +1606,13 @@ function InteractiveStoryBibleBuilder({
         <span>{inspirationSession.readyToGenerate ? "已完成整理" : "当前进度已保留"}</span>
         <button className="primary-action" onClick={() => setCreationOpen(true)} type="button">继续创作设定</button>
       </div>}
-      {creationOpen && <dialog aria-labelledby="interactive-story-bible-title" className="creation-setting-modal" onCancel={(event) => {
-        event.preventDefault();
-        if (!busy && !importBusy && !inspirationBusy) setCreationOpen(false);
-      }} onKeyDown={(event) => {
-        if (event.key !== "Tab") return;
-        const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, summary, [tabindex]'))
-          .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && element.getClientRects().length > 0);
-        const first = focusable[0];
-        const last = focusable.at(-1);
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }} ref={creationDialogRef}>
+      {creationOpen && <section aria-labelledby="interactive-story-bible-title" className="creation-setting-workspace" ref={creationWorkspaceRef} tabIndex={-1}>
         <header className="creation-setting-heading">
-          <div><h3 id="interactive-story-bible-title">创作设定</h3><span>{project.title}</span></div>
+          <div><h2 id="interactive-story-bible-title">创作设定</h2><span>从故事想法，到清晰的创作方向</span></div>
           <div className="creation-heading-actions">
             <span aria-live="polite" className={"creation-save-status" + (creationSaveState === "error" ? " is-error" : "")} role="status">{creationSaveState === "error" ? "同步失败" : creationSaveState === "saving" ? "正在保存" : creationSaveState === "saved" ? "已保存" : creationSaveState === "loaded" ? "已恢复设定" : "草稿未保存"}</span>
             <button aria-label="保存草稿" className="workspace-tool" disabled={controlsBusy} onClick={() => void saveCreationSetting()} title="保存草稿" type="button">{creationSaveState === "saved" ? <Check aria-hidden="true" size={17} /> : <Save aria-hidden="true" size={17} />}</button>
-            <button aria-label="关闭创作设定" className="workspace-tool" disabled={busy || importBusy || inspirationBusy} onClick={() => setCreationOpen(false)} title="关闭创作设定" type="button"><CloseIcon /></button>
+            <button aria-label="收起创作设定" className="workspace-tool" disabled={busy || importBusy || inspirationBusy} onClick={() => setCreationOpen(false)} title="收起创作设定" type="button"><CloseIcon /></button>
           </div>
         </header>
         <div className="creation-setting-toolbar">
@@ -1638,10 +1628,12 @@ function InteractiveStoryBibleBuilder({
                 <LoaderCircle aria-hidden="true" size={26} /><h4>正在生成故事总纲</h4>
                 <span>{formatGenerationDuration(finalGenerationElapsedMs)}</span>
               </section> : creationStep === "idea" ? <>
-                <h4 className="creation-step-title">还有哪些想法？</h4>
+                <span className="creation-step-kicker">第一步 · 故事的起点</span>
+                <h3 className="creation-step-title">你想讲一个怎样的故事？</h3>
+                <p className="creation-step-description">一个主角、一场冲突，或一个念念不忘的画面，都可以从这里开始。</p>
                 <label className="creation-setting-direct-input">
-                  <span>补充想法 <small>可选</small></span>
-                  <textarea aria-label="补充想法" disabled={controlsBusy} maxLength={2_000} onChange={(event) => { setDirectInput(event.target.value); setCreationSaveState("idle"); setMessage(null); }} placeholder="例如：保留原作结局，让两位主角从敌对逐渐走向合作……" rows={6} value={directInput} />
+                  <span>补充想法 <small>{hasExistingCreativeDirection ? "可选" : "写下你的故事方向"}</small></span>
+                  <textarea aria-label="补充想法" disabled={controlsBusy} maxLength={2_000} onChange={(event) => { setDirectInput(event.target.value); setCreationSaveState("idle"); setMessage(null); }} placeholder="例如：小镇里唯一的修表师，发现每修好一只旧钟，就能听到失踪父亲留下的一段声音……" rows={8} value={directInput} />
                 </label>
                 <div className="creation-direct-actions"><span>{directInput.length} / 2000</span></div>
                 {inspirationBusy && <div aria-live="polite" className="creation-thinking" role="status"><LoaderCircle aria-hidden="true" size={17} />正在整理 <span>{formatGenerationDuration(inspirationTurnElapsedMs)}</span></div>}
@@ -1696,7 +1688,7 @@ function InteractiveStoryBibleBuilder({
             </>}
           </nav>
         </footer>
-      </dialog>}
+      </section>}
     </>
   );
 }

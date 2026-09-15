@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   BookOpenText,
   ChevronDown,
   CloudDownload,
@@ -27,6 +28,7 @@ import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 import { DEFAULT_GENERATION_SETTINGS } from "@/lib/types";
 import { hostProjectId as currentHostProjectId } from "@/lib/host-session";
+import { hostWorkspaceHref } from "@/lib/host-navigation";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -52,6 +54,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   } = useProjects();
   const { t } = useLocale();
   const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
+  const hostHref = hostWorkspaceHref(currentProject?.hostDeliveryTargetProjectId ?? currentHostProjectId());
+  const showHostReturn = Boolean(process.env.NEXT_PUBLIC_HOST_LAUNCH_URL);
   const visibleProjects = projects.filter((project) => (
     project.title.toLowerCase().includes(projectSearch.trim().toLowerCase())
   ));
@@ -131,10 +135,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <BrandLogo spin />
         </Link>
         <span className="topbar-divider" aria-hidden="true" />
-        <div className="topbar-module">
-          <BookOpenText aria-hidden="true" size={15} />
-          <span>{t("nav.scriptMaster")}</span>
-        </div>
         <div className="topbar-project-switcher">
           <button
             aria-expanded={projectMenuOpen}
@@ -208,6 +208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </div>
         <div className="topbar-actions">
+          {showHostReturn && <a className="host-return-link" href={hostHref} target="_blank" rel="noopener noreferrer" title="在新标签页返回主站，保留当前创作进度"><ArrowLeft aria-hidden="true" size={15} />返回主站</a>}
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </div>
@@ -232,6 +233,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <MenuIcon />
           </button>
           <BrandLogo compact spin />
+          {showHostReturn && <a className="host-return-link" href={hostHref} target="_blank" rel="noopener noreferrer" aria-label="返回主站" title="在新标签页返回主站，保留当前创作进度"><ArrowLeft aria-hidden="true" size={16} /><span>主站</span></a>}
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </header>
