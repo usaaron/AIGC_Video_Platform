@@ -29,7 +29,7 @@ describe('DoraRouterSeedanceProvider', () => {
       resolution: '4k',
       images: [
         { url: 'data:image/jpeg;base64,tail', role: 'first_frame' },
-        { url: 'asset://maas-character', role: 'reference_image' },
+        { url: 'https://assets.example/ai-face.png', role: 'reference_image' },
       ],
       generateAudio: true,
       returnLastFrame: true,
@@ -53,7 +53,7 @@ describe('DoraRouterSeedanceProvider', () => {
         },
         {
           type: 'image_url',
-          image_url: { url: 'asset://maas-character' },
+          image_url: { url: 'https://assets.example/ai-face.png' },
           role: 'reference_image',
         },
       ],

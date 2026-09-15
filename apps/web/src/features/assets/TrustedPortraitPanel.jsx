@@ -52,7 +52,7 @@ export function TrustedPortraitPanel({
   const statusLabels = {
     unlinked: '未绑定',
     processing: registrationTaskActive ? '后台任务处理中' : '上游处理中',
-    active: '可用于视频',
+    active: '已入库',
     failed: '审核失败',
   }
   const activeLibraryPortraits = libraryPortraits.filter((item) => item.status === 'active')
@@ -61,6 +61,7 @@ export function TrustedPortraitPanel({
   const registrationDisabledReason = registrationAvailabilityHint(configuration, faceReady)
   const registrationSetupBlocked = Boolean(configuration && !configuration.virtualRegistrationReady)
   const validationSetupBlocked = Boolean(configuration && !configuration.realValidationReady)
+  const sourceImageMode = configuration?.videoReferenceMode === 'source-image'
 
   useEffect(() => {
     if (portrait?.assetId) setProviderAssetId(portrait.assetId)
@@ -190,7 +191,7 @@ export function TrustedPortraitPanel({
           <ShieldCheck size={18} />
         </span>
         <div>
-          <span className="eyebrow">Dora 人像资源</span>
+          <span className="eyebrow">人像素材资源</span>
           <h3>可信人像</h3>
         </div>
         <span className="trusted-portrait-status">{statusLabels[status]}</span>
@@ -384,7 +385,7 @@ export function TrustedPortraitPanel({
       <div className="trusted-portrait-library">
         <div>
           <span className="eyebrow">素材库白名单</span>
-          <strong>同步可用于视频生成的人物资源</strong>
+          <strong>同步已入库的人物资源</strong>
         </div>
         <label>
           <span>资源类型</span>
@@ -538,8 +539,16 @@ export function TrustedPortraitPanel({
       {status === 'active' && (
         <p className="trusted-portrait-state active" role="status" aria-live="polite">
           <CheckCircle2 size={13} />
-          {portrait?.groupType === 'LivenessFace' ? '真人素材' : 'AI 人像'}
-          已可用，后续视频任务会自动使用这个人像资源。
+          {sourceImageMode
+            ? portrait?.groupType === 'LivenessFace'
+              ? '真人素材已入库；当前视频通道尚未支持该授权资源，暂不能用于生成。'
+              : 'AI 人像已入库；视频生成将使用已确认的面部原图作为参考。'
+            : `${portrait?.groupType === 'LivenessFace' ? '真人素材' : 'AI 人像'}已可用，后续视频任务会自动使用这个人像资源。`}
+        </p>
+      )}
+      {sourceImageMode && status !== 'active' && (
+        <p className="trusted-portrait-notice">
+          当前视频通道使用 AI 人物面部原图，暂不支持真人授权素材生成视频。
         </p>
       )}
       {portrait?.status === 'failed' && (

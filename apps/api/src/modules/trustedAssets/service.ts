@@ -60,11 +60,13 @@ export class TrustedAssetService {
     > | null = null,
     private readonly validationSessionRepository: TrustedValidationSessionRepository | null = null,
     private readonly generationTaskRepository: Pick<GenerationTaskRepository, 'findById'> | null = null,
+    private readonly videoProviderName = 'stringx-seedance',
   ) {}
 
   configuration() {
     return {
       configured: Boolean(this.provider),
+      videoReferenceMode: this.videoProviderName === 'dora-router-seedance' ? 'source-image' : 'asset-uri',
       virtualRegistrationReady: Boolean(this.provider && this.publicApiBaseUrl),
       realValidationReady: Boolean(
         this.provider?.createVisualValidateSession &&

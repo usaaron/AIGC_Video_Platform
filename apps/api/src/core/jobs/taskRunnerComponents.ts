@@ -13,6 +13,7 @@ import type {
   ImageReference,
 } from '../generation/imageProvider.js'
 import type { TextGenerationTiming } from '../generation/textProvider.js'
+import { trustedPortraitAliases } from '../generation/trustedPortraitReferences.js'
 import type {
   VideoGenerationProvider,
   VideoGenerationRequest,
@@ -830,20 +831,10 @@ export class VideoTaskExecutor {
           `以下仿真人物尚未完成方舟资源入库或真人授权：${blockedPortraits.map((asset) => asset.name).join('、')}`,
         )
       }
-      const trustedAliases = new Map<string, string>()
-      for (const asset of referenceAssets) {
-        if (asset.attributes.type !== 'character') continue
-        const portrait = asset.attributes.trustedPortrait
-        if (portrait?.status !== 'active') continue
-        const uri = `asset://${portrait.assetId}`
-        for (const value of [
-          asset.imageUrl,
-          asset.attributes.faceReference?.url,
-          asset.attributes.bodyReference?.url,
-        ]) {
-          if (value) trustedAliases.set(value, uri)
-        }
-      }
+      const trustedAliases = trustedPortraitAliases(
+        referenceAssets,
+        stringValue(stored.metadata.providerName, ''),
+      )
       const sourcePromptSnapshot = stringValue(stored.metadata.sourcePromptSnapshot, shot.prompt)
       const hasCurrentTaskPromptSnapshot =
         typeof stored.metadata.sourcePromptHash === 'string' &&
@@ -950,9 +941,13 @@ export class VideoTaskExecutor {
         images.push({ url: value, role: 'reference_image' })
         continue
       }
-      if (!this.options.objectStorage) continue
       const stored = findStoredReference(this.store, task, value)
-      if (!stored) continue
+      if (!this.options.objectStorage || !stored) {
+        if (task.metadata.providerName === 'dora-router-seedance') {
+          throw new Error('视频参考原图不存在或无权读取，请重新上传并确认人物面部')
+        }
+        continue
+      }
       const content = await this.options.objectStorage.get(stored.storageKey)
       images.push({
         url: `data:${stored.contentType};base64,${content.toString('base64')}`,

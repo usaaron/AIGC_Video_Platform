@@ -299,6 +299,7 @@ export function createRuntimeServices(input: {
     mediaRepository,
     repositories.trustedValidationSessionRepository,
     repositories.generationTaskRepository,
+    videoProviderName(config),
   )
   const generationService = new GenerationService(
     repositories.generationTaskRepository,

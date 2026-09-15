@@ -14,6 +14,25 @@ const props = {
 }
 
 describe('trusted portrait provider capabilities', () => {
+  it.each(['AIGC', 'LivenessFace'])('explains source-image video compatibility for %s', (groupType) => {
+    const html = renderToStaticMarkup(
+      <TrustedPortraitPanel
+        {...props}
+        attributes={{
+          ...props.attributes,
+          trustedPortrait: { assetId: 'test', status: 'active', groupType },
+        }}
+        configuration={{
+          configured: true,
+          realValidationReady: false,
+          virtualRegistrationReady: true,
+          videoReferenceMode: 'source-image',
+        }}
+      />,
+    )
+    expect(html).toContain(groupType === 'AIGC' ? '使用已确认的面部原图' : '暂不能用于生成')
+    expect(html).not.toContain('后续视频任务会自动使用这个人像资源')
+  })
   it('keeps AI registration available and explains unavailable real-person verification', () => {
     const html = renderToStaticMarkup(
       <TrustedPortraitPanel

@@ -12,6 +12,7 @@ import { traceContext, traceIdFromGenerationTask } from '../../core/observabilit
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import type { VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { VideoProviderName } from '../../core/generation/videoProvider.js'
+import { trustedPortraitAliases } from '../../core/generation/trustedPortraitReferences.js'
 import type { ObjectStorage, ObjectStorageStream } from '../../infra/objectStorage.js'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
@@ -167,6 +168,10 @@ export class GenerationService {
     const referenceAssetIds = Array.isArray(input.metadata.referenceAssetIds)
       ? input.metadata.referenceAssetIds.filter((value): value is string => typeof value === 'string')
       : []
+    trustedPortraitAliases(
+      context.assets.filter((asset) => referenceAssetIds.includes(asset.id)),
+      this.videoProviderName,
+    )
     const continuityMode = input.metadata.continuityMode === 'continue' ? 'continue' : 'independent'
     const compiledPrompt = compileStoryboardVideoPrompt({
       project: { ...context.project, visualStyle: context.project.visualStyle ?? 'cinematic-cg' },

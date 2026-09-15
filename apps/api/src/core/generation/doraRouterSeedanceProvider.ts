@@ -109,6 +109,11 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
     const images = request.images.map((image) =>
       typeof image === 'string' ? { url: image, role: 'reference_image' as const } : image,
     )
+    if (images.some((image) => !/^(https?:\/\/|data:image\/)/.test(image.url))) {
+      throw new Error(
+        '当前视频通道需要图片原图，不支持 asset:// 素材编号；AI 人物请确认面部原图，真人素材需使用支持授权资源的通道',
+      )
+    }
 
     const response = await this.requestJson(SEEDANCE_TASK_PATH, {
       method: 'POST',
