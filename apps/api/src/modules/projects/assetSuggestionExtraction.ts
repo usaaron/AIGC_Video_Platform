@@ -85,6 +85,30 @@ function emptyScriptAssetManifest(): ScriptAssetManifest {
 
 /** Reads the visible line-oriented asset block without another model call. */
 export function extractScriptAssetManifest(script: string): ScriptAssetManifest {
+  const starts = [...script.matchAll(/(?:^|\n)\s*资产\s*[：:]/gu)].map((match) => match.index!)
+  const merged = emptyScriptAssetManifest()
+  starts.forEach((start, index) => {
+    const manifest = extractSingleAssetManifest(script.slice(start, starts[index + 1]))
+    for (const kind of Object.keys(merged) as ScriptAssetKind[]) {
+      for (const item of manifest[kind]) {
+        const existing = merged[kind].find((candidate) => candidate.name === item.name)
+        if (!existing) {
+          merged[kind].push(item)
+          continue
+        }
+        for (const [label, detail] of Object.entries(item.facts)) {
+          if (detail.length > (existing.facts[label]?.length || 0)) existing.facts[label] = detail
+        }
+        existing.details = Object.entries(existing.facts)
+          .map(([label, detail]) => `${label}：${detail}`)
+          .join('；')
+      }
+    }
+  })
+  return merged
+}
+
+function extractSingleAssetManifest(script: string): ScriptAssetManifest {
   const manifest = emptyScriptAssetManifest()
   const start = /(?:^|\n)\s*资产\s*[：:]/u.exec(script)
   if (!start || start.index === undefined) return manifest
@@ -183,7 +207,13 @@ export function namesFromManifestOrFields(
   fallback: string[],
   limit: number,
 ): string[] {
-  if (manifest[kind].length) return manifest[kind].map((item) => item.name).slice(0, limit)
+  if (manifest[kind].length)
+    return [
+      ...new Set([
+        ...manifest[kind].map((item) => item.name),
+        ...extractAssetNames(script, fields, [], limit, kind),
+      ]),
+    ].slice(0, limit)
   return extractAssetNames(script, fields, fallback, limit, kind)
 }
 
@@ -239,6 +269,10 @@ export function extractAssetNames(
 
 function extractScriptFieldValues(script: string, fields: string[]): string[] {
   const normalized = script
+    .replace(
+      /(?:^|\n)\s*资产\s*[：:][\s\S]*?(?=(?:^|\n)\s*(?:正文|剧本正文|正文内容|场次)\s*[：:]|$)/gu,
+      '\n',
+    )
     .replace(/\*\*/gu, '')
     .replace(/\r/gu, '')
     .replace(/(^|\n)\s*(?:[-*]\s+|#{1,6}\s*)/gu, '$1')

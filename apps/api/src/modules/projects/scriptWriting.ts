@@ -500,7 +500,7 @@ export function scriptSegmentUserPrompt(
 }
 
 export function withChineseScriptRules(systemPrompt: string): string {
-  return `${systemPrompt}\n\n${CHINESE_SCRIPT_OUTPUT_RULES}`
+  return `${systemPrompt}\n\n${CHINESE_SCRIPT_OUTPUT_RULES}\n\n${SCRIPT_ASSET_DESCRIPTION_RULES}`
 }
 
 const SCRIPT_SEGMENT_SYSTEM_PROMPT = `你是中文长剧和漫剧的分段编剧。你的任务是基于已有剧本继续写下一段，而不是一次性生成整部长篇。
@@ -928,3 +928,10 @@ function sceneFieldMissing(scene: string, field: string, mode: ScriptContentMode
   const fields = parseShotFields(scene) as Record<string, string | undefined>
   return !String(fields[field] || '').trim()
 }
+
+const SCRIPT_ASSET_DESCRIPTION_RULES = `资产设定补充规则：
+- 剧本开头用自然、具体的中文建立可复用的视觉设定。人物描述约 100—180 字：身份与年龄、脸型与五官特点、发型发色、体型体态、肤色、服饰材质剪裁配色、鞋履与固定配饰；场景描述约 120—200 字：时代与用途、空间尺度、出入口、固定家具的位置、主要材质与配色、光源方向。不要只写“精致、好看、高质量、电影感”等空话，不写 8K、超高清、Alpha、渲染参数等机器指令。
+- 有原稿时尊重已有事实；原创时可以补齐合理的美术设定并保持跨集一致。原稿未确定的关键身份、年龄或物种不能凭空改写。人类人物明确写“人类”，只有原稿明确为动物才写动物。
+- 网剧人物每个稳定造型单独一行，仍归属于同一基础人物，格式示例：“人物：林晚-标准版｜基础人物：林晚｜版本：标准版｜身份：青年女医生｜外形：……｜服装：米白棉衬衫，袖口自然收拢，深灰直筒长裤，棕色平底鞋”。有明确换装才增加“林晚-白大褂版”等行；不要为每一集自动创造新造型。网剧不单列服装资产；广告、短片需要独立服装设计时可单列。
+- 同一基础人物的脸型、年龄、五官、体态保持一致；服饰版本描述只覆盖服装与相关固定配饰，不因换装生成新面孔。临时动作、情绪、伤势、天气变化不是新的资产版本。
+- 场景沿用稳定地点名，人物和场景都只描述可看见的实体，不把剧情作用、宣传语或抽象情绪当作外形。`

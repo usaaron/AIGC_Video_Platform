@@ -3,6 +3,7 @@ import type { ImageGenerationOutput } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider, VideoGenerationStatus } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
+import { writeCharacterAppearance } from './characterAppearanceWriteback.js'
 import {
   generationTaskLeaseMatches,
   releaseGenerationTaskLease,
@@ -70,8 +71,8 @@ export class GenerationResultWriteback {
         const shotId = typeof task.metadata.shotId === 'string' ? task.metadata.shotId : null
         const asset = state.assets.find((item) => item.id === assetId && item.projectId === task.projectId)
         const shot = state.shots.find((item) => item.id === shotId && item.projectId === task.projectId)
-        if (asset && task.resultUrl) {
-          asset.imageUrl = task.resultUrl
+        if (asset && asset.tenantId === task.tenantId && task.resultUrl) {
+          if (writeCharacterAppearance(asset, task)) asset.imageUrl = task.resultUrl
           asset.updatedAt = task.updatedAt
         }
         if (shot && task.resultUrl) {

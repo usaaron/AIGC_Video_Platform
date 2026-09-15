@@ -5,6 +5,7 @@ import type {
   Principal,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
+import { generateScriptRequestSchema } from '@seqora/contracts'
 import { Readable } from 'node:stream'
 import { compileStoryboardVideoPrompt, VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
@@ -49,6 +50,40 @@ export class GenerationService {
     }
     if (input.kind === 'text' && input.provider === 'text' && !this.textProvider) {
       throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    }
+    if (input.kind === 'text' && input.provider === 'text' && input.metadata?.episodePlan) {
+      const parsed = generateScriptRequestSchema.safeParse({
+        ...input.metadata,
+        model: input.model ?? input.metadata.model,
+      })
+      if (!parsed.success || input.metadata.scriptOperation !== 'generate') {
+        throw new AppError(400, 'INVALID_EPISODE_PLAN', '分集计划无效，请重新确认')
+      }
+      const key = createHash('sha256')
+        .update(
+          JSON.stringify([
+            input.projectId,
+            parsed.data.episodePlan,
+            parsed.data.model,
+            parsed.data.direction,
+            parsed.data.episodeDurationSeconds,
+          ]),
+        )
+        .digest('hex')
+      const history = (await this.repository.listByProject(input.projectId, principal, true)).filter(
+        (task) => task.userId === principal.userId && task.metadata.episodePlanKey === key,
+      )
+      const previous = history.sort(
+        (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+      )[0]
+      if (previous && ['queued', 'paused', 'running', 'completed'].includes(previous.status)) return previous
+      // Stable per-attempt request IDs also deduplicate simultaneous submissions under the repository lock.
+      input = {
+        ...input,
+        clientRequestId: `episode-batch-${key}-${previous?.id || 'first'}`,
+        estimatedCredits: 0,
+        metadata: { ...input.metadata, episodePlanKey: key, billingMode: 'direct' },
+      }
     }
     await this.preflightAssetLibraryTask(input, principal)
     const existingAssetSuggestionTask = await this.findExistingAssetSuggestionTask(input, principal)

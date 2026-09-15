@@ -33,6 +33,7 @@ export function CharacterWorkflow({
   onPersist,
   onConfirmFace,
   onGenerate,
+  onGenerateAppearance,
   onGenerateAndClose,
   faceCreationMode = 'text',
   settings,
@@ -53,7 +54,16 @@ export function CharacterWorkflow({
   const [preview, setPreview] = useState(null)
   const [variantName, setVariantName] = useState('')
   const relatedTasks = assetId ? tasks.filter((task) => task.metadata?.assetId === assetId) : []
-  const taskFor = (targetStage) => latestTask(relatedTasks, targetStage)
+  const taskFor = (targetStage) =>
+    latestTask(
+      relatedTasks.filter(
+        (task) =>
+          targetStage === 'face' ||
+          (task.metadata?.attributes?.activeAppearanceVariantId || null) ===
+            (attributes.activeAppearanceVariantId || null),
+      ),
+      targetStage,
+    )
   const faceTask = taskFor('face')
   const bodyTask = taskFor('body')
   const turnaroundTask = taskFor('turnaround')
@@ -85,7 +95,10 @@ export function CharacterWorkflow({
 
   useEffect(() => {
     if (stage !== 'turnaround' || variantName.trim()) return
-    setVariantName(`${assetName || '人物'} · 造型 ${appearanceVariants.length + 1}`)
+    setVariantName(
+      activeAppearanceVariant?.name ||
+        `${assetName || '人物'}-${appearanceVariants.length ? `造型${appearanceVariants.length + 1}版` : '标准版'}`,
+    )
   }, [assetName, appearanceVariants.length, stage, variantName])
 
   const generate = async (targetStage, closeAfterQueue = false) => {
@@ -136,11 +149,22 @@ export function CharacterWorkflow({
       ...attributes,
       bodyStatus: 'approved',
       bodyReference: toReference(bodyCandidate, `${assetName}-全身基准`),
+      appearanceVariants: appearanceVariants.map((variant) =>
+        variant.id === activeAppearanceVariantId
+          ? {
+              ...variant,
+              bodyReference: toReference(bodyCandidate, variant.name),
+              updatedAt: new Date().toISOString(),
+            }
+          : variant,
+      ),
     }
     if (await persist(next)) onStageChange('turnaround')
   }
 
   const saveAppearanceVariant = async () => {
+    if (!activeAppearanceVariant && appearanceVariants.length >= 100)
+      throw new Error('每个人物最多保存 100 套造型')
     const references = (turnaroundTask?.outputs || [])
       .filter((output) => output.mediaType === 'image' && output.url)
       .slice(0, 3)
@@ -154,17 +178,18 @@ export function CharacterWorkflow({
     if (!name) throw new Error('请给这套身体图/三视图填写人物版本名称')
     const now = new Date().toISOString()
     const variant = {
-      id: createVariantId(),
+      id: activeAppearanceVariant?.id || createVariantId(),
       name,
+      description: activeAppearanceVariant?.description || '',
       bodyReference,
       turnaroundReferences: references,
       turnaroundLayout: attributes.turnaroundLayout || 'sheet',
-      createdAt: now,
+      createdAt: activeAppearanceVariant?.createdAt || now,
       updatedAt: now,
     }
     const next = {
       ...attributes,
-      appearanceVariants: [...appearanceVariants, variant].slice(-12),
+      appearanceVariants: [...appearanceVariants.filter((item) => item.id !== variant.id), variant],
       activeAppearanceVariantId: variant.id,
     }
     if (await persist(next)) setVariantName('')
@@ -173,13 +198,18 @@ export function CharacterWorkflow({
   const activateAppearanceVariant = async (variant) => {
     const next = {
       ...attributes,
-      bodyStatus: 'approved',
+      bodyStatus: variant.bodyReference ? 'approved' : 'pending',
       bodyReference: variant.bodyReference,
-      turnaround: true,
+      turnaround: variant.turnaroundReferences?.length > 0,
       activeAppearanceVariantId: variant.id,
       turnaroundLayout: variant.turnaroundLayout || attributes.turnaroundLayout,
     }
-    await persist(next)
+    if (await persist(next)) {
+      setVariantName(variant.name)
+      onStageChange(
+        attributes.faceStatus !== 'approved' ? 'face' : variant.bodyReference ? 'turnaround' : 'body',
+      )
+    }
   }
 
   const backgroundGenerateButton = (targetStage) => (
@@ -194,8 +224,123 @@ export function CharacterWorkflow({
     </button>
   )
 
+  const missingVariants = appearanceVariants.filter(
+    (variant) =>
+      !variant.bodyReference &&
+      !relatedTasks.some(
+        (task) =>
+          task.metadata?.generationStage === 'body' &&
+          task.metadata?.attributes?.activeAppearanceVariantId === variant.id &&
+          isActive(task),
+      ),
+  )
+  const generateMissingVariants = async () => {
+    setError('')
+    setSubmittingStage('variants')
+    let queued = 0
+    try {
+      for (const variant of missingVariants) {
+        await onGenerateAppearance(variant)
+        queued += 1
+      }
+    } catch (generationError) {
+      setError(`已提交 ${queued} 套造型，后续提交停止：${generationError.message}`)
+    } finally {
+      setSubmittingStage(null)
+    }
+  }
+
   return (
     <section className="character-workflow">
+      {appearanceVariants.length > 0 && (
+        <label className="appearance-variant-name">
+          <span>人物造型（共用同一面部基准）</span>
+          <select
+            className="text-input"
+            aria-label="人物造型"
+            value={activeAppearanceVariantId || ''}
+            onChange={(event) => {
+              const variant = appearanceVariants.find((item) => item.id === event.target.value)
+              if (variant) void activateAppearanceVariant(variant)
+            }}
+          >
+            <option value="">选择造型</option>
+            {appearanceVariants.map((variant) => (
+              <option value={variant.id} key={variant.id}>
+                {variant.name}
+                {variant.bodyReference ? ' · 已生成' : ' · 待生成'}
+              </option>
+            ))}
+          </select>
+          {activeAppearanceVariant && (
+            <textarea
+              className="text-input"
+              aria-label="造型描述"
+              maxLength={1000}
+              rows={3}
+              placeholder="描述这套服饰的颜色、面料、剪裁、配饰和使用场合，五官沿用面部基准"
+              value={activeAppearanceVariant.description || ''}
+              onChange={(event) =>
+                onAttributesChange({
+                  ...attributes,
+                  appearanceVariants: appearanceVariants.map((item) =>
+                    item.id === activeAppearanceVariantId
+                      ? { ...item, description: event.target.value }
+                      : item,
+                  ),
+                })
+              }
+              onBlur={() => void persist(attributes)}
+            />
+          )}
+        </label>
+      )}
+      <button
+        type="button"
+        className="button secondary"
+        disabled={submittingStage !== null || appearanceVariants.length >= 100}
+        onClick={async () => {
+          const now = new Date().toISOString()
+          const variant = {
+            id: createVariantId(),
+            name: `${assetName || '人物'}-${appearanceVariants.length ? `造型${appearanceVariants.length + 1}版` : '标准版'}`,
+            description: '',
+            bodyReference: null,
+            turnaroundReferences: [],
+            turnaroundLayout: 'sheet',
+            createdAt: now,
+            updatedAt: now,
+          }
+          if (
+            await persist({
+              ...attributes,
+              appearanceVariants: [...appearanceVariants, variant],
+              activeAppearanceVariantId: variant.id,
+              bodyStatus: 'pending',
+              bodyReference: null,
+              turnaround: false,
+            })
+          ) {
+            setVariantName(variant.name)
+            onStageChange(attributes.faceStatus === 'approved' ? 'body' : 'face')
+          }
+        }}
+      >
+        新增人物造型
+      </button>
+      {onGenerateAppearance && missingVariants.length > 0 && (
+        <button
+          type="button"
+          className="button secondary"
+          disabled={!assetId || !faceConfirmationReady || submittingStage !== null}
+          onClick={() => void generateMissingVariants()}
+        >
+          批量生成缺失造型（{missingVariants.length} 套 · {missingVariants.length * 6} 积分）
+        </button>
+      )}
+      {appearanceVariants.length > 0 && !faceConfirmationReady && (
+        <p className="muted">先确认同一张面部基准，再生成各套造型；已有身体图和排队中的造型会自动跳过。</p>
+      )}
       <div className="character-stage-nav">
         {STAGES.map(([id, label, Icon], index) => {
           const unlocked =

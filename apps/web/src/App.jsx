@@ -49,7 +49,7 @@ import {
 } from './features/script/scriptTaskLabels'
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
-import { createWorkspaceCommands } from './features/workspace/workspaceCommands'
+import { createWorkspaceCommands, createCharacterStageJob } from './features/workspace/workspaceCommands'
 import {
   normalizeTasks,
   normalizeWorkspace,
@@ -437,6 +437,7 @@ function App() {
     if (!project && activeStep === 'library') {
       return (
         <AssetLibraryPage
+          onSyncExternal={api.syncScriptMasterLibrary}
           currentProject={null}
           onToast={setToast}
           onLoadItems={(query) => api.libraryItems(query)}
@@ -524,14 +525,20 @@ function App() {
             revisionNote,
             setPhase,
             episodeId,
+            episodePlan,
           ) => {
             setPhase?.('submitting')
             const isRevision = Boolean(revisionNote?.trim())
             return createScriptJob(
-              isRevision ? '改写当前剧集' : scriptGenerationTaskLabel(project.contentType),
+              episodePlan
+                ? `分集改编 · ${episodePlan.episodes.length} 集`
+                : isRevision
+                  ? '改写当前剧集'
+                  : scriptGenerationTaskLabel(project.contentType),
               isRevision ? 'enrich' : 'generate',
               {
                 ...(isRevision ? { script: draft } : { draft, mode: 'quick' }),
+                ...(episodePlan ? { episodePlan } : {}),
                 direction,
                 productionMode,
                 episodeDurationSeconds,
@@ -601,6 +608,20 @@ function App() {
           onCreateAndGenerateAsset={async (input) => {
             const created = await api.createAsset(project.id, input)
             await refreshWorkspace()
+            const currentTasks = await api.tasks(project.id)
+            if (
+              created.imageUrl ||
+              (created.attributes.type === 'character' && created.attributes.faceReference) ||
+              currentTasks.some(
+                (task) =>
+                  task.metadata?.assetId === created.id &&
+                  task.kind === 'image' &&
+                  ['queued', 'paused', 'running', 'completed'].includes(task.status),
+              )
+            ) {
+              setToast(`${created.name}已复用；新造型可在人物设计中选择后生成`)
+              return created
+            }
             const task =
               created.kind === 'character'
                 ? await createCharacterFaceJob(created, 'img2-default', '资产建议 · 面部大头照')
@@ -655,33 +676,9 @@ function App() {
           onLatestTrustedValidationSession={(assetId) =>
             api.latestTrustedValidationSession(project.id, assetId)
           }
-          onGenerateStage={(asset, stage, prompt, model) => {
-            const references =
-              stage === 'face'
-                ? asset.references
-                : stage === 'body'
-                  ? [asset.attributes.faceReference].filter(Boolean)
-                  : [asset.attributes.faceReference, asset.attributes.bodyReference].filter(Boolean)
-            const labels = { face: '面部大头照', body: '全身设定', turnaround: '三视图设定表' }
-            const costs = { face: 4, body: 6, turnaround: 18 }
-            return createJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
-              prompt,
-              model,
-              negativePrompt: asset.negativePrompt,
-              metadata: {
-                assetId: asset.id,
-                assetKind: asset.kind,
-                generationStage: stage,
-                aspectRatio: stage === 'face' ? '1:1' : stage === 'turnaround' ? '16:9' : project.aspectRatio,
-                sourceMode: asset.sourceMode,
-                references,
-                attributes: asset.attributes,
-                turnaround: stage === 'turnaround',
-                composeSheet: stage === 'turnaround',
-                outputLayout: asset.attributes.turnaroundLayout,
-              },
-            })
-          }}
+          onGenerateStage={(asset, stage, prompt, model) =>
+            createCharacterStageJob(createJob, project, asset, stage, prompt, model)
+          }
           onGenerate={(asset, model) => {
             if (asset.sourceMode === 'import') {
               setToast('直接导入资产已使用原图，不会创建 Img2 任务')
@@ -871,6 +868,7 @@ function App() {
       ),
       library: () => (
         <AssetLibraryPage
+          onSyncExternal={api.syncScriptMasterLibrary}
           currentProject={project}
           onToast={setToast}
           onLoadItems={(query) => api.libraryItems(query)}
@@ -883,6 +881,8 @@ function App() {
           onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
           onImportToProject={async (itemId, target = 'auto') => {
             const result = await api.importLibraryItem(project.id, { itemId, target })
+            await refreshWorkspace()
+            if (result.imported.type === 'script') navigateTo('script')
             setToast(`${result.item.title} 已导入当前项目`)
             return result
           }}

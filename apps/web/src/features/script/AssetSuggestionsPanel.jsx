@@ -40,6 +40,8 @@ export function AssetSuggestionsPanel({
   onCreate,
   onCreateAndGenerate,
   onImportSelected,
+  onGenerateSelected,
+  allowCostume = true,
   onInspect,
   importing = false,
   stopping = false,
@@ -47,7 +49,9 @@ export function AssetSuggestionsPanel({
   copy = {},
 }) {
   const assets = Array.isArray(result?.assets)
-    ? result.assets.filter((asset) => asset && typeof asset === 'object')
+    ? result.assets.filter(
+        (asset) => asset && typeof asset === 'object' && (allowCostume || asset.kind !== 'costume'),
+      )
     : []
   const grouped = groupAssets(assets)
   const [editingKeys, setEditingKeys] = useState(() => new Set())
@@ -136,6 +140,56 @@ export function AssetSuggestionsPanel({
                 : `一键导入资产${selectedAssets.length ? `（${selectedAssets.length}）` : ''}`}
             </button>
           )}
+          {hasResult && (
+            <button
+              className="button secondary"
+              disabled={!selectedAssets.length || importBusy}
+              onClick={() => {
+                const file = new Blob(
+                  [
+                    JSON.stringify(
+                      selectedAssets.map((asset) => ({
+                        ...asset,
+                        prompt: editedPrompts[assetSuggestionKey(asset)] ?? asset.prompt,
+                      })),
+                      null,
+                      2,
+                    ),
+                  ],
+                  { type: 'application/json;charset=utf-8' },
+                )
+                const url = URL.createObjectURL(file)
+                const link = document.createElement('a')
+                link.href = url
+                link.download = '剧本资产建议.json'
+                link.click()
+                setTimeout(() => URL.revokeObjectURL(url), 1000)
+              }}
+            >
+              导出所选建议
+            </button>
+          )}
+          {hasResult && onGenerateSelected && (
+            <button
+              className="button primary"
+              disabled={disabled || importBusy || !selectedAssets.length}
+              onClick={async () => {
+                setImportingSelected(true)
+                try {
+                  await onGenerateSelected(
+                    selectedAssets.map((asset) => ({
+                      ...asset,
+                      prompt: editedPrompts[assetSuggestionKey(asset)] ?? asset.prompt,
+                    })),
+                  )
+                } finally {
+                  setImportingSelected(false)
+                }
+              }}
+            >
+              批量生成所选（{selectedAssets.length}）
+            </button>
+          )}
           {isSuggesting ? (
             <>
               <button
@@ -200,7 +254,7 @@ export function AssetSuggestionsPanel({
         <>
           <p className="script-asset-suggestions-summary">{result.summary}</p>
           <div className="script-asset-suggestion-sections">
-            {KIND_ORDER.map((kind) => {
+            {KIND_ORDER.filter((kind) => allowCostume || kind !== 'costume').map((kind) => {
               const meta = KIND_META[kind]
               const Icon = meta.icon
               const items = grouped[kind] || []
@@ -280,6 +334,12 @@ export function AssetSuggestionsPanel({
                                 />
                               </label>
                             )}
+                            {asset.kind === 'character' &&
+                              asset.attributes?.appearanceVariants?.map((variant) => (
+                                <p key={variant.id}>
+                                  <strong>{variant.name}</strong> · {variant.description}
+                                </p>
+                              ))}
                             <small>{asset.reason}</small>
                             <div className="script-asset-suggestion-actions">
                               <button

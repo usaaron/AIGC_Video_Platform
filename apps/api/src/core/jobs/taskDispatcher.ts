@@ -1,4 +1,5 @@
 import type { GenerationTask } from '@seqora/contracts'
+import { AppError } from '../errors.js'
 import { randomUUID } from 'node:crypto'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { TextGenerationTiming } from '../generation/textProvider.js'
@@ -533,6 +534,15 @@ export class GenerationTaskRunner implements TaskDispatcher {
         task.kind === 'text'
           ? {
               onTextProgress: schedulePreview,
+              assertActive: async () => {
+                await this.refreshTask?.(task.id)
+                const current = this.store.read((state) => state.tasks.find((item) => item.id === task.id))
+                if (current?.status === 'running' && current.leaseToken !== leaseToken)
+                  throw new AppError(409, 'TASK_LEASE_LOST', '剧本任务已由另一个 Worker 接续')
+                if (!current || current.status !== 'running' || current.leaseToken !== leaseToken) {
+                  throw new Error('剧本任务已停止，不再生成后续集')
+                }
+              },
               onTextTiming: (timing) => textTimings.push(timing),
             }
           : undefined,

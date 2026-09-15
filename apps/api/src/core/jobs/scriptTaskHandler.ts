@@ -8,6 +8,7 @@ import {
 import type { AppStore } from '../../infra/store.js'
 import type { ProjectService } from '../../modules/projects/service.js'
 import type { LocalTaskExecutionContext } from './localTaskHandler.js'
+import { generateEpisodeBatch } from '../../modules/projects/episodeBatch.js'
 
 export type TextTaskHandler = (task: GenerationTask, context?: LocalTaskExecutionContext) => Promise<unknown>
 
@@ -29,7 +30,10 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         model: task.model ?? task.metadata.model,
         revisionNote: task.metadata.revisionNote,
         episodeId: task.metadata.episodeId,
+        episodePlan: task.metadata.episodePlan,
       })
+      if (input.episodePlan)
+        return generateEpisodeBatch(service, task.projectId, input, principal, context, task.id)
       return service.generateScript(
         task.projectId,
         input.draft,

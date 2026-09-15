@@ -5,18 +5,18 @@ export const SCRIPT_CONTENT_CONFIGS = {
   'short-drama': {
     productionMode: 'web-series',
     pageTitle: '网剧剧本',
-    pageDescription: '一次生成一集，快速得到可继续拆分镜的网剧制作稿。',
+    pageDescription: '短素材按集生成，长素材先分集，得到可继续拆分镜的网剧制作稿。',
     initialTitle: '从想法快速生成一集网剧',
     generatedTitle: '当前单集可以重新生成或继续精修',
     modeLabel: '单集生成',
-    modeNote: '每次固定生成 1 集、6～8 个有效场次；长篇内容请切换到长剧本生成。',
+    modeNote: '超过 2200 字或包含多集事件时，先确认分集计划，再逐集生成。',
     usesDuration: false,
     durationLabel: '每集时长',
     durationSuffix: '/ 集',
     minimumDuration: 30,
     maximumDuration: 300,
     defaultDuration: 60,
-    featureNote: '单次 1 集 · 6～8 场 · 冲突对白 · 结尾钩子',
+    featureNote: '按集创作 · 长素材先确认分集计划 · 冲突对白 · 结尾钩子',
     documentName: '网剧剧本',
     placeholder: '写下本集故事、冲突或已有剧本，系统会结合项目资产扩写成可制作的网剧场次。',
     progressText: '正在编排网剧冲突、表演节拍与结尾钩子',
@@ -103,9 +103,9 @@ export const SCRIPT_SECTIONS = [
 
 export const SCRIPT_ASSET_SUGGESTION_COPY = {
   eyebrow: '辅助资产建议',
-  title: '随剧本自动识别人物、场景、物品、服装和品牌',
-  refresh: '扫描当前剧本',
-  refreshAgain: '重新扫描当前剧本',
+  title: '随剧本自动识别人物造型、场景、物品和品牌',
+  refresh: '扫描全部剧集',
+  refreshAgain: '重新扫描全部剧集',
   empty: '剧本生成完成后会自动快速识别，不调用模型，也不会占用生成队列。',
 }
 

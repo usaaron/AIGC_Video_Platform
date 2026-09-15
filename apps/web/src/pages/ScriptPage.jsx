@@ -5,7 +5,6 @@ import {
   Clapperboard,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   Eraser,
   Layers3,
   LoaderCircle,
@@ -18,18 +17,21 @@ import { PageHeader } from '../components/ui'
 import { BrandMark } from '../components/BrandMark'
 import { AssetEditor } from '../features/assets/AssetEditor'
 import { AssetAwareTextarea, AssetShortcutBar } from '../features/assets/AssetShortcutBar'
-import { AssetSuggestionsPanel } from '../features/script/AssetSuggestionsPanel'
 import {
   availableScriptModelOptions,
   initialScriptValue,
   looksLikeDevelopedScript,
   orderScriptEpisodes,
-  SCRIPT_ASSET_SUGGESTION_COPY,
   SCRIPT_CONTENT_CONFIGS,
   SCRIPT_SECTIONS,
   scriptGenerationStatusMessage,
 } from '../features/script/scriptPageConfig'
-import { ScriptHelp, TextTimingSummary } from '../features/script/ScriptPageSupport'
+import {
+  ScriptHelp,
+  ScriptGenerationMessages,
+  ScriptAssetSuggestions,
+  ScriptFlowActions,
+} from '../features/script/ScriptPageSupport'
 import {
   assetSuggestionRevision,
   deriveScriptTaskState,
@@ -40,6 +42,7 @@ import {
 } from '../features/script/scriptTaskState'
 import { useScriptTaskPreview } from '../features/script/useScriptTaskPreview'
 import { useAssetSuggestions } from '../features/script/useAssetSuggestions'
+import { EpisodePlanEditor } from '../features/script/EpisodePlanEditor'
 import { useScriptGeneration } from '../features/script/useScriptGeneration'
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
@@ -126,7 +129,11 @@ export function ScriptPage({
   const count = script.replace(/\s/g, '').length
   const paragraphCount = script.split(/\n+/).filter(Boolean).length
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
-  const assetSuggestionFingerprint = useMemo(() => scriptSuggestionFingerprint(script), [script])
+  const savedScripts = orderedEpisodes
+    .filter((episode) => episode.status === 'saved')
+    .map((episode) => episode.content)
+  const assetScanSource = script.trim() || savedScripts.at(-1) || ''
+  const assetSuggestionFingerprint = scriptSuggestionFingerprint([...savedScripts, script].join('\n\n'))
   const currentAssetRevision = useMemo(() => assetSuggestionRevision(assets), [assets])
 
   useEffect(() => {
@@ -172,8 +179,9 @@ export function ScriptPage({
     (saved && looksLikeDevelopedScript(script) ? script : '')
   const assetSuggestions = useAssetSuggestions({
     projectId: project.id,
-    script,
-    autoSource: autoAssetSuggestionSource,
+    script: assetScanSource,
+    scopeFingerprint: assetSuggestionFingerprint,
+    autoSource: autoAssetSuggestionSource || savedScripts.at(-1) || '',
     direction,
     latestTask: latestAssetSuggestionTask,
     activeTask: activeAssetSuggestionTask,
@@ -186,7 +194,15 @@ export function ScriptPage({
     stoppingTaskId,
     setStoppingTaskId,
   })
-  const { commitEpisodeDuration, expand, generateSegment, save, continueToAssets } = useScriptGeneration({
+  const {
+    episodePlan,
+    setEpisodePlan,
+    commitEpisodeDuration,
+    expand,
+    generateSegment,
+    save,
+    continueToAssets,
+  } = useScriptGeneration({
     project,
     contentConfig,
     isSeries,
@@ -408,6 +424,16 @@ export function ScriptPage({
         </button>
       </PageHeader>
 
+      {episodePlan && (
+        <EpisodePlanEditor
+          plan={episodePlan}
+          onChange={setEpisodePlan}
+          busy={generating}
+          onCancel={() => setEpisodePlan(null)}
+          onConfirm={() => void expand('generate', episodePlan)}
+        />
+      )}
+
       <section className="script-section-nav" aria-label="剧本工作区小项">
         {SCRIPT_SECTIONS.map(({ id, label, description, status, icon: Icon }) => (
           <button
@@ -550,32 +576,13 @@ export function ScriptPage({
           </div>
         </section>
 
-        {textGenerationUnavailable && (
-          <div className="script-generation-note" role="alert">
-            <CircleHelp size={15} />
-            <span>{textGenerationStatusMessage}</span>
-          </div>
-        )}
-
-        {latestFailedScriptTask && (
-          <div className="script-generation-note script-generation-note-error" role="alert">
-            <CircleHelp size={15} />
-            <span>
-              <strong>本次剧本任务已停止</strong>
-              <span>{latestFailedScriptTask.error || '生成未完成，请检查当前草稿后重试。'}</span>
-              <small>已生成的剧集草稿不会被删除；请先保存当前剧集，再继续生成下一集。</small>
-            </span>
-          </div>
-        )}
-
-        {generationWarnings.length > 0 && (
-          <div className="script-generation-note" role="status">
-            <Sparkles size={15} />
-            <span>{generationWarnings.slice(0, 2).join('；')}</span>
-          </div>
-        )}
-
-        {latestTextTiming && <TextTimingSummary timing={latestTextTiming} />}
+        <ScriptGenerationMessages
+          textGenerationUnavailable={textGenerationUnavailable}
+          textGenerationStatusMessage={textGenerationStatusMessage}
+          latestFailedScriptTask={latestFailedScriptTask}
+          generationWarnings={generationWarnings}
+          latestTextTiming={latestTextTiming}
+        />
 
         <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
           <section className="script-document" aria-busy={busy}>
@@ -949,26 +956,11 @@ export function ScriptPage({
           )}
         </div>
 
-        <AssetSuggestionsPanel
-          status={assetSuggestions.status}
-          result={assetSuggestions.result}
-          error={assetSuggestions.error}
-          creatingKeys={assetSuggestions.creatingKeys}
-          createdKeys={assetSuggestions.createdKeys}
-          onRefresh={() => void assetSuggestions.extractFast()}
-          onCancel={() => void assetSuggestions.stop()}
-          onFastExtract={() => void assetSuggestions.extractFast()}
-          onSkip={() => void skipAssetSuggestions()}
+        <ScriptAssetSuggestions
+          assetSuggestions={assetSuggestions}
+          isSeries={isSeries}
+          skipAssetSuggestions={skipAssetSuggestions}
           stopping={Boolean(stoppingTaskId && stoppingTaskId === activeAssetSuggestionTask?.id)}
-          onInspect={assetSuggestions.openEditor}
-          onCreateAndGenerate={assetSuggestions.createAndGenerate}
-          onImportSelected={assetSuggestions.importSelected}
-          copy={{
-            ...SCRIPT_ASSET_SUGGESTION_COPY,
-            refresh: assetSuggestions.result
-              ? SCRIPT_ASSET_SUGGESTION_COPY.refreshAgain
-              : SCRIPT_ASSET_SUGGESTION_COPY.refresh,
-          }}
         />
 
         {error && (
@@ -977,22 +969,11 @@ export function ScriptPage({
           </p>
         )}
 
-        <section className="script-flow-actions">
-          <div>
-            <span className="eyebrow">下一步</span>
-            <strong>从当前剧本建立核心资产</strong>
-            <small>{saved ? '当前版本已保存' : '继续时会先保存当前版本'}</small>
-          </div>
-          <div>
-            <button
-              className="button primary"
-              disabled={busy || (isSeries ? orderedEpisodes.length === 0 && !script.trim() : !script.trim())}
-              onClick={() => void continueToAssets()}
-            >
-              进入资产设计 <ArrowRight size={16} />
-            </button>
-          </div>
-        </section>
+        <ScriptFlowActions
+          saved={saved}
+          disabled={busy || (isSeries ? orderedEpisodes.length === 0 && !script.trim() : !script.trim())}
+          onContinue={continueToAssets}
+        />
       </>
 
       {assetSuggestions.editor && (

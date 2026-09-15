@@ -62,6 +62,7 @@ export function AssetsPage({
   onRefreshTrustedPortrait,
   onNext,
 }) {
+  const assetTabs = ASSET_TABS.filter(([kind]) => project.contentType !== 'short-drama' || kind !== 'costume')
   const [tab, setTab] = useState('character')
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
@@ -69,11 +70,20 @@ export function AssetsPage({
   const [busyAssetId, setBusyAssetId] = useState(null)
   const [batchGenerating, setBatchGenerating] = useState(false)
   const [imageModel, setImageModel] = useState('img2-default')
+  useEffect(() => {
+    if (project.contentType === 'short-drama' && tab === 'costume') setTab('character')
+  }, [project.contentType, tab])
   const hunyuanConfigured = imageModels?.hunyuan === 'configured'
   const filtered = assets.filter(
     (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
   )
-  const generatable = filtered.filter((asset) => asset.sourceMode === 'generate' && asset.kind !== 'audio')
+  const generatable = filtered.filter(
+    (asset) =>
+      asset.sourceMode === 'generate' &&
+      asset.kind !== 'audio' &&
+      !getAssetPreviewUrl(asset) &&
+      !['queued', 'paused', 'running'].includes(latestAssetImageTask(asset, tasks)?.status),
+  )
   const tabLabel = ASSET_TABS.find(([kind]) => kind === tab)?.[1]
 
   useEffect(() => {
@@ -100,7 +110,11 @@ export function AssetsPage({
       <PageHeader
         eyebrow="第 2 步 · 资产"
         title="建立可复用的视觉资产"
-        description="人物、场景、物品、服装、品牌和音频分别管理，并保持同一项目风格一致。"
+        description={
+          project.contentType === 'short-drama'
+            ? '同一人物复用面部基准，以标准版和不同造型管理服饰；场景、物品分别复用。'
+            : '人物、场景、物品、服装、品牌和音频分别管理，并保持项目风格一致。'
+        }
       >
         <span className="inherited-ratio">
           项目比例 <strong>{project.aspectRatio}</strong>
@@ -108,7 +122,7 @@ export function AssetsPage({
         <button className="button secondary" onClick={() => setEditing({ kind: tab })}>
           <Plus size={16} /> 添加{tabLabel}
         </button>
-        {billing.plan === 'member' && generatable.length > 0 && (
+        {generatable.length > 0 && (
           <button
             className="button primary"
             disabled={batchGenerating}
@@ -122,13 +136,13 @@ export function AssetsPage({
             }}
           >
             {batchGenerating ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}
-            {batchGenerating ? '正在加入队列' : '当前分类并发生成'}
+            {batchGenerating ? '正在加入队列' : '生成当前分类缺失图片'}
           </button>
         )}
       </PageHeader>
 
       <div className="asset-tabs asset-tabs-six">
-        {ASSET_TABS.map(([kind, label]) => (
+        {assetTabs.map(([kind, label]) => (
           <button key={kind} className={tab === kind ? 'active' : ''} onClick={() => setTab(kind)}>
             {label} <span>{assets.filter((asset) => asset.kind === kind).length}</span>
           </button>

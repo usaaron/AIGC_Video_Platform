@@ -1,3 +1,12 @@
+import { assetInsertParams, shotInsertParams } from './workspaceSqlParams.js'
+import {
+  summarizeEpisodeContent,
+  draftContinuityState,
+  aggregateEpisodeList,
+  aggregateSavedEpisodes,
+} from './episodePersistence.js'
+import { AppError } from '../../core/errors.js'
+import { assetIdentityKey, mergeCharacterVariants } from '@seqora/contracts'
 import { changeAssetInDatabase, type AssetChange } from './assetMutation.js'
 import type {
   Asset,
@@ -523,6 +532,12 @@ export class ProjectRepository {
         const episodes = state.scriptEpisodes
           .filter((item) => item.projectId === projectId && item.tenantId === principal.tenantId)
           .sort((left, right) => left.episodeNumber - right.episodeNumber)
+        const checkpoint =
+          options.generationClientRequestId?.startsWith('episode-plan-') &&
+          episodes.find(
+            (item) => item.continuityState.batchGenerationKey === options.generationClientRequestId,
+          )
+        if (checkpoint) return checkpoint
         let episode = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
         if (!episode && !episodeId && !options.createNext) {
           episode = [...episodes].reverse().find((item) => item.status === 'draft')
@@ -575,6 +590,10 @@ export class ProjectRepository {
         [projectId, principal.tenantId],
       )
       const episodes = result.rows.map(scriptEpisodeFromRow)
+      const checkpoint =
+        options.generationClientRequestId?.startsWith('episode-plan-') &&
+        episodes.find((item) => item.continuityState.batchGenerationKey === options.generationClientRequestId)
+      if (checkpoint) return checkpoint
       let current = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
       if (!current && episodeId) return null
       if (!current && !options.createNext) {
@@ -678,7 +697,9 @@ export class ProjectRepository {
           episode.content = content
           episode.draftContent = ''
           episode.status = 'saved'
-          episode.continuityState = {}
+          episode.continuityState = episode.continuityState.batchGenerationKey
+            ? { batchGenerationKey: episode.continuityState.batchGenerationKey }
+            : {}
           episode.title = title?.trim() || episode.title
           episode.summary = summarizeEpisodeContent(content)
           episode.lastEditedBy = principal.userId
@@ -708,7 +729,7 @@ export class ProjectRepository {
         const updated = await client.query<ScriptEpisodeRow>(
           `UPDATE script_episodes
            SET content = $4, draft_content = '', status = 'saved', title = $5, summary = $6,
-               continuity_state = '{}'::jsonb, revision = revision + 1, last_edited_by = $7, updated_at = $8
+               continuity_state = CASE WHEN continuity_state ? 'batchGenerationKey' THEN jsonb_build_object('batchGenerationKey', continuity_state->'batchGenerationKey') ELSE '{}'::jsonb END, revision = revision + 1, last_edited_by = $7, updated_at = $8
            WHERE id = $1 AND project_id = $2 AND tenant_id = $3
            RETURNING ${scriptEpisodeColumns}`,
           [
@@ -1043,6 +1064,26 @@ export class ProjectRepository {
       const project = await this.findWritableProject(client, projectId, principal, true)
       if (!project) return null
 
+      if (input.reuseExisting) {
+        const rows = await client.query<AssetRow>(
+          `SELECT ${assetColumns} FROM assets WHERE project_id = $1 AND tenant_id = $2`,
+          [projectId, principal.tenantId],
+        )
+        const current = rows.rows
+          .map(assetFromRow)
+          .find((asset) => assetIdentityKey(asset) === assetIdentityKey(input))
+        if (current) {
+          const merged = mergeCharacterVariants(current, input)
+          if (merged.attributes.type === 'character' && merged.attributes.appearanceVariants.length > 100)
+            throw new AppError(400, 'TOO_MANY_APPEARANCES', '每个人物最多保存 100 套造型')
+          await client.query(
+            'UPDATE assets SET attributes = $3::jsonb, updated_at = now() WHERE id = $1 AND tenant_id = $2',
+            [current.id, principal.tenantId, JSON.stringify(merged.attributes)],
+          )
+          await touchProject(client, projectId, principal.tenantId, new Date().toISOString())
+          return { ...merged, updatedAt: new Date().toISOString() }
+        }
+      }
       const now = new Date().toISOString()
       const asset: Asset = {
         id: randomUUID(),
@@ -1747,6 +1788,22 @@ export class ProjectRepository {
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,
       )
       if (!project) return null
+      if (input.reuseExisting) {
+        const current = state.assets.find(
+          (asset) =>
+            asset.projectId === projectId &&
+            asset.tenantId === principal.tenantId &&
+            assetIdentityKey(asset) === assetIdentityKey(input),
+        )
+        if (current) {
+          const merged = mergeCharacterVariants(current, input)
+          if (merged.attributes.type === 'character' && merged.attributes.appearanceVariants.length > 100)
+            throw new AppError(400, 'TOO_MANY_APPEARANCES', '每个人物最多保存 100 套造型')
+          Object.assign(current, merged, { updatedAt: new Date().toISOString() })
+          project.updatedAt = current.updatedAt
+          return current
+        }
+      }
       const now = new Date().toISOString()
       const asset: Asset = {
         id: randomUUID(),
@@ -2130,41 +2187,6 @@ function insertionOrderFor(shots: Shot[], insertAfterShotId: string | null | und
   return anchor ? anchor.order + 1 : null
 }
 
-function summarizeEpisodeContent(content: string): string {
-  return content.replace(/\s+/g, ' ').trim().slice(0, 500)
-}
-
-function draftContinuityState(
-  current: unknown,
-  generationClientRequestId: string | undefined,
-  writtenAt: string,
-): Record<string, unknown> {
-  const existing =
-    current && typeof current === 'object' && !Array.isArray(current)
-      ? (current as Record<string, unknown>)
-      : {}
-  if (!generationClientRequestId) return existing
-  return {
-    ...existing,
-    generationClientRequestId,
-    generationDraftWrittenAt: writtenAt,
-  }
-}
-
-function aggregateEpisodeList(episodes: ScriptEpisode[]): string {
-  return episodes
-    .filter((episode) => episode.status === 'saved' && episode.content.trim())
-    .sort((left, right) => left.episodeNumber - right.episodeNumber)
-    .map((episode) => episode.content.trim())
-    .join('\n\n【强制下一集】\n\n')
-}
-
-function aggregateSavedEpisodes(episodes: ScriptEpisode[], projectId: string, tenantId: string): string {
-  return aggregateEpisodeList(
-    episodes.filter((episode) => episode.projectId === projectId && episode.tenantId === tenantId),
-  )
-}
-
 function renumberProjectShots(shots: Shot[], projectId: string, tenantId: string): void {
   shots
     .filter((shot) => shot.projectId === projectId && shot.tenantId === tenantId)
@@ -2349,56 +2371,9 @@ async function touchProject(
   ])
 }
 
-function assetInsertParams(asset: Asset): unknown[] {
-  return [
-    asset.id,
-    asset.projectId,
-    asset.tenantId,
-    asset.kind,
-    asset.sourceMode,
-    asset.name,
-    asset.description,
-    asset.prompt,
-    asset.promptMode,
-    asset.customPromptMode,
-    asset.customPrompt,
-    asset.negativePrompt,
-    JSON.stringify(asset.references),
-    JSON.stringify(asset.attributes),
-    asset.imageUrl,
-    asset.status,
-    asset.createdAt,
-    asset.updatedAt,
-  ]
-}
-
 function prefixedAssetColumns(alias: string): string {
   return assetColumns
     .split(',')
     .map((column) => `${alias}.${column.trim()}`)
     .join(',\n')
-}
-
-function shotInsertParams(shot: Shot): unknown[] {
-  return [
-    shot.id,
-    shot.projectId,
-    shot.tenantId,
-    shot.scriptEpisodeId,
-    shot.order,
-    shot.title,
-    shot.framing,
-    shot.duration,
-    shot.prompt,
-    shot.negativePrompt,
-    shot.imageUrl,
-    shot.continuityMode,
-    shot.continuityNote,
-    shot.episodeBreakBefore,
-    shot.episodeNumber,
-    shot.episodeTitle,
-    shot.episodeKind,
-    shot.createdAt,
-    shot.updatedAt,
-  ]
 }

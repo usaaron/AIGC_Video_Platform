@@ -305,15 +305,23 @@ export function AssetEditor({
     }
   }
 
-  const generateCharacterStage = async (stage, closeAfterQueue = false) => {
+  const generateCharacterStage = async (stage, closeAfterQueue = false, appearance = null) => {
     if (!onGenerateStage) return
     if (stage === 'face' && directImport) throw new Error('直接使用原图无需生成，请将上传图片设为面部基准')
-    const attributes = stage === 'turnaround' ? { ...draft.attributes, turnaround: true } : draft.attributes
+    const base = appearance
+      ? {
+          ...draft.attributes,
+          activeAppearanceVariantId: appearance.id,
+          bodyReference: appearance.bodyReference,
+          bodyStatus: appearance.bodyReference ? 'approved' : 'pending',
+        }
+      : draft.attributes
+    const attributes = stage === 'turnaround' ? { ...base, turnaround: true } : base
     const nextDraft = { ...draft, attributes }
-    setDraft(nextDraft)
-    const persistedAsset = await persistDraft(nextDraft)
+    if (!appearance) setDraft(nextDraft)
+    const persistedAsset = appearance ? asset : await persistDraft(nextDraft)
     const task = await onGenerateStage(
-      persistedAsset,
+      { ...persistedAsset, attributes },
       stage,
       compileCharacterStagePrompt(nextDraft, aspectRatio, stage),
       imageModel,
@@ -447,6 +455,7 @@ export function AssetEditor({
                 onPersist={persistCharacterAttributes}
                 onConfirmFace={confirmFace}
                 onGenerate={generateCharacterStage}
+                onGenerateAppearance={(appearance) => generateCharacterStage('body', false, appearance)}
                 onGenerateAndClose={(stage) => generateCharacterStage(stage, true)}
                 faceCreationMode={creationMode}
                 settings={

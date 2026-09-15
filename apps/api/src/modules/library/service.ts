@@ -67,9 +67,15 @@ export class AssetLibraryService {
     private readonly mediaRepository: MediaRepository,
     private readonly objectStorage: ObjectStorage,
     private readonly generationTasks: GenerationTaskRepository | null = null,
+    private readonly externalSync: ((principal: Principal) => Promise<unknown>) | null = null,
   ) {}
 
+  async syncExternal(principal: Principal) {
+    return this.externalSync?.(principal) ?? { synced: false }
+  }
+
   async list(query: ListAssetLibraryItemsQuery, principal: Principal): Promise<AssetLibraryListResponse> {
+    await this.repository.syncGenerated(principal)
     const result = await this.repository.list(query, principal)
     return {
       ...result,
@@ -119,6 +125,13 @@ export class AssetLibraryService {
   }
 
   async permanentDelete(itemId: string, principal: Principal): Promise<void> {
+    const item = await this.repository.find(itemId, principal, { includeDeleted: true })
+    if (item?.sourceSnapshot.automatic === true)
+      throw new AppError(
+        409,
+        'AUTOMATIC_LIBRARY_ITEM_RETAINED',
+        '自动收录的内容可移入回收站，以保留不再收录的记录',
+      )
     const deleted = await this.repository.permanentDelete(itemId, principal)
     if (!deleted) throw new AppError(404, 'LIBRARY_ITEM_NOT_FOUND', 'Library item not found')
   }
@@ -255,6 +268,7 @@ export class AssetLibraryService {
   }
 
   async stats(principal: Principal): Promise<AssetLibraryStatsResponse> {
+    await this.repository.syncGenerated(principal)
     return this.repository.stats(principal)
   }
 
@@ -287,29 +301,48 @@ export class AssetLibraryService {
     const item = await this.repository.find(input.itemId, principal)
     if (!item) throw new AppError(404, 'LIBRARY_ITEM_NOT_FOUND', 'Library item not found')
     const target = input.target === 'auto' ? defaultImportTarget(item) : input.target
-    const content = await this.objectStorage.get(item.storageKey)
+    const content = await this.storedContent(item)
 
     if (target === 'script') {
       if (item.kind !== 'script') {
         throw new AppError(400, 'LIBRARY_IMPORT_TARGET_MISMATCH', 'Only script assets can import as text')
       }
+      const text = content.toString('utf8')
+      if (workspace.project.contentType === 'short-drama') {
+        await this.projects.writeScriptEpisodeDraft(projectId, null, text, principal, {
+          createNext: true,
+          title: item.title,
+        })
+      } else {
+        if (workspace.project.script.trim())
+          throw new AppError(
+            409,
+            'SCRIPT_IMPORT_TARGET_NOT_EMPTY',
+            '当前项目已有剧本，请选择空项目导入，或下载后手动合并',
+          )
+        await this.projects.update(projectId, { script: text }, principal)
+      }
       return {
         item: this.toView(item),
         imported: {
           type: 'script',
-          content: content.toString('utf8'),
+          content: text,
         },
       }
     }
 
-    if (item.kind !== 'image' && item.kind !== 'audio') {
+    const mediaKind: MediaKind | null = item.contentType.startsWith('image/')
+      ? 'image'
+      : item.contentType.startsWith('audio/')
+        ? 'audio'
+        : null
+    if (!mediaKind) {
       throw new AppError(
         400,
         'LIBRARY_IMPORT_UNSUPPORTED',
         'Only image, script and audio import are supported',
       )
     }
-    const mediaKind: MediaKind = item.kind
     const storageKey = projectMediaStorageKey(
       principal.tenantId,
       workspace.project.id,
@@ -341,7 +374,7 @@ export class AssetLibraryService {
     const storageKey = preview ? (item.previewStorageKey ?? item.storageKey) : item.storageKey
     return {
       item,
-      content: await this.objectStorage.get(storageKey),
+      content: await this.storedContent(item, storageKey),
       contentType: item.contentType,
       fileName: safeFileName(item.title, item.contentType),
     }
@@ -359,7 +392,7 @@ export class AssetLibraryService {
     if (!item || !version) throw new AppError(404, 'LIBRARY_VERSION_NOT_FOUND', 'Library version not found')
     return {
       item,
-      content: await this.objectStorage.get(version.storageKey),
+      content: await this.storedContent(version),
       contentType: version.contentType,
       fileName: `${safeBaseName(item.title) || 'asset'}-v${version.version}${extensionForContentType(
         version.contentType,
@@ -370,7 +403,7 @@ export class AssetLibraryService {
   async readPackage(itemId: string, principal: Principal): Promise<LibraryContent> {
     const item = await this.repository.find(itemId, principal)
     if (!item) throw new AppError(404, 'LIBRARY_ITEM_NOT_FOUND', 'Library item not found')
-    const content = await this.objectStorage.get(item.storageKey)
+    const content = await this.storedContent(item)
     const assetFileName = `files/${safeFileName(item.title, item.contentType)}`
     const manifest = Buffer.from(JSON.stringify(packageManifest(item, assetFileName), null, 2), 'utf8')
     return {
@@ -445,7 +478,7 @@ export class AssetLibraryService {
   ): Promise<StoredContentLocation> {
     const contentHash = contentHashFor(source.content)
     const duplicate = await this.repository.findDuplicate(source.kind, contentHash, principal)
-    if (duplicate) {
+    if (duplicate && !duplicate.storageKey.startsWith('inline:')) {
       return {
         storageKey: duplicate.storageKey,
         previewStorageKey: duplicate.previewStorageKey ?? duplicate.storageKey,
@@ -595,6 +628,15 @@ export class AssetLibraryService {
     return null
   }
 
+  private async storedContent(
+    item: Pick<AssetLibraryItemRecord, 'storageKey' | 'sourceSnapshot'>,
+    storageKey = item.storageKey,
+  ): Promise<Buffer> {
+    if (storageKey.startsWith('inline:') && typeof item.sourceSnapshot.inlineContent === 'string')
+      return Buffer.from(item.sourceSnapshot.inlineContent, 'utf8')
+    return this.objectStorage.get(storageKey)
+  }
+
   private toView(item: AssetLibraryItemRecord): AssetLibraryItemView {
     const encoded = encodeURIComponent(item.id)
     const publicItem = {
@@ -609,7 +651,7 @@ export class AssetLibraryService {
       sourceAssetId: item.sourceAssetId,
       sourceTaskId: item.sourceTaskId,
       sourceMediaId: item.sourceMediaId,
-      sourceSnapshot: item.sourceSnapshot,
+      sourceSnapshot: publicSnapshot(item.sourceSnapshot),
       contentHash: item.contentHash,
       contentType: item.contentType,
       sizeBytes: item.sizeBytes,
@@ -636,7 +678,7 @@ export class AssetLibraryService {
       tenantId: version.tenantId,
       ownerUserId: version.ownerUserId,
       version: version.version,
-      sourceSnapshot: version.sourceSnapshot,
+      sourceSnapshot: publicSnapshot(version.sourceSnapshot),
       contentHash: version.contentHash,
       contentType: version.contentType,
       sizeBytes: version.sizeBytes,
@@ -863,4 +905,9 @@ function extensionForContentType(contentType: string): string {
   if (normalized.includes('json')) return '.json'
   if (normalized.includes('text/plain')) return '.txt'
   return '.bin'
+}
+
+function publicSnapshot(snapshot: Record<string, unknown>): Record<string, unknown> {
+  const { inlineContent: _content, ...publicFields } = snapshot
+  return publicFields
 }

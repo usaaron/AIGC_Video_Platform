@@ -58,6 +58,7 @@ services:
       NODE_ENV: production
       API_HOST: 0.0.0.0
       API_PORT: 8787
+      SCRIPT_MASTER_INTERNAL_URL: ${SCRIPT_MASTER_INTERNAL_URL:-http://script-master-web:3000/script-master}
       REDIS_URL: redis://redis:6379
       BOOTSTRAP_ACCOUNTS_ON_START: 'false'
       DATA_FILE: /var/lib/seqora/app.json

@@ -1,4 +1,5 @@
-import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
+import { useState } from 'react'
+import { suggestEpisodePlan, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import { isQueuedTextTask } from './scriptTaskState'
 
 export function readGenerationResult(result) {
@@ -57,6 +58,7 @@ export function useScriptGeneration({
   setSegmentGoal,
   setSaving,
 }) {
+  const [episodePlan, setEpisodePlan] = useState(null)
   const textProviderError = (action) => {
     setError(
       textProviderStatus === 'unavailable'
@@ -79,7 +81,7 @@ export function useScriptGeneration({
     }
   }
 
-  const expand = async (intent = 'generate') => {
+  const expand = async (intent = 'generate', confirmedPlan = null) => {
     if (textProviderStatus !== 'configured') {
       textProviderError('生成剧本')
       return
@@ -107,9 +109,28 @@ export function useScriptGeneration({
       setScript(sourceScript)
       setSaved(targetEpisode.status === 'saved')
     }
-    if (billing.credits < SCRIPT_OPERATION_CREDITS.generate) {
+    if (isSeries && intent === 'generate' && !confirmedPlan) {
+      const source = sourceScript.trim() || project.synopsis.trim()
+      const suggestion = suggestEpisodePlan(source, episodeDurationSeconds)
+      if (suggestion.required) {
+        const startNumber = (orderedEpisodes.at(-1)?.episodeNumber || 0) + 1
+        setEpisodePlan({
+          ...suggestion,
+          startNumber,
+          episodes: suggestion.episodes.map((episode, index) => ({
+            ...episode,
+            title: `第 ${startNumber + index} 集`,
+          })),
+          id: crypto.randomUUID(),
+          original: source,
+          seconds: episodeDurationSeconds,
+        })
+        return
+      }
+    }
+    if (billing.credits < SCRIPT_OPERATION_CREDITS.generate * (confirmedPlan?.episodes.length || 1)) {
       setError(
-        `智能生成${contentConfig.documentName}需要 ${SCRIPT_OPERATION_CREDITS.generate} 积分，当前剩余 ${billing.credits} 积分`,
+        `智能生成${contentConfig.documentName}需要 ${SCRIPT_OPERATION_CREDITS.generate * (confirmedPlan?.episodes.length || 1)} 积分，当前剩余 ${billing.credits} 积分`,
       )
       return
     }
@@ -129,7 +150,9 @@ export function useScriptGeneration({
         intent === 'revise' ? revisionNote : '',
         setGenerationPhase,
         targetEpisode?.id,
+        confirmedPlan ? { id: confirmedPlan.id, episodes: confirmedPlan.episodes } : undefined,
       )
+      setEpisodePlan(null)
       if (isQueuedTextTask(result)) {
         setGenerationWarnings([
           `${contentConfig.documentName}已进入后台生成，可离开当前页面；完成或失败后会在右上角通知。`,
@@ -249,5 +272,14 @@ export function useScriptGeneration({
     onNext()
   }
 
-  return { commitEpisodeDuration, expand, generateSegment, normalizeDuration, save, continueToAssets }
+  return {
+    episodePlan,
+    setEpisodePlan,
+    commitEpisodeDuration,
+    expand,
+    generateSegment,
+    normalizeDuration,
+    save,
+    continueToAssets,
+  }
 }

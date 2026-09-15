@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArchiveRestore,
   Boxes,
@@ -21,6 +21,7 @@ const KIND_LABELS = {
   scene: '场景',
   prop: '物品',
   costume: '服装',
+  brand: '品牌',
   audio: '音频',
   image: '图片',
   script: '剧本',
@@ -40,6 +41,7 @@ export function AssetLibraryPage({
   currentProject,
   onToast,
   onLoadItems,
+  onSyncExternal,
   onLoadStats,
   onLoadDuplicates,
   onDedupe,
@@ -60,8 +62,11 @@ export function AssetLibraryPage({
   const [versions, setVersions] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
+  const [catalogRevision, setCatalogRevision] = useState(0)
+  const loadSequence = useRef(0)
 
   const load = async () => {
+    const sequence = ++loadSequence.current
     setLoading(true)
     try {
       const [nextStats, nextItems, nextDuplicates] = await Promise.all([
@@ -77,20 +82,36 @@ export function AssetLibraryPage({
             }),
         tab === 'duplicates' ? onLoadDuplicates() : Promise.resolve({ groups: duplicates }),
       ])
+      if (sequence !== loadSequence.current) return
       setStats(nextStats)
       if (tab !== 'duplicates') setItemsResult(nextItems)
       if (tab === 'duplicates') setDuplicates(nextDuplicates.groups || [])
     } catch (error) {
-      onToast?.(error.message)
+      if (sequence === loadSequence.current) onToast?.(error.message)
     } finally {
-      setLoading(false)
+      if (sequence === loadSequence.current) setLoading(false)
     }
   }
+
+  const syncExternal = async () => {
+    try {
+      await onSyncExternal?.()
+    } catch (error) {
+      onToast?.(error.message)
+    }
+    setCatalogRevision((current) => current + 1)
+  }
+  useEffect(() => {
+    void syncExternal()
+  }, [])
 
   useEffect(() => {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, kind, query, page])
+    return () => {
+      loadSequence.current += 1
+    }
+  }, [tab, kind, query, page, catalogRevision])
 
   const activeKinds = useMemo(
     () => stats?.byKind?.filter((item) => item.count > 0 || item.trashed > 0) || [],
@@ -131,9 +152,9 @@ export function AssetLibraryPage({
         <div>
           <p className="eyebrow">账号资产库</p>
           <h1>长期资产</h1>
-          <p>保存、追溯和复用跨项目的图片、剧本、音频、视频和成片包。</p>
+          <p>自动汇集本账号生成的图片与长短剧本，按来源项目分类，支持下载与跨项目复用。</p>
         </div>
-        <button className="button secondary" type="button" onClick={() => void load()}>
+        <button className="button secondary" type="button" onClick={() => void syncExternal()}>
           <RefreshCw size={15} /> 刷新
         </button>
       </div>
@@ -394,16 +415,18 @@ function LibraryItemRow({
         <a className="button secondary" href={item.packageUrl}>
           <PackageOpen size={14} /> 包
         </a>
-        {onImport && mode !== 'trash' && (
-          <button
-            className="button secondary"
-            disabled={busy === `import:${item.id}`}
-            onClick={onImport}
-            type="button"
-          >
-            <ArchiveRestore size={14} /> 导入当前项目
-          </button>
-        )}
+        {onImport &&
+          mode !== 'trash' &&
+          (item.kind === 'script' || /^(image|audio)\//u.test(item.contentType)) && (
+            <button
+              className="button secondary"
+              disabled={busy === `import:${item.id}`}
+              onClick={onImport}
+              type="button"
+            >
+              <ArchiveRestore size={14} /> 导入当前项目
+            </button>
+          )}
         {mode === 'trash' ? (
           <>
             <button
@@ -416,7 +439,8 @@ function LibraryItemRow({
             </button>
             <button
               className="button danger"
-              disabled={busy === `permanent:${item.id}`}
+              disabled={busy === `permanent:${item.id}` || item.sourceSnapshot?.automatic === true}
+              title={item.sourceSnapshot?.automatic ? '保留回收站记录，避免源内容再次自动收录' : undefined}
               onClick={onPermanentDelete}
               type="button"
             >

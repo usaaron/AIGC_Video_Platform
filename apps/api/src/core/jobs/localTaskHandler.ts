@@ -12,6 +12,7 @@ export type LocalGenerationTaskHandler = {
 }
 
 export type LocalTaskExecutionContext = {
+  assertActive?: (() => Promise<void>) | undefined
   onTextProgress?: (text: string, stage?: string) => void
   onTextTiming?: (timing: TextGenerationTiming) => void
 }

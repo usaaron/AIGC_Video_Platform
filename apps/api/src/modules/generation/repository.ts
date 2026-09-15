@@ -1,4 +1,4 @@
-import { buildQueuedGenerationTask, findTaskByClientRequest } from './taskCreation.js'
+import { buildQueuedGenerationTask, findTaskByClientRequest, taskInsertParams } from './taskCreation.js'
 import { preparePortraitSubmission, preparePortraitSubmissionInState } from './trustedPortraitSubmission.js'
 import type { CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
@@ -518,9 +518,13 @@ export class GenerationTaskRepository {
     return this.createBatchWithChargeInStore(inputs, principal, options)
   }
 
-  async listByProject(projectId: string, principal: Principal): Promise<GenerationTask[]> {
+  async listByProject(
+    projectId: string,
+    principal: Principal,
+    includeHidden = false,
+  ): Promise<GenerationTask[]> {
     await this.recoverExpiredFilmPreviewTasks(principal, projectId)
-    if (!this.database) return this.listByProjectFromStore(projectId, principal)
+    if (!this.database) return this.listByProjectFromStore(projectId, principal, includeHidden)
 
     const canReadAll = canReadAllTenantContent(principal)
     const result = await this.database.query<GenerationTaskRow>(
@@ -530,10 +534,10 @@ export class GenerationTaskRepository {
       WHERE project_id = $1
         AND tenant_id = $2
         AND ($3::boolean OR user_id = $4)
-        AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
+        AND ($5::boolean OR jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string')
       ORDER BY created_at DESC, id DESC
       `,
-      [projectId, principal.tenantId, canReadAll, principal.userId],
+      [projectId, principal.tenantId, canReadAll, principal.userId, includeHidden],
     )
     const tasks = result.rows.map(taskFromRow)
     await this.mirrorTasks(tasks)
@@ -1369,7 +1373,11 @@ export class GenerationTaskRepository {
     })
   }
 
-  private listByProjectFromStore(projectId: string, principal: Principal): GenerationTask[] {
+  private listByProjectFromStore(
+    projectId: string,
+    principal: Principal,
+    includeHidden = false,
+  ): GenerationTask[] {
     const canReadAll = canReadAllTenantContent(principal)
     return this.requireStore().read((state) =>
       state.tasks.filter(
@@ -1377,7 +1385,7 @@ export class GenerationTaskRepository {
           task.projectId === projectId &&
           task.tenantId === principal.tenantId &&
           (canReadAll || task.userId === principal.userId) &&
-          typeof task.metadata.queueHiddenAt !== 'string',
+          (includeHidden || typeof task.metadata.queueHiddenAt !== 'string'),
       ),
     )
   }
@@ -2146,38 +2154,4 @@ async function insertTaskFromStore(client: PoolClient, task: GenerationTask): Pr
     taskInsertParams(normalizeGenerationTaskLifecycle(task), membership?.id ?? null),
   )
   return (result.rowCount ?? 0) > 0
-}
-
-function taskInsertParams(task: GenerationTask, membershipId: string | null): unknown[] {
-  return [
-    task.id,
-    task.clientRequestId,
-    task.projectId,
-    task.tenantId,
-    task.userId,
-    membershipId,
-    task.kind,
-    task.label,
-    task.prompt,
-    task.negativePrompt,
-    task.provider,
-    task.model,
-    task.tier ?? null,
-    JSON.stringify(task.metadata),
-    task.status,
-    task.progress,
-    task.estimatedCredits,
-    task.attempts ?? 0,
-    task.maxAttempts ?? null,
-    task.leaseOwnerId ?? null,
-    task.leaseToken ?? null,
-    task.leaseAcquiredAt ?? null,
-    task.leaseHeartbeatAt ?? null,
-    task.leaseExpiresAt ?? null,
-    task.resultUrl,
-    JSON.stringify(task.outputs),
-    task.error,
-    task.createdAt,
-    task.updatedAt,
-  ]
 }

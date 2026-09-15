@@ -1,3 +1,4 @@
+import { SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 export const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 export const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed'])
 
@@ -90,7 +91,9 @@ export function retryTaskInput(task) {
     negativePrompt: task.negativePrompt,
     provider: task.provider,
     model: task.model || undefined,
-    estimatedCredits: task.estimatedCredits,
+    estimatedCredits: metadata.episodePlan
+      ? SCRIPT_OPERATION_CREDITS.generate * metadata.episodePlan.episodes.length
+      : task.estimatedCredits,
     maxAttempts: task.maxAttempts,
     metadata,
   }

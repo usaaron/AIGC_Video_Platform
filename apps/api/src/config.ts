@@ -23,6 +23,7 @@ const configSchema = z
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
     PUBLIC_API_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
     SCRIPT_MASTER_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    SCRIPT_MASTER_INTERNAL_URL: z.union([z.literal(''), z.string().url()]).default(''),
     SCRIPT_MASTER_SHARED_SECRET: z.string().default(''),
     SCRIPT_MASTER_LAUNCH_TTL_SECONDS: z.coerce.number().int().min(30).max(900).default(300),
     TRUST_PROXY: booleanFromEnvironment.default(false),

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { episodePlanSchema } from './episodePlan.js'
 import { ASSET_SUGGESTION_MODEL, DEFAULT_SCRIPT_MODEL, scriptModelSchema } from './textModels.js'
 
 export {
@@ -78,6 +79,7 @@ export const scriptGenerationSegmentSchema = z.object({
 })
 
 export const generateScriptRequestSchema = z.object({
+  episodePlan: episodePlanSchema.optional(),
   clientRequestId: z.string().min(1).max(128).optional(),
   draft: z.string().max(100_000).default(''),
   direction: scriptCreativeDirectionSchema.default(DEFAULT_SCRIPT_DIRECTION),
@@ -158,6 +160,7 @@ export const mediaReferenceSchema = z.object({
 export const characterAppearanceVariantSchema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(1_000).optional(),
   bodyReference: mediaReferenceSchema.nullable().default(null),
   turnaroundReferences: z.array(mediaReferenceSchema).max(3).default([]),
   turnaroundLayout: z.enum(['sheet', 'separate']).default('sheet'),
@@ -229,7 +232,7 @@ export const characterAttributesSchema = z.object({
       turnaround: z.string().max(5_000),
     })
     .optional(),
-  appearanceVariants: z.array(characterAppearanceVariantSchema).max(12).default([]),
+  appearanceVariants: z.array(characterAppearanceVariantSchema).max(100).default([]),
   activeAppearanceVariantId: z.string().max(128).nullable().default(null),
 })
 
@@ -341,7 +344,7 @@ export const generateScriptAssetSuggestionsRequestSchema = z.object({
 
 export const scriptAssetSuggestionsContentSchema = z.object({
   summary: z.string().min(1).max(700),
-  assets: z.array(scriptAssetSuggestionSchema).max(16),
+  assets: z.array(scriptAssetSuggestionSchema).max(2_000),
 })
 
 export const scriptAssetSuggestionsResultSchema = scriptAssetSuggestionsContentSchema.extend({
@@ -484,22 +487,24 @@ const assetInputSchema = z.object({
   imageUrl: assetInputFields.imageUrl.default(null),
 })
 
-export const createAssetSchema = assetInputSchema.superRefine((input, context) => {
-  if (input.kind !== input.attributes.type) {
-    context.addIssue({
-      code: 'custom',
-      path: ['attributes', 'type'],
-      message: 'Asset kind must match attributes',
-    })
-  }
-  if (input.sourceMode === 'import' && input.references.length === 0 && !input.imageUrl) {
-    context.addIssue({
-      code: 'custom',
-      path: ['references'],
-      message: 'Imported assets require a reference',
-    })
-  }
-})
+export const createAssetSchema = assetInputSchema
+  .extend({ reuseExisting: z.boolean().optional() })
+  .superRefine((input, context) => {
+    if (input.kind !== input.attributes.type) {
+      context.addIssue({
+        code: 'custom',
+        path: ['attributes', 'type'],
+        message: 'Asset kind must match attributes',
+      })
+    }
+    if (input.sourceMode === 'import' && input.references.length === 0 && !input.imageUrl) {
+      context.addIssue({
+        code: 'custom',
+        path: ['references'],
+        message: 'Imported assets require a reference',
+      })
+    }
+  })
 
 export const updateAssetSchema = z
   .object({

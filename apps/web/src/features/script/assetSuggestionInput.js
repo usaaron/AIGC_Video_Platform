@@ -29,6 +29,7 @@ export function suggestionToAssetInput(suggestion) {
     .slice(0, 500)
   return {
     kind,
+    reuseExisting: true,
     sourceMode: 'generate',
     name: String(suggestion.name || '').trim(),
     description,

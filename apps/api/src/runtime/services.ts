@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config.js'
+import { syncScriptMasterLibrary } from '../modules/scriptMaster/librarySync.js'
 import { FilmPreviewComposer, type FilmPreviewDispatcher } from '../core/film/filmPreviewComposer.js'
 import { createMailer, type Mailer } from '../core/email/mailer.js'
 import { OutboxRepository } from '../core/jobs/outbox.js'
@@ -278,6 +279,7 @@ export function createRuntimeServices(input: {
     mediaRepository,
     objectStorage,
     repositories.generationTaskRepository,
+    (principal) => syncScriptMasterLibrary(config, repositories.assetLibraryRepository, principal),
   )
   const image2AssistService = new Image2AssistService({
     baseUrl: config.SEQORA_IMAGE2_BASE_URL,

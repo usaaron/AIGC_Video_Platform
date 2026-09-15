@@ -60,3 +60,37 @@ export function buildQueuedGenerationTask(
     error: null,
   })
 }
+
+export function taskInsertParams(task: GenerationTask, membershipId: string | null): unknown[] {
+  return [
+    task.id,
+    task.clientRequestId,
+    task.projectId,
+    task.tenantId,
+    task.userId,
+    membershipId,
+    task.kind,
+    task.label,
+    task.prompt,
+    task.negativePrompt,
+    task.provider,
+    task.model,
+    task.tier ?? null,
+    JSON.stringify(task.metadata),
+    task.status,
+    task.progress,
+    task.estimatedCredits,
+    task.attempts ?? 0,
+    task.maxAttempts ?? null,
+    task.leaseOwnerId ?? null,
+    task.leaseToken ?? null,
+    task.leaseAcquiredAt ?? null,
+    task.leaseHeartbeatAt ?? null,
+    task.leaseExpiresAt ?? null,
+    task.resultUrl,
+    JSON.stringify(task.outputs),
+    task.error,
+    task.createdAt,
+    task.updatedAt,
+  ]
+}

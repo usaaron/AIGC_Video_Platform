@@ -8,6 +8,7 @@ import {
 } from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
+import { AppError } from '../../../core/errors.js'
 import { requirePermission } from '../../../core/auth/authorization.js'
 import type { ProjectService } from '../service.js'
 import { episodeParams, parseRequest, projectParams } from './support.js'
@@ -37,6 +38,12 @@ export function registerProjectScriptRoutes(app: FastifyInstance, service: Proje
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
     (request) => {
       const input = parseRequest(generateScriptRequestSchema, request.body ?? {})
+      if (input.episodePlan)
+        throw new AppError(
+          409,
+          'EPISODE_PLAN_QUEUE_REQUIRED',
+          '多集生成请通过生成队列提交，以支持离页运行与失败重试',
+        )
       return service.generateScript(
         parseRequest(projectParams, request.params).projectId,
         input.draft,

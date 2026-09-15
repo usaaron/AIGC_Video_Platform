@@ -838,7 +838,15 @@ describe('ProjectService asset suggestions', () => {
           name: '铁棍',
           attributes: expect.objectContaining({ material: 'metal', condition: 'used' }),
         }),
-        expect.objectContaining({ kind: 'costume', name: '林晚灰色防风服' }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '林晚',
+          attributes: expect.objectContaining({
+            appearanceVariants: expect.arrayContaining([
+              expect.objectContaining({ name: '林晚-灰色防风服版' }),
+            ]),
+          }),
+        }),
       ]),
     )
     expect(splitScriptParagraphs(script)).toHaveLength(1)

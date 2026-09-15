@@ -215,8 +215,9 @@ export function createWorkspaceCommands({
         label,
         provider: 'text',
         model: taskModel,
-        estimatedCredits:
-          operation === 'enrich'
+        estimatedCredits: input.episodePlan
+          ? SCRIPT_OPERATION_CREDITS.generate * input.episodePlan.episodes.length
+          : operation === 'enrich'
             ? SCRIPT_OPERATION_CREDITS.enrich
             : operation === 'suggest-assets'
               ? SCRIPT_OPERATION_CREDITS.suggestAssets
@@ -575,4 +576,32 @@ export function createWorkspaceCommands({
     createStoryboardVideo,
     createStoryboardVideoBatch,
   }
+}
+
+export function createCharacterStageJob(createJob, project, asset, stage, prompt, model) {
+  const references =
+    stage === 'face'
+      ? asset.references
+      : stage === 'body'
+        ? [asset.attributes.faceReference].filter(Boolean)
+        : [asset.attributes.faceReference, asset.attributes.bodyReference].filter(Boolean)
+  const labels = { face: '面部大头照', body: '全身设定', turnaround: '三视图设定表' }
+  const costs = { face: 4, body: 6, turnaround: 18 }
+  return createJob(`${asset.name} · ${labels[stage]}`, '图片', costs[stage], {
+    prompt,
+    model,
+    negativePrompt: asset.negativePrompt,
+    metadata: {
+      assetId: asset.id,
+      assetKind: asset.kind,
+      generationStage: stage,
+      aspectRatio: stage === 'face' ? '1:1' : stage === 'turnaround' ? '16:9' : project.aspectRatio,
+      sourceMode: asset.sourceMode,
+      references,
+      attributes: asset.attributes,
+      turnaround: stage === 'turnaround',
+      composeSheet: stage === 'turnaround',
+      outputLayout: asset.attributes.turnaroundLayout,
+    },
+  })
 }

@@ -1,0 +1,56 @@
+.episode-plan-editor {
+  scroll-margin-top: 100px;
+  padding: 24px;
+  border: 1px solid var(--border, #dce2e5);
+  border-radius: 16px;
+  background: var(--panel, #fff);
+  margin: 20px 0;
+}
+.episode-plan-editor header,
+.episode-plan-editor footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.episode-plan-editor p {
+  line-height: 1.7;
+  color: var(--text-secondary, #627079);
+}
+.episode-plan-editor input,
+.episode-plan-editor textarea {
+  padding: 10px;
+  border: 1px solid var(--border, #dce2e5);
+  border-radius: 8px;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  color: inherit;
+}
+.episode-plan-editor input[type='number'] {
+  width: 90px;
+}
+.episode-plan-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+  max-height: 480px;
+  overflow: auto;
+  margin: 18px 0;
+}
+.episode-plan-list label {
+  display: grid;
+  gap: 8px;
+}
+.episode-plan-editor footer {
+  justify-content: flex-end;
+}
+@media (max-width: 600px) {
+  .episode-plan-editor {
+    padding: 16px;
+  }
+  .episode-plan-editor footer button {
+    width: 100%;
+  }
+}

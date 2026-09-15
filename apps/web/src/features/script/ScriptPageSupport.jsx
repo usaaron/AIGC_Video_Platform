@@ -1,3 +1,6 @@
+import { ArrowRight, Sparkles } from 'lucide-react'
+import { AssetSuggestionsPanel } from './AssetSuggestionsPanel'
+import { SCRIPT_ASSET_SUGGESTION_COPY } from './scriptPageConfig'
 import { CircleHelp } from 'lucide-react'
 
 export function ScriptHelp({ label, children }) {
@@ -59,4 +62,89 @@ function formatMilliseconds(value) {
   if (value === null) return '未记录'
   if (value < 1_000) return `${Math.round(value)}ms`
   return `${(value / 1_000).toFixed(value >= 10_000 ? 1 : 2)}s`
+}
+
+export function ScriptAssetSuggestions({ assetSuggestions, isSeries, skipAssetSuggestions, stopping }) {
+  return (
+    <AssetSuggestionsPanel
+      status={assetSuggestions.status}
+      result={assetSuggestions.result}
+      error={assetSuggestions.error}
+      creatingKeys={assetSuggestions.creatingKeys}
+      createdKeys={assetSuggestions.createdKeys}
+      onRefresh={() => void assetSuggestions.extractFast()}
+      onCancel={() => void assetSuggestions.stop()}
+      onFastExtract={() => void assetSuggestions.extractFast()}
+      onSkip={() => void skipAssetSuggestions()}
+      stopping={stopping}
+      onInspect={assetSuggestions.openEditor}
+      onCreateAndGenerate={assetSuggestions.createAndGenerate}
+      onImportSelected={assetSuggestions.importSelected}
+      onGenerateSelected={assetSuggestions.generateSelected}
+      allowCostume={!isSeries}
+      copy={{
+        ...SCRIPT_ASSET_SUGGESTION_COPY,
+        title: isSeries ? '扫描全部已保存剧集，合并人物造型、场景和物品' : '扫描脚本，建立可复用资产',
+        refresh: assetSuggestions.result
+          ? SCRIPT_ASSET_SUGGESTION_COPY.refreshAgain
+          : SCRIPT_ASSET_SUGGESTION_COPY.refresh,
+      }}
+    />
+  )
+}
+
+export function ScriptFlowActions({ saved, disabled, onContinue }) {
+  return (
+    <section className="script-flow-actions">
+      <div>
+        <span className="eyebrow">下一步</span>
+        <strong>从当前剧本建立核心资产</strong>
+        <small>{saved ? '当前版本已保存' : '继续时会先保存当前版本'}</small>
+      </div>
+      <div>
+        <button className="button primary" disabled={disabled} onClick={() => void onContinue()}>
+          进入资产设计 <ArrowRight size={16} />
+        </button>
+      </div>
+    </section>
+  )
+}
+
+export function ScriptGenerationMessages({
+  textGenerationUnavailable,
+  textGenerationStatusMessage,
+  latestFailedScriptTask,
+  generationWarnings,
+  latestTextTiming,
+}) {
+  return (
+    <>
+      {textGenerationUnavailable && (
+        <div className="script-generation-note" role="alert">
+          <CircleHelp size={15} />
+          <span>{textGenerationStatusMessage}</span>
+        </div>
+      )}
+
+      {latestFailedScriptTask && (
+        <div className="script-generation-note script-generation-note-error" role="alert">
+          <CircleHelp size={15} />
+          <span>
+            <strong>本次剧本任务已停止</strong>
+            <span>{latestFailedScriptTask.error || '生成未完成，请检查当前草稿后重试。'}</span>
+            <small>已生成的剧集草稿不会被删除；请先保存当前剧集，再继续生成下一集。</small>
+          </span>
+        </div>
+      )}
+
+      {generationWarnings.length > 0 && (
+        <div className="script-generation-note" role="status">
+          <Sparkles size={15} />
+          <span>{generationWarnings.slice(0, 2).join('；')}</span>
+        </div>
+      )}
+
+      {latestTextTiming && <TextTimingSummary timing={latestTextTiming} />}
+    </>
+  )
 }

@@ -28,6 +28,14 @@ export async function registerLibraryRoutes(
   app: FastifyInstance,
   service: AssetLibraryService,
 ): Promise<void> {
+  app.post(
+    '/library/sync-script-master',
+    {
+      preHandler: requirePermission(PERMISSIONS.ASSET_LIBRARY_WRITE),
+      config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
+    },
+    (request) => service.syncExternal(request.principal!),
+  )
   app.get(
     '/library/items',
     { preHandler: requirePermission(PERMISSIONS.ASSET_LIBRARY_READ) },

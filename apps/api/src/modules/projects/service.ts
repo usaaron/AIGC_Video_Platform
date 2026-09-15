@@ -1,3 +1,4 @@
+import { runBillableScriptOperation } from '../billing/scriptBilling.js'
 import type {
   AutoSplitShotsRequest,
   CreateAsset,
@@ -16,11 +17,13 @@ import type {
 } from '@seqora/contracts'
 import {
   ASSET_SUGGESTION_MODEL,
+  suggestEpisodePlan,
   DEFAULT_SCRIPT_MODEL,
   SCRIPT_OPERATION_CREDITS,
   scriptAssetSuggestionsContentSchema,
   scriptReviewContentSchema,
 } from '@seqora/contracts'
+import { mergeProjectSuggestions } from './characterSuggestions.js'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider, TextGenerationTiming } from '../../core/generation/textProvider.js'
 import { traceMetadata } from '../../core/observability/trace.js'
@@ -29,7 +32,7 @@ import type { CreditLedger } from '../billing/creditLedger.js'
 import type { ProjectRepository } from './repository.js'
 import {
   assetSuggestionKey,
-  deduplicateAssetSuggestions,
+  extractScriptAssetManifest,
   extractScriptAssetNameIndex,
   fallbackAssetSuggestions,
   normalizeScriptAssetSuggestion,
@@ -212,14 +215,25 @@ export class ProjectService {
     strategy: 'model' | 'fast' = 'model',
   ) {
     const workspace = await this.workspace(projectId, principal)
-    const source = script.trim()
+    const source = [
+      ...new Set(
+        [
+          ...(workspace.scriptEpisodes || [])
+            .filter((episode) => episode.status === 'saved')
+            .map((episode) => episode.content.trim()),
+          script.trim(),
+        ].filter(Boolean),
+      ),
+    ].join('\n\n')
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本内容')
+    const sourceManifest = extractScriptAssetManifest(source)
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n视觉风格：${projectVisualStyleLabel(workspace.project.visualStyle)}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n已有资产：${assetSuggestionSummary(workspace.assets)}`
     const fallbackResult = fallbackAssetSuggestions(
       source,
       direction,
       workspace.project.visualStyle ?? 'cinematic-cg',
+      sourceManifest,
     )
     const assetEvidence = buildScriptAssetEvidence(source)
     let warnings: string[] = []
@@ -267,6 +281,7 @@ export class ProjectService {
         sourceNames,
         source,
         workspace.project.visualStyle ?? 'cinematic-cg',
+        sourceManifest,
       )
       return normalized ? [normalized] : []
     })
@@ -276,6 +291,7 @@ export class ProjectService {
         sourceNames,
         source,
         workspace.project.visualStyle ?? 'cinematic-cg',
+        sourceManifest,
       )
       return normalized ? [normalized] : []
     })
@@ -286,7 +302,7 @@ export class ProjectService {
 
     return {
       summary: result.summary,
-      assets: deduplicateAssetSuggestions(
+      assets: mergeProjectSuggestions(
         [
           ...normalizedAssets,
           ...normalizedFallbackAssets.filter(
@@ -294,7 +310,8 @@ export class ProjectService {
           ),
         ],
         workspace.assets,
-      ).slice(0, 16),
+        workspace.project.contentType === 'short-drama',
+      ),
       generatedAt: new Date().toISOString(),
       warnings,
     }
@@ -317,6 +334,14 @@ export class ProjectService {
     onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
     episodeId?: string,
+    batch?: {
+      createNext: boolean
+      title: string
+      batchGenerationKey: string
+      continuity: string
+      beforeWrite?: (() => Promise<void>) | undefined
+      billingRequestId?: string | undefined
+    },
   ) {
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -336,6 +361,15 @@ export class ProjectService {
       targetEpisode?.content.trim() ||
       workspace.project.synopsis.trim() ||
       `用户尚未提供完整剧本正文。请根据项目《${workspace.project.name}》和已有资产构思一个可制作的故事。`
+    if (
+      scriptMode === 'web-series' &&
+      mode === 'quick' &&
+      !batch &&
+      !revisionNote.trim() &&
+      suggestEpisodePlan(source, episodeDurationSeconds).required
+    ) {
+      throw new AppError(409, 'EPISODE_PLAN_REQUIRED', '素材适合多集，请先确认分集计划再生成')
+    }
     const sourceLength = contentLength(source)
     const episodeSeconds = normalizeScriptDurationSeconds(
       episodeDurationSeconds,
@@ -350,7 +384,7 @@ export class ProjectService {
       scriptMode === 'web-series' && mode !== 'segment' && !sourceHasStructuredScene
     const sceneBudget = webSeriesSceneBudget(episodeSeconds)
 
-    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
+    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}${batch?.continuity ? `\n上一集结尾（仅作衔接，不要重复）：\n${batch.continuity}` : ''}`
     if (mode === 'quick' && sourceLength >= SINGLE_REWRITE_MAX_LENGTH) {
       if (hasEpisodeWorkspace && scriptMode === 'web-series') {
         const episode = await this.repository.writeScriptEpisodeDraft(
@@ -385,9 +419,10 @@ export class ProjectService {
       sceneBudget,
     })
     const generationSystemPrompt = scriptGenerationSystemPrompt(scriptMode, shouldExpandFromIdea)
-    return this.runBillableScriptOperation(
+    return runBillableScriptOperation(
+      this.creditLedger,
       principal,
-      `script-generate-${clientRequestId}`,
+      `script-generate-${batch?.billingRequestId || clientRequestId}`,
       SCRIPT_OPERATION_CREDITS.generate,
       mode === 'segment'
         ? scriptSegmentOperationLabel(scriptMode)
@@ -583,13 +618,14 @@ export class ProjectService {
         }
         const script = candidate
         const warnings = quickScriptIssues(script, scriptMode, episodeSeconds)
+        await batch?.beforeWrite?.()
         if (hasEpisodeWorkspace && scriptMode === 'web-series') {
           const episode = await this.repository.writeScriptEpisodeDraft(
             projectId,
             episodeId ?? null,
             script,
             principal,
-            { generationClientRequestId: clientRequestId },
+            { generationClientRequestId: clientRequestId, ...batch },
           )
           if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
           return { script, episode, mode: 'quick' as const, warnings }
@@ -599,6 +635,8 @@ export class ProjectService {
         return { script: updated.script, mode: 'quick' as const, warnings }
       },
       billingMode,
+      Boolean(batch),
+      batch?.beforeWrite,
     )
   }
 
@@ -642,7 +680,8 @@ export class ProjectService {
     const requestedSceneCount = explicitRequestedSceneCount(revisionNote)
 
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}`
-    return this.runBillableScriptOperation(
+    return runBillableScriptOperation(
+      this.creditLedger,
       principal,
       `script-enrich-${clientRequestId}`,
       SCRIPT_OPERATION_CREDITS.enrich,
@@ -749,7 +788,8 @@ export class ProjectService {
     const source = script.trim() || workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本后再进行专业审核')
 
-    return this.runBillableScriptOperation(
+    return runBillableScriptOperation(
+      this.creditLedger,
       principal,
       `script-review-${clientRequestId}`,
       SCRIPT_OPERATION_CREDITS.review,
@@ -767,27 +807,6 @@ export class ProjectService {
         return { ...review, generatedAt: new Date().toISOString() }
       },
     )
-  }
-
-  private async runBillableScriptOperation<T>(
-    principal: Principal,
-    referenceId: string,
-    credits: number,
-    description: string,
-    operation: () => Promise<T>,
-    billingMode: ScriptBillingMode = 'direct',
-  ): Promise<T> {
-    if (!this.creditLedger || billingMode === 'prepaid') return operation()
-    const reserved = await this.creditLedger.reserve(principal, credits, referenceId, description)
-    if (!reserved) {
-      throw new AppError(409, 'DUPLICATE_REQUEST', '该请求已处理，请勿重复提交')
-    }
-    try {
-      return await operation()
-    } catch (error) {
-      await this.creditLedger.refundReservation(principal, referenceId, `${description} · 失败退款`)
-      throw error
-    }
   }
 
   async createAsset(projectId: string, input: CreateAsset, principal: Principal) {

@@ -25,9 +25,9 @@ export type {
 type ProjectVisualStyle = Exclude<ScriptCreativeDirection['style'], 'auto'>
 
 const HUMAN_PORTRAIT_REQUIREMENTS =
-  '影视 CG 风格，透明背景，Alpha 通道，无背景色，无光影效果，无投影，无高光，无环境反射，均匀平光，主体边缘清晰，人物面部大头照，头部和肩部完整入镜，五官清晰可调整，正面平视镜头，自然中性表情，不出现手部、文字和饰边，画面比例 1:1'
+  '透明背景，柔和均匀的照明，轮廓清楚，人物面部大头照，头部和肩部完整入镜，五官清晰可调整，正面平视镜头，自然中性表情，不出现手部、文字和饰边，画面比例 1:1'
 const ANIMAL_PORTRAIT_REQUIREMENTS =
-  '影视 CG 风格，保留明确物种特征，透明背景，Alpha 通道，无背景色，无光影效果，无投影，无高光，无环境反射，均匀平光，主体边缘清晰，动物面部大头照，头部和肩颈完整入镜，正面平视镜头，自然中性表情，不出现前爪、文字和饰边，画面比例 1:1'
+  '保留明确物种特征，透明背景，柔和均匀的照明，轮廓清楚，动物面部大头照，头部和肩颈完整入镜，正面平视镜头，自然中性表情，不出现前爪、文字和饰边，画面比例 1:1'
 const CHARACTER_ASSET_NEGATIVE_PROMPT =
   '不要真人摄影感、卡通动漫、塑料皮肤、蜡像脸、过度磨皮、玻璃眼、空洞眼神、无瞳孔、斜视、眼睛不对称、面部漂移、五官融化、歪嘴、缺牙、畸形、解剖错误、多余肢体、手部、手指、文字、水印、logo、二维码、边框、背景色、投影、强高光、环境反射、低分辨率、模糊和压缩痕迹'
 const ANIMAL_ASSET_NEGATIVE_PROMPT =
@@ -46,6 +46,7 @@ export function normalizeScriptAssetSuggestion(
   sourceNames: ScriptAssetNameIndex,
   sourceContext = '',
   projectVisualStyle: ProjectVisualStyle = 'cinematic-cg',
+  manifest = extractScriptAssetManifest(sourceContext),
 ): ScriptAssetSuggestion | null {
   const name = resolveAssetSuggestionName(suggestion, sourceNames)
   if (!name) return null
@@ -60,7 +61,6 @@ export function normalizeScriptAssetSuggestion(
           prompt: replaceAssetName(suggestion.prompt, suggestion.name, name),
           reason: replaceAssetName(suggestion.reason, suggestion.name, name),
         }
-  const manifest = extractScriptAssetManifest(sourceContext)
   const manifestItem = manifest[namedSuggestionBase.kind].find((item) => item.name === name)
   const namedSuggestion: ScriptAssetSuggestion = {
     ...namedSuggestionBase,
@@ -286,33 +286,42 @@ export function fallbackAssetSuggestions(
   script: string,
   direction: ScriptCreativeDirection,
   projectVisualStyle: ProjectVisualStyle = 'cinematic-cg',
+  manifest = extractScriptAssetManifest(script),
 ): { summary: string; assets: ScriptAssetSuggestion[] } {
   const visualStyle = projectVisualStyle || suggestionVisualStyle(direction)
-  const manifest = extractScriptAssetManifest(script)
-  const characters = namesFromManifestOrFields(script, manifest, 'character', ['角色', '人物', '主角'], [], 4)
-  const scenes = namesFromManifestOrFields(script, manifest, 'scene', ['场景', '地点'], [], 4)
+  const characters = namesFromManifestOrFields(
+    script,
+    manifest,
+    'character',
+    ['角色', '人物', '主角'],
+    [],
+    2_000,
+  )
+  const scenes = namesFromManifestOrFields(script, manifest, 'scene', ['场景', '地点'], [], 2_000)
   const props = namesFromManifestOrFields(
     script,
     manifest,
     'prop',
     ['关键物件', '关键道具', '物件', '道具', '产品'],
     [],
-    5,
+    2_000,
   )
-  const costumes = namesFromManifestOrFields(script, manifest, 'costume', ['服装', '衣装', '外观'], [], 4)
+  const costumes = namesFromManifestOrFields(script, manifest, 'costume', ['服装', '衣装', '外观'], [], 2_000)
   const brands = namesFromManifestOrFields(
     script,
     manifest,
     'brand',
     ['品牌', '品牌标识', 'Logo', 'logo'],
     [],
-    2,
+    2_000,
   )
   const assets: ScriptAssetSuggestion[] = [
     ...characters.map((name): ScriptAssetSuggestion => {
       const manifestItem = manifest.character.find((item) => item.name === name)
       const evidence = [name, manifestDetails(manifestItem), characterEvidenceWindow(name, script)].join('，')
-      const subjectType = inferScriptCharacterSubjectType(evidence)
+      const subjectType = inferScriptCharacterSubjectType(
+        manifestItem ? `${name}，${manifestDetails(manifestItem)}` : evidence,
+      )
       const gender = subjectType === 'animal' ? 'unspecified' : inferManifestGender(manifestItem, evidence)
       const exactAge = inferManifestExactAge(manifestItem) || inferScriptCharacterExactAge(name, script)
       const ageGroup = exactAge
@@ -527,7 +536,8 @@ export function fallbackAssetSuggestions(
 }
 
 function inferScriptCharacterSubjectType(text: string): 'human' | 'animal' {
-  return /狗|猫|牛|马|羊|猪|鸡|鸭|鹅|鸟|鱼|狼|虎|熊|鹿|猴|犬|妖兽|灵兽/u.test(text) ? 'animal' : 'human'
+  if (/人类|男性|女性|男人|女人|少年|少女|男孩|女孩/u.test(text)) return 'human'
+  return /动物|物种|妖兽|灵兽|宠物|一只|小狗|小猫|小鸟|狐狸|白狼|老虎/u.test(text) ? 'animal' : 'human'
 }
 
 function inferScriptCharacterGender(text: string): 'male' | 'female' | 'unspecified' {

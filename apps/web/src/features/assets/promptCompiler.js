@@ -49,7 +49,13 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
   if (asset.references?.length) {
     stageParts.push('严格保持导入参考图中的身份和关键外观特征')
   }
-  return applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'), stage)
+  const compiled = applyCustomPrompt(asset, [...identity, ...stageParts].filter(Boolean).join('，'), stage)
+  const variant = attributes.appearanceVariants?.find(
+    (item) => item.id === attributes.activeAppearanceVariantId,
+  )
+  return stage !== 'face' && variant?.description
+    ? `${compiled}。本次造型：${variant.name}，${variant.description}。服饰按本次造型，面部沿用已确认基准。`
+    : compiled
 }
 
 export function inferCharacterPromptStage(prompt) {

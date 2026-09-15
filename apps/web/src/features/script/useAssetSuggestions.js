@@ -7,6 +7,7 @@ export function useAssetSuggestions({
   projectId,
   script,
   autoSource = '',
+  scopeFingerprint = '',
   direction,
   latestTask,
   activeTask,
@@ -82,7 +83,11 @@ export function useAssetSuggestions({
     setResult(null)
     setError('')
     try {
-      const task = await onSuggestAssets(source, direction, scriptSuggestionFingerprint(source))
+      const task = await onSuggestAssets(
+        source,
+        direction,
+        scopeFingerprint || scriptSuggestionFingerprint(source),
+      )
       if (!isQueuedTextTask(task)) {
         const cachedResult = task?.metadata?.textResult
         setResult(cachedResult && typeof cachedResult === 'object' ? cachedResult : task)
@@ -143,11 +148,11 @@ export function useAssetSuggestions({
   useEffect(() => {
     const source = autoSource.trim()
     if (!source || !onSuggestAssetsFast || activeTask) return
-    const fingerprint = scriptSuggestionFingerprint(source)
+    const fingerprint = scopeFingerprint || scriptSuggestionFingerprint(source)
     if (automaticFingerprintRef.current === fingerprint) return
     automaticFingerprintRef.current = fingerprint
     void runFastExtraction(source)
-  }, [autoSource, activeTask?.id, onSuggestAssetsFast])
+  }, [autoSource, scopeFingerprint, activeTask?.id, onSuggestAssetsFast])
 
   const openEditor = (asset) => {
     const key = assetSuggestionKey(asset)
@@ -168,8 +173,10 @@ export function useAssetSuggestions({
     try {
       await onCreateAndGenerateAsset(suggestionToAssetInput(asset))
       setCreatedKeys((current) => new Set(current).add(key))
+      return true
     } catch (generationError) {
       setError(generationError.message)
+      return false
     } finally {
       setCreatingKeys((current) => {
         const next = new Set(current)
@@ -195,6 +202,12 @@ export function useAssetSuggestions({
       })
     } catch (importError) {
       setError(importError.message)
+    }
+  }
+
+  const generateSelected = async (suggestions) => {
+    for (const suggestion of suggestions) {
+      if (!(await createAndGenerate(suggestion))) break
     }
   }
 
@@ -232,6 +245,7 @@ export function useAssetSuggestions({
     openEditor,
     createAndGenerate,
     importSelected,
+    generateSelected,
     cancelBeforeContinue,
     closeEditor: () => setEditor(null),
     markEditorAssetCreated,

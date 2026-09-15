@@ -238,6 +238,7 @@ export const api = {
       }),
     )
   },
+  syncScriptMasterLibrary: () => request('/library/sync-script-master', { method: 'POST' }),
   generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
     request(
       `/projects/${id}/script/generate`,

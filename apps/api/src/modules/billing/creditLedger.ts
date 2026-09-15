@@ -1,11 +1,13 @@
+import { monthlyGrantCredits, buildSummaryFromEntries, startOfChinaMonth } from './summary.js'
+import { reserveRecoverable } from './scriptBilling.js'
 import type {
-  BillingSummary,
   BillingScope,
+  OrganizationBillingPool,
+  BillingSummary,
   BillingWebhookEvent,
   GenerationTask,
   LedgerEntry,
   OrganizationBillingSummary,
-  OrganizationBillingPool,
   Plan,
   Principal,
 } from '@seqora/contracts'
@@ -20,9 +22,13 @@ import type { SessionMetadata } from '../auth/accounts.js'
 import type { UserRepository } from '../users/repository.js'
 import { BillingLedgerRepository, type BillingWebhookProcessResult } from './repository.js'
 
-const monthlyGrantCredits = 500
-
 export interface CreditLedger {
+  reserveRecoverable?(
+    principal: Principal,
+    credits: number,
+    referenceId: string,
+    description: string,
+  ): Promise<string>
   reserveCredits(
     principal: Principal,
     credits: number,
@@ -168,6 +174,10 @@ export class StoreCreditLedger implements CreditLedger {
     metadata?: SessionMetadata,
   ): Promise<boolean> {
     return this.reserve(principal, credits, referenceId, description, metadata)
+  }
+
+  async reserveRecoverable(...args: [Principal, number, string, string]): Promise<string> {
+    return reserveRecoverable(this, this.ledgerRepository, this.store, ...args)
   }
 
   async reserve(
@@ -964,66 +974,10 @@ function markTaskRefunded(state: AppState, taskId: string, refundedAt: string): 
   if (storedTask) storedTask.metadata = { ...storedTask.metadata, creditsRefundedAt: refundedAt }
 }
 
-function buildSummaryFromEntries(
-  entries: readonly LedgerEntry[],
-  plan: Plan,
-  credits: number,
-  planSelfServiceEnabled: boolean,
-  options: {
-    billingScope?: BillingScope
-    organizationPool?: OrganizationBillingPool
-  } = {},
-): BillingSummary {
-  const periodStart = startOfChinaMonth()
-  const orderedEntries = orderLedgerEntries(entries)
-  const monthlyEntries = orderedEntries.filter((entry) => entry.createdAt >= periodStart)
-  const generationEntries = monthlyEntries.filter((entry) => entry.type === 'generation' && entry.amount < 0)
-  const consumedCredits = generationEntries.reduce((total, entry) => total - entry.amount, 0)
-  const refundedCredits = monthlyEntries
-    .filter((entry) => entry.type === 'adjustment' && entry.amount > 0 && entry.id.startsWith('refund-'))
-    .reduce((total, entry) => total + entry.amount, 0)
-
-  return {
-    plan,
-    credits,
-    billingScope: options.billingScope ?? 'membership',
-    ...(options.organizationPool ? { organizationPool: options.organizationPool } : {}),
-    concurrency: plan === 'member' ? 3 : 1,
-    unlimitedConcurrency: false,
-    planSelfServiceEnabled,
-    monthlyUsage: {
-      periodStart,
-      consumedCredits,
-      refundedCredits,
-      netCredits: Math.max(0, consumedCredits - refundedCredits),
-      generationCount: generationEntries.length,
-      includedCredits:
-        options.billingScope === 'organization' ? 0 : plan === 'member' ? monthlyGrantCredits : 0,
-    },
-    entries: orderedEntries.slice(0, 30),
-  }
-}
-
-function orderLedgerEntries(entries: readonly LedgerEntry[]): LedgerEntry[] {
-  return [...entries].sort((left, right) => {
-    const createdAtOrder = Date.parse(right.createdAt) - Date.parse(left.createdAt)
-    if (createdAtOrder !== 0) return createdAtOrder
-    return right.id.localeCompare(left.id)
-  })
-}
-
 function monthlyGrantId(userId: string): string {
   return `membership-${userId}-${startOfChinaMonth().slice(0, 10)}`
 }
 
 function cryptoRandomId(): string {
   return randomUUID()
-}
-
-function startOfChinaMonth(now = new Date()): string {
-  const chinaOffsetMs = 8 * 60 * 60 * 1_000
-  const chinaNow = new Date(now.getTime() + chinaOffsetMs)
-  return new Date(
-    Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), 1) - chinaOffsetMs,
-  ).toISOString()
 }
