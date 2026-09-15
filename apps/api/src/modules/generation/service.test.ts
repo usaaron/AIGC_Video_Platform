@@ -86,8 +86,9 @@ describe('GenerationService task creation', () => {
     active.status = 'running'
     const repository = {
       canCreate: vi.fn(() => true),
-      listByProject: vi.fn(async () => [active]),
-      createWithCharge: vi.fn(),
+      blockedPortraitNames: vi.fn(() => []),
+      stringXPortraitNames: vi.fn(() => []),
+      createWithCharge: vi.fn(async () => active),
     } as unknown as GenerationTaskRepository
     const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
     const preflight = vi.fn(async () => undefined)
@@ -104,8 +105,7 @@ describe('GenerationService task creation', () => {
 
     await expect(service.createTask(input, principal)).resolves.toBe(active)
     expect(preflight).toHaveBeenCalledWith(input.projectId, 'character-1', principal)
-    expect(repository.listByProject).toHaveBeenCalledWith(input.projectId, principal)
-    expect(repository.createWithCharge).not.toHaveBeenCalled()
+    expect(repository.createWithCharge).toHaveBeenCalledWith(input, principal, {})
     expect(dispatcher.dispatch).not.toHaveBeenCalled()
   })
 

@@ -63,7 +63,7 @@ function preserveCurrentFace(
   }
 }
 
-function sameMediaReference(
+export function sameMediaReference(
   left: { id: string; url: string } | null | undefined,
   right: { id: string; url: string } | null | undefined,
 ): boolean {

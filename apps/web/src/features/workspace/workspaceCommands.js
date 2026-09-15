@@ -175,6 +175,29 @@ export function createWorkspaceCommands({
     return task
   }
 
+  const confirmCharacterFace = async (assetId, faceReference) => {
+    const projectId = project?.id
+    if (!projectId) throw new Error('请先打开人物所属项目')
+    const result = await api.confirmCharacterFace(projectId, assetId, faceReference)
+    if (isCurrentProject(projectId)) mergeWorkspaceAsset(result.asset)
+    // Confirmation has already succeeded. A refresh failure must not report it as a failed save.
+    const refreshed = await Promise.allSettled([
+      api.tasks(projectId).then((next) => replaceTasks(projectId, next)),
+      refreshBilling(),
+    ])
+    if (isCurrentProject(projectId)) {
+      setToast(
+        result.registrationError ||
+          (refreshed.some((item) => item.status === 'rejected')
+            ? '面部已确认，状态同步暂时失败，请稍后刷新'
+            : result.registrationTask
+              ? '面部已确认，AI 人像加白任务已提交，可继续制作全身'
+              : '面部已确认'),
+      )
+    }
+    return result
+  }
+
   const createScriptJob = async (label, operation, input) => {
     if (!project) return null
     try {
@@ -504,6 +527,37 @@ export function createWorkspaceCommands({
   }
 
   return {
+    assetCommands: {
+      onCreate: async (input) => {
+        const created = await api.createAsset(project.id, input)
+        await refreshWorkspace()
+        setToast('资产已添加')
+        return created
+      },
+      onUpdate: async (assetId, input) => {
+        const updated = await api.updateAsset(project.id, assetId, input)
+        await refreshWorkspace()
+        setToast('资产已更新')
+        return updated
+      },
+      onDelete: async (assetId) => {
+        await api.deleteAsset(project.id, assetId)
+        await refreshWorkspace()
+        setToast('资产已删除')
+      },
+      onBindTrustedPortrait: async (assetId, providerAssetId) => {
+        const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
+        mergeWorkspaceAsset(updated)
+        return updated
+      },
+      onRefreshTrustedPortrait: async (assetId) => {
+        const updated = await api.refreshTrustedPortrait(project.id, assetId)
+        mergeWorkspaceAsset(updated)
+        return updated
+      },
+      onRegisterVirtualPortrait: createTrustedPortraitJob,
+      onConfirmFace: confirmCharacterFace,
+    },
     refreshWorkspace,
     mergeWorkspaceAsset,
     refreshBilling,
@@ -511,6 +565,7 @@ export function createWorkspaceCommands({
     createJob,
     createCharacterFaceJob,
     createTrustedPortraitJob,
+    confirmCharacterFace,
     createScriptJob,
     navigateTo,
     openProject,

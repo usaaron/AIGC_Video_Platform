@@ -1,4 +1,4 @@
-import type { Asset, Principal, TrustedPortrait } from '@seqora/contracts'
+import type { Asset, FaceConfirmationRequest, Principal, TrustedPortrait } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type {
   AssetLibraryProvider,
@@ -15,6 +15,7 @@ import type { MediaRepository } from '../media/repository.js'
 import type { GenerationTaskRepository } from '../generation/repository.js'
 import type { ProjectRepository } from '../projects/repository.js'
 import type { TrustedValidationSessionRepository } from './validationSessionRepository.js'
+import { trustedPortraitUpdate, type PortraitWriteIntent } from '../projects/faceConfirmation.js'
 
 const SOURCE_URL_TTL_MS = 24 * 60 * 60 * 1_000
 const PREVIEW_REQUEST_TIMEOUT_MS = 30_000
@@ -50,10 +51,10 @@ export class TrustedAssetService {
     private readonly publicApiBaseUrl: string,
     private readonly projectName: string,
     private readonly consoleUrl = '',
-    private readonly projectRepository: Pick<
-      ProjectRepository,
-      'findOwnedAsset' | 'listOwnedAssets' | 'updateAsset'
-    > | null = null,
+    private readonly projectRepository:
+      | (Pick<ProjectRepository, 'findOwnedAsset' | 'listOwnedAssets' | 'updateAsset'> &
+          Partial<Pick<ProjectRepository, 'updateTrustedPortrait'>>)
+      | null = null,
     private readonly mediaRepository: Pick<
       MediaRepository,
       'findSourceById' | 'findSourceByReferenceIds'
@@ -247,6 +248,7 @@ export class TrustedAssetService {
     assetId: string,
     principal: Principal,
     expectedFaceReferenceId?: string,
+    automaticFaceConfirmation = false,
   ): Promise<Asset> {
     const provider = this.requireProvider()
     if (!this.publicApiBaseUrl) {
@@ -257,8 +259,13 @@ export class TrustedAssetService {
       )
     }
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
-    if (asset.attributes.subjectType !== 'human') {
-      throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
+    this.requireVirtualHuman(asset)
+    if (
+      automaticFaceConfirmation &&
+      (asset.sourceMode !== 'generate' ||
+        !asset.attributes.faceReference?.url.startsWith('/api/v1/generation/tasks/'))
+    ) {
+      throw new AppError(409, 'GENERATED_FACE_REQUIRED', '当前面部已不是 AI 生成来源，请使用手动入库流程')
     }
     this.requireApprovedFace(asset, expectedFaceReferenceId)
     if (
@@ -321,6 +328,7 @@ export class TrustedAssetService {
       portrait,
       portrait.groupType === 'LivenessFace' ? 'authorized-real' : 'ai-virtual',
       principal,
+      'bind',
     )
   }
 
@@ -455,10 +463,38 @@ export class TrustedAssetService {
       )
     }
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
-    if (asset.attributes.subjectType !== 'human') {
-      throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
-    }
+    this.requireVirtualHuman(asset)
     await this.requireConfirmedFaceSource(asset, principal, expectedFaceReferenceId)
+  }
+
+  async validateFaceReference(
+    projectId: string,
+    assetId: string,
+    face: FaceConfirmationRequest['faceReference'],
+    principal: Principal,
+  ): Promise<{ faceReference: FaceConfirmationRequest['faceReference']; generated: boolean }> {
+    const asset = await this.requireCharacterAsset(projectId, assetId, principal)
+    const faceReference = { ...face, url: referencePath(face.url) }
+    const candidate = { ...asset, attributes: { ...asset.attributes, faceReference } }
+    if (!(await this.findSource(candidate, principal))) {
+      throw new AppError(409, 'FACE_SOURCE_REQUIRED', '面部图片不存在、尚未生成完成，或不属于当前人物和项目')
+    }
+    return { faceReference, generated: faceReference.url.startsWith('/api/v1/generation/tasks/') }
+  }
+
+  private requireVirtualHuman(asset: CharacterAsset): void {
+    if (asset.attributes.subjectType !== 'human')
+      throw new AppError(400, 'HUMAN_CHARACTER_REQUIRED', '只有人物素材需要创建人像资源')
+    if (
+      asset.attributes.portraitSource === 'authorized-real' ||
+      asset.attributes.trustedPortrait?.groupType === 'LivenessFace'
+    ) {
+      throw new AppError(
+        409,
+        'REAL_PORTRAIT_REQUIRES_AUTHORIZATION',
+        '真人素材请使用真人授权流程，不能自动创建 AI 人像资源',
+      )
+    }
   }
 
   private async requireConfirmedFaceSource(
@@ -572,6 +608,9 @@ export class TrustedAssetService {
             task.projectId === asset.projectId &&
             task.tenantId === asset.tenantId &&
             task.metadata.assetId === asset.id &&
+            (typeof task.metadata.faceReferenceId === 'string'
+              ? task.metadata.faceReferenceId === asset.attributes.faceReference?.id
+              : historicalFaceReferenceId(task.metadata.textResult) === asset.attributes.faceReference?.id) &&
             task.metadata.generationStage === 'trusted-portrait',
         )
         .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
@@ -726,8 +765,17 @@ export class TrustedAssetService {
     portrait: ProviderPortrait,
     portraitSource: 'ai-virtual' | 'authorized-real',
     principal: Principal,
+    intent: PortraitWriteIntent = 'callback',
   ): Promise<Asset> {
     const trustedPortrait = toTrustedPortrait(portrait, asset.attributes.faceReference?.id ?? null)
+    if (this.projectRepository?.updateTrustedPortrait) {
+      return this.projectRepository
+        .updateTrustedPortrait(asset, trustedPortrait, portraitSource, principal, intent)
+        .then((updated) => {
+          if (!updated) throw new AppError(404, 'CHARACTER_ASSET_NOT_FOUND', '人物资产不存在或已被删除')
+          return updated
+        })
+    }
     if (this.projectRepository) {
       return this.projectRepository
         .updateAsset(
@@ -751,7 +799,13 @@ export class TrustedAssetService {
       if (!stored || stored.attributes.type !== 'character') {
         throw new AppError(404, 'CHARACTER_ASSET_NOT_FOUND', '人物资产不存在或已被删除')
       }
-      stored.attributes = { ...stored.attributes, portraitSource, trustedPortrait }
+      stored.attributes = trustedPortraitUpdate(
+        stored,
+        asset,
+        trustedPortrait,
+        portraitSource,
+        intent,
+      ).attributes!
       stored.updatedAt = new Date().toISOString()
       return stored
     })
@@ -760,6 +814,12 @@ export class TrustedAssetService {
 
 function sourceFromMedia(media: StoredMedia): StoredSource {
   return { storageKey: media.storageKey, contentType: media.contentType }
+}
+
+function historicalFaceReferenceId(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null
+  const attributes = (result as { attributes?: { faceReference?: { id?: unknown } } }).attributes
+  return typeof attributes?.faceReference?.id === 'string' ? attributes.faceReference.id : null
 }
 
 function referencePath(url: string): string {

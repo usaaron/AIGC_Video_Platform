@@ -54,6 +54,7 @@ export function AssetsPage({
   onGetTrustedConfiguration,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
+  onConfirmFace,
   onCreateTrustedValidationSession,
   onRefreshTrustedValidationSession,
   onLatestTrustedValidationSession,
@@ -210,7 +211,7 @@ export function AssetsPage({
 
       {editing && (
         <AssetEditor
-          key={editing.id || `new-${editing.kind}`}
+          key={`${project.id}:${editing.kind}`}
           asset={editing}
           projectAssets={assets}
           aspectRatio={project.aspectRatio}
@@ -234,6 +235,7 @@ export function AssetsPage({
             return updated
           }}
           onGenerateStage={onGenerateStage}
+          onConfirmFace={onConfirmFace}
           onGenerateAsset={(asset, model = imageModel) => onGenerate(asset, model)}
           imageModel={imageModel}
           onGetTrustedConfiguration={onGetTrustedConfiguration}

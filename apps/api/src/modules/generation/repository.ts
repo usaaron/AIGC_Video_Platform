@@ -1,5 +1,6 @@
+import { buildQueuedGenerationTask, findTaskByClientRequest } from './taskCreation.js'
+import { preparePortraitSubmission, preparePortraitSubmissionInState } from './trustedPortraitSubmission.js'
 import type { CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
-import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
@@ -9,7 +10,6 @@ import { cancellationResourceLockForTask } from '../../core/jobs/taskResourceLoc
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
-import { traceMetadata } from '../../core/observability/trace.js'
 import { RuntimeCacheCoordinator } from '../../runtime/runtimeCacheCoordinator.js'
 import {
   assetFromRow,
@@ -652,6 +652,22 @@ export class GenerationTaskRepository {
     return result.rows[0] ? taskFromRow(result.rows[0]) : null
   }
 
+  async findByClientRequestId(clientRequestId: string, principal: Principal): Promise<GenerationTask | null> {
+    if (this.database)
+      return this.database.transaction((client) =>
+        findTaskByClientRequest(client, clientRequestId, principal),
+      )
+    return this.requireStore().read(
+      (state) =>
+        state.tasks.find(
+          (task) =>
+            task.clientRequestId === clientRequestId &&
+            task.tenantId === principal.tenantId &&
+            task.userId === principal.userId,
+        ) ?? null,
+    )
+  }
+
   async clearCompleted(projectId: string, principal: Principal): Promise<number> {
     if (this.database) {
       const now = new Date().toISOString()
@@ -989,6 +1005,10 @@ export class GenerationTaskRepository {
         return { task: replayed, credits: null }
       }
 
+      const registration = await preparePortraitSubmission(client, input, principal)
+      input = registration.input
+      if (registration.existing) return { task: registration.existing, credits: null }
+
       preemptedScriptTasks.push(...(await preemptActiveScriptTasksInDatabase(client, input, principal)))
       const replayedAfterScriptLock = isScriptGenerationTask(input)
         ? await findTaskByClientRequest(client, input.clientRequestId, principal)
@@ -1129,6 +1149,10 @@ export class GenerationTaskRepository {
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
       if (existing) return existing
+
+      const registration = preparePortraitSubmissionInState(state, input, principal)
+      input = registration.input
+      if (registration.existing) return registration.existing
 
       preemptActiveScriptTasksInState(state, input, principal)
 
@@ -1301,6 +1325,10 @@ export class GenerationTaskRepository {
         (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
       )
       if (existing) return existing
+
+      const registration = preparePortraitSubmissionInState(state, input, principal)
+      input = registration.input
+      if (registration.existing) return registration.existing
 
       preemptActiveScriptTasksInState(state, input, principal)
 
@@ -1494,25 +1522,6 @@ export class GenerationTaskRepository {
     }
     return this.store
   }
-}
-
-async function findTaskByClientRequest(
-  queryable: Queryable,
-  clientRequestId: string,
-  principal: Principal,
-): Promise<GenerationTask | null> {
-  const result = await queryable.query<GenerationTaskRow>(
-    `
-    SELECT ${generationTaskColumns}
-    FROM generation_tasks
-    WHERE tenant_id = $1
-      AND user_id = $2
-      AND client_request_id = $3
-    LIMIT 1
-    `,
-    [principal.tenantId, principal.userId, clientRequestId],
-  )
-  return result.rows[0] ? taskFromRow(result.rows[0]) : null
 }
 
 async function preemptActiveScriptTasksInDatabase(
@@ -2171,36 +2180,4 @@ function taskInsertParams(task: GenerationTask, membershipId: string | null): un
     task.createdAt,
     task.updatedAt,
   ]
-}
-
-function buildQueuedGenerationTask(
-  input: CreateGenerationTask,
-  principal: Principal,
-  now: string,
-  options: { traceId?: string | null } = {},
-): GenerationTask {
-  return normalizeGenerationTaskLifecycle({
-    id: randomUUID(),
-    clientRequestId: input.clientRequestId,
-    projectId: input.projectId,
-    tenantId: principal.tenantId,
-    userId: principal.userId,
-    kind: input.kind,
-    label: input.label,
-    prompt: input.prompt ?? '',
-    negativePrompt: input.negativePrompt ?? '',
-    provider: input.provider,
-    model: input.model ?? null,
-    tier: input.tier ?? null,
-    metadata: traceMetadata(input.metadata, options.traceId),
-    status: 'queued',
-    progress: 0,
-    estimatedCredits: input.estimatedCredits,
-    maxAttempts: input.maxAttempts,
-    createdAt: now,
-    updatedAt: now,
-    resultUrl: null,
-    outputs: [],
-    error: null,
-  })
 }

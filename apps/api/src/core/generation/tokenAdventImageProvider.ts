@@ -187,7 +187,12 @@ function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest
     referenceConstraint,
     prompt,
     viewPrompt,
-    request.negativePrompt ? `避免出现：${request.negativePrompt}` : '',
+    // GPT Image receives one prompt, not a separate negative_prompt field.
+    // Compiler output already includes imperatives (both 不要 and 保持/只生成).
+    // Negating the entire block again reverses those instructions.
+    request.negativePrompt.trim()
+      ? `画面约束（完整句子按原意执行；无谓语的关键词列表表示应排除的元素）：\n${request.negativePrompt}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n')

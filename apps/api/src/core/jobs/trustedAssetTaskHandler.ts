@@ -20,6 +20,7 @@ export function createTrustedAssetTaskHandler(
       assetId,
       principalForTask(store, task),
       typeof expectedFaceReferenceId === 'string' ? expectedFaceReferenceId : undefined,
+      task.metadata.automaticFaceConfirmation === true,
     )
     const portrait = asset.attributes.type === 'character' ? asset.attributes.trustedPortrait : null
     if (portrait?.status === 'failed') {

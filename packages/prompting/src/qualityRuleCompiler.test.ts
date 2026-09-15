@@ -42,6 +42,9 @@ describe('compileQualityRules', () => {
     expect(result.negativePrompt).toContain('不要将人类五官和肢体替换为动物口鼻')
     expect(result.negativePrompt).not.toContain('单个完整人类')
     expect(result.negativePrompt).not.toContain('羽毛')
+    expect(result.positivePrompt).toContain('主体必须是人类角色')
+    expect(result.positivePrompt).toContain('仅约束画面中可见的部位')
+    expect(result.positivePrompt).not.toMatch(/完整入镜|全身|正面|单个完整人类/)
   })
 
   it('does not impose human identity on intentional animals or other asset kinds', () => {
@@ -57,7 +60,32 @@ describe('compileQualityRules', () => {
       const result = compileQualityRules({ mediaKind: 'image', ...input })
       expect(result.presetIds).not.toContain('human-character')
       expect(result.negativePrompt).not.toContain('不要将人类角色生成为动物')
+      expect(result.positivePrompt).toBe('')
     }
+  })
+
+  it.each(['兽耳发饰、羽毛外套、豹纹裙、狐狸胸针', '一只白猫，猫耳猫尾，拟人动物'])(
+    'uses explicit subject type rather than words in the prompt: %s',
+    (sourcePrompt) => {
+      const human = compileQualityRules({ mediaKind: 'image', assetKind: 'character', sourcePrompt })
+      const animal = compileQualityRules({
+        mediaKind: 'image',
+        assetKind: 'character',
+        subjectType: 'animal',
+        sourcePrompt,
+      })
+      expect(human.positivePrompt).toContain('主体必须是人类角色')
+      expect(human.positivePrompt).toContain('保留装饰设计，佩戴者仍是人类')
+      expect(animal.positivePrompt).toBe('')
+      expect(animal.presetIds).not.toContain('human-character')
+    },
+  )
+
+  it('keeps image identity independent from video rules and long custom negatives', () => {
+    const input = { assetKind: 'character' as const, customNegativePrompt: '水印；'.repeat(2000) }
+    const image = compileQualityRules({ mediaKind: 'image', ...input })
+    expect(image.positivePrompt).toContain('主体必须是人类角色')
+    expect(compileQualityRules({ mediaKind: 'video', ...input }).positivePrompt).toBe('')
   })
 
   it('keeps fog when requested and blocks unrequested people in an empty scene', () => {

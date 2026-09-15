@@ -12,7 +12,6 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ImagePreviewModal } from '../../components/ImagePreviewModal'
-import { confirmCharacterFace } from './assetDraft'
 import { isTrustedPortraitTaskActive } from './assetTaskState'
 import { TrustedPortraitPanel } from './TrustedPortraitPanel'
 
@@ -32,6 +31,7 @@ export function CharacterWorkflow({
   onStageChange,
   onAttributesChange,
   onPersist,
+  onConfirmFace,
   onGenerate,
   onGenerateAndClose,
   faceCreationMode = 'text',
@@ -49,6 +49,7 @@ export function CharacterWorkflow({
   const [error, setError] = useState('')
   const [submittingStage, setSubmittingStage] = useState(null)
   const [closingStage, setClosingStage] = useState(null)
+  const [confirmingFace, setConfirmingFace] = useState(false)
   const [preview, setPreview] = useState(null)
   const [variantName, setVariantName] = useState('')
   const relatedTasks = assetId ? tasks.filter((task) => task.metadata?.assetId === assetId) : []
@@ -56,7 +57,13 @@ export function CharacterWorkflow({
   const faceTask = taskFor('face')
   const bodyTask = taskFor('body')
   const turnaroundTask = taskFor('turnaround')
-  const registrationTask = latestTask(relatedTasks, 'trusted-portrait')
+  const registrationTask = latestTask(
+    relatedTasks.filter(
+      (task) =>
+        !task.metadata?.faceReferenceId || task.metadata.faceReferenceId === attributes.faceReference?.id,
+    ),
+    'trusted-portrait',
+  )
   const registrationTaskActive = isTrustedPortraitTaskActive(attributes.trustedPortrait, registrationTask)
   const generatedFaceCandidate = completedOutput(faceTask)
   const completedFaceTask = latestCompletedTask(relatedTasks, 'face')
@@ -108,9 +115,19 @@ export function CharacterWorkflow({
   }
 
   const approveFace = async () => {
-    if (!faceCandidate) return
-    const next = confirmCharacterFace(attributes, faceCandidate, assetName)
-    if (await persist(next)) onStageChange('body')
+    if (!faceCandidate || confirmingFace) return
+    setConfirmingFace(true)
+    setError('')
+    try {
+      const result = await onConfirmFace(toReference(faceCandidate, `${assetName || '人物'}-面部基准`))
+      onAttributesChange(result.asset.attributes)
+      if (result.registrationError) setError(result.registrationError)
+      onStageChange('body')
+    } catch (confirmationError) {
+      setError(confirmationError.message)
+    } finally {
+      setConfirmingFace(false)
+    }
   }
 
   const approveBody = async () => {
@@ -263,12 +280,19 @@ export function CharacterWorkflow({
           <button
             className="button primary"
             type="button"
-            disabled={submittingStage !== null || !faceCandidate}
+            disabled={submittingStage !== null || confirmingFace || !faceCandidate}
             onClick={() => void approveFace()}
           >
-            <CheckCircle2 size={15} />
-            设为面部基准
+            {confirmingFace ? <LoaderCircle size={15} className="spin" /> : <CheckCircle2 size={15} />}
+            {confirmingFace ? '正在确认面部' : '设为面部基准'}
           </button>
+          {faceCreationMode !== 'direct' &&
+            attributes.subjectType === 'human' &&
+            attributes.portraitSource !== 'authorized-real' && (
+              <p className="trusted-portrait-notice">
+                确认面部后自动加白，首次提交消耗 1 积分；审核通过后可用于视频。未选中的候选图不会提交。
+              </p>
+            )}
         </StagePanel>
       )}
 

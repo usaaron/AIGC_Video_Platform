@@ -4,7 +4,6 @@ import {
   applyAssetCreationMode,
   ASSET_CREATION_MODES,
   buildAssetInput,
-  confirmCharacterFace,
   inferAssetCreationMode,
 } from './assetDraft'
 
@@ -134,25 +133,5 @@ describe('asset creation modes', () => {
     })
 
     expect(input.imageUrl).toBe('/media/body-1')
-  })
-
-  it('clears an old trusted portrait only when the approved face changes', () => {
-    const attributes = {
-      ...createDefaultAttributes('character'),
-      faceStatus: 'approved',
-      faceReference: reference,
-      trustedPortrait: { assetId: 'trusted-1', status: 'active' },
-    }
-
-    expect(confirmCharacterFace(attributes, reference, 'Hero').trustedPortrait).toBe(
-      attributes.trustedPortrait,
-    )
-    expect(
-      confirmCharacterFace(
-        attributes,
-        { id: 'media-2', url: '/api/v1/media/media-2', name: 'new-face.png' },
-        'Hero',
-      ).trustedPortrait,
-    ).toBeNull()
   })
 })

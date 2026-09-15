@@ -8,7 +8,12 @@ import {
   workspaceSnapshotKey,
   workspaceVersionKey,
 } from './workspaceRefreshState'
-import { isActiveWorkspaceProject, normalizeTasks, normalizeWorkspace } from './workspaceLoadingPolicy'
+import {
+  isActiveWorkspaceProject,
+  normalizeTaskPolling,
+  normalizeTasks,
+  normalizeWorkspace,
+} from './workspaceLoadingPolicy'
 
 const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 const ACTIVE_TASK_POLL_MS = 2_500
@@ -54,7 +59,7 @@ export function useWorkspacePolling({
       try {
         const result = await api.pollTasks(projectId)
         taskPollingEtag = result?.etag || null
-        return normalizeTasks(result?.tasks)
+        return normalizeTaskPolling(result?.tasks)
       } catch (error) {
         // Older API instances may not expose the compact polling endpoint yet.
         if (error?.status !== 404) throw error
@@ -107,7 +112,7 @@ export function useWorkspacePolling({
             if (pollResult.notModified) {
               nextTasks = currentTasks
             } else {
-              const summaries = normalizeTasks(pollResult.tasks)
+              const summaries = normalizeTaskPolling(pollResult.tasks)
               taskFinished = hasTaskTerminalTransition(previousTaskStatuses, summaries)
               const previousById = new Map(currentTasks.map((task) => [task.id, task]))
               const needsFullRefresh = summaries.some(

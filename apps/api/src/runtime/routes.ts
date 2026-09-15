@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { registerFaceConfirmationRoutes } from '../modules/trustedAssets/faceConfirmationRoutes.js'
 import { IMAGE2_PROVIDER_DISPLAY_NAME, SCRIPT_MODEL_CATALOG, textModelFamily } from '@seqora/contracts'
 import type { AppConfig } from '../config.js'
 import { installAuth } from '../core/auth/installAuth.js'
@@ -114,6 +115,7 @@ export async function registerRuntimeRoutes(input: {
       await registerMediaRoutes(api, services.mediaService, config.MAX_UPLOAD_BYTES)
       await registerLibraryRoutes(api, services.assetLibraryService)
       await registerTrustedAssetRoutes(api, services.trustedAssetService)
+      registerFaceConfirmationRoutes(api, services.faceConfirmationService)
       await registerScriptMasterRoutes(
         api,
         config,

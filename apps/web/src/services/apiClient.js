@@ -275,6 +275,8 @@ export const api = {
   createAsset: (projectId, input) => request(`/projects/${projectId}/assets`, json('POST', input)),
   updateAsset: (projectId, assetId, input) =>
     request(`/projects/${projectId}/assets/${assetId}`, json('PATCH', input)),
+  confirmCharacterFace: (projectId, assetId, faceReference) =>
+    request(`/projects/${projectId}/assets/${assetId}/face-confirmation`, json('POST', { faceReference })),
   deleteAsset: (projectId, assetId) =>
     request(`/projects/${projectId}/assets/${assetId}`, { method: 'DELETE' }),
   trustedAssetConfiguration: () => request('/trusted-assets/configuration'),

@@ -70,6 +70,7 @@ export function AssetEditor({
   onGetTrustedConfiguration,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
+  onConfirmFace,
   onCreateTrustedValidationSession,
   onRefreshTrustedValidationSession,
   onLatestTrustedValidationSession,
@@ -110,15 +111,23 @@ export function AssetEditor({
     if (!asset.id || kind !== 'character') return
     const trustedPortrait = asset.attributes?.trustedPortrait
     if (!trustedPortrait) return
-    setDraft((current) => ({
-      ...current,
-      attributes: {
-        ...current.attributes,
-        portraitSource: asset.attributes?.portraitSource || current.attributes.portraitSource,
-        trustedPortrait,
-      },
-    }))
-  }, [asset.id, asset.attributes?.portraitSource, asset.attributes?.trustedPortrait])
+    setDraft((current) => {
+      if (!sameReference(current.attributes.faceReference, asset.attributes?.faceReference)) return current
+      return {
+        ...current,
+        attributes: {
+          ...current.attributes,
+          portraitSource: asset.attributes?.portraitSource || current.attributes.portraitSource,
+          trustedPortrait,
+        },
+      }
+    })
+  }, [
+    asset.id,
+    asset.attributes?.faceReference,
+    asset.attributes?.portraitSource,
+    asset.attributes?.trustedPortrait,
+  ])
 
   useEffect(() => {
     if (kind !== 'character' || !onGetTrustedConfiguration) return
@@ -250,12 +259,12 @@ export function AssetEditor({
     validateDraft(nextDraft)
     const input = inputFor(nextDraft)
     if (asset.id) {
-      await onPersist?.(input)
-      return { ...asset, ...input }
+      const updated = await onPersist?.(input)
+      return updated || { ...asset, ...input }
     }
     if (!onCreateDraft) throw new Error('资产草稿创建功能不可用')
     const created = await onCreateDraft(input)
-    return { ...created, ...input }
+    return created
   }
 
   const handleSubmit = async (event) => {
@@ -281,6 +290,19 @@ export function AssetEditor({
     const nextDraft = { ...draft, attributes }
     setDraft(nextDraft)
     await persistDraft(nextDraft)
+  }
+
+  const confirmFace = async (faceReference) => {
+    if (!onConfirmFace) throw new Error('面部确认接口未连接，请刷新后重试')
+    setSavingAction('confirm-face')
+    try {
+      const persisted = await persistDraft(draft)
+      const result = await onConfirmFace(persisted.id, faceReference)
+      setDraft((current) => ({ ...current, attributes: result.asset.attributes }))
+      return result
+    } finally {
+      setSavingAction(null)
+    }
   }
 
   const generateCharacterStage = async (stage, closeAfterQueue = false) => {
@@ -335,7 +357,7 @@ export function AssetEditor({
           </IconButton>
         </header>
 
-        <div className="asset-studio-body">
+        <div className="asset-studio-body" inert={savingAction === 'confirm-face'}>
           <section className="asset-studio-form">
             {(kind !== 'character' || characterStage === 'face') && (
               <div
@@ -423,6 +445,7 @@ export function AssetEditor({
                 onStageChange={setCharacterStage}
                 onAttributesChange={(attributes) => setDraft((current) => ({ ...current, attributes }))}
                 onPersist={persistCharacterAttributes}
+                onConfirmFace={confirmFace}
                 onGenerate={generateCharacterStage}
                 onGenerateAndClose={(stage) => generateCharacterStage(stage, true)}
                 faceCreationMode={creationMode}

@@ -30,26 +30,6 @@ export function applyAssetCreationMode(draft, mode, kind) {
   return { ...draft, sourceMode: 'generate' }
 }
 
-export function confirmCharacterFace(attributes, candidate, assetName) {
-  const faceReference = {
-    id: candidate.id,
-    url: candidate.url,
-    name: `${assetName || '人物'}-面部基准`,
-  }
-  const faceChanged =
-    attributes.faceReference?.id !== faceReference.id || attributes.faceReference?.url !== faceReference.url
-  return {
-    ...attributes,
-    faceStatus: 'approved',
-    faceReference,
-    bodyStatus: 'pending',
-    bodyReference: null,
-    ...(faceChanged
-      ? { portraitSource: 'ai-virtual', trustedPortrait: null, activeAppearanceVariantId: null }
-      : {}),
-  }
-}
-
 export function buildAssetInput({ asset, draft, kind, aspectRatio, creationMode }) {
   const direct = creationMode === ASSET_CREATION_MODES.DIRECT
   const references = creationMode === ASSET_CREATION_MODES.TEXT ? [] : draft.references

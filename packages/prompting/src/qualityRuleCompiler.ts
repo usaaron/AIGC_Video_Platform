@@ -1,4 +1,4 @@
-export const QUALITY_RULE_VERSION = 'quality-floor-v2'
+export const QUALITY_RULE_VERSION = 'quality-floor-v3'
 
 export type QualityRuleInput = {
   mediaKind: 'image' | 'video'
@@ -13,6 +13,7 @@ export type QualityRuleInput = {
 }
 
 export type CompiledQualityRules = {
+  positivePrompt: string
   negativePrompt: string
   presetIds: string[]
   version: typeof QUALITY_RULE_VERSION
@@ -32,6 +33,11 @@ const CHARACTER_BASE =
 
 const HUMAN_CHARACTER_BASE =
   '不要将人类角色生成为动物、拟人动物或兽人；不要将人类五官和肢体替换为动物口鼻、喙、爪、蹄、尾巴或动物耳朵'
+
+// Identity is independent of framing: a face crop and a back view must not be
+// forced into a full-body frontal portrait. Decorations do not select species.
+const HUMAN_CHARACTER_IDENTITY =
+  '主体身份硬约束：主体必须是人类角色，可见的面部与身体部位保持人类解剖结构。主体物种以此约束为准，优先于自定义描述或参考图中的物种暗示。服装图案、羽毛装饰、兽耳发饰和动物造型配件仅作为外部装饰，保留装饰设计，佩戴者仍是人类。沿用当前阶段要求的景别、朝向和构图；仅约束画面中可见的部位，不为展示人体而扩展取景。'
 
 const PHOTOREAL_CHARACTER =
   '不要磨皮过度、塑料皮肤、假人感、娃娃脸和蜡像脸；不要卡通、动漫、低质量3D渲染和塑料材质感'
@@ -96,6 +102,10 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
 
   const clauses = uniqueClauses([...presets.map(([, value]) => value), input.customNegativePrompt ?? ''])
   return {
+    positivePrompt:
+      input.mediaKind === 'image' && input.assetKind === 'character' && input.subjectType !== 'animal'
+        ? HUMAN_CHARACTER_IDENTITY
+        : '',
     negativePrompt: clauses.join('；').slice(0, 5_000),
     presetIds: presets.map(([id]) => id),
     version: QUALITY_RULE_VERSION,

@@ -53,8 +53,6 @@ export class GenerationService {
     await this.preflightAssetLibraryTask(input, principal)
     const existingAssetSuggestionTask = await this.findExistingAssetSuggestionTask(input, principal)
     if (existingAssetSuggestionTask) return existingAssetSuggestionTask
-    const existingTrustedPortraitTask = await this.findActiveTrustedPortraitTask(input, principal)
-    if (existingTrustedPortraitTask) return existingTrustedPortraitTask
 
     const taskInput = await this.snapshotStoryboardVideoTask(input, principal)
     const blockedPortraitNames = await this.repository.blockedPortraitNames(taskInput, principal)
@@ -77,6 +75,7 @@ export class GenerationService {
       )
     }
     const task = await this.repository.createWithCharge(taskInput, principal, traceContext(traceId))
+    if (task.status !== 'queued' || task.clientRequestId !== input.clientRequestId) return task
     await this.dispatcher.dispatch(task, { traceId: traceId ?? traceIdFromGenerationTask(task) })
     return task
   }
@@ -98,31 +97,6 @@ export class GenerationService {
     } else {
       await this.assetLibraryTaskPreflight(input.projectId, assetId, principal)
     }
-  }
-
-  private async findActiveTrustedPortraitTask(
-    input: CreateGenerationTask,
-    principal: Principal,
-  ): Promise<GenerationTask | null> {
-    const assetId = input.metadata?.assetId
-    if (
-      input.provider !== 'asset-library' ||
-      input.metadata?.generationStage !== 'trusted-portrait' ||
-      typeof assetId !== 'string'
-    ) {
-      return null
-    }
-
-    const tasks = await this.repository.listByProject(input.projectId, principal)
-    return (
-      tasks.find(
-        (task) =>
-          task.provider === 'asset-library' &&
-          task.metadata.generationStage === 'trusted-portrait' &&
-          task.metadata.assetId === assetId &&
-          (task.status === 'queued' || task.status === 'paused' || task.status === 'running'),
-      ) ?? null
-    )
   }
 
   private async findExistingAssetSuggestionTask(

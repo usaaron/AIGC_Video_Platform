@@ -37,6 +37,7 @@ import { ProjectService } from '../modules/projects/service.js'
 import { ScriptMasterDeliveryRepository } from '../modules/scriptMaster/deliveryRepository.js'
 import { QuickStartService } from '../modules/quickStart/service.js'
 import { TrustedAssetService } from '../modules/trustedAssets/service.js'
+import { FaceConfirmationService } from '../modules/trustedAssets/faceConfirmationService.js'
 import { TrustedValidationSessionRepository } from '../modules/trustedAssets/validationSessionRepository.js'
 import { UserRepository } from '../modules/users/repository.js'
 import { videoProviderName, type RuntimeProviders } from './providers.js'
@@ -70,6 +71,7 @@ export type RuntimeServices = {
   quickStartService: QuickStartService
   mediaService: MediaService
   trustedAssetService: TrustedAssetService
+  faceConfirmationService: FaceConfirmationService
   paymentService: BillingPaymentService | null
   agentService: AgentService
 }
@@ -343,6 +345,12 @@ export function createRuntimeServices(input: {
     quickStartService,
     mediaService,
     trustedAssetService,
+    faceConfirmationService: new FaceConfirmationService(
+      repositories.projectRepository,
+      repositories.generationTaskRepository,
+      generationService,
+      trustedAssetService,
+    ),
     paymentService,
     agentService,
   }

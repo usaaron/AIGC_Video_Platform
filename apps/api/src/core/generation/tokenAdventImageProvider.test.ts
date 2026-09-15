@@ -2,6 +2,38 @@ import { describe, expect, it, vi } from 'vitest'
 import { TokenAdventImageProvider } from './tokenAdventImageProvider.js'
 
 describe('TokenAdventImageProvider', () => {
+  it.each([false, true])('preserves constraint polarity in the actual request (edit=%s)', async (edit) => {
+    let submittedPrompt = ''
+    const provider = createProvider((async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body
+      submittedPrompt =
+        body instanceof FormData ? String(body.get('prompt')) : JSON.parse(String(body)).prompt
+      // The upstream receives constraints as prompt text in both API shapes.
+      if (body instanceof FormData) expect(body.has('negative_prompt')).toBe(false)
+      else expect(JSON.parse(String(body))).not.toHaveProperty('negative_prompt')
+      return Response.json({ data: [{ b64_json: Buffer.from('png').toString('base64') }] })
+    }) as typeof fetch)
+    const constraints =
+      '不要将人类角色生成为动物；保持真实皮肤；只生成单个主体；文字水印, logo；no extra limbs'
+    await provider.generate({
+      taskId: 'polarity-test',
+      assetId: 'asset-1',
+      aspectRatio: '1:1',
+      prompt: '人类人物大头照，羽毛外套，兽耳发饰',
+      negativePrompt: constraints,
+      references: edit
+        ? [{ name: 'face.png', contentType: 'image/png', content: Buffer.from('reference') }]
+        : [],
+      outputs: ['single'],
+    })
+    expect(submittedPrompt).toContain('人类人物大头照，羽毛外套，兽耳发饰')
+    expect(submittedPrompt).toContain(
+      `画面约束（完整句子按原意执行；无谓语的关键词列表表示应排除的元素）：\n${constraints}`,
+    )
+    expect(submittedPrompt).not.toMatch(/避免出现：(?:不要|保持|只生成)/)
+    expect(submittedPrompt).not.toContain('不要不要')
+  })
+
   it('generates images with the documented JSON endpoint and mapped size', async () => {
     let capturedUrl = ''
     let capturedInit: RequestInit | undefined

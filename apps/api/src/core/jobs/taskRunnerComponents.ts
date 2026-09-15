@@ -38,6 +38,7 @@ import {
 } from './taskLease.js'
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import { DependencyResolver } from './taskDependencyResolver.js'
+import { compileImageTaskPrompt } from './imageTaskPrompt.js'
 import { resolveStoredImageReference, videoImageUrl, type VideoSourceUrl } from './taskImageReferences.js'
 import {
   GenerationResultWriteback,
@@ -1002,28 +1003,16 @@ export class ImageTaskExecutor {
       if (leaseToken && !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) {
         return task
       }
-      const project = state.projects.find(
-        (item) => item.id === stored.projectId && item.tenantId === stored.tenantId,
-      )
-      const attributes = objectValue(stored.metadata.attributes)
-      const userNegativePrompt = stringValue(stored.metadata.userNegativePrompt, stored.negativePrompt)
-      const quality = compileQualityRules({
-        mediaKind: 'image',
-        assetKind: imageAssetKind(stored),
-        subjectType: attributes.subjectType === 'animal' ? 'animal' : 'human',
-        visualStyles: typeof attributes.visualStyle === 'string' ? [attributes.visualStyle] : [],
-        emptyScene: attributes.emptyScene === true,
-        sourcePrompt: stored.prompt,
-        customNegativePrompt: userNegativePrompt,
-        ...(project ? { contentType: project.contentType } : {}),
-        ...(typeof attributes.weather === 'string' ? { weather: attributes.weather } : {}),
-      })
+      const { attributes, assetKind, quality, userNegativePrompt } = compileImageTaskPrompt(stored, state)
       stored.negativePrompt = quality.negativePrompt
       stored.metadata = {
         ...stored.metadata,
         providerIdempotencyKey: providerIdempotencyKeyFor(stored),
+        assetKind,
+        attributes,
         qualityRuleVersion: QUALITY_RULE_VERSION,
         qualityPresetIds: quality.presetIds,
+        compiledPositivePrompt: quality.positivePrompt,
         compiledNegativePrompt: quality.negativePrompt,
         userNegativePrompt,
         ...(stored.metadata.generationStage === 'image2-studio'
@@ -1523,7 +1512,7 @@ function imageRequestFor(task: GenerationTask, references: ImageReference[]): Im
     model: task.model,
     aspectRatio: stringValue(task.metadata.aspectRatio, '1:1'),
     ...(quality ? { quality } : {}),
-    prompt: task.prompt,
+    prompt: [task.prompt, stringValue(task.metadata.compiledPositivePrompt, '')].filter(Boolean).join('\n'),
     negativePrompt: task.negativePrompt,
     references,
     outputs,
@@ -1628,22 +1617,6 @@ function finalizeImage2GenerationSnapshot(
           : referenceVision,
     },
   }
-}
-
-function imageAssetKind(
-  task: GenerationTask,
-): 'character' | 'scene' | 'prop' | 'costume' | 'brand' | 'storyboard' {
-  const assetKind = task.metadata.assetKind
-  if (
-    assetKind === 'character' ||
-    assetKind === 'scene' ||
-    assetKind === 'prop' ||
-    assetKind === 'costume' ||
-    assetKind === 'brand'
-  ) {
-    return assetKind
-  }
-  return 'storyboard'
 }
 
 function numberValue(value: unknown, fallback: number): number {

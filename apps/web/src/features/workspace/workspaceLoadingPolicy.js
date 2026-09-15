@@ -35,6 +35,15 @@ export function normalizeTasks(tasks) {
   return normalizeCollection(tasks, normalizeTask)
 }
 
+export function normalizeTaskPolling(tasks) {
+  return normalizeCollection(tasks, (item) => {
+    const task = normalizeTask(item)
+    // Compact polling omits outputs. An omitted field must not clear loaded candidate images.
+    if (task && !Array.isArray(item.outputs)) delete task.outputs
+    return task
+  })
+}
+
 function normalizeCollection(value, normalizeItem) {
   if (!Array.isArray(value)) return []
   return value.map(normalizeItem).filter(Boolean)

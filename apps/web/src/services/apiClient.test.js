@@ -421,6 +421,23 @@ describe('api client', () => {
     )
   })
 
+  it('confirms the selected face without hiding an automatic registration failure', async () => {
+    const faceReference = { id: 'face-task', url: '/api/v1/tasks/face-task/image', name: '人物面部' }
+    const result = { asset: { id: 'character-1' }, registrationTask: null, registrationError: '积分不足' }
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(result))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.confirmCharacterFace('project-1', 'character-1', faceReference)).resolves.toEqual(result)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/project-1/assets/character-1/face-confirmation',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ faceReference }),
+      }),
+    )
+  })
+
   it('creates a server-side full film preview task', async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ id: 'preview-task', status: 'running' }))
     vi.stubGlobal('fetch', fetchMock)

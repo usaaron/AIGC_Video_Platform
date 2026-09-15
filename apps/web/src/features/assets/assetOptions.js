@@ -110,7 +110,7 @@ export const DEFAULT_ATTRIBUTES = {
 
 export const OPTIONS = {
   subjectType: [
-    ['human', '真人'],
+    ['human', '人类'],
     ['animal', '动物'],
   ],
   gender: [

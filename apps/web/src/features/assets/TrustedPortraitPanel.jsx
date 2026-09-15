@@ -312,7 +312,7 @@ export function TrustedPortraitPanel({
             </strong>
             <small>
               {validationSetupBlocked
-                ? 'AI 虚拟人物请使用上方“创建 AI 人像资源”；已有授权真人资源可在下方选择“已授权真人”后同步绑定。'
+                ? '平台生成的 AI 人物确认面部后自动加白；导入 AI 图片可使用上方“创建 AI 人像资源”。已有授权真人资源可在下方同步绑定。'
                 : '请由演员本人完成认证，成功后会自动把当前面部基准写入真人素材库。'}
             </small>
           </div>

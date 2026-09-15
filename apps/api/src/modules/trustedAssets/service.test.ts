@@ -644,9 +644,14 @@ describe('TrustedAssetService', () => {
     })
   })
 
-  it.each(['processing', 'failed'] as const)(
-    'recovers an active historical portrait when a duplicate submission becomes %s',
-    async (duplicateStatus) => {
+  it.each([
+    ['processing', true],
+    ['failed', true],
+    ['processing', false],
+    ['failed', false],
+  ] as const)(
+    'recovers only the same face history: duplicate=%s matching=%s',
+    async (duplicateStatus, matchingFace) => {
       const store = new AppStore(null)
       await store.initialize()
       const now = new Date().toISOString()
@@ -668,6 +673,7 @@ describe('TrustedAssetService', () => {
           attributes: {
             ...defaultAssetAttributes('character'),
             faceStatus: 'approved',
+            faceReference: { id: 'same-face', url: '/api/v1/media/same-face', name: 'Face' },
             trustedPortrait: {
               assetId: 'asset-duplicate-processing',
               groupId: 'group-duplicate',
@@ -698,6 +704,7 @@ describe('TrustedAssetService', () => {
           provider: 'asset-library',
           model: null,
           metadata: {
+            faceReferenceId: matchingFace ? 'same-face' : 'old-face',
             assetId: 'character-duplicate',
             generationStage: 'trusted-portrait',
             textResult: {
@@ -753,9 +760,16 @@ describe('TrustedAssetService', () => {
         roles: ['member'],
       })
 
-      expect(requestedIds).toEqual(['asset-duplicate-processing', 'asset-original-active'])
+      expect(requestedIds).toEqual(
+        matchingFace
+          ? ['asset-duplicate-processing', 'asset-original-active']
+          : ['asset-duplicate-processing'],
+      )
       expect(updated.attributes).toMatchObject({
-        trustedPortrait: { assetId: 'asset-original-active', status: 'active' },
+        trustedPortrait: {
+          assetId: matchingFace ? 'asset-original-active' : 'asset-duplicate-processing',
+          status: matchingFace ? 'active' : duplicateStatus,
+        },
       })
     },
   )

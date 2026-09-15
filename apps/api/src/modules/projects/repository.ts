@@ -1,3 +1,4 @@
+import { changeAssetInDatabase, type AssetChange } from './assetMutation.js'
 import type {
   Asset,
   CreateAsset,
@@ -12,6 +13,8 @@ import type {
   UpdateAsset,
   UpdateProject,
   UpdateShot,
+  FaceConfirmationRequest,
+  TrustedPortrait,
 } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
@@ -20,6 +23,7 @@ import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore } from '../../infra/store.js'
 import { mergeAssetAttributes } from './assetAttributesMerge.js'
+import { confirmedFaceUpdate, trustedPortraitUpdate, type PortraitWriteIntent } from './faceConfirmation.js'
 import { projectGenerationSummary, projectPreviewUrl, type ProjectPreviewState } from './projectPreview.js'
 import {
   assetColumns,
@@ -1094,84 +1098,49 @@ export class ProjectRepository {
     input: UpdateAsset,
     principal: Principal,
   ): Promise<Asset | null> {
-    if (!this.database) return this.updateAssetInStore(projectId, assetId, input, principal)
+    return this.changeAsset(projectId, assetId, input, principal)
+  }
 
-    const result = await this.database.transaction(async (client) => {
-      const project = await this.findWritableProject(client, projectId, principal)
-      if (!project) return null
+  async confirmFace(
+    projectId: string,
+    assetId: string,
+    face: FaceConfirmationRequest['faceReference'],
+    principal: Principal,
+  ): Promise<Asset | null> {
+    return this.changeAsset(projectId, assetId, (current) => confirmedFaceUpdate(current, face), principal)
+  }
 
-      const currentResult = await client.query<AssetRow>(
-        `
-        SELECT ${assetColumns}
-        FROM assets
-        WHERE id = $1 AND project_id = $2 AND tenant_id = $3
-        FOR UPDATE
-        `,
-        [assetId, projectId, principal.tenantId],
-      )
-      const current = currentResult.rows[0] ? assetFromRow(currentResult.rows[0]) : null
-      if (!current) return null
-      if (input.attributes && input.attributes.type !== current.kind) return null
+  async updateTrustedPortrait(
+    observed: Asset,
+    portrait: TrustedPortrait,
+    source: 'ai-virtual' | 'authorized-real',
+    principal: Principal,
+    intent: PortraitWriteIntent = 'callback',
+  ): Promise<Asset | null> {
+    return this.changeAsset(
+      observed.projectId,
+      observed.id,
+      (current) => trustedPortraitUpdate(current, observed, portrait, source, intent),
+      principal,
+    )
+  }
 
-      const updated: Asset = {
-        ...current,
-        sourceMode: input.sourceMode ?? current.sourceMode,
-        name: input.name ?? current.name,
-        description: input.description ?? current.description,
-        prompt: input.prompt ?? current.prompt,
-        promptMode: input.promptMode ?? current.promptMode,
-        customPromptMode: input.customPromptMode ?? current.customPromptMode,
-        customPrompt: input.customPrompt ?? current.customPrompt,
-        negativePrompt: input.negativePrompt ?? current.negativePrompt,
-        references: input.references ?? current.references,
-        attributes: mergeAssetAttributes(current, input.attributes),
-        imageUrl: input.imageUrl === undefined ? current.imageUrl : input.imageUrl,
-        status: input.status ?? current.status,
-        updatedAt: new Date().toISOString(),
-      }
-      const updatedResult = await client.query<AssetRow>(
-        `
-        UPDATE assets
-        SET
-          source_mode = $4,
-          name = $5,
-          description = $6,
-          prompt = $7,
-          prompt_mode = $8,
-          custom_prompt_mode = $9,
-          custom_prompt = $10,
-          negative_prompt = $11,
-          reference_items = $12::jsonb,
-          attributes = $13::jsonb,
-          image_url = $14,
-          status = $15,
-          updated_at = $16
-        WHERE id = $1 AND project_id = $2 AND tenant_id = $3
-        RETURNING ${assetColumns}
-        `,
-        [
-          assetId,
-          projectId,
-          principal.tenantId,
-          updated.sourceMode,
-          updated.name,
-          updated.description,
-          updated.prompt,
-          updated.promptMode,
-          updated.customPromptMode,
-          updated.customPrompt,
-          updated.negativePrompt,
-          JSON.stringify(updated.references),
-          JSON.stringify(updated.attributes),
-          updated.imageUrl,
-          updated.status,
-          updated.updatedAt,
-        ],
-      )
-      await touchProject(client, projectId, principal.tenantId, updated.updatedAt)
-      return updatedResult.rows[0] ? assetFromRow(updatedResult.rows[0]) : null
-    })
-
+  private async changeAsset(
+    projectId: string,
+    assetId: string,
+    change: AssetChange,
+    principal: Principal,
+  ): Promise<Asset | null> {
+    if (!this.database) return this.updateAssetInStore(projectId, assetId, change, principal)
+    const result = await changeAssetInDatabase(
+      this.database,
+      projectId,
+      assetId,
+      change,
+      principal,
+      (client, id, actor) => this.findWritableProject(client, id, actor),
+      touchProject,
+    )
     if (result) await this.mirrorAsset(result)
     return result
   }
@@ -1797,7 +1766,7 @@ export class ProjectRepository {
   private async updateAssetInStore(
     projectId: string,
     assetId: string,
-    input: UpdateAsset,
+    change: AssetChange,
     principal: Principal,
   ): Promise<Asset | null> {
     return this.requireStore().mutate((state) => {
@@ -1807,8 +1776,15 @@ export class ProjectRepository {
       )
       const asset = state.assets.find((item) => item.id === assetId && item.projectId === projectId)
       if (!ownsProject || !asset) return null
+      const input = typeof change === 'function' ? change(asset) : change
       if (input.attributes && input.attributes.type !== asset.kind) return null
-      Object.assign(asset, input, { updatedAt: new Date().toISOString() })
+      Object.assign(asset, input, {
+        attributes:
+          typeof change === 'function'
+            ? (input.attributes ?? asset.attributes)
+            : mergeAssetAttributes(asset, input.attributes),
+        updatedAt: new Date().toISOString(),
+      })
       return asset
     })
   }

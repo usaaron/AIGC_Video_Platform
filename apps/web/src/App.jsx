@@ -271,7 +271,7 @@ function App() {
     refreshCurrentProjectData,
     createJob,
     createCharacterFaceJob,
-    createTrustedPortraitJob,
+    assetCommands,
     createScriptJob,
     navigateTo,
     openProject,
@@ -636,27 +636,10 @@ function App() {
           imageModels={providerHealth?.imageModels}
           concurrency={billing.concurrency}
           billing={billing}
-          onCreate={async (input) => {
-            const created = await api.createAsset(project.id, input)
-            await refreshWorkspace()
-            setToast('资产已添加')
-            return created
-          }}
-          onUpdate={async (assetId, input) => {
-            const updated = await api.updateAsset(project.id, assetId, input)
-            await refreshWorkspace()
-            setToast('资产已更新')
-            return updated
-          }}
-          onDelete={async (assetId) => {
-            await api.deleteAsset(project.id, assetId)
-            await refreshWorkspace()
-            setToast('资产已删除')
-          }}
+          {...assetCommands}
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGetTrustedConfiguration={() => api.trustedAssetConfiguration()}
           onListTrustedPortraits={(groupType) => api.trustedPortraits(groupType)}
-          onRegisterVirtualPortrait={createTrustedPortraitJob}
           onCreateTrustedValidationSession={(assetId) =>
             api.createTrustedValidationSession(project.id, assetId)
           }
@@ -668,16 +651,6 @@ function App() {
           onLatestTrustedValidationSession={(assetId) =>
             api.latestTrustedValidationSession(project.id, assetId)
           }
-          onBindTrustedPortrait={async (assetId, providerAssetId) => {
-            const updated = await api.bindTrustedPortrait(project.id, assetId, providerAssetId)
-            mergeWorkspaceAsset(updated)
-            return updated
-          }}
-          onRefreshTrustedPortrait={async (assetId) => {
-            const updated = await api.refreshTrustedPortrait(project.id, assetId)
-            mergeWorkspaceAsset(updated)
-            return updated
-          }}
           onGenerateStage={(asset, stage, prompt, model) => {
             const references =
               stage === 'face'

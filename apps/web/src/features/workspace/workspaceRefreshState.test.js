@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { normalizeTaskPolling, normalizeTasks } from './workspaceLoadingPolicy'
 import {
   hasTaskTerminalTransition,
   mergeTaskPolling,
@@ -54,6 +55,33 @@ describe('workspace refresh state', () => {
     }
     expect(workspaceSnapshotKey(workspace)).not.toBe(
       workspaceSnapshotKey({ ...workspace, project: { ...workspace.project, script: '新内容' } }),
+    )
+  })
+
+  it('preserves generated face candidates through normalization and repeated compact polling', () => {
+    let tasks = normalizeTasks([
+      {
+        id: 'face-task',
+        kind: 'image',
+        status: 'completed',
+        metadata: { assetId: 'character-1', generationStage: 'face' },
+        outputs: [{ id: 'face-task-single', url: '/face.png', mediaType: 'image', view: 'single' }],
+      },
+    ])
+    const summary = {
+      id: 'face-task',
+      kind: 'image',
+      status: 'completed',
+      metadata: { assetId: 'character-1', generationStage: 'face' },
+    }
+    for (let poll = 0; poll < 3; poll++)
+      tasks = normalizeTasks(mergeTaskPolling(tasks, normalizeTaskPolling([summary])))
+    expect(tasks[0].outputs).toEqual([
+      { id: 'face-task-single', url: '/face.png', mediaType: 'image', view: 'single' },
+    ])
+    // A full response explicitly clearing outputs still takes effect.
+    expect(mergeTaskPolling(tasks, normalizeTaskPolling([{ ...summary, outputs: [] }]))[0].outputs).toEqual(
+      [],
     )
   })
 
