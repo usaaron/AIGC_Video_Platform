@@ -2,7 +2,7 @@
 
 ## 上游核对
 
-2026-09-16 拉取 `Xylon2000/project111` 全部远端分支：`final2` 最新为 `dd66d6d8a15f0d01c57e82fd60372b648ff99964`（2026-09-13）；`main`、`final1`、`test1`、`agent`、`feature/cn-mainland-staged-generation` 均没有当前本地分支之外的提交。执行 `git merge origin/final2` 返回 Already up to date。现有生产适配已包含上游功能，以及宿主鉴权/账号隔离/票据续期、灵感输入修复和 v2 批量导入，本次没有重复合并或重写独立后端。
+2026-09-16 权限恢复后拉取 `Xylon2000/project111` 全部远端分支：`final2` 最新为 `dd66d6d8a15f0d01c57e82fd60372b648ff99964`（2026-09-13）；`main`、`final1`、`test1`、`agent`、`feature/cn-mainland-staged-generation` 均没有当前本地分支之外的提交。执行 `git merge origin/final2` 返回 Already up to date。现有生产适配已包含上游功能，以及宿主鉴权/账号隔离/票据续期、灵感输入修复和 v2 批量导入，本次没有重复合并或重写独立后端。发布前再次 fetch 返回 Repository not found，最新核对范围以上述成功拉取的提交为准。
 
 ## 界面与往返
 
@@ -20,6 +20,24 @@
 
 ## 交付与部署
 
-源仓库拒绝 HTTPS/SSH 推送；主仓库推送预检成功。独立服务源码将保存在 `usaaron/AIGC_Video_Platform` 的 `codex/script-master-service-20260916` 分支，主站 UI 在 `codex/script-master-refresh-20260916` 分支，保留分开部署。
+源仓库拒绝 HTTPS/SSH 推送；主仓库推送预检成功。独立服务源码发布目标是 `usaaron/AIGC_Video_Platform` 的 `codex/script-master-service-20260916` 分支，主站 UI 在 `codex/script-master-refresh-20260916` 分支，保留分开部署。
 
-本次只更新主站 Web 和独立剧本大师 Web。API、Worker、独立 API 和两套数据库继续使用当前版本；没有新迁移、模型或 Provider 配置修改。发布前备份并准备失败回滚；最终镜像、提交和线上验证结果在发布后补记。
+2026-09-16 01:58（Asia/Shanghai）已部署至 `https://xumutv.com`，仅更新两个 Web 服务，发布记录：
+
+| 项目                     | 已部署版本                                              |
+| ------------------------ | ------------------------------------------------------- |
+| 主站 Web 源码            | `4abab44841301e3e9758ebb86cc05d5c7b0e001f`              |
+| 主站 Web 镜像            | `seqora-web:4abab4484130-workspace`                     |
+| 独立 Web 源码            | `5a443223bb0c3ef5134283ba2cb046cb70b65b02`              |
+| 独立 Web 镜像            | `script-master-web:5a443223bb0c`                        |
+| 保留的 API / Worker 镜像 | `seqora-api:10b50eeb6513-import`                        |
+| 保留的独立 API 镜像      | `script-master-api:f3d62e11f9a8`                        |
+| 主站源码包目录           | `/opt/seqora-releases/workspace-4abab4484130`           |
+| 独立当前源码目录         | `/opt/script-master/releases/5a443223bb0c`              |
+| 配置和双库备份           | `/opt/seqora-backups/script-workspace-20260915T175835Z` |
+
+两个 Docker 生产构建通过。发布脚本包含失败自动回滚，备份中保留旧镜像和两个数据库；没有新迁移、模型或 Provider 配置修改。通过容器 ID 对比确认 API、Worker、独立 API 和两个数据库均未重建，主站环境配置文件完全一致。
+
+线上 readiness 正常，未登录访问账号、项目、导入目标、管理端和剧本大师均返回 401。已登录独立页面返回 200；通过业务 API 创建验收项目，导入 1 集、1 镜、3 项分类资产，验证重复回执一致、素材与分集关系正确、人物保持 human、积分不变，最后归档验收项目并退出该冒烟会话。
+
+生产浏览器确认主站同页进入完整剧本大师，桌面和 390px 手机页面均无 iframe、无创作 dialog、无横向溢出；点击“返回主站”在新标签页进入绑定项目的剧本页，原创作页面保留。当前用户已有项目内容未编辑，未触发模型生成。后续仅文档提交不改变以上已部署代码版本。

@@ -5,9 +5,9 @@
 ## 生产接入方式
 
 宿主和独立服务必须分别发布。只发布本仓库会有入口和交接 API，但没有剧本大师工作台。
-独立源码保留在 `project111-final2`，当前生产适配源码将发布到主仓库的 `codex/script-master-service-20260916` 分支，
+独立源码保留在 `project111-final2`，当前生产适配源码保存在主仓库的 `codex/script-master-service-20260916` 分支，
 已包含 `final2` 的 `dd66d6d` 及独立服务适配提交。部署文件位于独立仓库的 `compose.production.yml` 和 `deploy/`。
-源仓库当前可读但拒绝写入；发布使用经过验证的独立源码包和镜像。
+源仓库曾恢复读取，发布前再次返回 Repository not found，且拒绝写入；发布使用经过验证的独立源码包和镜像。
 
 主项目 API 配置：
 
