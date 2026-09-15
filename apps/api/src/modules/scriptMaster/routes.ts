@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { PERMISSIONS } from '@seqora/contracts'
+import { PERMISSIONS, scriptMasterImportRequestSchema } from '@seqora/contracts'
+import type { ScriptMasterImportRepository } from './importRepository.js'
 import type { Principal } from '@seqora/contracts'
 import type { AppConfig } from '../../config.js'
 import { AppError } from '../../core/errors.js'
@@ -34,6 +35,7 @@ export async function registerScriptMasterRoutes(
   config: AppConfig,
   projectService: ProjectService,
   deliveryRepository = new ScriptMasterDeliveryRepository(),
+  importRepository?: ScriptMasterImportRepository,
 ): Promise<void> {
   const hostProjectIds = new WeakMap<object, string | null>()
   const authorizeDelivery = async (request: { principal: Principal | null }) => {
@@ -178,6 +180,32 @@ export async function registerScriptMasterRoutes(
         await deliveryRepository.release(delivery)
         throw error
       }
+    },
+  )
+
+  app.get('/script-master/targets', { preHandler: authorizeDelivery as never }, async (request) => {
+    const scoped = hostProjectIds.get(request)
+    const projects = await projectService.list(request.principal!)
+    return projects
+      .filter(
+        (project) =>
+          project.ownerId === request.principal!.userId &&
+          project.contentType === 'short-drama' &&
+          project.status !== 'archived' &&
+          (!scoped || project.id === scoped),
+      )
+      .map((project) => ({ id: project.id, name: project.name }))
+  })
+  app.post(
+    '/script-master/imports',
+    { preHandler: authorizeDelivery as never, bodyLimit: 32 * 1024 * 1024 },
+    async (request, reply) => {
+      const input = parseRequest(scriptMasterImportRequestSchema, request.body ?? {})
+      const scoped = hostProjectIds.get(request)
+      if (scoped && scoped !== input.targetProjectId)
+        throw new AppError(403, 'PROJECT_SCOPE_DENIED', '该启动票据不能交接到此项目')
+      if (!importRepository) throw new AppError(503, 'IMPORT_NOT_CONFIGURED', '批量导入暂不可用')
+      return reply.code(201).send(await importRepository.import(input, request.principal!))
     },
   )
 }

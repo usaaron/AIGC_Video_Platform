@@ -35,6 +35,7 @@ import { NovelService } from '../modules/novels/service.js'
 import { ProjectRepository } from '../modules/projects/repository.js'
 import { ProjectService } from '../modules/projects/service.js'
 import { ScriptMasterDeliveryRepository } from '../modules/scriptMaster/deliveryRepository.js'
+import { ScriptMasterImportRepository } from '../modules/scriptMaster/importRepository.js'
 import { QuickStartService } from '../modules/quickStart/service.js'
 import { TrustedAssetService } from '../modules/trustedAssets/service.js'
 import { FaceConfirmationService } from '../modules/trustedAssets/faceConfirmationService.js'
@@ -48,6 +49,7 @@ export type RuntimeRepositories = {
   adminRepository: AdminRepository | null
   projectRepository: ProjectRepository
   scriptMasterDeliveryRepository: ScriptMasterDeliveryRepository
+  scriptMasterImportRepository: ScriptMasterImportRepository
   generationTaskRepository: GenerationTaskRepository
   mediaRepository: MediaRepository
   aiJobRepository: AiJobRepository
@@ -95,6 +97,7 @@ export async function createRuntimeRepositories(input: {
 
   const projectRepository = new ProjectRepository(store, database)
   const scriptMasterDeliveryRepository = new ScriptMasterDeliveryRepository(database)
+  const scriptMasterImportRepository = new ScriptMasterImportRepository(store, database)
 
   const assetLibraryRepository = new AssetLibraryRepository(store, database)
   const trustedValidationSessionRepository = new TrustedValidationSessionRepository(store, database)
@@ -155,6 +158,7 @@ export async function createRuntimeRepositories(input: {
     adminRepository: database ? new AdminRepository(database) : null,
     projectRepository,
     scriptMasterDeliveryRepository,
+    scriptMasterImportRepository,
     generationTaskRepository,
     mediaRepository,
     aiJobRepository,

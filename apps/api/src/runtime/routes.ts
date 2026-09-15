@@ -121,6 +121,7 @@ export async function registerRuntimeRoutes(input: {
         config,
         services.projectService,
         repositories.scriptMasterDeliveryRepository,
+        repositories.scriptMasterImportRepository,
       )
       await registerAiJobRoutes(api, services.aiJobService)
       await registerImage2Routes(api, services.image2BatchService)
