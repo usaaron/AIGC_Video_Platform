@@ -21,6 +21,26 @@
     reverse_proxy api:8787
   }
 
+  # Script Master is independently deployed on the private Compose network.
+  # Next.js hydration requires inline scripts only within this workbench.
+  @scriptMaster path /script-master /script-master/*
+  handle @scriptMaster {
+    forward_auth api:8787 {
+      uri /api/v1/auth/me
+    }
+    header {
+      X-Frame-Options "SAMEORIGIN"
+      Cache-Control "private, no-store"
+      Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+    }
+    reverse_proxy script-master-web:3000 {
+      flush_interval -1
+      transport http {
+        response_header_timeout 670s
+      }
+    }
+  }
+
   handle /admin {
     forward_auth api:8787 {
       uri /api/v1/admin/access

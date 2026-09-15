@@ -2,12 +2,17 @@
 
 当前项目把 `project111-final2` 作为独立 Script Master 服务接入功能栈中的“剧本大师”。`final2` 的 Next.js 前端、FastAPI 后端、数据库、长剧本生成、分集规划、修订、质量检查和导出功能保持独立运行。
 
-## 运行方式
+## 生产接入方式
+
+宿主和独立服务必须分别发布。只发布本仓库会有入口和交接 API，但没有剧本大师工作台。
+独立源码保留在 `project111-final2`，生产适配分支为 `codex/script-master-production-20260915`，
+源自 `final2` 的 `d659fb0`。部署文件位于独立仓库的 `compose.production.yml` 和 `deploy/`。
+原仓库权限已撤回，不能依赖服务器临时拉取它；使用经过验证的独立源码包和镜像。
 
 主项目 API 配置：
 
 ```env
-SCRIPT_MASTER_URL=http://127.0.0.1:3000
+SCRIPT_MASTER_URL=https://xumutv.com/script-master
 SCRIPT_MASTER_SHARED_SECRET=同一条随机长密钥
 SCRIPT_MASTER_LAUNCH_TTL_SECONDS=300
 ```
@@ -20,7 +25,22 @@ HOST_INTEGRATION_SECRET=同一条随机长密钥
 FRONTEND_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 ```
 
-主项目页面调用 `/api/v1/script-master/config` 检查服务状态，再调用 `/api/v1/script-master/launch` 获取启动地址。启动地址包含短时签名票据，票据位于 URL fragment，不会作为普通 API URL 发送。`final2` 前端首次请求 API 时把票据转为 `Authorization: Bearer`，后端验证签名、受众、有效期和项目范围。
+生产还必须配置 `SCRIPT_MASTER_ACCOUNT_ISOLATION=true`、独立 PostgreSQL 的 `DATABASE_URL`，并将
+`FRONTEND_ORIGINS` 设为 `https://xumutv.com`。模型配置只进入独立后端；Next.js 镜像只接收路径等
+公开配置。数据库使用单独的应用角色、持久卷和内网，不能复用开发 SQLite 或导入本地用户数据。
+
+主项目页面调用 `/api/v1/script-master/config` 检查连接配置，再调用 `/api/v1/script-master/launch`
+获取启动地址。配置接口不等于远端健康检查。启动票据位于 URL fragment，前端去掉 fragment 后
+通过 `Authorization: Bearer` 调用后端。生产工作台首次加载先核对主站会话；临近过期时重新
+领取短期票据。会话失效或账号变化时停止旧页面请求和缓存同步，要求重新进入。
+
+宿主 Caddy 对 `/script-master` 执行主站登录校验，再代理独立 Next.js。独立 API 继续验证签名、
+有效期、`project.read/project.write` 和项目范围，数据访问通过组织与用户组合的 PostgreSQL schema
+隔离。公共 schema 仅含预置资料，浏览器 IndexedDB/创作缓存也按账号划分。
+
+独立服务启动前执行 `python scripts/prepare_production.py` 迁移并写入静态资料，readiness 通过后
+再连接主站。宿主发布命令必须同时读取 `deploy/demo.env` 与 `deploy/release.env`，防止选错旧镜像。
+仅更新网关时可使用 `deploy/script-master-gateway.Dockerfile` 复用已经验证的主站页面资源。
 
 ## 责任边界
 
@@ -35,7 +55,9 @@ FRONTEND_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 ## 本地检查
 
 1. 启动主项目：`pnpm dev`。
-2. 启动 `final2`：按其 `start-local.sh` 启动 API `8000` 和前端 `3000`。
+2. 启动 `final2`：按其开发文档启动 API `8000` 和前端 `3000`；启用宿主鉴权时必须使用 PostgreSQL。
+   本地 Next 配置 `HOST_API_URL=http://localhost:8787`，宿主服务地址统一用 `http://localhost:3000`，
+   确保不同端口复用同一主机的登录 Cookie。生产使用上述同源路径部署。
 3. 登录主项目，打开功能栈中的“剧本大师”。
 4. 配置未完成时页面应显示可重试的连接状态；配置完成时应显示独立工作台，并可在新标签页打开。
 
@@ -43,7 +65,7 @@ FRONTEND_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 
 ## 当前接入限制
 
-- 不指定项目的启动票据尚未配套账号/组织级数据隔离。剧本大师数据库项目列表和浏览器缓存不能据此保证多账号互不可见，修复前不应向多个组织开放。
-- 启动票据默认 300 秒、最多 900 秒，当前直接用于后续 API 请求，尚无服务会话交换或续期，无法满足数小时任务的持续操作。
+- 2026-09-15 生产适配增加按账号的数据库/缓存隔离和票据续期；旧版本 `d659fb0` 不具备这些保护，不能直接作为多账号生产镜像。历史测试报告描述的是旧版本。
+- 账号隔离没有同时提供组织内项目共享。实验采集/评估结果仍为进程内存持久期，不应当成已实现持久任务。
 - 独立模块新建项目仍需明确绑定到主项目才能可靠交接；中途失败、重启和来源分集映射的限制见上文及测试报告。
 - 100 集全链路在真实模型、队列和媒体 Provider 上的耗时仍需单独压测，不能从界面状态推断已达到一天以内。
