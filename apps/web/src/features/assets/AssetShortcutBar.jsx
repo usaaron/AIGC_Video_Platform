@@ -140,6 +140,7 @@ export function AssetAwareTextarea({
   assets = [],
   tasks = [],
   value = '',
+  highlights = [],
   onChange,
   inputRef,
   className = '',
@@ -238,7 +239,9 @@ export function AssetAwareTextarea({
   }
 
   return (
-    <div className={`asset-aware-textarea ${className}`.trim()}>
+    <div
+      className={`asset-aware-textarea ${highlights.length ? 'has-prompt-highlights' : ''} ${className}`.trim()}
+    >
       <div className="asset-aware-highlight" aria-hidden="true">
         <div
           className="asset-aware-highlight-inner"
@@ -268,7 +271,7 @@ export function AssetAwareTextarea({
               : {}),
           }}
         >
-          {renderHighlightedText(value, mentions, tasks)}
+          {renderHighlightedText(value, mentions, tasks, highlights)}
         </div>
       </div>
       <textarea
@@ -289,26 +292,34 @@ function sameEditorMetrics(current, next) {
   return Object.keys(next).every((key) => current[key] === next[key])
 }
 
-function renderHighlightedText(value, mentions, tasks) {
+function renderHighlightedText(value, mentions, tasks, highlights = []) {
   if (!value) return '\u00a0'
-  if (!mentions.length) return value
-  const nodes = []
-  let cursor = 0
-  mentions.forEach((mention, index) => {
-    if (mention.start > cursor) nodes.push(value.slice(cursor, mention.start))
-    const state = assetState(mention.asset, tasks)
-    nodes.push(
-      <span
-        key={`${mention.asset.id}-${mention.start}-${index}`}
-        className={`asset-inline-mention kind-${mention.asset.kind} ${state}`}
-      >
-        {mention.text}
-      </span>,
+  if (!mentions.length && !highlights.length) return value
+  const boundaries = [
+    ...new Set([
+      0,
+      value.length,
+      ...[...mentions, ...highlights].flatMap((range) => [range.start, range.end]),
+    ]),
+  ]
+    .filter((position) => position >= 0 && position <= value.length)
+    .sort((a, b) => a - b)
+  return boundaries.slice(0, -1).map((start, index) => {
+    const end = boundaries[index + 1]
+    const mention = mentions.find((range) => range.start <= start && range.end >= end)
+    const template = highlights.some((range) => range.start <= start && range.end >= end)
+    const className = [
+      mention && `asset-inline-mention kind-${mention.asset.kind} ${assetState(mention.asset, tasks)}`,
+      template && 'prompt-template-text',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    return (
+      <span key={start} className={className || undefined}>
+        {value.slice(start, end)}
+      </span>
     )
-    cursor = mention.end
   })
-  if (cursor < value.length) nodes.push(value.slice(cursor))
-  return nodes
 }
 
 export function findAssetMentions(value, assets) {

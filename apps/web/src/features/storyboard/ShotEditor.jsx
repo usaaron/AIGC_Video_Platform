@@ -6,6 +6,7 @@ import { AssetAwareTextarea } from '../assets/AssetShortcutBar'
 import { getAssetPreviewUrl } from '../assets/assetPreview'
 import { normalizedVideoDuration } from '@seqora/prompting'
 import { insertPromptAtCursor } from '../assets/promptInsertion'
+import { adjustPromptHighlights, mergePromptHighlights } from '../assets/promptHighlights'
 import { ShotAssetShortcuts } from './ShotAssetShortcuts'
 import { ShotPromptTemplates } from './ShotPromptTemplates'
 import { ShotLibraryAssets } from './ShotLibraryAssets'
@@ -29,6 +30,7 @@ export function ShotEditor({
   const framing = shot.framing || '中景'
   const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration, minDuration))
   const [prompt, setPrompt] = useState(shot.prompt || '')
+  const [templateHighlights, setTemplateHighlights] = useState([])
   const promptArea = useRef(null)
   const negativePrompt = shot.negativePrompt || ''
   const continuityNote = shot.continuityNote || ''
@@ -53,9 +55,19 @@ export function ShotEditor({
   const close = () => {
     if (!busy && !saveLock.current) onClose()
   }
-  const insertPrompt = (text) => {
-    insertPromptAtCursor(promptArea.current, prompt, text, (next) => {
+  const changePrompt = (next) => {
+    setTemplateHighlights((current) => adjustPromptHighlights(prompt, next, current))
+    setPrompt(next)
+  }
+  const insertPrompt = (text, template = false) => {
+    insertPromptAtCursor(promptArea.current, prompt, text, (next, edit) => {
       if (next.length > 5000) throw new Error('插入后超过 5,000 字，请缩短提示词或选取更短的文本后再插入。')
+      setTemplateHighlights((current) =>
+        mergePromptHighlights([
+          ...adjustPromptHighlights(prompt, next, current, edit),
+          ...(template ? [{ start: edit.insertedStart, end: edit.insertedEnd }] : []),
+        ]),
+      )
       setPrompt(next)
       setError('')
     })
@@ -313,6 +325,7 @@ export function ShotEditor({
                 disabled={busy || prompt === (shot.prompt || '')}
                 onClick={() => {
                   setPrompt(shot.prompt || '')
+                  setTemplateHighlights([])
                   setError('')
                 }}
               >
@@ -326,14 +339,23 @@ export function ShotEditor({
               assets={assets}
               tasks={tasks}
               value={prompt}
+              highlights={templateHighlights}
               id="shot-visual-prompt"
               maxLength={5000}
               disabled={busy}
-              onChange={(event) => setPrompt(event.target.value)}
+              onChange={(event) => changePrompt(event.target.value)}
               aria-label="画面提示词"
             />
+            {templateHighlights.length > 0 && (
+              <span className="shot-template-legend">深绿色文字：本次引用的提示词模板</span>
+            )}
             <span className="shot-prompt-count">{prompt.length.toLocaleString()} / 5,000</span>
-            <ShotPromptTemplates title={title} prompt={prompt} disabled={busy} onInsert={insertPrompt}>
+            <ShotPromptTemplates
+              title={title}
+              prompt={prompt}
+              disabled={busy}
+              onInsert={(text) => insertPrompt(text, true)}
+            >
               <ShotLibraryAssets
                 projectId={projectId}
                 disabled={busy}

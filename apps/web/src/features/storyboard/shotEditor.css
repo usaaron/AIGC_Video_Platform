@@ -217,6 +217,29 @@
   font-size: 14px;
 }
 
+.storyboard-shot-editor .asset-aware-textarea.has-prompt-highlights > textarea {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.storyboard-shot-editor .has-prompt-highlights .asset-aware-highlight-inner {
+  color: #2b2f29;
+}
+
+.storyboard-shot-editor .prompt-template-text {
+  color: #245638;
+  background-color: #edf7ef;
+  text-decoration: underline solid #b4cdbb;
+  text-underline-offset: 3px;
+}
+
+.shot-template-legend {
+  display: block;
+  margin-top: 7px;
+  color: #245638;
+  font-size: 11px;
+}
+
 .shot-prompt-count {
   margin-top: 5px;
   color: #858c81;

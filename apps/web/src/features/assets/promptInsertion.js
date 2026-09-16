@@ -11,7 +11,14 @@ export function insertPromptAtCursor(target, value, text, onChange, separator = 
   const pageScroll = { left: window.scrollX, top: window.scrollY }
   // Commit the controlled value before moving the caret, without a delayed move
   // that could override the user's next click or keystroke.
-  flushSync(() => onChange?.(`${before}${prefix}${text}${after}`))
+  flushSync(() =>
+    onChange?.(`${before}${prefix}${text}${after}`, {
+      start,
+      end,
+      insertedStart: start + prefix.length,
+      insertedEnd: start + prefix.length + text.length,
+    }),
+  )
   if (!target?.isConnected) return
   const cursor = start + prefix.length + text.length
   target.focus({ preventScroll: true })

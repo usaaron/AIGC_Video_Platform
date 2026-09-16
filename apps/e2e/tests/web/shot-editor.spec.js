@@ -161,6 +161,11 @@ for (const width of [1440, 390]) {
       .click()
     await expect(picker).toHaveCount(0)
     await expect(prompt).toHaveValue('林晚等待。旧怀表；柔和侧光，人物近景，缓慢推镜。')
+    const highlighted = dialog.locator('.prompt-template-text')
+    await expect(highlighted).toHaveText('柔和侧光，人物近景，缓慢推镜。')
+    await expect(highlighted).toHaveCSS('color', 'rgb(36, 86, 56)')
+    await expect(prompt).toHaveCSS('-webkit-text-fill-color', 'rgba(0, 0, 0, 0)')
+    await page.screenshot({ path: testInfo.outputPath(`inserted-template-${width}.png`) })
     await dialog.getByRole('button', { name: '保存并生成新版' }).click()
     await expect(dialog).toHaveCount(0)
     expect(saves).toHaveLength(1)
@@ -172,6 +177,29 @@ for (const width of [1440, 390]) {
     await expect(edit).toBeDisabled()
   })
 }
+
+test('模板正文颜色随编辑移动，清空后恢复普通文字显示', async ({ page }) => {
+  await setup(page)
+  await page.getByRole('button', { name: '编辑分镜', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑镜头', exact: true })
+  const prompt = dialog.getByRole('textbox', { name: '画面提示词' })
+  await prompt.fill('已有画面。')
+  await prompt.press('Control+End')
+  await dialog.getByRole('button', { name: '使用提示词模板' }).click()
+  await page.getByRole('dialog', { name: '选择提示词模板' }).getByRole('button', { name: '插入模板' }).click()
+  await expect(dialog.locator('.prompt-template-text')).toHaveText('柔和侧光，浅景深。')
+  await prompt.click()
+  await prompt.press('Control+Home')
+  await prompt.pressSequentially('前景：')
+  await expect(dialog.locator('.prompt-template-text')).toHaveText('柔和侧光，浅景深。')
+  await prompt.press('Control+End')
+  await prompt.press('ArrowLeft')
+  await prompt.pressSequentially('，保持自然')
+  await expect(dialog.locator('.prompt-template-text')).toHaveText('柔和侧光，浅景深，保持自然。')
+  await prompt.fill('')
+  await expect(dialog.locator('.prompt-template-text')).toHaveCount(0)
+  await expect(prompt).toHaveCSS('-webkit-text-fill-color', 'rgb(43, 47, 41)')
+})
 
 for (const width of [1440, 390]) {
   test(`资产库图片导入、剧本传参和参考视频禁用 ${width}`, async ({ page }, testInfo) => {
