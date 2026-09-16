@@ -13,6 +13,26 @@ const assets = [
 ]
 
 describe('selectShotAssetReferences', () => {
+  it('keeps all participant identities before optional outfits when the provider reference limit is reached', () => {
+    const references = [
+      { videoUrl: 'asset://first', url: '/first.png', appearanceUrl: '/first-outfit.png' },
+      { videoUrl: 'asset://second', url: '/second.png', appearanceUrl: '/second-outfit.png' },
+      { url: '/scene.png' },
+    ]
+    expect(selectVideoReferenceImages('/tail.png', references, 4)).toEqual([
+      '/tail.png',
+      'asset://first',
+      'asset://second',
+      '/scene.png',
+    ])
+    expect(selectVideoReferenceImages(null, references, 9)).toEqual([
+      'asset://first',
+      'asset://second',
+      '/scene.png',
+      '/first-outfit.png',
+      '/second-outfit.png',
+    ])
+  })
   it('uses the requested outfit with its shared portrait instead of the globally selected outfit', () => {
     const character = asset('gu', 'character', '顾砚', '年轻男性', '/face.png', '/standard.png')
     character.attributes.activeAppearanceVariantId = 'standard'

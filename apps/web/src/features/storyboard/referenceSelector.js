@@ -89,7 +89,8 @@ export function selectVideoReferenceImages(manualReferenceUrl, references, limit
     ...new Set(
       [
         manualReferenceUrl,
-        ...references.flatMap((reference) => [reference.videoUrl || reference.url, reference.appearanceUrl]),
+        ...references.map((reference) => reference.videoUrl || reference.url),
+        ...references.map((reference) => reference.appearanceUrl),
       ].filter(Boolean),
     ),
   ].slice(0, limit)
