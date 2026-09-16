@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { hasLastFrame, latestVideoTaskFor } from './taskMedia'
 
+it('keeps the rolled-back version even without a tail frame so the caller can report it', () => {
+  const selected = {
+    id: 'selected',
+    kind: 'video',
+    status: 'completed',
+    metadata: { shotId: 'shot-1' },
+    outputs: [],
+  }
+  const latest = { ...selected, id: 'latest', outputs: [{ view: 'last-frame' }] }
+  expect(
+    latestVideoTaskFor([latest, selected], { id: 'shot-1', selectedVideoTaskId: 'selected' }, true),
+  ).toBe(selected)
+})
+
 const task = (id, status, outputs = []) => ({
   id,
   kind: 'video',

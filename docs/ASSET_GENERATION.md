@@ -153,8 +153,8 @@ Content-Type: multipart/form-data
 
 Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默认 `VIDEO_PROVIDER=dora-router`，API 服务调用 DoraRouter 的兼容接口。轮询只把明确的成功或失败状态收敛为本地终态；上游返回的其他短暂状态继续按生成中处理，避免远端仍在运行时被本地误判失败：
 
-- `POST https://www.dorarouter.com/v1/video/generations`：创建异步视频任务
-- `GET https://www.dorarouter.com/v1/video/generations/:taskId`：查询任务状态并取得 `metadata.url`
+- `POST https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks`：通过原生 `content` 数组创建任务；旧通用接口要求 `prompt`，不能混用。
+- `GET https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/:taskId`：查询状态和 `content.video_url`。只在明确 `404 task_not_found` 时回读旧 `/v1/video/generations/:taskId`，兼容历史任务；创建请求不跨路径自动重试。
 - DoraRouter 文档没有远端取消接口；取消时服务端不反复请求不存在的地址，直接记录 `providerCancelSkippedAt`，并按本地取消规则退款。
 
 StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，均作为回滚通道。DoraRouter 任务记录 `providerName=dora-router-seedance`，便于审计真实提交路径。
@@ -174,17 +174,25 @@ StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Pro
 
 ### 服务端质量下限
 
-资产图片和分镜视频的负面提示词不是只在前端展示。Worker 在真正调用 Provider 前通过共享包 `packages/prompting/src/qualityRuleCompiler.ts` 编译，当前版本为 `quality-floor-v2`，并把以下审计字段保存到任务：`qualityRuleVersion`、`qualityPresetIds`、`compiledNegativePrompt`、`userNegativePrompt`。
+资产图片和分镜视频的质量约束不是只在前端展示。Worker 在真正调用 Provider 前通过共享包 `packages/prompting/src/qualityRuleCompiler.ts` 编译，当前版本为 `quality-floor-v3`，并把以下审计字段保存到任务：`qualityRuleVersion`、`qualityPresetIds`、`compiledNegativePrompt`、`userNegativePrompt`；图片任务另存 `compiledPositivePrompt`。
 
 人物图片按任务快照 `metadata.attributes.subjectType` 区分人类与动物。明确为 `animal` 的任务保留动物生成能力；`human` 或旧任务缺少该字段时，启用 `human-character` 规则，防止把人类角色或五官肢体生成为动物形态。规则适用于面部、全身、三视图和资产建议后的图片任务，不对场景、分镜、物品或服装施加人类身份限制，也不改变景别或禁止服装上的羽毛装饰。
 
-标准模式提示词明确人类五官与身体结构；高级模式继续保留各阶段的完整自定义提示词，系统质量约束由 Worker 统一合入，不回写到可编辑提示词，避免反复编辑产生重复追加。TokenAdvent 图片适配器将内部 `negativePrompt` 合入实际 JSON 或 multipart 请求的 `prompt`；即使高级提示词完全覆盖，也会携带质量约束。此处是提示词约束，没有图像物种识别或自动拦截机制；已有错误图片需要重新生成并人工验收。
+标准模式提示词明确人类五官与身体结构；高级模式继续保留各阶段的完整自定义提示词，Worker 在最终正向请求加入独立的人类身份约束，不回写到可编辑提示词，避免反复编辑产生重复追加。旧任务缺失资产类型或属性时按同项目、同组织资产补齐。TokenAdvent 图片适配器将内部 `negativePrompt` 合入实际 JSON 或 multipart 请求的 `prompt`，使用“画面约束”标题，避免旧版“避免出现：不要……”的双重否定；即使高级提示词完全覆盖，也会携带质量约束。此处是提示词约束，没有图像物种识别或自动拦截机制；已有错误图片需要重新生成并人工验收。
 
 规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 将质量约束编入最终提示词；图片 Provider 接收内部 `negativePrompt` 后按上游协议提交。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
 
 生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的视频仅在 Provider 提供远端 `cancel` 时调用；DoraRouter 当前没有该接口，服务端标记跳过远端取消后按本地规则退款，不会重复请求导致白屏或报错。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
 
-分镜卡片完整显示镜头提示词、参考资产、图片状态和视频状态，并提供独立的“生成图片”和“生成视频”按钮。两个入口互不依赖；“生成全部视频”也不会暗中创建图片任务。已有且匹配当前资产的分镜图会自动加入视频参考，没有时直接走资产或纯提示词。批量入口和每个镜头均可在生成前选择 `480p`、`720p`、`1080p` 或 `4k`，选中值冻结到任务 `metadata.resolution`。
+分镜卡片展示提示词摘要、参考资产与视频状态，提供带文字的大号“编辑分镜”按钮。已有版本可点“再抽一次”，保留原有版本历史；单镜视频仍为 18 积分，沿用现有连续性和任务队列。批量入口和每个镜头均可在生成前选择 `480p`、`720p`、`1080p` 或 `4k`，选中值冻结到任务 `metadata.resolution`。
+
+“回退到上一版本”直接显示在分镜卡片中。弹窗对比当前使用的视频和将恢复的上一版，标明版本序号与生成时间，确认后只切换 `selectedVideoTaskId`，不创建生成任务、不扣积分、不覆盖当前提示词。上一版按成功任务的生成顺序寻找，可逐次从 V3 回到 V2、V1；“查看版本”中可切回最新版本，也可单独用某一版的原始提示词打开编辑器。生成中禁用切换，没有更早版本时明确提示。回退后镜头预览立即切换，已有完整成片需要重新合成；不会自动重做后续镜头。选定视频缺少尾帧时，单镜连续生成应提示处理，不得悄悄改用别的版本尾帧。桌面/手机回归见 `apps/e2e/tests/web/shot-rollback.spec.js`。
+
+编辑镜头时，提示词上方按人物、物品、场景显示从本镜标题与提示词识别到的项目资产。点击名称写入光标位置；尚无图片的资产也能插入名称，但不会被伪装成可用参考图。画面提示词上限 5,000 字；支持还原打开编辑器时的提示词、本地上传和选择项目参考图。
+
+“使用资产库资产”位于模板入口左侧：图片复用项目媒体导入接口作为本镜参考图（替换当前单张参考图），剧本读取选中版本的全文，可插入全文或选中段落到提示词，不改写项目剧本，超过 5,000 字提示选取更短文本。参考视频的本地上传、URL 入口标为开发中并禁用。
+
+“使用提示词模板”和“存为提示词模板”使用深绿色文字，弹窗保留一致留白，并复用资产库的模板接口；读取选中版本的完整正文，不用摘要代替。模板修改会创建新版本；保存模板不会保存分镜或触发生成。单独保存分镜不扣积分，“保存并生成新版”先保存再用已保存的镜头内容创建任务；失败保留编辑内容，提交期间锁定操作。任务已经受理后，列表或积分刷新失败只提示同步延迟，不把成功提交误报为生成失败。前端回归覆盖见 `apps/e2e/tests/web/shot-editor.spec.js`。
 
 批量入口提供“并发优先”和“连续优先”。并发优先会把已有连续链均衡规划成最多套餐并发数条链，会员最多 3 条、免费用户 1 条；只把新增链首改为 `independent` 并持久化，链内仍按尾帧依赖顺序生成。连续优先完全保留用户现有衔接。后端 Worker 仍是最终并发控制者：会员同一 tick 最多向 Provider 提交 3 个可运行任务，免费用户最多 1 个。队列页显示实际运行数 / 上限。
 
@@ -203,3 +211,7 @@ API 从对象存储读取受保护的分镜图和资产图并转换为 Provider 
 第三方任务 ID 只保存在服务端任务 `metadata` 中；前端通过受登录权限保护的 `/api/v1/generation/tasks/:taskId/content` 播放或下载，不接触第三方 API Key。内容接口支持浏览器 Range 播放，并从对象存储或当前 Provider 的完成结果读取媒体。远端提交或生成失败时，任务会保存错误原因并自动退回本次预扣积分，退款账本使用任务 ID 保证幂等。
 
 本地开发在 `apps/api/.env` 配置 `VIDEO_PROVIDER=dora-router`、`DORA_ROUTER_BASE_URL` 和 `DORA_ROUTER_API_KEY`。未配置密钥时开发环境使用本地模拟视频结果；生产环境缺少所选 Provider 密钥会拒绝启动。所有密钥只能通过服务端环境或 Secret Manager 注入，不能写入镜像、前端或 Git。
+
+## 剧本中的角色来源
+
+剧本生成、重写、补全和续写的系统提示词仅使用通用结构示例，角色姓名、身份和换装来自用户素材、已有剧本与已确认资产。此前网剧示例中的固定姓名和医生设定已移除，防止混入无关故事。用户原稿中使用相同姓名仍被保留；不会自动改写已保存的剧本或资产。

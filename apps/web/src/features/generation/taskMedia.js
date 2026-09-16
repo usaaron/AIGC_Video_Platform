@@ -1,13 +1,14 @@
 export function latestVideoTaskFor(tasks, shotOrId, needsLastFrame = false) {
   const shotId = typeof shotOrId === 'string' ? shotOrId : shotOrId.id
   const selectedVideoTaskId = typeof shotOrId === 'string' ? null : shotOrId.selectedVideoTaskId
+  // Honor an explicit rollback. The caller reports a missing tail frame rather
+  // than silently continuing from a different completed version.
   const selected = tasks.find(
     (task) =>
       task.id === selectedVideoTaskId &&
       task.kind === 'video' &&
       task.metadata?.shotId === shotId &&
-      task.status === 'completed' &&
-      (!needsLastFrame || hasLastFrame(task)),
+      task.status === 'completed',
   )
   return (
     tasks.find(

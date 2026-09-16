@@ -276,6 +276,7 @@ function App() {
     createJob,
     createCharacterFaceJob,
     assetCommands,
+    updateShot,
     createScriptJob,
     navigateTo,
     openProject,
@@ -767,11 +768,7 @@ function App() {
             await api.createShot(project.id, input)
             await refreshWorkspace()
           }}
-          onUpdate={async (shotId, input) => {
-            await api.updateShot(project.id, shotId, input)
-            await refreshWorkspace()
-            setToast('分镜已更新')
-          }}
+          onUpdate={updateShot}
           onDelete={async (shotId) => {
             await api.deleteShot(project.id, shotId)
             await refreshWorkspace()

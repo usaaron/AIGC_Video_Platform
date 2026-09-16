@@ -147,16 +147,26 @@ export function episodeKeyForShot(shot) {
   return String(shot.episodeNumber || 1)
 }
 
-export function shotVersionPair(tasks, shot, kind) {
+export function shotVersionState(tasks, shot, kind) {
   const candidates = taskIndexFor(tasks).byShotKind.get(taskKey(kind, shot.id)) || []
   const completed = candidates
     .filter((task) => task.status === 'completed')
-    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
-  if (!completed.length) return []
+    .sort(
+      (left, right) =>
+        String(right.createdAt || right.updatedAt).localeCompare(String(left.createdAt || left.updatedAt)) ||
+        String(right.id).localeCompare(String(left.id)),
+    )
+  const versions = completed.map((task, index) => ({ task, number: completed.length - index }))
   const selectedId = selectedVersionTaskId(tasks, shot, kind)
-  const current = completed.find((task) => task.id === selectedId) || completed[0]
-  const previous = completed.find((task) => task.id !== current.id)
-  return [current, previous].filter(Boolean)
+  const currentIndex = Math.max(
+    0,
+    versions.findIndex(({ task }) => task.id === selectedId),
+  )
+  return {
+    current: versions[currentIndex] || null,
+    previous: versions[currentIndex + 1] || null,
+    latest: versions[0] || null,
+  }
 }
 
 async function mapWithConcurrency(items, concurrency, operation) {

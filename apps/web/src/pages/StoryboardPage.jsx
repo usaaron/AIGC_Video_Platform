@@ -20,7 +20,8 @@ import {
   Zap,
 } from 'lucide-react'
 import { IconButton, PageHeader } from '../components/ui'
-import { ShotEditor, ShotHistoryModal, ShotRow } from '../features/storyboard/StoryboardComponents'
+import { ShotRow } from '../features/storyboard/StoryboardComponents'
+import { ShotHistoryModal } from '../features/storyboard/ShotHistoryModal'
 import {
   createShotAssetReferenceIndex,
   selectShotAssetReferencesFromIndex,
@@ -43,6 +44,8 @@ import {
   planVideoBatch,
   unselectedContinuityDependents,
 } from '../features/storyboard/videoBatchPlanner'
+import { ShotEditor } from '../features/storyboard/ShotEditor'
+import '../features/storyboard/shotEditor.css'
 import { normalizedVideoDuration } from '@seqora/prompting'
 
 export function StoryboardPage({
@@ -792,20 +795,31 @@ export function StoryboardPage({
       )}
       {editing && (
         <ShotEditor
+          projectId={project.id}
           shot={editing}
           shots={shots}
           minDuration={shotMinDuration}
           assets={assets}
           tasks={tasks}
           onUpload={onUpload}
+          canGenerate={Boolean(editing.id) && !batchLocked}
           onClose={() => setEditing(null)}
-          onSave={async (input) => {
+          onSave={async (input, generate = false) => {
             if (editing.id && isActive(taskFor(tasks, editing, 'video'))) {
-              setOperationError('这个镜头正在生成，当前版本完成或取消后才能修改。')
-              return
+              throw new Error('这个镜头正在生成，完成或取消后才能修改。')
             }
-            if (editing.id) await onUpdate(editing.id, input)
-            else await onCreate(input)
+            const saved = editing.id ? await onUpdate(editing.id, input) : await onCreate(input)
+            if (generate && editing.id) {
+              if (batchLocked) throw new Error('分镜已保存，请等待当前批次完成后再生成新版。')
+              const task = await onGenerateVideo(saved || { ...editing, ...input }, {
+                resolution:
+                  shotResolutions[editing.id] ||
+                  videoResolutionForTask(taskFor(tasks, editing, 'video'), VIDEO_RESOLUTIONS) ||
+                  batchResolution,
+              })
+              if (!task)
+                throw new Error('分镜已保存，但尚未创建生成任务。请检查积分、服务状态或上一镜尾帧后重试。')
+            }
             setEditing(null)
           }}
         />
@@ -814,10 +828,26 @@ export function StoryboardPage({
         <ShotHistoryModal
           shot={historyShot}
           tasks={tasks}
+          locked={batchLocked}
           onClose={() => setHistoryShotId(null)}
-          onRestore={async (kind, taskId) => {
-            const field = kind === 'image' ? 'selectedImageTaskId' : 'selectedVideoTaskId'
-            await onUpdate(historyShot.id, { [field]: taskId })
+          onRestore={async (taskId, { currentTaskId, versionNumber, action }) => {
+            if (batchLocked) throw new Error('当前批次仍在生成，完成后才能切换版本。')
+            if (selectedVersionTaskId(tasks, historyShot, 'video') !== currentTaskId)
+              throw new Error('当前版本已变化，请关闭后重新查看再回退。')
+            const target = taskById(tasks, taskId)
+            if (
+              target?.status !== 'completed' ||
+              target.kind !== 'video' ||
+              target.metadata?.shotId !== historyShot.id ||
+              !taskOutputUrl(target, 'video')
+            )
+              throw new Error('这版视频暂不可用，请关闭后重新查看。')
+            const successMessage =
+              action === 'latest'
+                ? `已切回最新版本，当前使用 V${versionNumber}`
+                : `已回退到上一版本，当前使用 V${versionNumber}`
+            await onUpdate(historyShot.id, { selectedVideoTaskId: taskId }, { successMessage })
+            setOperationNotice(`「${historyShot.title}」${successMessage}。`)
           }}
           onOpenVersionEditor={(task) => {
             const snapshot = task.metadata?.sourceShotSnapshot

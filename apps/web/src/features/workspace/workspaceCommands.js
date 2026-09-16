@@ -126,9 +126,21 @@ export function createWorkspaceCommands({
         metadata: options.metadata,
       })
       if (options.refreshAfterCreate !== false) {
-        replaceTasks(project.id, await api.tasks(project.id))
-        await refreshBilling()
-        setToast(`${label} 已加入生成队列`)
+        // Once accepted, a failed refresh must not invite another paid submission.
+        if (isCurrentProject(project.id)) {
+          setTasks((current) => [created, ...current.filter((task) => task.id !== created.id)])
+        }
+        const refreshed = await Promise.allSettled([
+          api.tasks(project.id).then((next) => {
+            if (isCurrentProject(project.id)) replaceTasks(project.id, next)
+          }),
+          refreshBilling(),
+        ])
+        setToast(
+          refreshed.some((result) => result.status === 'rejected')
+            ? `${label} 已加入生成队列，状态同步稍有延迟，请勿重复提交`
+            : `${label} 已加入生成队列`,
+        )
       }
       return created
     } catch (error) {
@@ -528,6 +540,12 @@ export function createWorkspaceCommands({
   }
 
   return {
+    updateShot: async (shotId, input, { successMessage = '分镜已更新' } = {}) => {
+      const saved = await api.updateShot(project.id, shotId, input)
+      await refreshWorkspace()
+      setToast(successMessage)
+      return saved
+    },
     assetCommands: {
       onCreate: async (input) => {
         const created = await api.createAsset(project.id, input)

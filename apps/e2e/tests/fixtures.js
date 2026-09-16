@@ -128,6 +128,7 @@ export async function mockWebApi(page, state = createWebE2EState()) {
       return fulfillJson(route, { synced: true })
     if (method === 'GET' && path === '/library/items') {
       const category = url.searchParams.get('category')
+      const kind = url.searchParams.get('kind')
       const trashed = url.searchParams.get('deleted') === 'trashed'
       const search = (url.searchParams.get('q') || '').toLowerCase()
       const pageNumber = Number(url.searchParams.get('page') || 1)
@@ -135,6 +136,7 @@ export async function mockWebApi(page, state = createWebE2EState()) {
       const filtered = state.libraryItems.filter(
         (item) =>
           Boolean(item.deletedAt) === trashed &&
+          (!kind || item.kind === kind) &&
           (!category || ASSET_LIBRARY_CATEGORY_KINDS[category].includes(item.kind)) &&
           [item.title, item.sourceProjectName, JSON.stringify(item.sourceSnapshot)]
             .join(' ')

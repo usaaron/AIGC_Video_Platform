@@ -9,6 +9,7 @@ export function TemplateEditor({ draft, onClose, onSave }) {
   const [error, setError] = useState('')
   const submit = async (event) => {
     event.preventDefault()
+    event.stopPropagation()
     if (busy || !title.trim() || !content.trim()) return
     setBusy(true)
     setError('')

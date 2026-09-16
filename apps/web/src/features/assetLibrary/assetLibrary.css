@@ -487,6 +487,10 @@
 .library-template-dialog textarea {
   resize: vertical;
   max-height: 48dvh;
+  color: #245638;
+}
+.library-template-dialog > header h2 {
+  color: #245638;
 }
 .library-template-count {
   text-align: right;

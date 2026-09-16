@@ -1,0 +1,581 @@
+.shot-editor-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 0;
+  background: transparent;
+}
+
+.shot-editor-dialog::backdrop {
+  background: rgba(32, 36, 29, 0.48);
+  backdrop-filter: blur(3px);
+}
+
+.shot-editor-dialog .storyboard-shot-editor {
+  width: min(1080px, calc(100vw - 24px));
+  padding: 24px;
+  margin: 12px auto;
+}
+
+.shot-editor-subtitle {
+  margin: 4px 0 0;
+  color: #747b71;
+  font-size: 12px;
+}
+
+.storyboard-page .shot-actions {
+  grid-template-columns: 88px minmax(118px, 1fr);
+  gap: 9px;
+}
+
+.storyboard-page .shot-row {
+  grid-template-columns: 44px 168px minmax(0, 1fr) 252px;
+}
+
+.storyboard-page .shot-resolution-select {
+  height: 42px;
+  font-size: 11px;
+}
+
+.storyboard-page .shot-action-button {
+  min-height: 44px;
+  font-size: 12px;
+}
+
+.storyboard-page .shot-action-button.edit {
+  grid-column: 1 / -1;
+  border-color: #a4b567;
+  background: #f3f7e7;
+  color: #465722;
+}
+
+.storyboard-page .shot-action-button.edit:hover:not(:disabled) {
+  border-color: #83993c;
+  background: #e9f0d3;
+}
+
+.storyboard-page .shot-reroll-note {
+  font-size: 9px;
+}
+
+.shot-submit-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #a0443d;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.shot-prompt-assets {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.shot-prompt-assets > header,
+.shot-prompt-assets > header > div,
+.shot-prompt-label,
+.shot-prompt-template-toolbar {
+  display: flex;
+  align-items: center;
+}
+
+.shot-prompt-assets > header {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.shot-prompt-assets > header > div {
+  min-width: 0;
+  gap: 8px;
+}
+
+.shot-prompt-assets > header strong {
+  color: #394034;
+  font-size: 13px;
+}
+
+.shot-prompt-assets > header small {
+  color: #7e8678;
+  font-size: 10px;
+}
+
+.shot-prompt-label .button,
+.shot-prompt-template-toolbar .button {
+  min-height: 36px;
+  padding: 0 11px;
+  font-size: 11px;
+}
+
+.shot-library-body > input,
+.shot-template-picker-body > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  margin-bottom: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: #30362d;
+  font: inherit;
+}
+
+.shot-prompt-asset-group {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.shot-prompt-asset-group > span {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #697064;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shot-prompt-asset-group > div {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.shot-prompt-asset-group button {
+  max-width: 180px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 5px;
+  overflow: hidden;
+  border: 1px solid #d9ded3;
+  border-radius: 5px;
+  background: #fff;
+  color: #424a3f;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shot-prompt-asset-group button:hover:not(:disabled),
+.shot-prompt-asset-group button.mentioned {
+  border-color: #9cac5f;
+  background: #f2f6e6;
+  color: #4e6024;
+}
+
+.shot-prompt-asset-group button img {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.shot-prompt-asset-group button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shot-prompt-assets > p {
+  margin: 5px 0 0;
+  color: #81897c;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.shot-prompt-label {
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.shot-prompt-label .field-label {
+  color: #414a3e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.shot-editor-prompt-panel .shot-editor-prompt-input,
+.storyboard-shot-editor .shot-editor-prompt-input > textarea {
+  min-height: 230px;
+  font-size: 14px;
+}
+
+.shot-prompt-count {
+  margin-top: 5px;
+  color: #858c81;
+  font-size: 10px;
+  text-align: right;
+}
+
+.shot-prompt-template-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.shot-editor-notice {
+  margin: 8px 0 0;
+  color: #5c6c31;
+  font-size: 11px;
+}
+
+.library-dialog.shot-template-picker,
+.library-dialog.shot-library-picker {
+  width: min(760px, calc(100vw - 28px));
+}
+
+.shot-template-picker-body,
+.shot-library-body {
+  padding: 20px 24px 24px;
+}
+
+.shot-template-picker-body > p {
+  color: #747b71;
+  font-size: 12px;
+}
+
+.shot-template-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shot-template-list article {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #dde1d8;
+  border-radius: 6px;
+  background: #fafbf8;
+}
+
+.shot-template-list article > strong,
+.shot-template-list article > div {
+  display: flex;
+  align-items: center;
+}
+
+.shot-template-list article > strong {
+  justify-content: space-between;
+  gap: 8px;
+  color: #245638;
+  font-size: 13px;
+}
+
+.shot-template-list article small {
+  color: #8a9186;
+  font-size: 10px;
+}
+
+.shot-template-list article p {
+  min-height: 42px;
+  display: -webkit-box;
+  margin: 8px 0 11px;
+  overflow: hidden;
+  color: #356449;
+  font-size: 11px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shot-template-list article > div {
+  gap: 7px;
+}
+
+.shot-template-list .button {
+  flex: 1;
+  justify-content: center;
+}
+
+.shot-prompt-template-toolbar > .shot-editor-notice {
+  flex-basis: 100%;
+  order: 1;
+}
+
+.shot-prompt-template-toolbar .shot-template-button {
+  color: #245638;
+  border-color: #b4cdbb;
+  background: #f0f7f1;
+}
+
+.shot-template-picker > header h2 {
+  color: #245638;
+}
+
+.shot-library-body > p {
+  margin-top: 0;
+  color: #697064;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.shot-library-categories,
+.shot-library-script-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.shot-library-categories .button[aria-pressed='true'] {
+  background: #eef3df;
+  border-color: #9cac5f;
+  color: #465722;
+}
+
+.shot-library-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.shot-library-grid article {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+}
+
+.shot-library-cover {
+  aspect-ratio: 4 / 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #eef0e8;
+  color: #697064;
+}
+
+.shot-library-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.shot-library-cover span {
+  display: -webkit-box;
+  overflow: hidden;
+  padding: 0 14px;
+  font-size: 11px;
+  line-height: 1.6;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.shot-library-grid strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.shot-library-grid small {
+  margin-top: auto;
+  color: #747b71;
+  font-size: 10px;
+}
+
+.shot-library-grid .button {
+  justify-content: center;
+  min-height: 40px;
+}
+
+.shot-library-body .shot-library-script {
+  box-sizing: border-box;
+  width: 100%;
+  height: min(45dvh, 340px);
+  resize: vertical;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: #30362d;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.shot-library-selection {
+  color: #747b71;
+  font-size: 11px;
+}
+
+.shot-reference-video {
+  margin: 22px 0 0;
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px solid var(--soft-line);
+}
+
+.shot-reference-video legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 0;
+  color: #697064;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.shot-reference-video legend span {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #eceee6;
+  color: #7b8277;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.shot-reference-video p,
+.shot-reference-video > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8a9186;
+  font-size: 11px;
+}
+
+.shot-reference-video .button {
+  flex: 1;
+  justify-content: center;
+  min-height: 36px;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.shot-editor-footer {
+  align-items: center;
+  gap: 9px;
+}
+
+.shot-editor-footer > span {
+  margin-right: auto;
+  color: #7b8277;
+  font-size: 11px;
+}
+
+.shot-editor-footer .button {
+  min-height: 42px;
+}
+
+@media (max-width: 860px) {
+  .shot-editor-dialog .storyboard-shot-editor {
+    width: calc(100vw - 20px);
+    padding: 18px;
+    margin: 10px auto;
+  }
+
+  .storyboard-page .shot-actions {
+    grid-column: 2 / -1;
+    grid-template-columns: 94px minmax(0, 1fr);
+    border-left: 0;
+    border-top: 1px solid var(--soft-line);
+  }
+
+  .storyboard-page .shot-row {
+    grid-template-columns: 34px 105px minmax(0, 1fr);
+  }
+
+  .shot-editor-dialog .shot-editor-prompt-panel {
+    grid-row: 1;
+  }
+
+  .shot-editor-dialog .shot-editor-reference-panel {
+    padding: 16px 0 0;
+    border-top: 1px solid var(--soft-line);
+    border-bottom: 0;
+  }
+
+  .storyboard-page .shot-action-button.edit {
+    grid-column: 1 / 3;
+  }
+
+  .storyboard-page .shot-reroll-note,
+  .storyboard-page .shot-submit-error {
+    grid-column: 1 / 3;
+  }
+
+  .shot-editor-prompt-panel .shot-editor-prompt-input,
+  .storyboard-shot-editor .shot-editor-prompt-input > textarea {
+    min-height: 220px;
+  }
+}
+
+@media (max-width: 560px) {
+  .shot-template-picker-body,
+  .shot-library-body {
+    padding: 16px;
+  }
+
+  .shot-library-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .storyboard-page .shot-actions {
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+
+  .storyboard-page .shot-action-button.edit,
+  .storyboard-page .shot-reroll-note,
+  .storyboard-page .shot-submit-error {
+    grid-column: 1 / -1;
+  }
+
+  .storyboard-page .shot-utility-actions {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    flex-direction: row;
+  }
+
+  .shot-prompt-assets > header > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .shot-prompt-template-toolbar .button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .shot-prompt-asset-group button {
+    max-width: calc(50% - 4px);
+    flex: 1 1 100px;
+  }
+
+  .shot-template-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shot-editor-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .shot-editor-footer > span {
+    grid-column: 1 / -1;
+  }
+
+  .shot-editor-footer .button.primary:last-child {
+    grid-column: 1 / -1;
+  }
+}

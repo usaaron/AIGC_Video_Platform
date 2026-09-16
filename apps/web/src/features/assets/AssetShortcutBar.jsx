@@ -1,3 +1,4 @@
+import { insertPromptAtCursor } from './promptInsertion'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -47,32 +48,7 @@ export function AssetShortcutBar({
     assets: availableAssets.filter((asset) => asset.kind === kind),
   })).filter((group) => group.assets.length)
 
-  const insert = (asset) => {
-    const target = inputRef?.current
-    const source = String(value || '')
-    const start = typeof target?.selectionStart === 'number' ? target.selectionStart : source.length
-    const end = typeof target?.selectionEnd === 'number' ? target.selectionEnd : start
-    const before = source.slice(0, start)
-    const after = source.slice(end)
-    const prefix = before && !/[\s，。；：:|]/u.test(before.slice(-1)) ? '；' : ''
-    const nextValue = `${before}${prefix}${asset.name}${after}`
-    const editorScroll = target ? { left: target.scrollLeft, top: target.scrollTop } : null
-    const pageScroll = { left: window.scrollX, top: window.scrollY }
-    onChange?.(nextValue)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!target) return
-        const cursor = start + prefix.length + asset.name.length
-        target.focus({ preventScroll: true })
-        target.setSelectionRange(cursor, cursor)
-        if (editorScroll) {
-          target.scrollLeft = editorScroll.left
-          target.scrollTop = editorScroll.top
-        }
-        window.scrollTo(pageScroll.left, pageScroll.top)
-      })
-    })
-  }
+  const insert = (asset) => insertPromptAtCursor(inputRef?.current, value, asset.name, onChange)
 
   return (
     <details className={`asset-shortcut-bar placement-${placement}`}>
