@@ -369,7 +369,7 @@ export class AssetLibraryService {
   }
 
   async readContent(itemId: string, principal: Principal, preview = false): Promise<LibraryContent> {
-    const item = await this.repository.find(itemId, principal)
+    const item = await this.repository.find(itemId, principal, { includeDeleted: preview })
     if (!item) throw new AppError(404, 'LIBRARY_ITEM_NOT_FOUND', 'Library item not found')
     const storageKey = preview ? (item.previewStorageKey ?? item.storageKey) : item.storageKey
     return {
@@ -507,10 +507,27 @@ export class AssetLibraryService {
     input: CreateAssetLibraryItem | CreateAssetLibraryItemVersion,
     principal: Principal,
   ): Promise<StoredContentSource> {
-    const workspace = await this.ownedWorkspace(input.projectId, principal)
     const title = 'title' in input ? input.title : undefined
     const description = 'description' in input ? input.description : undefined
     const tags = 'tags' in input && input.tags ? normalizeTags(input.tags) : undefined
+
+    if (input.sourceType === 'prompt-template') {
+      return {
+        kind: 'prompt-template',
+        title,
+        description,
+        tags,
+        sourceProjectId: null,
+        sourceProjectName: null,
+        sourceAssetId: null,
+        sourceTaskId: null,
+        sourceMediaId: null,
+        sourceSnapshot: { sourceType: 'prompt-template', contentPreview: input.content.slice(0, 2_000) },
+        content: Buffer.from(input.content, 'utf8'),
+        contentType: 'text/plain; charset=utf-8',
+      }
+    }
+    const workspace = await this.ownedWorkspace(input.projectId, principal)
 
     if (input.sourceType === 'media') {
       const media = await this.mediaRepository.find(input.mediaId, principal)
@@ -665,9 +682,9 @@ export class AssetLibraryService {
     }
     return {
       ...publicItem,
-      previewUrl: `/api/v1/library/items/${encoded}/preview`,
-      downloadUrl: `/api/v1/library/items/${encoded}/download`,
-      packageUrl: `/api/v1/library/items/${encoded}/package`,
+      previewUrl: `/api/v1/library/items/${encoded}/preview?v=${item.currentVersion}`,
+      downloadUrl: `/api/v1/library/items/${encoded}/download?v=${item.currentVersion}`,
+      packageUrl: `/api/v1/library/items/${encoded}/package?v=${item.currentVersion}`,
     }
   }
 
@@ -908,6 +925,8 @@ function extensionForContentType(contentType: string): string {
 }
 
 function publicSnapshot(snapshot: Record<string, unknown>): Record<string, unknown> {
-  const { inlineContent: _content, ...publicFields } = snapshot
-  return publicFields
+  const { inlineContent, ...publicFields } = snapshot
+  return typeof inlineContent === 'string'
+    ? { ...publicFields, contentPreview: inlineContent.slice(0, 2000) }
+    : publicFields
 }

@@ -40,7 +40,8 @@ describe('app shell account entry', () => {
     expect(html).toContain('一句成片')
     expect(html).toContain('生图大师')
     expect(html).toContain('剧本大师')
-    expect(html.match(/已启用/g)).toHaveLength(2)
+    expect(html.match(/已启用/g)).toHaveLength(1)
+    expect(html).toContain('筹备中')
     expect(html.match(/独立模块/g)).toHaveLength(1)
   })
 

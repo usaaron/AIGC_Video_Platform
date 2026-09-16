@@ -1,41 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { CopyCheck, LoaderCircle, PackageOpen, Plus, RefreshCw, Search } from 'lucide-react'
+import { PageHeader } from '../components/ui'
+import { LibraryCard } from '../features/assetLibrary/LibraryCard'
+import { LibraryPreview } from '../features/assetLibrary/LibraryPreview'
+import { TemplateEditor } from '../features/assetLibrary/TemplateEditor'
 import {
-  ArchiveRestore,
-  Boxes,
-  Clapperboard,
-  CopyCheck,
-  Download,
-  FileText,
-  Image,
-  LoaderCircle,
-  Music,
-  PackageOpen,
-  RefreshCw,
-  Search,
-  Trash2,
-  Video,
-} from 'lucide-react'
-
-const KIND_LABELS = {
-  character: '角色',
-  scene: '场景',
-  prop: '物品',
-  costume: '服装',
-  brand: '品牌',
-  audio: '音频',
-  image: '图片',
-  script: '剧本',
-  video: '视频',
-  'final-cut': '成片',
-}
-
-const KIND_ICONS = {
-  audio: Music,
-  image: Image,
-  script: FileText,
-  video: Video,
-  'final-cut': Clapperboard,
-}
+  categoryCount,
+  LIBRARY_CATEGORIES,
+  LIBRARY_LABELS,
+  matchesCategory,
+} from '../features/assetLibrary/libraryPresentation'
+import '../features/assetLibrary/assetLibrary.css'
 
 export function AssetLibraryPage({
   currentProject,
@@ -50,428 +25,336 @@ export function AssetLibraryPage({
   onPermanentDelete,
   onLoadVersions,
   onImportToProject,
+  onLoadText,
+  onSaveTemplate,
 }) {
-  const [tab, setTab] = useState('active')
-  const [kind, setKind] = useState('')
+  const [mode, setMode] = useState('active')
+  const [category, setCategory] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [itemsResult, setItemsResult] = useState({ items: [], total: 0, page: 1, pageSize: 12 })
+  const [result, setResult] = useState({ items: [], total: 0, pageSize: 12 })
   const [stats, setStats] = useState(null)
   const [duplicates, setDuplicates] = useState([])
-  const [selectedItem, setSelectedItem] = useState(null)
-  const [versions, setVersions] = useState([])
+  const [preview, setPreview] = useState(null)
+  const [template, setTemplate] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState('')
-  const [catalogRevision, setCatalogRevision] = useState(0)
-  const loadSequence = useRef(0)
+  const [syncing, setSyncing] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const sequence = useRef(0)
 
   const load = async () => {
-    const sequence = ++loadSequence.current
+    const requestId = ++sequence.current
     setLoading(true)
+    setError('')
     try {
-      const [nextStats, nextItems, nextDuplicates] = await Promise.all([
+      const [nextStats, nextResult] = await Promise.all([
         onLoadStats(),
-        tab === 'duplicates'
-          ? Promise.resolve(itemsResult)
+        mode === 'duplicates'
+          ? onLoadDuplicates()
           : onLoadItems({
-              deleted: tab === 'trash' ? 'trashed' : 'active',
-              kind,
+              deleted: mode === 'trash' ? 'trashed' : 'active',
+              category,
               q: query,
               page,
               pageSize: 12,
             }),
-        tab === 'duplicates' ? onLoadDuplicates() : Promise.resolve({ groups: duplicates }),
       ])
-      if (sequence !== loadSequence.current) return
+      if (requestId !== sequence.current) return
       setStats(nextStats)
-      if (tab !== 'duplicates') setItemsResult(nextItems)
-      if (tab === 'duplicates') setDuplicates(nextDuplicates.groups || [])
-    } catch (error) {
-      if (sequence === loadSequence.current) onToast?.(error.message)
+      if (mode === 'duplicates') setDuplicates(nextResult.groups || [])
+      else {
+        const lastPage = Math.max(1, Math.ceil(nextResult.total / nextResult.pageSize))
+        if (page > lastPage) {
+          setPage(lastPage)
+          return
+        }
+        setResult(nextResult)
+      }
+    } catch (failure) {
+      if (requestId === sequence.current) setError(failure.message)
     } finally {
-      if (sequence === loadSequence.current) setLoading(false)
+      if (requestId === sequence.current) setLoading(false)
     }
-  }
-
-  const syncExternal = async () => {
-    try {
-      await onSyncExternal?.()
-    } catch (error) {
-      onToast?.(error.message)
-    }
-    setCatalogRevision((current) => current + 1)
   }
   useEffect(() => {
-    void syncExternal()
+    const timer = setTimeout(() => {
+      void load()
+    }, 180)
+    return () => {
+      clearTimeout(timer)
+      sequence.current += 1
+    }
+  }, [mode, category, query, page, revision])
+  useEffect(() => {
+    let active = true
+    Promise.resolve(onSyncExternal?.())
+      .then(() => {
+        if (active) setRevision((value) => value + 1)
+      })
+      .catch((failure) => {
+        if (active) onToast?.(failure.message)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
-  useEffect(() => {
-    void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => {
-      loadSequence.current += 1
-    }
-  }, [tab, kind, query, page, catalogRevision])
-
-  const activeKinds = useMemo(
-    () => stats?.byKind?.filter((item) => item.count > 0 || item.trashed > 0) || [],
-    [stats],
-  )
-  const maxPage = Math.max(1, Math.ceil((itemsResult.total || 0) / (itemsResult.pageSize || 12)))
-
-  const openVersions = async (item) => {
-    setSelectedItem(item)
-    setVersions([])
-    setBusy(`versions:${item.id}`)
+  const refresh = async () => {
+    setSyncing(true)
     try {
-      const result = await onLoadVersions(item.id)
-      setVersions(result.versions || [])
-    } catch (error) {
-      onToast?.(error.message)
+      await onSyncExternal?.()
+    } catch (failure) {
+      onToast?.(failure.message)
     } finally {
-      setBusy('')
+      setSyncing(false)
+      setRevision((value) => value + 1)
     }
   }
-
-  const runAction = async (key, action, message) => {
-    setBusy(key)
+  const action = async (operation, message, close = false) => {
+    if (busy) return
+    setBusy(true)
     try {
-      await action()
+      await operation()
+      if (close) setPreview(null)
       onToast?.(message)
-      await load()
-    } catch (error) {
-      onToast?.(error.message)
+      setRevision((value) => value + 1)
+    } catch (failure) {
+      onToast?.(failure.message)
     } finally {
-      setBusy('')
+      setBusy(false)
     }
   }
-
+  const importItem =
+    currentProject && onImportToProject
+      ? (item) => action(() => onImportToProject(item.id, 'auto'), '资产已导入当前项目', true)
+      : null
+  const card = (item) => (
+    <LibraryCard
+      key={item.id}
+      item={item}
+      mode={mode}
+      busy={busy}
+      onPreview={setPreview}
+      onImport={importItem}
+      onDelete={(entry) => action(() => onDelete(entry.id), '资产已移入回收站', true)}
+      onRestore={(entry) => action(() => onRestore(entry.id), '资产已恢复', true)}
+    />
+  )
+  const groups = duplicates
+    .filter((group) => matchesCategory(group.kind, category))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        [item.title, item.sourceProjectName].join(' ').toLowerCase().includes(query.toLowerCase()),
+      ),
+    }))
+    .filter((group) => group.items.length)
+  const maxPage = Math.max(1, Math.ceil(result.total / result.pageSize))
   return (
-    <section className="asset-library-page">
-      <div className="asset-library-hero">
-        <div>
-          <p className="eyebrow">账号资产库</p>
-          <h1>长期资产</h1>
-          <p>自动汇集本账号生成的图片与长短剧本，按来源项目分类，支持下载与跨项目复用。</p>
-        </div>
-        <button className="button secondary" type="button" onClick={() => void syncExternal()}>
-          <RefreshCw size={15} /> 刷新
+    <section className="page asset-library-page">
+      <PageHeader
+        eyebrow="创作资源 · 账号资产库"
+        title="每一份灵感，都有归处"
+        description="汇集图片、音频与长短剧本，把好素材带进下一次创作。"
+      >
+        <button className="button secondary" type="button" disabled={syncing || busy} onClick={refresh}>
+          <RefreshCw size={15} className={syncing ? 'spin' : ''} />
+          刷新
         </button>
-      </div>
-
-      <div className="library-stat-strip">
-        <Metric label="可用资产" value={stats?.activeItems ?? 0} />
-        <Metric label="回收站" value={stats?.trashedItems ?? 0} />
-        <Metric label="重复项" value={stats?.duplicateItems ?? 0} />
-        <Metric label="版本记录" value={stats?.versionCount ?? 0} />
-      </div>
-
-      <div className="library-toolbar">
-        <div className="segmented-control">
-          <button className={tab === 'active' ? 'active' : ''} onClick={() => setTab('active')} type="button">
-            全部资产
-          </button>
+        <button className="button primary" type="button" onClick={() => setTemplate({})}>
+          <Plus size={16} />
+          新建提示词模板
+        </button>
+      </PageHeader>
+      <nav className="library-categories" aria-label="资产分类">
+        {[['', '全部'], ...LIBRARY_CATEGORIES].map(([key, label]) => (
           <button
-            className={tab === 'duplicates' ? 'active' : ''}
-            onClick={() => setTab('duplicates')}
+            key={key}
             type="button"
+            aria-pressed={category === key}
+            className={category === key ? 'active' : ''}
+            onClick={() => {
+              setCategory(key)
+              setPage(1)
+            }}
           >
-            重复项
+            {label}
+            <span>{categoryCount(stats, key, mode === 'trash')}</span>
           </button>
-          <button className={tab === 'trash' ? 'active' : ''} onClick={() => setTab('trash')} type="button">
-            回收站
-          </button>
-        </div>
+        ))}
+      </nav>
+      <div className="library-toolbar">
         <label className="library-search">
-          <Search size={15} />
+          <Search size={16} />
           <input
             value={query}
+            maxLength={200}
             onChange={(event) => {
               setQuery(event.target.value)
               setPage(1)
             }}
-            placeholder="标题、项目、提示词"
+            placeholder="搜索素材、项目或提示词"
+            aria-label="搜索资产"
           />
         </label>
-        <select
-          className="library-kind-select"
-          value={kind}
-          onChange={(event) => {
-            setKind(event.target.value)
-            setPage(1)
-          }}
-        >
-          <option value="">全部类别</option>
-          {Object.entries(KIND_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
+        <div className="library-views" aria-label="资产状态">
+          {[
+            ['active', '全部资产'],
+            ['duplicates', '重复项'],
+            ['trash', '回收站'],
+          ].map(([key, label]) => (
+            <button
+              type="button"
+              key={key}
+              aria-pressed={mode === key}
+              className={mode === key ? 'active' : ''}
+              onClick={() => {
+                setMode(key)
+                setPage(1)
+                setPreview(null)
+              }}
+            >
               {label}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
       </div>
-
-      <div className="asset-library-layout">
-        <div className="asset-library-main">
-          {loading ? (
-            <div className="library-empty">
-              <LoaderCircle className="spin" size={22} />
-              <span>正在整理资产库</span>
-            </div>
-          ) : tab === 'duplicates' ? (
-            <DuplicateGroups
-              groups={duplicates}
-              busy={busy}
-              onDedupe={() => runAction('dedupe', onDedupe, '重复项已重新标记')}
-              onOpenVersions={openVersions}
-            />
-          ) : (
+      <div className="library-result-heading">
+        <span>
+          {mode === 'duplicates'
+            ? `${groups.length} 组重复内容`
+            : `${result.total} 项${category ? LIBRARY_LABELS[category] : '资产'}`}
+        </span>
+        <span>{currentProject ? `可导入：${currentProject.name}` : '选择项目后，可将素材导入创作'}</span>
+      </div>
+      {error ? (
+        <div className="library-empty" role="alert">
+          <PackageOpen size={30} />
+          <h2>暂时无法读取资产库</h2>
+          <p>{error}</p>
+          <button className="button secondary" onClick={() => setRevision((value) => value + 1)}>
+            重新加载
+          </button>
+        </div>
+      ) : loading ? (
+        <div className="library-empty" role="status">
+          <LoaderCircle className="spin" size={28} />
+          <p>正在整理你的素材…</p>
+        </div>
+      ) : mode === 'duplicates' ? (
+        <>
+          {groups.length ? (
             <>
-              <div className="library-item-list">
-                {itemsResult.items.map((item) => (
-                  <LibraryItemRow
-                    key={item.id}
-                    item={item}
-                    mode={tab}
-                    busy={busy}
-                    onOpenVersions={openVersions}
-                    onDelete={() =>
-                      runAction(`delete:${item.id}`, () => onDelete(item.id), '资产已移入回收站')
-                    }
-                    onImport={
-                      currentProject && onImportToProject
-                        ? () =>
-                            runAction(
-                              `import:${item.id}`,
-                              () => onImportToProject(item.id, 'auto'),
-                              '资产已导入当前项目',
-                            )
-                        : null
-                    }
-                    onRestore={() => runAction(`restore:${item.id}`, () => onRestore(item.id), '资产已恢复')}
-                    onPermanentDelete={() =>
-                      runAction(
-                        `permanent:${item.id}`,
-                        () => onPermanentDelete(item.id),
-                        '资产记录已永久删除',
-                      )
-                    }
-                  />
-                ))}
-              </div>
-              {itemsResult.items.length === 0 && (
-                <div className="library-empty">
-                  <PackageOpen size={22} />
-                  <span>{tab === 'trash' ? '回收站为空' : '还没有符合条件的资产'}</span>
-                </div>
-              )}
-              <div className="library-pagination">
-                <button className="button secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                  上一页
-                </button>
-                <span>
-                  {page} / {maxPage}
-                </span>
+              <div className="library-duplicate-action">
+                <p>相同内容集中查看，去重会标记主资产和副本。</p>
                 <button
                   className="button secondary"
-                  disabled={page >= maxPage}
-                  onClick={() => setPage(page + 1)}
+                  disabled={busy}
+                  onClick={() => action(onDedupe, '重复项已重新标记')}
                 >
-                  下一页
+                  <CopyCheck size={16} />
+                  标记重复项
                 </button>
               </div>
+              {groups.map((group) => (
+                <section key={`${group.kind}:${group.contentHash}`} className="library-duplicate-group">
+                  <h2>
+                    {LIBRARY_LABELS[group.kind]} · {group.items.length} 项
+                  </h2>
+                  <div className="library-grid">{group.items.map(card)}</div>
+                </section>
+              ))}
             </>
-          )}
-        </div>
-
-        <aside className="asset-library-side">
-          <div className="library-side-section">
-            <h2>分类统计</h2>
-            {activeKinds.map((item) => (
-              <div className="library-kind-row" key={item.kind}>
-                <span>{KIND_LABELS[item.kind] || item.kind}</span>
-                <strong>{item.count}</strong>
-              </div>
-            ))}
-            {activeKinds.length === 0 && <p>暂无分类数据</p>}
-          </div>
-          <div className="library-side-section">
-            <h2>当前项目</h2>
-            <p>{currentProject?.name || '未选择项目'}</p>
-          </div>
-          {selectedItem && (
-            <div className="library-side-section version-drawer">
-              <div className="library-version-heading">
-                <h2>{selectedItem.title}</h2>
-                <button className="icon-button" type="button" onClick={() => setSelectedItem(null)}>
-                  ×
-                </button>
-              </div>
-              <p>当前版本 v{selectedItem.currentVersion}</p>
-              {busy === `versions:${selectedItem.id}` ? (
-                <LoaderCircle className="spin" size={18} />
-              ) : (
-                versions.map((version) => (
-                  <a className="library-version-row" href={version.downloadUrl} key={version.id}>
-                    <span>v{version.version}</span>
-                    <small>{new Date(version.createdAt).toLocaleString()}</small>
-                    <Download size={14} />
-                  </a>
-                ))
-              )}
+          ) : (
+            <div className="library-empty">
+              <CopyCheck size={30} />
+              <h2>没有重复的素材</h2>
+              <p>你的创作资源井然有序。</p>
             </div>
           )}
-        </aside>
-      </div>
-    </section>
-  )
-}
-
-function Metric({ label, value }) {
-  return (
-    <div className="library-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  )
-}
-
-function DuplicateGroups({ groups, busy, onDedupe, onOpenVersions }) {
-  if (!groups.length) {
-    return (
-      <div className="library-empty">
-        <CopyCheck size={22} />
-        <span>没有检测到重复资产</span>
-      </div>
-    )
-  }
-  return (
-    <div className="library-duplicate-groups">
-      <div className="library-duplicate-action">
-        <p>检测到 {groups.length} 组内容重复的资产，可统一标记主资产和副本。</p>
-        <button className="button primary" disabled={Boolean(busy)} onClick={onDedupe} type="button">
-          {busy === 'dedupe' ? <LoaderCircle className="spin" size={15} /> : <Boxes size={15} />}
-          执行去重
-        </button>
-      </div>
-      {groups.map((group) => (
-        <div className="library-duplicate-group" key={`${group.kind}:${group.contentHash}`}>
-          <div className="library-duplicate-line" />
-          <div className="library-duplicate-summary">
-            <strong>{KIND_LABELS[group.kind] || group.kind}</strong>
-            <span>{group.itemCount} 项相同内容</span>
-            <span>可减少重复占用 {formatBytes(group.wastedBytes)}</span>
+        </>
+      ) : result.items.length ? (
+        <>
+          <div className="library-grid">{result.items.map(card)}</div>
+          <div className="library-pagination">
+            <button className="button secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              上一页
+            </button>
+            <span>
+              {page} / {maxPage}
+            </span>
+            <button className="button secondary" disabled={page >= maxPage} onClick={() => setPage(page + 1)}>
+              下一页
+            </button>
           </div>
-          {group.items.map((item) => (
-            <LibraryItemRow
-              key={item.id}
-              item={item}
-              mode="duplicates"
-              busy={busy}
-              onOpenVersions={onOpenVersions}
-            />
-          ))}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function LibraryItemRow({
-  item,
-  mode,
-  busy,
-  onOpenVersions,
-  onImport,
-  onDelete,
-  onRestore,
-  onPermanentDelete,
-}) {
-  const Icon = KIND_ICONS[item.kind] || PackageOpen
-  return (
-    <div className={`library-item-row ${item.duplicateOfItemId ? 'duplicate' : ''}`}>
-      <div className="library-item-icon">
-        <Icon size={18} />
-      </div>
-      <div className="library-item-main">
-        <div className="library-item-title">
-          <strong>{item.title}</strong>
-          <span>{KIND_LABELS[item.kind] || item.kind}</span>
-          {item.duplicateOfItemId && <em>副本</em>}
-        </div>
-        <div className="library-item-meta">
-          <span>{item.sourceProjectName || '未标注项目'}</span>
-          <span>{formatBytes(item.sizeBytes)}</span>
-          <span>v{item.currentVersion}</span>
-          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-        </div>
-      </div>
-      <div className="library-item-actions">
-        <button className="button secondary" type="button" onClick={() => onOpenVersions(item)}>
-          版本
-        </button>
-        <a className="button secondary" href={item.downloadUrl}>
-          <Download size={14} /> 下载
-        </a>
-        <a className="button secondary" href={item.packageUrl}>
-          <PackageOpen size={14} /> 包
-        </a>
-        {onImport &&
-          mode !== 'trash' &&
-          (item.kind === 'script' || /^(image|audio)\//u.test(item.contentType)) && (
-            <button
-              className="button secondary"
-              disabled={busy === `import:${item.id}`}
-              onClick={onImport}
-              type="button"
-            >
-              <ArchiveRestore size={14} /> 导入当前项目
+        </>
+      ) : (
+        <div className="library-empty">
+          <PackageOpen size={34} strokeWidth={1.3} />
+          <h2>
+            {query
+              ? '没有找到匹配的素材'
+              : mode === 'trash'
+                ? '回收站是空的'
+                : category === 'prompt-template'
+                  ? '收藏你的第一条好提示词'
+                  : '好素材，即将在这里相遇'}
+          </h2>
+          <p>
+            {query
+              ? '试试其他关键词，或切换素材分类。'
+              : mode === 'trash'
+                ? '移入回收站的素材可以恢复。'
+                : category === 'prompt-template'
+                  ? '新建模板，或在素材预览中收藏生成提示词。'
+                  : '生成的图片、保存的剧本会自动汇集到这里。'}
+          </p>
+          {category === 'prompt-template' && mode === 'active' && (
+            <button className="button secondary" onClick={() => setTemplate({})}>
+              新建模板
             </button>
           )}
-        {mode === 'trash' ? (
-          <>
-            <button
-              className="button secondary"
-              disabled={busy === `restore:${item.id}`}
-              onClick={onRestore}
-              type="button"
-            >
-              <ArchiveRestore size={14} /> 恢复
-            </button>
-            <button
-              className="button danger"
-              disabled={busy === `permanent:${item.id}` || item.sourceSnapshot?.automatic === true}
-              title={item.sourceSnapshot?.automatic ? '保留回收站记录，避免源内容再次自动收录' : undefined}
-              onClick={onPermanentDelete}
-              type="button"
-            >
-              <Trash2 size={14} /> 永久删除
-            </button>
-          </>
-        ) : (
-          onDelete && (
-            <button
-              className="button secondary"
-              disabled={busy === `delete:${item.id}`}
-              onClick={onDelete}
-              type="button"
-            >
-              <Trash2 size={14} /> 删除
-            </button>
-          )
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+      {preview && (
+        <LibraryPreview
+          key={`${preview.id}:${preview.currentVersion}`}
+          item={preview}
+          onClose={() => setPreview(null)}
+          onToast={onToast}
+          onLoadText={onLoadText}
+          onLoadVersions={onLoadVersions}
+          onImport={importItem}
+          busy={busy}
+          onPermanentDelete={(item) => action(() => onPermanentDelete(item.id), '资产记录已永久删除', true)}
+          onEditTemplate={(item, content) => {
+            setPreview(null)
+            setTemplate({ id: item.id, title: item.title, content })
+          }}
+          onSavePrompt={(item, content) => {
+            setPreview(null)
+            setTemplate({ title: `${item.title} · 提示词`, content })
+          }}
+        />
+      )}
+      {template && (
+        <TemplateEditor
+          draft={template}
+          onClose={() => setTemplate(null)}
+          onSave={async (input, id) => {
+            await onSaveTemplate(input, id)
+            setTemplate(null)
+            setCategory('prompt-template')
+            setMode('active')
+            setQuery('')
+            setPage(1)
+            setRevision((value) => value + 1)
+            onToast?.('提示词模板已保存')
+          }}
+        />
+      )}
+    </section>
   )
-}
-
-function formatBytes(value) {
-  if (!Number.isFinite(value) || value <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = value
-  let unit = 0
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024
-    unit += 1
-  }
-  return `${size >= 10 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`
 }

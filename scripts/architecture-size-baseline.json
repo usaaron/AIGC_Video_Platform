@@ -11,7 +11,7 @@
   "apps/api/src/modules/aiJobs/repository.ts": 1131,
   "apps/api/src/modules/billing/repository.ts": 2028,
   "apps/api/src/modules/generation/repository.ts": 2157,
-  "apps/api/src/modules/library/repository.ts": 1083,
+  "apps/api/src/modules/library/repository.ts": 1031,
   "apps/api/src/modules/novels/repository.ts": 3028,
   "apps/api/src/modules/novels/service.ts": 2750,
   "apps/api/src/modules/projects/repository.ts": 2379

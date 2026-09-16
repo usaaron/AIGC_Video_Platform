@@ -29,6 +29,7 @@ describe('automatic library catalog', () => {
     expect(first.items.map((item) => item.kind).sort()).toEqual(['image', 'script'])
     const script = first.items.find((item) => item.kind === 'script')!
     expect(script.sourceSnapshot.inlineContent).toBeUndefined()
+    expect(script.sourceSnapshot.contentPreview).toBe('林晚回到诊所。')
     expect((await service.readContent(script.id, principal)).content.toString()).toBe('林晚回到诊所。')
     expect((await service.readVersionContent(script.id, 1, principal)).content.toString()).toBe(
       '林晚回到诊所。',

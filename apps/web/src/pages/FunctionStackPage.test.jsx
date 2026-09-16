@@ -3,15 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { FunctionStackPage } from './FunctionStackPage'
 
 describe('function stack pages', () => {
-  it.each([
-    ['agent-studio', '对话一句成片', '一句成片 Agent 工作台'],
-    ['writing-studio', '剧本大师', '剧本大师工作台'],
-  ])('renders %s as a standalone workspace', (tool, title, region) => {
-    const html = renderToStaticMarkup(<FunctionStackPage tool={tool} />)
-
-    expect(html).toContain(title)
-    expect(html).toContain(`aria-label="${region}"`)
-    expect(html).toContain(tool === 'agent-studio' ? '自动编排已启用' : '正在打开剧本大师')
+  it('keeps one-line filmmaking unavailable and offers the project workflow', () => {
+    const html = renderToStaticMarkup(<FunctionStackPage tool="agent-studio" />)
+    expect(html).toContain('一句成片筹备中')
+    expect(html).toContain('筹备中 · 暂未开放')
+    expect(html).toContain('前往项目创作')
+    expect(html).not.toContain('制作任务')
+    expect(html).not.toContain('<textarea')
+    expect(html).not.toContain('开始制作')
   })
 
   it('shows a safe connection state while the external module is unavailable', () => {

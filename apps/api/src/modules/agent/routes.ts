@@ -13,16 +13,29 @@ import type { AgentService } from './service.js'
 const runParamsSchema = z.object({ runId: z.string().uuid() })
 const stageParamsSchema = runParamsSchema.extend({ stage: agentStageKeySchema })
 
-export async function registerAgentRoutes(app: FastifyInstance, service: AgentService): Promise<void> {
+export async function registerAgentRoutes(
+  app: FastifyInstance,
+  service: AgentService,
+  { enabled = false }: { enabled?: boolean } = {},
+): Promise<void> {
   const access = { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) }
-  app.post('/agent/plan', access, (request) =>
+  const creation = {
+    preHandler: [
+      access.preHandler,
+      async () => {
+        if (!enabled)
+          throw new AppError(503, 'AGENT_STUDIO_UNAVAILABLE', '一句成片正在筹备中，请使用项目创作流程。')
+      },
+    ],
+  }
+  app.post('/agent/plan', creation, (request) =>
     service.plan(parse(createAgentPlanRequestSchema, request.body ?? {}), request.principal!),
   )
   app.get('/agent/runs', access, (request) => service.list(request.principal!))
   app.get('/agent/runs/:runId', access, (request) =>
     service.get(parse(runParamsSchema, request.params).runId, request.principal!),
   )
-  app.post('/agent/runs/:runId/confirm', access, (request) => {
+  app.post('/agent/runs/:runId/confirm', creation, (request) => {
     const params = parse(runParamsSchema, request.params)
     const input = parse(confirmAgentRunRequestSchema, request.body ?? {})
     return service.confirm(params.runId, input.clientRequestId, request.principal!)
@@ -30,13 +43,13 @@ export async function registerAgentRoutes(app: FastifyInstance, service: AgentSe
   app.post('/agent/runs/:runId/pause', access, (request) =>
     service.pause(parse(runParamsSchema, request.params).runId, request.principal!),
   )
-  app.post('/agent/runs/:runId/resume', access, (request) =>
+  app.post('/agent/runs/:runId/resume', creation, (request) =>
     service.resume(parse(runParamsSchema, request.params).runId, request.principal!),
   )
-  app.post('/agent/runs/:runId/retry', access, (request) =>
+  app.post('/agent/runs/:runId/retry', creation, (request) =>
     service.retry(parse(runParamsSchema, request.params).runId, request.principal!),
   )
-  app.post('/agent/runs/:runId/stages/:stage/skip', access, (request) => {
+  app.post('/agent/runs/:runId/stages/:stage/skip', creation, (request) => {
     const params = parse(stageParamsSchema, request.params)
     return service.skip(params.runId, params.stage, request.principal!)
   })

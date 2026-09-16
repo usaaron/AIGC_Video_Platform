@@ -271,7 +271,13 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>{item.id === 'writing-studio' ? '独立模块' : '已启用'}</small>
+              <small>
+                {item.availability === 'coming-soon'
+                  ? '筹备中'
+                  : item.id === 'writing-studio'
+                    ? '独立模块'
+                    : '已启用'}
+              </small>
             </button>
           )
         })}

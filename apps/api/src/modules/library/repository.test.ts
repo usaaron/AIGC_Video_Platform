@@ -10,6 +10,28 @@ const principal: Principal = {
 }
 
 describe('AssetLibraryRepository phase 3 library state', () => {
+  it('groups legacy kinds before pagination and keeps account boundaries', async () => {
+    const store = new AppStore(null, undefined, false, false)
+    await store.initialize()
+    const repository = new AssetLibraryRepository(store)
+    for (const kind of ['prop', 'costume', 'brand', 'scene'] as const) {
+      const item = { ...itemRecord(kind, kind, '2026-09-16T00:00:00.000Z'), kind }
+      await repository.create(item, versionRecord(item))
+    }
+    const query = { category: 'prop', deleted: 'active', page: 1, pageSize: 2 } as const
+    const first = await repository.list(query, principal)
+    const second = await repository.list({ ...query, page: 2 }, principal)
+    expect(first.total).toBe(3)
+    expect(first.items).toHaveLength(2)
+    expect(second.items).toHaveLength(1)
+    expect([...first.items, ...second.items].map((item) => item.kind).sort()).toEqual([
+      'brand',
+      'costume',
+      'prop',
+    ])
+    expect((await repository.list(query, { ...principal, userId: 'outsider' })).total).toBe(0)
+  })
+
   it('tracks duplicates, stats, recycle bin state and versions in the JSON store', async () => {
     const store = new AppStore(null, undefined, false, false)
     await store.initialize()

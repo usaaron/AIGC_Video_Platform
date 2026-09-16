@@ -1,6 +1,6 @@
 import type { Principal } from '@seqora/contracts'
 import Fastify from 'fastify'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppError } from '../../core/errors.js'
 import { noopTaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import { AppStore } from '../../infra/store.js'
@@ -47,7 +47,9 @@ describe('Agent HTTP routes', () => {
       }
       throw error
     })
-    await app.register(async (api) => registerAgentRoutes(api, service), { prefix: '/api/v1' })
+    await app.register(async (api) => registerAgentRoutes(api, service, { enabled: true }), {
+      prefix: '/api/v1',
+    })
   })
 
   afterEach(async () => {
@@ -141,5 +143,46 @@ describe('Agent HTTP routes', () => {
     expect(denied.statusCode).toBe(402)
     expect(denied.json()).toMatchObject({ error: { code: 'INSUFFICIENT_CREDITS' } })
     expect(updated.json().projectId).toBeNull()
+  })
+})
+
+describe('Agent unavailable by default', () => {
+  it('blocks new work before calling the service while retaining authentication', async () => {
+    const app = Fastify()
+    app.decorateRequest('principal', null)
+    app.addHook('onRequest', async (request) => {
+      if (request.headers['x-test-user']) request.principal = member
+    })
+    app.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) return reply.code(error.statusCode).send({ code: error.code })
+      throw error
+    })
+    const service = Object.fromEntries(
+      ['plan', 'confirm', 'resume', 'retry', 'skip'].map((name) => [name, vi.fn()]),
+    )
+    await registerAgentRoutes(app, service as unknown as AgentService)
+    try {
+      const id = '00000000-0000-4000-8000-000000000001'
+      const paths = [
+        '/agent/plan',
+        ...['confirm', 'resume', 'retry', 'stages/script/skip'].map(
+          (action) => `/agent/runs/${id}/${action}`,
+        ),
+      ]
+      for (const url of paths) {
+        expect((await app.inject({ method: 'POST', url })).statusCode).toBe(401)
+        const response = await app.inject({
+          method: 'POST',
+          url,
+          headers: { 'x-test-user': member.userId },
+          payload: {},
+        })
+        expect(response.statusCode).toBe(503)
+        expect(response.json().code).toBe('AGENT_STUDIO_UNAVAILABLE')
+      }
+      for (const method of Object.values(service)) expect(method).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
   })
 })

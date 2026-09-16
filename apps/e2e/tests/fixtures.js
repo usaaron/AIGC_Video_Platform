@@ -1,3 +1,5 @@
+import { ASSET_LIBRARY_CATEGORY_KINDS } from '@seqora/contracts'
+
 export const now = '2026-08-19T08:00:00.000Z'
 export const tinyImageDataUrl =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
@@ -122,18 +124,82 @@ export async function mockWebApi(page, state = createWebE2EState()) {
       state.tasks = state.tasks.filter((task) => task.id !== taskId)
       return route.fulfill({ status: 204, body: '' })
     }
+    if (method === 'POST' && path === '/library/sync-script-master')
+      return fulfillJson(route, { synced: true })
     if (method === 'GET' && path === '/library/items') {
+      const category = url.searchParams.get('category')
+      const trashed = url.searchParams.get('deleted') === 'trashed'
+      const search = (url.searchParams.get('q') || '').toLowerCase()
+      const pageNumber = Number(url.searchParams.get('page') || 1)
+      const pageSize = Number(url.searchParams.get('pageSize') || 12)
+      const filtered = state.libraryItems.filter(
+        (item) =>
+          Boolean(item.deletedAt) === trashed &&
+          (!category || ASSET_LIBRARY_CATEGORY_KINDS[category].includes(item.kind)) &&
+          [item.title, item.sourceProjectName, JSON.stringify(item.sourceSnapshot)]
+            .join(' ')
+            .toLowerCase()
+            .includes(search),
+      )
       return fulfillJson(route, {
-        items: state.libraryItems,
-        page: Number(url.searchParams.get('page') || 1),
-        pageSize: Number(url.searchParams.get('pageSize') || 24),
-        total: state.libraryItems.length,
+        items: filtered.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+        page: pageNumber,
+        pageSize,
+        total: filtered.length,
       })
     }
     if (method === 'GET' && path === '/library/stats') return fulfillJson(route, assetLibraryStats(state))
     if (method === 'GET' && path === '/library/duplicates') return fulfillJson(route, { groups: [] })
-    if (method === 'GET' && path.match(/^\/library\/items\/[^/]+\/versions$/)) {
-      return fulfillJson(route, { item: state.libraryItems[0], versions: [] })
+    if (method === 'POST' && path === '/library/items') {
+      const body = request.postDataJSON()
+      const id = `library-template-${state.libraryItems.length}`
+      const item = assetLibraryItem({
+        id,
+        kind: body.kind,
+        title: body.title,
+        contentType: 'text/plain',
+        sourceProjectId: null,
+        sourceProjectName: null,
+        sourceSnapshot: { contentPreview: body.content },
+        previewUrl: `/api/v1/library/items/${id}/preview`,
+        downloadUrl: `/api/v1/library/items/${id}/download`,
+      })
+      state.libraryItems.push(item)
+      return fulfillJson(route, item)
+    }
+    const versionDownload = path.match(/^\/library\/items\/([^/]+)\/versions\/\d+\/download$/)
+    if (versionDownload) {
+      const item = state.libraryItems.find((entry) => entry.id === versionDownload[1])
+      return route.fulfill({
+        status: 200,
+        contentType: item.contentType,
+        body: item.sourceSnapshot.contentPreview || '',
+      })
+    }
+    const libraryMatch = path.match(/^\/library\/items\/([^/]+)(?:\/(preview|versions|restore))?$/)
+    if (libraryMatch) {
+      const item = state.libraryItems.find((entry) => entry.id === libraryMatch[1])
+      if (method === 'GET' && libraryMatch[2] === 'preview')
+        return route.fulfill({
+          status: 200,
+          contentType: item.contentType,
+          body: item.sourceSnapshot.contentPreview || '',
+        })
+      if (method === 'POST' && libraryMatch[2] === 'versions') {
+        const body = request.postDataJSON()
+        item.title = body.title
+        item.sourceSnapshot.contentPreview = body.content
+        item.currentVersion += 1
+      }
+      if (libraryMatch[2] === 'versions') return fulfillJson(route, { item, versions: [] })
+      if (method === 'DELETE') {
+        item.deletedAt = now
+        return route.fulfill({ status: 204 })
+      }
+      if (method === 'POST' && libraryMatch[2] === 'restore') {
+        item.deletedAt = null
+        return fulfillJson(route, item)
+      }
     }
     if (method === 'POST' && path === `/projects/${state.workspace.project.id}/library/import`) {
       const body = await request.postDataJSON()
@@ -451,7 +517,7 @@ function billingSummary(credits) {
   }
 }
 
-function assetLibraryItem(overrides = {}) {
+export function assetLibraryItem(overrides = {}) {
   return {
     id: 'library-image-1',
     tenantId: 'tenant-1',
@@ -494,16 +560,14 @@ function assetLibraryStats(state) {
     totalBytes: state.libraryItems.reduce((sum, item) => sum + item.sizeBytes, 0),
     activeBytes: state.libraryItems.reduce((sum, item) => sum + item.sizeBytes, 0),
     versionCount: 0,
-    byKind: [
-      {
-        kind: 'image',
-        count: state.libraryItems.length,
-        trashed: 0,
-        duplicates: 0,
-        sizeBytes: state.libraryItems.reduce((sum, item) => sum + item.sizeBytes, 0),
-        versions: 0,
-      },
-    ],
+    byKind: [...new Set(state.libraryItems.map((item) => item.kind))].map((kind) => ({
+      kind,
+      count: state.libraryItems.filter((item) => item.kind === kind && !item.deletedAt).length,
+      trashed: state.libraryItems.filter((item) => item.kind === kind && item.deletedAt).length,
+      duplicates: 0,
+      sizeBytes: 0,
+      versions: 0,
+    })),
     bySourceProject: [
       {
         sourceProjectId: 'project-1',

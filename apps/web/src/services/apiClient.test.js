@@ -4,6 +4,32 @@ import { api, AUTH_EXPIRED_EVENT, waitForProjectScriptUpdate } from './apiClient
 afterEach(() => vi.unstubAllGlobals())
 
 describe('api client', () => {
+  it('loads library preview as authenticated raw text and propagates failures', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('林晚站在雨中。'))
+      .mockResolvedValueOnce(
+        Response.json({ error: { code: 'LIBRARY_ITEM_NOT_FOUND', message: '素材不存在' } }, { status: 404 }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.libraryItemText('script-1')).toBe('林晚站在雨中。')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/library/items/script-1/preview',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+    await expect(api.libraryItemText('missing')).rejects.toThrow('素材不存在')
+  })
+
+  it('loads the selected library version so edits cannot reuse a stale preview cache', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('最新正文'))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.libraryItemText('script-1', undefined, 2)).toBe('最新正文')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/library/items/script-1/versions/2/download',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
   it('sends login requests with cookie credentials', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ account: { id: 'user-1' }, permissions: [] }), {

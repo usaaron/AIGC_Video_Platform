@@ -323,6 +323,12 @@ export const api = {
   createTask: (input) => request('/generation/tasks', json('POST', input)),
   createImage2Batch: (input) => request('/image2/batches', json('POST', input)),
   libraryItems: (query = {}) => request(`/library/items${queryString(query)}`),
+  libraryItemText: async (itemId, signal, version) => {
+    const path = version ? `versions/${encodeURIComponent(version)}/download` : 'preview'
+    const response = await fetchApi(`/library/items/${encodeURIComponent(itemId)}/${path}`, { signal })
+    if (!response.ok) await parseResponse(response)
+    return response.text()
+  },
   libraryStats: () => request('/library/stats'),
   libraryDuplicates: () => request('/library/duplicates'),
   dedupeLibraryItems: () => request('/library/dedupe', emptyJsonPost()),

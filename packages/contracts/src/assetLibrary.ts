@@ -12,9 +12,37 @@ export const assetLibraryKindSchema = z.enum([
   'script',
   'video',
   'final-cut',
+  'prompt-template',
 ])
 
-export const assetLibraryCreateKindSchema = z.enum(['audio', 'image', 'script', 'video', 'final-cut'])
+export const assetLibraryCreateKindSchema = z.enum([
+  'audio',
+  'image',
+  'script',
+  'video',
+  'final-cut',
+  'prompt-template',
+])
+
+export const assetLibraryCategorySchema = z.enum([
+  'character',
+  'prop',
+  'scene',
+  'audio',
+  'script',
+  'prompt-template',
+])
+export const ASSET_LIBRARY_CATEGORY_KINDS: Record<
+  z.infer<typeof assetLibraryCategorySchema>,
+  z.infer<typeof assetLibraryKindSchema>[]
+> = {
+  character: ['character'],
+  prop: ['prop', 'costume', 'brand'],
+  scene: ['scene'],
+  audio: ['audio'],
+  script: ['script'],
+  'prompt-template': ['prompt-template'],
+}
 
 export const assetLibraryTagsSchema = z.array(z.string().trim().min(1).max(50)).max(30)
 
@@ -58,6 +86,7 @@ export const assetLibraryItemViewSchema = assetLibraryItemSchema.extend({
 
 export const listAssetLibraryItemsQuerySchema = z.object({
   kind: assetLibraryKindSchema.optional(),
+  category: assetLibraryCategorySchema.optional(),
   sourceProjectId: z.string().min(1).max(128).optional(),
   q: z.string().trim().max(200).optional(),
   tag: z.string().trim().max(50).optional(),
@@ -74,6 +103,11 @@ const createAssetLibraryItemBaseSchema = z.object({
 })
 
 export const createAssetLibraryItemSchema = z.discriminatedUnion('sourceType', [
+  createAssetLibraryItemBaseSchema.extend({
+    sourceType: z.literal('prompt-template'),
+    kind: z.literal('prompt-template'),
+    content: z.string().trim().min(1).max(20_000),
+  }),
   createAssetLibraryItemBaseSchema.extend({
     sourceType: z.literal('media'),
     kind: z.enum(['image', 'audio']),
@@ -104,6 +138,11 @@ const createAssetLibraryVersionBaseSchema = z.object({
 
 export const createAssetLibraryItemVersionSchema = z.discriminatedUnion('sourceType', [
   createAssetLibraryVersionBaseSchema.extend({
+    sourceType: z.literal('prompt-template'),
+    kind: z.literal('prompt-template'),
+    content: z.string().trim().min(1).max(20_000),
+  }),
+  createAssetLibraryVersionBaseSchema.extend({
     sourceType: z.literal('media'),
     kind: z.enum(['image', 'audio']),
     projectId: z.string().min(1).max(128),
@@ -133,7 +172,7 @@ export const updateAssetLibraryItemSchema = z
   .refine((input) => Object.keys(input).length > 0, 'At least one field is required')
 
 export const saveProjectAssetToLibrarySchema = createAssetLibraryItemBaseSchema.extend({
-  kind: assetLibraryKindSchema.optional(),
+  kind: assetLibraryKindSchema.exclude(['prompt-template']).optional(),
 })
 
 export const importAssetLibraryItemSchema = z.object({

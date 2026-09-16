@@ -4,7 +4,8 @@ export const FUNCTION_STACK_ITEMS = [
     label: '一句成片',
     title: '对话一句成片',
     eyebrow: 'AGENT STUDIO / 01',
-    description: '从创作意图进入剧本、资产、分镜与成片编排。',
+    description: '从一个想法到一部成片，让创作更简单。',
+    availability: 'coming-soon',
   },
   {
     id: 'image-studio',

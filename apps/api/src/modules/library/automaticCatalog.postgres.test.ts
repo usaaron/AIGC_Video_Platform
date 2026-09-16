@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
+  createAssetLibraryItemSchema,
+  createAssetLibraryItemVersionSchema,
   createProjectSchema,
   createGenerationTaskSchema,
   createAssetSchema,
@@ -13,6 +15,9 @@ import { ProjectRepository } from '../projects/repository.js'
 import { GenerationTaskRepository } from '../generation/repository.js'
 import { AssetLibraryRepository } from './repository.js'
 import { StoreCreditLedger } from '../billing/creditLedger.js'
+import { MediaRepository } from '../media/repository.js'
+import { AssetLibraryService } from './service.js'
+import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { automaticCatalogItems } from './automaticCatalog.js'
 
 let fixture: PostgresAuthFixture
@@ -27,6 +32,70 @@ afterAll(async () => {
 })
 
 describe('automatic catalog in Postgres', () => {
+  it('persists the new template kind and groups legacy image kinds before pagination', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await new UserRepository(store, database).bootstrapFromStore()
+    const principal: Principal = { userId: 'user-owner', tenantId: 'tenant-seqora-demo', roles: ['member'] }
+    const repository = new AssetLibraryRepository(store, database)
+    const files = new Map<string, Buffer>()
+    const storage = {
+      put: async (key: string, body: Buffer) => {
+        files.set(key, body)
+      },
+      get: async (key: string) => files.get(key)!,
+    } as ObjectStorage
+    const service = new AssetLibraryService(
+      repository,
+      new ProjectRepository(store, database),
+      new MediaRepository(store),
+      storage,
+    )
+    const input = createAssetLibraryItemSchema.parse({
+      sourceType: 'prompt-template',
+      kind: 'prompt-template',
+      title: '日光人物',
+      content: '柔和日光，人物中景',
+    })
+    const item = await service.create(input, principal)
+    await service.addVersion(
+      item.id,
+      createAssetLibraryItemVersionSchema.parse({ ...input, content: '窗边光线，人物全身' }),
+      principal,
+    )
+    expect((await service.readContent(item.id, principal, true)).content.toString()).toBe(
+      '窗边光线，人物全身',
+    )
+    expect(
+      (
+        await repository.list(
+          { category: 'prompt-template', page: 1, pageSize: 1, deleted: 'active' },
+          principal,
+        )
+      ).total,
+    ).toBe(1)
+    const base = (await repository.find(item.id, principal))!
+    const originalVersion = (await repository.listVersions(item.id, principal))[0]!
+    for (const kind of ['prop', 'costume', 'brand'] as const) {
+      const id = `${item.id}-${kind}`
+      const record = { ...base, id, kind, storageKey: `${base.storageKey}-${kind}`, currentVersion: 1 }
+      await repository.create(record, { ...originalVersion, id: `${id}:1`, itemId: id, version: 1 })
+    }
+    const result = await repository.list(
+      { category: 'prop', page: 2, pageSize: 2, deleted: 'active' },
+      principal,
+    )
+    expect(result.total).toBe(3)
+    expect(result.items).toHaveLength(1)
+    await service.delete(item.id, principal)
+    expect((await service.readContent(item.id, principal, true)).content.toString()).toBe(
+      '窗边光线，人物全身',
+    )
+    await expect(
+      service.readContent(item.id, { ...principal, userId: 'user-member' }, true),
+    ).rejects.toMatchObject({ code: 'LIBRARY_ITEM_NOT_FOUND' })
+  }, 60_000)
+
   it('indexes complete outputs, trims identically, avoids repeat inserts and isolates accounts', async () => {
     const store = new AppStore(null)
     await store.initialize()

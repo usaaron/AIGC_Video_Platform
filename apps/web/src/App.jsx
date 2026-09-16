@@ -370,13 +370,8 @@ function App() {
           image2ProviderStatus={providerHealth?.providers?.img2 ?? null}
           onRefreshImageStudio={refreshCurrentProjectData}
           onOpenBilling={() => navigateTo('billing')}
-          onOpenProject={openProject}
+          onOpenHome={() => navigateTo('home')}
           onOpenScript={() => navigateTo('script')}
-          onProjectCreated={async (projectId) => {
-            setProjects(await api.projects())
-            await refreshBilling()
-            if (projectId) await refreshWorkspace(projectId)
-          }}
         />
       )
     }
@@ -448,6 +443,10 @@ function App() {
           onRestore={(itemId) => api.restoreLibraryItem(itemId)}
           onPermanentDelete={(itemId) => api.permanentlyDeleteLibraryItem(itemId)}
           onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
+          onLoadText={api.libraryItemText}
+          onSaveTemplate={(input, itemId) =>
+            itemId ? api.createLibraryItemVersion(itemId, input) : api.createLibraryItem(input)
+          }
         />
       )
     }
@@ -879,6 +878,10 @@ function App() {
           onRestore={(itemId) => api.restoreLibraryItem(itemId)}
           onPermanentDelete={(itemId) => api.permanentlyDeleteLibraryItem(itemId)}
           onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
+          onLoadText={api.libraryItemText}
+          onSaveTemplate={(input, itemId) =>
+            itemId ? api.createLibraryItemVersion(itemId, input) : api.createLibraryItem(input)
+          }
           onImportToProject={async (itemId, target = 'auto') => {
             const result = await api.importLibraryItem(project.id, { itemId, target })
             await refreshWorkspace()
