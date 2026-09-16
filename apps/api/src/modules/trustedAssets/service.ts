@@ -632,7 +632,11 @@ export class TrustedAssetService {
   private providerError(error: unknown): AppError {
     if (error instanceof AppError) return error
     const detail = error instanceof Error ? error.message : '未知错误'
-    return new AppError(502, 'ASSET_LIBRARY_REQUEST_FAILED', `Dora 素材库请求失败：${detail}`)
+    return new AppError(
+      502,
+      'ASSET_LIBRARY_REQUEST_FAILED',
+      detail.includes('素材库') ? detail : `素材库请求失败：${detail}`,
+    )
   }
 
   private async requireCharacterAsset(

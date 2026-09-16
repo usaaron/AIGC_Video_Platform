@@ -105,7 +105,7 @@ export class DoraRouterAssetLibraryProvider implements AssetLibraryProvider {
     const result = idResultSchema.parse(
       await this.call('CreateAssetGroup', {
         Name: name.slice(0, 120),
-        Description: description.slice(0, 500),
+        Description: Array.from(description).slice(0, 300).join(''),
       }),
     )
     return result.Id
