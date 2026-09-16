@@ -104,14 +104,26 @@ export function normalizeScriptAssetSuggestion(
       ? identityTags
       : [
           gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
-          exactAge ? `${exactAge}岁` : scriptAgeLabel(ageGroup),
+          scriptAgeLabel(ageGroup),
+          exactAge ? `${exactAge}岁` : '',
+          manifestFact(manifestItem, ['身份', '角色身份', '人物背景'])
+            ? `身份：${manifestFact(manifestItem, ['身份', '角色身份', '人物背景'])}`
+            : '',
           ...identityTags,
         ].filter(Boolean)
-    const profileSummary = profileFacts.length ? `角色背景：${profileFacts.join('，')}。` : ''
     const basePrompt = animal ? stripHumanProfileTerms(namedSuggestion.prompt) : namedSuggestion.prompt
-    const description = namedSuggestion.description.includes(namedSuggestion.name)
-      ? namedSuggestion.description
-      : `${namedSuggestion.name}；${namedSuggestion.description}`
+    const profileText = profileFacts.length ? profileFacts.join('，') : '中文 AI 视频人物设定'
+    const visualFacts = characterVisualFacts(manifestItem)
+    const extraDescription = compactCharacterDetails(namedSuggestion.description, [
+      namedSuggestion.name,
+      ...profileFacts,
+      ...visualFacts,
+    ])
+    const extraPrompt = compactCharacterDetails(basePrompt, [
+      namedSuggestion.name,
+      ...profileFacts,
+      ...visualFacts,
+    ])
     const subjectProfile = animal
       ? [
           '动物角色',
@@ -125,13 +137,17 @@ export function normalizeScriptAssetSuggestion(
         ]
     return {
       ...namedSuggestion,
-      description: appendAssetProfile(description, profileSummary),
+      description: [`人物资产：${namedSuggestion.name}`, profileText, ...visualFacts, extraDescription]
+        .filter(Boolean)
+        .join('；')
+        .slice(0, 500),
       prompt: composeAssetPrompt([
         stylePrompt,
-        ...subjectProfile,
-        namedSuggestion.name,
-        profileSummary,
-        basePrompt,
+        `人物角色：${namedSuggestion.name}`,
+        profileText,
+        ...visualFacts,
+        extraPrompt,
+        animal ? subjectProfile.join('，') : '',
         animal ? ANIMAL_PORTRAIT_REQUIREMENTS : HUMAN_PORTRAIT_REQUIREMENTS,
       ]),
       negativePrompt: composeAssetNegativePrompt(
@@ -255,9 +271,59 @@ function replaceAssetName(value: string, originalName: string, replacementName: 
   return original && original !== replacementName ? value.replaceAll(original, replacementName) : value
 }
 
-function appendAssetProfile(description: string, profile: string): string {
-  if (!profile || description.includes(profile)) return description
-  return `${description.replace(/[。.!！?？\s]+$/u, '')}；${profile}`.slice(0, 500)
+function characterVisualFacts(item: ScriptAssetManifestItem | undefined): string[] {
+  const profileLabels = new Set([
+    '基础人物',
+    '版本',
+    '性别',
+    '人物性别',
+    '年龄段',
+    '年龄',
+    '精确年龄',
+    '身份',
+    '角色身份',
+    '人物背景',
+    '故事作用',
+    '剧情作用',
+  ])
+  return Object.entries(reusableAssetFacts(item?.facts))
+    .filter(([label]) => !profileLabels.has(label))
+    .map(([label, value]) => `${label}：${value}`)
+}
+
+/** Remove repeated fact fragments while keeping provider-specific visual details. */
+function compactCharacterDetails(value: string, knownFacts: string[]): string {
+  const known = new Set(knownFacts.flatMap((fact) => factVariants(fact)).filter(Boolean))
+  const seen = new Set<string>()
+  return String(value || '')
+    .split(/[，,；;。！？!?\n|]+/u)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean)
+    .filter((fragment) => !/^(?:从剧本资产清单|剧本资产设定|人物画像)/u.test(fragment))
+    .filter((fragment) => {
+      const withoutLabel = fragment.replace(/^[^：:]{1,20}[：:]/u, '').trim()
+      const key = normalizePromptFragment(withoutLabel)
+      if (!key || known.has(key) || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .join('，')
+}
+
+function factVariants(value: string): string[] {
+  return value
+    .split(/[，,；;]/u)
+    .flatMap((fragment) => {
+      const trimmed = fragment.trim()
+      const withoutLabel = trimmed.replace(/^[^：:]{1,20}[：:]/u, '').trim()
+      return [trimmed, withoutLabel]
+    })
+    .map(normalizePromptFragment)
+    .filter(Boolean)
+}
+
+function normalizePromptFragment(value: string): string {
+  return value.replace(/[\s，,；;。！？!?：:「」“”‘’]/gu, '').toLowerCase()
 }
 
 function composeAssetPrompt(fragments: readonly string[]): string {
@@ -329,35 +395,23 @@ export function fallbackAssetSuggestions(
         : inferManifestAgeGroup(manifestItem, inferScriptCharacterAge(evidence))
       const identityTags = inferScriptCharacterIdentityTags(evidence)
       const identity = manifestFact(manifestItem, ['身份', '角色身份', '人物背景'])
-      const explicitProfile = [
-        identity ? `身份：${identity}` : '',
-        manifestFact(manifestItem, ['外形', '外貌'])
-          ? `外形：${manifestFact(manifestItem, ['外形', '外貌'])}`
-          : '',
-      ].filter(Boolean)
       const profile = [
         gender === 'male' ? '男性' : gender === 'female' ? '女性' : '',
         scriptAgeLabel(ageGroup),
         exactAge ? `${exactAge}岁` : '',
+        identity ? `身份：${identity}` : '',
         ...identityTags,
       ].filter(Boolean)
       const profileText = profile.length ? profile.join('，') : '中文 AI 视频人物设定'
+      const visualFacts = characterVisualFacts(manifestItem)
       return {
         kind: 'character',
         name,
-        description: [
-          `从剧本资产清单提取的主要角色：${name}`,
-          profile.length ? `人物画像：${profileText}` : '',
-          ...explicitProfile,
-          manifestDetails(manifestItem),
-        ]
-          .filter(Boolean)
-          .join('；'),
+        description: [`人物资产：${name}`, profileText, ...visualFacts].filter(Boolean).join('；'),
         prompt: [
           name,
           profileText,
-          ...explicitProfile,
-          manifestDetails(manifestItem),
+          ...visualFacts,
           '中文 AI 视频人物设定，面部清晰，造型统一，符合剧本风格，适合后续保持角色一致性。',
         ]
           .filter(Boolean)
