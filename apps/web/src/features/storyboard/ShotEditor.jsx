@@ -4,7 +4,12 @@ import { createPortal } from 'react-dom'
 import { LoaderCircle, RotateCcw, Upload, Video, X } from 'lucide-react'
 import { IconButton } from '../../components/ui'
 import { AssetAwareTextarea } from '../assets/AssetShortcutBar'
-import { normalizedVideoDuration, shotReferenceImages, validateShotReferences } from '@seqora/prompting'
+import {
+  normalizedVideoDuration,
+  removeShotReferenceToken,
+  shotReferenceImages,
+  validateShotReferences,
+} from '@seqora/prompting'
 import { insertPromptAtCursor } from '../assets/promptInsertion'
 import { adjustPromptHighlights, mergePromptHighlights } from '../assets/promptHighlights'
 import { ShotAssetShortcuts } from './ShotAssetShortcuts'
@@ -147,15 +152,7 @@ export function ShotEditor({
     setError('')
   }
   const removeReferenceImage = (index) => {
-    if ([...prompt.matchAll(/【图(\d+)】/gu)].some((match) => Number(match[1]) === index + 1)) {
-      setError(`请先移除提示词中的【图${index + 1}】引用，再删除这张图片。`)
-      return
-    }
-    changePrompt(
-      prompt.replace(/【图(\d+)】/gu, (token, number) =>
-        Number(number) > index + 1 ? `【图${Number(number) - 1}】` : token,
-      ),
-    )
+    changePrompt(removeShotReferenceToken(prompt, index))
     setReferenceImages((images) => images.filter((_, position) => position !== index))
     setError('')
   }

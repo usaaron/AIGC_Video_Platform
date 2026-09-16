@@ -27,6 +27,15 @@ export function validateShotReferences(prompt: string, count: number, continuity
   }
 }
 
+export function removeShotReferenceToken(prompt: string, index: number): string {
+  const removedNumber = index + 1
+  return prompt.replace(/【图(\d+)】/gu, (token, number) => {
+    const current = Number(number)
+    if (current === removedNumber) return ''
+    return current > removedNumber ? `【图${current - 1}】` : token
+  })
+}
+
 export function mapShotReferenceTokens(prompt: string, count: number, continuity: boolean): string {
   validateShotReferences(prompt, count, continuity)
   return prompt.replace(

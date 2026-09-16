@@ -12,6 +12,7 @@ import {
   Search,
   Shirt,
   Sparkles,
+  Trash2,
   UsersRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -200,6 +201,9 @@ export function AssetsPage({
                 : null
             }
             onEdit={() => setEditing(asset)}
+            onDelete={() => {
+              if (window.confirm(`确定删除资产“${assetDisplayName(asset)}”吗？`)) void onDelete(asset.id)
+            }}
             task={latestAssetImageTask(asset, tasks)}
             tasks={tasks}
             onGenerate={async () => {
@@ -296,7 +300,17 @@ export function AssetsPage({
   )
 }
 
-function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
+function AssetCard({
+  asset,
+  task,
+  tasks,
+  linkedCharacterName,
+  onEdit,
+  onDelete,
+  onGenerate,
+  onPreview,
+  busy,
+}) {
   const displayName = assetDisplayName(asset)
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
   const [emptyTitle, emptyDescription] = emptyAssetCopy[asset.kind] || ['资产待生成', '完成生成后在此预览']
@@ -386,6 +400,10 @@ function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate
                 : '生成新版本'}
           </button>
           <button onClick={onEdit}>编辑</button>
+          <button className="asset-delete-action" onClick={onDelete}>
+            <Trash2 size={14} />
+            删除资产
+          </button>
         </div>
       </div>
     </article>

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SCRIPT_DIRECTION } from '@seqora/contracts'
 import { extractScriptAssetNameIndex } from './assetSuggestionExtraction.js'
-import { fallbackAssetSuggestions, normalizeScriptAssetSuggestion } from './assetSuggestions.js'
+import {
+  fallbackAssetSuggestions,
+  isDiscardableScriptAssetSuggestion,
+  normalizeScriptAssetSuggestion,
+} from './assetSuggestions.js'
 
 describe('character asset suggestion presentation', () => {
   it('keeps each character fact once after fast extraction and normalization', () => {
@@ -30,5 +34,16 @@ describe('character asset suggestion presentation', () => {
     expect(normalized.prompt.match(/沈烈-标准版本/gu)).toHaveLength(1)
     expect(normalized.prompt.match(/体型：/gu)).toHaveLength(1)
     expect(normalized.prompt.match(/基础造型：/gu)).toHaveLength(1)
+  })
+
+  it('drops model placeholders that describe reusing a previous suggestion', () => {
+    expect(
+      isDiscardableScriptAssetSuggestion({
+        name: '角色-沿用上一版建议',
+        description: '不应作为新资产出现',
+        prompt: '',
+        reason: '',
+      }),
+    ).toBe(true)
   })
 })

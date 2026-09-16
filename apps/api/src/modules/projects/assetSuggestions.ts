@@ -48,6 +48,7 @@ export function normalizeScriptAssetSuggestion(
   projectVisualStyle: ProjectVisualStyle = 'cinematic-cg',
   manifest = extractScriptAssetManifest(sourceContext),
 ): ScriptAssetSuggestion | null {
+  if (isDiscardableScriptAssetSuggestion(suggestion)) return null
   const name = resolveAssetSuggestionName(suggestion, sourceNames)
   if (!name) return null
 
@@ -254,6 +255,17 @@ export function normalizeScriptAssetSuggestion(
       presentation: 'flat',
     },
   }
+}
+
+/** Model output sometimes turns a reuse instruction into a fake asset name. */
+export function isDiscardableScriptAssetSuggestion(
+  suggestion: Pick<ScriptAssetSuggestion, 'name' | 'description' | 'prompt' | 'reason'>,
+): boolean {
+  return /沿用上一(?:版|版本|集)|上一(?:版|版本|集)(?:资产|建议)/u.test(
+    [suggestion.name, suggestion.description, suggestion.prompt, suggestion.reason]
+      .filter(Boolean)
+      .join('，'),
+  )
 }
 
 function stripNarrativeAssetFacts(value: string): string {

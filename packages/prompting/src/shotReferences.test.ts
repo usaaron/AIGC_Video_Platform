@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { compileStoryboardVideoPrompt } from './videoPromptCompiler.js'
-import { orderedVideoReferenceImages, shotReferenceImages, validateShotReferences } from './shotReferences.js'
+import {
+  orderedVideoReferenceImages,
+  removeShotReferenceToken,
+  shotReferenceImages,
+  validateShotReferences,
+} from './shotReferences.js'
 
 describe('numbered shot references', () => {
   it('migrates a legacy manual image but respects clearing and generated covers', () => {
@@ -17,6 +22,10 @@ describe('numbered shot references', () => {
     expect(() => validateShotReferences('【图0】', 2)).toThrow('没有对应')
     expect(() => validateShotReferences('【图3】', 2)).toThrow('没有对应')
     expect(() => validateShotReferences('【图9】', 9, true)).toThrow('尾帧')
+    expect(() => validateShotReferences('无参考图，直接根据提示词生成。', 0)).not.toThrow()
+    expect(removeShotReferenceToken('使用【图1】的人物，参考【图2】的场景。', 0)).toBe(
+      '使用的人物，参考【图1】的场景。',
+    )
   })
   it.each(['independent', 'continue'] as const)(
     'maps %s without losing unstructured image instructions',

@@ -78,6 +78,7 @@ export function ScriptAssetSuggestions({ assetSuggestions, isSeries, skipAssetSu
       onSkip={() => void skipAssetSuggestions()}
       stopping={stopping}
       onInspect={assetSuggestions.openEditor}
+      onDeleteSuggestion={assetSuggestions.dismissSuggestion}
       onCreateAndGenerate={assetSuggestions.createAndGenerate}
       onImportSelected={assetSuggestions.importSelected}
       onGenerateSelected={assetSuggestions.generateSelected}

@@ -14,6 +14,7 @@ import {
   Shirt,
   Sparkles,
   Square,
+  Trash2,
   UserRound,
 } from 'lucide-react'
 import { optionLabel } from '../assets/assetOptions'
@@ -44,6 +45,7 @@ export function AssetSuggestionsPanel({
   onGenerateSelected,
   allowCostume = true,
   onInspect,
+  onDeleteSuggestion,
   importing = false,
   stopping = false,
   disabled = false,
@@ -353,6 +355,17 @@ export function AssetSuggestionsPanel({
                                 <Pencil size={14} />
                                 打开生成框
                               </button>
+                              {onDeleteSuggestion && (
+                                <button
+                                  type="button"
+                                  className="button danger"
+                                  disabled={disabled || importBusy || isCreating}
+                                  onClick={() => onDeleteSuggestion(asset)}
+                                >
+                                  <Trash2 size={14} />
+                                  删除建议
+                                </button>
+                              )}
                               {(onCreateAndGenerate || onCreate) && (
                                 <button
                                   type="button"

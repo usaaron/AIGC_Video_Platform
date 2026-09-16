@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { assetSuggestionKey } from './AssetSuggestionsPanel'
 import { suggestionToAssetInput } from './assetSuggestionInput'
 import { isAssetSuggestionResult, isQueuedTextTask, scriptSuggestionFingerprint } from './scriptTaskState'
@@ -25,6 +25,7 @@ export function useAssetSuggestions({
   const [error, setError] = useState('')
   const [creatingKeys, setCreatingKeys] = useState(() => new Set())
   const [createdKeys, setCreatedKeys] = useState(() => new Set())
+  const [dismissedKeys, setDismissedKeys] = useState(() => new Set())
   const [editor, setEditor] = useState(null)
   const fastRequestRef = useRef(0)
   const automaticFingerprintRef = useRef('')
@@ -34,6 +35,7 @@ export function useAssetSuggestions({
     setStatus('idle')
     setResult(null)
     setError('')
+    setDismissedKeys(new Set())
   }
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function useAssetSuggestions({
     reset()
     setCreatingKeys(new Set())
     setCreatedKeys(new Set())
+    setDismissedKeys(new Set())
     setEditor(null)
   }, [projectId])
 
@@ -82,6 +85,7 @@ export function useAssetSuggestions({
     setStatus('suggesting')
     setResult(null)
     setError('')
+    setDismissedKeys(new Set())
     try {
       const task = await onSuggestAssets(
         source,
@@ -123,6 +127,7 @@ export function useAssetSuggestions({
     setStatus('extracting')
     setResult(null)
     setError('')
+    setDismissedKeys(new Set())
     try {
       if (cancelActiveTask && activeTask && onCancelTask) {
         setStoppingTaskId(activeTask.id)
@@ -231,9 +236,23 @@ export function useAssetSuggestions({
     setEditor(null)
   }
 
+  const dismissSuggestion = (asset) => {
+    const key = assetSuggestionKey(asset)
+    setDismissedKeys((current) => new Set(current).add(key))
+    setEditor((current) => (current?.suggestionKey === key ? null : current))
+  }
+
+  const visibleResult = useMemo(() => {
+    if (!result) return result
+    return {
+      ...result,
+      assets: result.assets.filter((asset) => !dismissedKeys.has(assetSuggestionKey(asset))),
+    }
+  }, [dismissedKeys, result])
+
   return {
     status: activeTask && status === 'idle' ? 'suggesting' : status,
-    result,
+    result: visibleResult,
     error,
     creatingKeys,
     createdKeys,
@@ -249,5 +268,6 @@ export function useAssetSuggestions({
     cancelBeforeContinue,
     closeEditor: () => setEditor(null),
     markEditorAssetCreated,
+    dismissSuggestion,
   }
 }

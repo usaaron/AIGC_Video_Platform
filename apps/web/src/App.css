@@ -8288,6 +8288,11 @@
   cursor: pointer;
   font-size: 9px;
 }
+.asset-actions .asset-delete-action {
+  border-color: #efc9c0;
+  background: #fff7f5;
+  color: var(--danger);
+}
 .add-asset {
   display: flex;
   flex-direction: column;
