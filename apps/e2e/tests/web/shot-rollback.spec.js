@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { createWebE2EState, generationTask, mockWebApi } from '../fixtures.js'
 
-async function setup(page, { count = 3, active = false, fail = false, hold } = {}) {
+async function setup(
+  page,
+  { count = 3, active = false, fail = false, hold, referenceSnapshots = false } = {},
+) {
   const state = createWebE2EState()
   const shot = {
     id: 'shot-1',
@@ -16,6 +19,7 @@ async function setup(page, { count = 3, active = false, fail = false, hold } = {
     episodeKind: 'standard',
     continuityMode: 'independent',
     imageUrl: null,
+    ...(referenceSnapshots ? { referenceImages: [{ url: '/api/v1/media/current-image' }] } : {}),
     selectedVideoTaskId: `video-${count}`,
   }
   state.workspace.shots = [shot]
@@ -31,6 +35,14 @@ async function setup(page, { count = 3, active = false, fail = false, hold } = {
         shotId: shot.id,
         resolution: '720p',
         sourcePromptSnapshot: `第 ${index + 1} 版的原始提示词`,
+        ...(referenceSnapshots
+          ? {
+              sourceShotSnapshot: {
+                prompt: `第 ${index + 1} 版使用【图1】`,
+                referenceImages: [{ url: `/api/v1/media/version-${index + 1}`, name: '此版参考图' }],
+              },
+            }
+          : {}),
       },
     }),
   ).reverse()
@@ -156,4 +168,26 @@ test('请求期间锁定操作，失败保留预览且允许重试', async ({ pa
   expect(shot.selectedVideoTaskId).toBe('video-3')
   expect(changes).toHaveLength(1)
   expect(generationCount()).toBe(0)
+})
+
+test('复用历史提示词时一并载入此版参考图，保存前不改变当前镜头', async ({ page }) => {
+  const { shot, changes } = await setup(page, { referenceSnapshots: true })
+  await page.getByRole('button', { name: '查看版本', exact: true }).click()
+  const history = page.getByRole('dialog', { name: '回退到上一版本', exact: true })
+  await history
+    .getByRole('region', { name: '将恢复的上一版', exact: true })
+    .getByRole('button', { name: '用此版提示词编辑' })
+    .click()
+  const editor = page.getByRole('dialog', { name: '编辑镜头', exact: true })
+  await expect(editor.getByRole('textbox', { name: '画面提示词' })).toHaveValue('第 2 版使用【图1】')
+  await expect(editor.getByRole('img', { name: '镜头参考', exact: true })).toHaveAttribute(
+    'src',
+    '/api/v1/media/version-2',
+  )
+  expect(changes).toHaveLength(0)
+  expect(shot.referenceImages[0].url).toBe('/api/v1/media/current-image')
+  await editor.getByRole('button', { name: '保存分镜', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect(changes[0].referenceImages).toEqual([{ url: '/api/v1/media/version-2', name: '此版参考图' }])
+  expect(shot.selectedVideoTaskId).toBe('video-3')
 })

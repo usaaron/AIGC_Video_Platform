@@ -995,3 +995,7 @@ pnpm check
 - 新机生产资源限制为 API 3 CPU、4GB 内存、2GB Node 堆，Web/Caddy 0.5 CPU、256MB 内存。空闲实测 API 约 87MB、Web 约 16MB，服务器仍保留充足空间给 FFmpeg 和并发任务。
 - `zjh.ai` 已切换解析至 `34.92.246.97`，Google DNS 与 Cloudflare DNS 均返回新地址；Caddy 已取得正式证书。公网首页和 `/api/v1/health` 返回 200，未登录 `/api/v1/auth/me` 返回 401，Seedance、Img2、文本和弦序 MaaS 素材库均显示 configured。
 - 旧实例未被停止或修改，可在确认新机业务流程、账号和新数据卷无误后再单独下线。新机初始化脚本为 `deploy/bootstrap-fresh-gce.sh`，生产临时源码归档会在成功部署后从服务器删除。
+
+## 2026-09-17 分镜多图参考
+
+参考图与生成封面分开存储，旧记录省略字段才回落到旧手动封面，空数组表示明确清空。不要把用户服装参考图替换成人脸，不能因前镜尾帧插入而改变用户编号对应图片。API 记录提交时的参考图顺序，Worker 不读取后续编辑来覆盖它。详见 `SHOT_REFERENCE_IMAGES.md`。

@@ -134,6 +134,7 @@ export function isCompatibleCompletedVideoTask(
     continuityMode = 'independent',
     previousTaskId = null,
     sourcePromptSnapshot,
+    manualReferenceImages,
   },
 ) {
   if (
@@ -151,6 +152,17 @@ export function isCompatibleCompletedVideoTask(
     return false
   }
 
+  if (manualReferenceImages) {
+    const previous =
+      task.metadata?.manualReferenceImages ??
+      (task.metadata?.manualReferenceUrl ? [{ url: task.metadata.manualReferenceUrl }] : [])
+    if (
+      !Array.isArray(previous) ||
+      previous.length !== manualReferenceImages.length ||
+      previous.some((image, index) => image.url !== manualReferenceImages[index].url)
+    )
+      return false
+  }
   const actualReferences = task.metadata?.referenceAssetIds
   if (
     !Array.isArray(actualReferences) ||

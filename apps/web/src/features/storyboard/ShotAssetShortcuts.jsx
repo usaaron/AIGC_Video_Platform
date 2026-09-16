@@ -1,4 +1,4 @@
-import { Check, Package, MapPinned, Users } from 'lucide-react'
+import { Check, Package, MapPinned, Users, Images } from 'lucide-react'
 import { characterVariantName } from '@seqora/contracts'
 import { findAssetMentions } from '../assets/AssetShortcutBar'
 import { getAssetPreviewUrl } from '../assets/assetPreview'
@@ -9,7 +9,15 @@ const groups = [
   { label: '场景', kinds: ['scene'], Icon: MapPinned },
 ]
 
-export function ShotAssetShortcuts({ shot, assets, tasks, prompt, onInsert, disabled }) {
+export function ShotAssetShortcuts({
+  shot,
+  assets,
+  tasks,
+  prompt,
+  onInsert,
+  disabled,
+  referenceImages = [],
+}) {
   const relevantIds = new Set(
     findAssetMentions(`${shot.title || ''}\n${shot.prompt || ''}\n${prompt}`, assets).map(
       ({ asset }) => asset.id,
@@ -68,6 +76,33 @@ export function ShotAssetShortcuts({ shot, assets, tasks, prompt, onInsert, disa
           </div>
         )
       })}
+      <div className="shot-prompt-asset-group shot-prompt-reference-group">
+        <span>
+          <Images size={14} />
+          参考图
+        </span>
+        <div>
+          {referenceImages.length ? (
+            referenceImages.map((image, index) => (
+              <button
+                key={image.url}
+                type="button"
+                disabled={disabled}
+                title={image.name || `图${index + 1}`}
+                className={prompt.includes(`【图${index + 1}】`) ? 'mentioned' : ''}
+                aria-label={`插入参考图 图${index + 1}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onInsert(`【图${index + 1}】`)}
+              >
+                <img src={image.url} alt="" />
+                <span>图{index + 1}</span>
+              </button>
+            ))
+          ) : (
+            <small>上传图片后，可点击编号写入提示词</small>
+          )}
+        </div>
+      </div>
       {!visible.length && <p>本镜头尚未引用人物、物品或场景，可在下方使用资产库资产。</p>}
     </section>
   )

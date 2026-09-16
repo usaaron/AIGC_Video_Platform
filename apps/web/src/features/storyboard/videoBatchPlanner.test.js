@@ -207,3 +207,30 @@ function shots(count) {
     continuityMode: index === 0 ? 'independent' : 'continue',
   }))
 }
+
+it('invalidates reused videos when a manual reference changes, clears or changes position', () => {
+  const task = {
+    kind: 'video',
+    status: 'completed',
+    metadata: {
+      shotId: 's',
+      resolution: '720p',
+      referenceAssetIds: [],
+      manualReferenceImages: [{ url: 'a' }, { url: 'b' }],
+    },
+  }
+  const options = { shotId: 's', resolution: '720p', referenceAssetIds: [] }
+  expect(
+    isCompatibleCompletedVideoTask(task, {
+      ...options,
+      manualReferenceImages: [{ url: 'a' }, { url: 'b', name: 'renamed' }],
+    }),
+  ).toBe(true)
+  for (const urls of [['b', 'a'], ['a', 'c'], []])
+    expect(
+      isCompatibleCompletedVideoTask(task, {
+        ...options,
+        manualReferenceImages: urls.map((url) => ({ url })),
+      }),
+    ).toBe(false)
+})

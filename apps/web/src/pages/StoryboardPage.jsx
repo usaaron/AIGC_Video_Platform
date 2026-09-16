@@ -866,7 +866,13 @@ export function StoryboardPage({
                 ? task.metadata.userNegativePrompt
                 : historyShot.negativePrompt)
             setHistoryShotId(null)
-            setEditing({ ...historyShot, prompt, negativePrompt })
+            const referenceImages = snapshot?.referenceImages ?? task.metadata?.manualReferenceImages
+            setEditing({
+              ...historyShot,
+              prompt,
+              negativePrompt,
+              ...(Array.isArray(referenceImages) ? { referenceImages } : {}),
+            })
           }}
         />
       )}

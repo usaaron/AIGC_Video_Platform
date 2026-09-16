@@ -523,6 +523,25 @@ export const updateAssetSchema = z
   })
   .refine((input) => Object.keys(input).length > 0, 'At least one field is required')
 
+export const shotReferenceImagesSchema = z
+  .array(
+    z.object({
+      url: z
+        .string()
+        .trim()
+        .min(1)
+        .max(2_000)
+        .refine(
+          (url) =>
+            /^https?:\/\/[^\s]+$/u.test(url) || /^\/api\/v1\/(?:media|generation\/tasks)\/[^\s]+$/u.test(url),
+          '请选择已上传的图片或有效图片地址',
+        ),
+      name: z.string().max(200).optional(),
+    }),
+  )
+  .max(9)
+  .refine((images) => new Set(images.map((image) => image.url)).size === images.length, '参考图不能重复')
+
 export const shotSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -535,6 +554,7 @@ export const shotSchema = z.object({
   prompt: z.string().max(5_000),
   negativePrompt: z.string().max(2_000).default(''),
   imageUrl: z.string().max(2_000).nullable(),
+  referenceImages: shotReferenceImagesSchema.optional(),
   selectedImageTaskId: z.string().min(1).max(128).nullable().optional(),
   selectedVideoTaskId: z.string().min(1).max(128).nullable().optional(),
   continuityMode: z.enum(['independent', 'continue']).default('continue'),
@@ -555,6 +575,7 @@ const shotInputFields = {
   prompt: z.string().max(5_000),
   negativePrompt: z.string().max(2_000),
   imageUrl: z.string().max(2_000).nullable(),
+  referenceImages: shotReferenceImagesSchema.optional(),
   selectedImageTaskId: z.string().min(1).max(128).nullable(),
   selectedVideoTaskId: z.string().min(1).max(128).nullable(),
   continuityMode: z.enum(['independent', 'continue']),
@@ -573,6 +594,7 @@ export const createShotSchema = z.object({
   prompt: shotInputFields.prompt.default(''),
   negativePrompt: shotInputFields.negativePrompt.default(''),
   imageUrl: shotInputFields.imageUrl.default(null),
+  referenceImages: shotInputFields.referenceImages,
   selectedImageTaskId: shotInputFields.selectedImageTaskId.optional(),
   selectedVideoTaskId: shotInputFields.selectedVideoTaskId.optional(),
   continuityMode: shotInputFields.continuityMode.default('continue'),
@@ -593,6 +615,7 @@ export const updateShotSchema = z
     prompt: shotInputFields.prompt.optional(),
     negativePrompt: shotInputFields.negativePrompt.optional(),
     imageUrl: shotInputFields.imageUrl.optional(),
+    referenceImages: shotInputFields.referenceImages,
     selectedImageTaskId: shotInputFields.selectedImageTaskId.optional(),
     selectedVideoTaskId: shotInputFields.selectedVideoTaskId.optional(),
     continuityMode: shotInputFields.continuityMode.optional(),

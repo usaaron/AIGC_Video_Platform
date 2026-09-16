@@ -2,7 +2,7 @@
   "apps/admin/src/App.jsx": 3006,
   "apps/api/src/app.test.ts": 5226,
   "apps/api/src/core/jobs/taskDispatcher.test.ts": 2720,
-  "apps/api/src/core/jobs/taskRunnerComponents.ts": 1945,
+  "apps/api/src/core/jobs/taskRunnerComponents.ts": 1904,
   "apps/api/src/modules/accountManagement/repository.ts": 1913,
   "apps/api/src/modules/accountManagement/routes.test.ts": 2074,
   "apps/api/src/modules/accountManagement/service.ts": 2000,
@@ -14,5 +14,5 @@
   "apps/api/src/modules/library/repository.ts": 1031,
   "apps/api/src/modules/novels/repository.ts": 3028,
   "apps/api/src/modules/novels/service.ts": 2750,
-  "apps/api/src/modules/projects/repository.ts": 2379
+  "apps/api/src/modules/projects/repository.ts": 2319
 }

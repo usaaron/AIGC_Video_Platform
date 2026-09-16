@@ -1,3 +1,4 @@
+import { orderedVideoReferenceImages } from '@seqora/prompting'
 const KIND_PRIORITY = { scene: 20, character: 16, brand: 10, costume: 8, prop: 8 }
 const COMMON_BIGRAMS = new Set([
   '人物',
@@ -85,15 +86,15 @@ export function taskUsesAssetReferences(task, references) {
 }
 
 export function selectVideoReferenceImages(manualReferenceUrl, references, limit = 9) {
-  return [
-    ...new Set(
-      [
-        manualReferenceUrl,
-        ...references.map((reference) => reference.videoUrl || reference.url),
-        ...references.map((reference) => reference.appearanceUrl),
-      ].filter(Boolean),
-    ),
-  ].slice(0, limit)
+  const manual = Array.isArray(manualReferenceUrl) ? manualReferenceUrl : [manualReferenceUrl].filter(Boolean)
+  return orderedVideoReferenceImages(
+    manual,
+    [
+      ...references.map((reference) => reference.videoUrl || reference.url),
+      ...references.map((reference) => reference.appearanceUrl),
+    ],
+    limit,
+  )
 }
 
 function scoreAsset(asset, shotText, assetById) {

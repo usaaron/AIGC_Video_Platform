@@ -447,3 +447,74 @@ test('模板读取和保存失败均可恢复且不提交分镜', async ({ page 
   expect(saves).toHaveLength(0)
   expect(jobs).toHaveLength(0)
 })
+
+for (const width of [1440, 390]) {
+  test(`多张参考图上传、编号插入、保存重开及视频传参 ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 })
+    const { saves, jobs } = await setup(page)
+    let uploads = 0
+    const imageBytes = Buffer.from(tinyImageDataUrl.split(',')[1], 'base64')
+    await page.route('**/projects/project-1/media', async (route) => {
+      uploads += 1
+      if (uploads === 2) return route.fulfill({ status: 500, json: { error: { message: '测试上传失败' } } })
+      return route.fulfill({
+        json: { id: `uploaded-${uploads}`, kind: 'image', url: `/api/v1/media/uploaded-${uploads}` },
+      })
+    })
+    await page.route('**/api/v1/media/uploaded-*', (route) =>
+      route.fulfill({ contentType: 'image/png', body: imageBytes }),
+    )
+    await page.getByRole('button', { name: '编辑分镜', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '编辑镜头', exact: true })
+    const prompt = dialog.getByRole('textbox', { name: '画面提示词' })
+    const file = (name) => ({ name, mimeType: 'image/png', buffer: imageBytes })
+    const input = dialog.getByLabel('上传参考图（可多选）')
+    await input.setInputFiles([file('人物.png'), file('失败.png'), file('场景.png')])
+    await expect(dialog.getByRole('alert')).toContainText('测试上传失败')
+    await expect(dialog.getByRole('button', { name: '预览图2' })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '预览图3' })).toHaveCount(0)
+    await prompt.fill('角色：')
+    await prompt.press('Control+End')
+    await dialog.getByRole('button', { name: '插入参考图 图1' }).click()
+    await expect(prompt).toHaveValue('角色：【图1】')
+    await prompt.pressSequentially('，场景：')
+    await dialog.getByRole('button', { name: '插入参考图 图2' }).click()
+    await expect(prompt).toHaveValue('角色：【图1】，场景：【图2】')
+    await dialog.getByRole('button', { name: '移除图1', exact: true }).click()
+    await expect(dialog.getByRole('alert').filter({ hasText: '请先移除提示词' })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '预览图2' })).toHaveCount(1)
+    await dialog.getByRole('button', { name: '预览图1' }).click()
+    await expect(dialog.getByRole('img', { name: '镜头参考', exact: true })).toHaveAttribute(
+      'src',
+      '/api/v1/media/uploaded-1',
+    )
+    await page.screenshot({ path: testInfo.outputPath(`multiple-references-${width}.png`) })
+    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+    await dialog.getByRole('button', { name: '保存分镜', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(jobs).toHaveLength(0)
+    expect(saves[0].referenceImages.map((image) => image.url)).toEqual([
+      '/api/v1/media/uploaded-1',
+      '/api/v1/media/uploaded-3',
+    ])
+    await page.getByRole('button', { name: '编辑分镜', exact: true }).click()
+    await expect(prompt).toHaveValue('角色：【图1】，场景：【图2】')
+    await expect(dialog.getByRole('button', { name: '预览图2' })).toBeVisible()
+    // Reject overflow before uploading any files; keep the existing successful uploads.
+    await input.setInputFiles(Array.from({ length: 8 }, (_, i) => file(`超量${i}.png`)))
+    await expect(dialog.getByRole('alert')).toContainText('最多 9 张')
+    expect(uploads).toBe(3)
+    await prompt.fill('场景：【图2】')
+    await dialog.getByRole('button', { name: '移除图1', exact: true }).click()
+    await expect(prompt).toHaveValue('场景：【图1】')
+    await expect(dialog.getByRole('button', { name: '预览图2' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: '保存并生成新版' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].metadata.images[0]).toBe('/api/v1/media/uploaded-3')
+    expect(jobs[0].metadata.manualReferenceImages).toEqual([
+      { url: '/api/v1/media/uploaded-3', name: '场景.png' },
+    ])
+    expect(jobs[0].prompt).toContain('场景：【图1】')
+  })
+}

@@ -1,10 +1,10 @@
+import { ShotReferenceGallery } from './ShotReferenceGallery'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, FolderOpen, ImagePlus, LoaderCircle, RotateCcw, Upload, Video, X } from 'lucide-react'
+import { LoaderCircle, RotateCcw, Upload, Video, X } from 'lucide-react'
 import { IconButton } from '../../components/ui'
 import { AssetAwareTextarea } from '../assets/AssetShortcutBar'
-import { getAssetPreviewUrl } from '../assets/assetPreview'
-import { normalizedVideoDuration } from '@seqora/prompting'
+import { normalizedVideoDuration, shotReferenceImages, validateShotReferences } from '@seqora/prompting'
 import { insertPromptAtCursor } from '../assets/promptInsertion'
 import { adjustPromptHighlights, mergePromptHighlights } from '../assets/promptHighlights'
 import { ShotAssetShortcuts } from './ShotAssetShortcuts'
@@ -34,14 +34,12 @@ export function ShotEditor({
   const promptArea = useRef(null)
   const negativePrompt = shot.negativePrompt || ''
   const continuityNote = shot.continuityNote || ''
-  const [imageUrl, setImageUrl] = useState(shot.imageUrl || '')
+  const [referenceImages, setReferenceImages] = useState(() => shotReferenceImages(shot))
   const [scriptEpisodeId, setScriptEpisodeId] = useState(shot.scriptEpisodeId || null)
   const [episodeNumber, setEpisodeNumber] = useState(shot.episodeNumber || 1)
   const [episodeTitle, setEpisodeTitle] = useState(shot.episodeTitle || `第 ${shot.episodeNumber || 1} 集`)
   const [episodeKind, setEpisodeKind] = useState(shot.episodeKind || 'standard')
   const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
-  const [assetPickerOpen, setAssetPickerOpen] = useState(false)
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const saveLock = useRef(false)
@@ -83,6 +81,7 @@ export function ShotEditor({
     setSaving(generate ? 'generate' : 'save')
     setError('')
     try {
+      validateShotReferences(prompt, referenceImages.length)
       await onSave(
         {
           title,
@@ -91,7 +90,11 @@ export function ShotEditor({
           prompt,
           negativePrompt,
           continuityNote,
-          imageUrl: imageUrl || null,
+          imageUrl:
+            shot.selectedImageTaskId || shot.imageUrl?.startsWith('/api/v1/generation/tasks/')
+              ? shot.imageUrl
+              : referenceImages[0]?.url || null,
+          referenceImages,
           scriptEpisodeId,
           episodeBreakBefore: Boolean(shot.episodeBreakBefore),
           episodeNumber: Number(episodeNumber),
@@ -115,10 +118,6 @@ export function ShotEditor({
       setSaving('')
     }
   }
-  const referenceAssets = assets
-    .map((asset) => ({ asset, url: getAssetPreviewUrl(asset, tasks) }))
-    .filter((item) => Boolean(item.url))
-
   const insertionLabel =
     insertionIndex === 0
       ? '最前面'
@@ -140,20 +139,25 @@ export function ShotEditor({
     }
   }
 
-  const uploadReference = async (event) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    setUploading(true)
-    setUploadError('')
-    try {
-      const media = await onUpload(file)
-      setImageUrl(media.url)
-    } catch (error) {
-      setUploadError(error.message)
-    } finally {
-      setUploading(false)
+  const addReferenceImages = (incoming) => {
+    const next = [...referenceImages]
+    for (const image of incoming) if (!next.some((item) => item.url === image.url)) next.push(image)
+    if (next.length > 9) throw new Error('每个镜头最多使用 9 张参考图。')
+    setReferenceImages(next)
+    setError('')
+  }
+  const removeReferenceImage = (index) => {
+    if ([...prompt.matchAll(/【图(\d+)】/gu)].some((match) => Number(match[1]) === index + 1)) {
+      setError(`请先移除提示词中的【图${index + 1}】引用，再删除这张图片。`)
+      return
     }
+    changePrompt(
+      prompt.replace(/【图(\d+)】/gu, (token, number) =>
+        Number(number) > index + 1 ? `【图${Number(number) - 1}】` : token,
+      ),
+    )
+    setReferenceImages((images) => images.filter((_, position) => position !== index))
+    setError('')
   }
 
   return createPortal(
@@ -206,83 +210,16 @@ export function ShotEditor({
         </div>
         <div className="shot-editor-workspace">
           <section className="shot-editor-reference-panel">
-            <div className={`shot-editor-reference-stage ${imageUrl ? 'has-image' : ''}`}>
-              {imageUrl ? (
-                <img src={imageUrl} alt="镜头参考" />
-              ) : (
-                <div className="shot-editor-reference-empty">
-                  <ImagePlus size={30} />
-                  <strong>暂无参考图</strong>
-                </div>
-              )}
-              {imageUrl && (
-                <IconButton label="移除参考图" type="button" disabled={busy} onClick={() => setImageUrl('')}>
-                  <X size={16} />
-                </IconButton>
-              )}
-            </div>
-            <div className="shot-reference-source-actions">
-              <label className="button secondary">
-                {uploading ? <LoaderCircle size={15} className="spin" /> : <Upload size={15} />}
-                {uploading ? '上传中' : '本地上传'}
-                <input
-                  className="hidden-input"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  disabled={busy}
-                  onChange={(event) => void uploadReference(event)}
-                />
-              </label>
-              <button
-                className={`button secondary ${assetPickerOpen ? 'active' : ''}`}
-                type="button"
-                disabled={busy}
-                aria-expanded={assetPickerOpen}
-                onClick={() => setAssetPickerOpen((current) => !current)}
-              >
-                <FolderOpen size={15} /> 选择项目参考图
-              </button>
-            </div>
-            {uploadError && (
-              <p className="operation-error" role="alert">
-                {uploadError}
-              </p>
-            )}
-            {assetPickerOpen && (
-              <div className="shot-asset-picker">
-                <div className="shot-asset-picker-head">
-                  <strong>项目参考图</strong>
-                  <span>{referenceAssets.length} 张可用</span>
-                </div>
-                {referenceAssets.length ? (
-                  <div className="shot-asset-picker-grid">
-                    {referenceAssets.map(({ asset, url }) => (
-                      <button
-                        className={imageUrl === url ? 'selected' : ''}
-                        type="button"
-                        disabled={busy}
-                        key={asset.id}
-                        aria-label={`使用资产 ${asset.name}`}
-                        aria-pressed={imageUrl === url}
-                        onClick={() => {
-                          setImageUrl(url)
-                          setAssetPickerOpen(false)
-                        }}
-                      >
-                        <img src={url} alt="" />
-                        <span>{asset.name}</span>
-                        {imageUrl === url && <Check size={14} />}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="shot-asset-picker-empty">
-                    <ImagePlus size={20} />
-                    <span>项目暂无可用图片</span>
-                  </div>
-                )}
-              </div>
-            )}
+            <ShotReferenceGallery
+              images={referenceImages}
+              assets={assets}
+              tasks={tasks}
+              disabled={busy}
+              onUpload={onUpload}
+              onUploading={setUploading}
+              onAdd={addReferenceImages}
+              onRemove={removeReferenceImage}
+            />
             <fieldset className="shot-reference-video" disabled aria-label="参考视频（开发中）">
               <legend>
                 参考视频 <span>开发中</span>
@@ -302,6 +239,7 @@ export function ShotEditor({
           </section>
           <section className="shot-editor-prompt-panel">
             <ShotAssetShortcuts
+              referenceImages={referenceImages}
               shot={shot}
               assets={assets}
               tasks={tasks}
@@ -359,8 +297,8 @@ export function ShotEditor({
               <ShotLibraryAssets
                 projectId={projectId}
                 disabled={busy}
-                imageUrl={imageUrl}
-                onImage={setImageUrl}
+                referenceCount={referenceImages.length}
+                onImage={(image) => addReferenceImages([image])}
                 onInsert={insertPrompt}
               />
             </ShotPromptTemplates>

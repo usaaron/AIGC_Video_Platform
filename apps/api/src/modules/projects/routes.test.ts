@@ -107,10 +107,15 @@ describe('project postgres api', { timeout: 30_000 }, () => {
         framing: 'Wide',
         duration: 5,
         prompt: 'Wide shot of the studio door opening at sunrise',
+        referenceImages: [{ url: '/api/v1/media/a' }, { url: '/api/v1/media/b' }],
       },
     })
     expect(createdShot.statusCode).toBe(201)
     expect(createdShot.json()).toMatchObject({ id: expect.any(String), projectId, order: 1 })
+    expect(createdShot.json().referenceImages).toEqual([
+      { url: '/api/v1/media/a' },
+      { url: '/api/v1/media/b' },
+    ])
     const shotId = createdShot.json().id as string
 
     const updatedShot = await app.inject({
@@ -118,6 +123,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       url: `/api/v1/projects/${projectId}/shots/${shotId}`,
       headers: { cookie: memberCookie },
       payload: {
+        referenceImages: [{ url: '/api/v1/media/b' }, { url: '/api/v1/media/a' }],
         title: 'Updated opening shot',
         duration: 6,
         continuityNote: 'Keep the door half-open between cuts.',
@@ -170,6 +176,23 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       }),
     ])
 
+    expect(afterDelete.json().shots[0].referenceImages).toEqual([
+      { url: '/api/v1/media/b' },
+      { url: '/api/v1/media/a' },
+    ])
+    const clearReferences = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/projects/${projectId}/shots/${shotId}`,
+      headers: { cookie: memberCookie },
+      payload: { referenceImages: [] },
+    })
+    expect(clearReferences.statusCode).toBe(200)
+    const reloaded = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/${projectId}`,
+      headers: { cookie: memberCookie },
+    })
+    expect(reloaded.json().shots[0].referenceImages).toEqual([])
     await withDatabase(async (database) => {
       const persisted = await database.query<{
         script: string

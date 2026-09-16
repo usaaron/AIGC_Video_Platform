@@ -347,7 +347,7 @@ export class GenerationTaskRepository {
           `
           SELECT
             id, project_id, tenant_id, shot_order, title, framing, duration_seconds,
-            prompt, negative_prompt, image_url, selected_image_task_id, selected_video_task_id,
+            prompt, negative_prompt, image_url, reference_images, selected_image_task_id, selected_video_task_id,
             continuity_mode, continuity_note,
             episode_break_before, episode_number, episode_title, episode_kind,
             created_at, updated_at
@@ -949,7 +949,7 @@ export class GenerationTaskRepository {
           duration_seconds,
           prompt,
           negative_prompt,
-          image_url,
+          image_url, reference_images,
           selected_image_task_id,
           selected_video_task_id,
           continuity_mode,

@@ -1,4 +1,6 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v15'
+import { mapShotReferenceTokens } from './shotReferences.js'
+
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v16'
 
 export type PromptProject = {
   aspectRatio: string
@@ -41,10 +43,15 @@ export function compileStoryboardVideoPrompt(input: {
   assets?: PromptAsset[]
   references?: PromptReference[]
   continuityMode?: 'independent' | 'continue'
+  manualReferenceCount?: number
 }): string {
   const { project, shot, assets = [], references = [], continuityMode = 'independent' } = input
   const duration = normalizedVideoDuration(shot.duration, project.contentType === 'short-drama' ? 3 : 4)
-  const sourcePrompt = String(shot.prompt || '')
+  const originalPrompt = String(shot.prompt || '')
+  const sourcePrompt =
+    input.manualReferenceCount === undefined
+      ? originalPrompt
+      : mapShotReferenceTokens(originalPrompt, input.manualReferenceCount, continuityMode === 'continue')
   const prompt =
     project.contentType === 'advertisement' ? removeScreenTextInstructions(sourcePrompt) : sourcePrompt
   const referenceAssets = references
@@ -52,7 +59,9 @@ export function compileStoryboardVideoPrompt(input: {
     .filter((asset): asset is PromptAsset => Boolean(asset))
   const explicitTimeline = hasExplicitTimeline(prompt)
   const focusedPrompt = explicitTimeline ? '' : focusedShotPrompt(prompt)
-  const authoritativePrompt = (explicitTimeline ? prompt : focusedPrompt || prompt).trim()
+  const authoritativePrompt = (
+    explicitTimeline || /【图\d+】/u.test(prompt) ? prompt : focusedPrompt || prompt
+  ).trim()
   const actionSequence = actionSequenceFor(prompt)
   const shotFields = promptFields(prompt)
   const identityRules = referenceAssets
@@ -75,6 +84,9 @@ export function compileStoryboardVideoPrompt(input: {
   return [
     `生成一段连续${duration}秒、${project.aspectRatio}画幅的${visualStyleLabel(project.visualStyle)}电影叙事视频。`,
     `【当前镜头】${shot.title || '未命名镜头'}，${shot.framing || '中景'}。`,
+    input.manualReferenceCount
+      ? `【参考图编号】图N指输入图片列表中的第N张图片，严格按编号读取对应图片。${continuityMode === 'continue' ? '图1为上一镜尾帧；' : ''}用户选择的参考图为图${continuityMode === 'continue' ? 2 : 1}至图${input.manualReferenceCount + (continuityMode === 'continue' ? 1 : 0)}，按当前分镜对各图片的描述使用。`
+      : '',
     authoritativePrompt
       ? explicitTimeline
         ? `【导演时间轴（最高优先级）】\n${authoritativePrompt}`

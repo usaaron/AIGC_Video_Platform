@@ -62,6 +62,7 @@ export type GenerationShotRow = QueryResultRow & {
   prompt: string
   negative_prompt: string
   image_url: string | null
+  reference_images?: Shot['referenceImages'] | null
   selected_image_task_id: string | null
   selected_video_task_id: string | null
   continuity_mode: Shot['continuityMode']
@@ -201,6 +202,7 @@ export function shotFromRow(row: GenerationShotRow): Shot {
     prompt: row.prompt,
     negativePrompt: row.negative_prompt,
     imageUrl: row.image_url,
+    ...(row.reference_images != null ? { referenceImages: row.reference_images } : {}),
     selectedImageTaskId: row.selected_image_task_id,
     continuityMode: row.continuity_mode,
     continuityNote: row.continuity_note,

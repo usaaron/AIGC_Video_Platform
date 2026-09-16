@@ -52,6 +52,7 @@ export type ShotRow = QueryResultRow & {
   prompt: string
   negative_prompt: string
   image_url: string | null
+  reference_images?: Shot['referenceImages'] | null
   selected_image_task_id: string | null
   selected_video_task_id: string | null
   continuity_mode: Shot['continuityMode']
@@ -177,6 +178,7 @@ export const shotColumns = `
   prompt,
   negative_prompt,
   image_url,
+  reference_images,
   selected_image_task_id,
   selected_video_task_id,
   continuity_mode,
@@ -280,6 +282,7 @@ export function shotFromRow(row: ShotRow): Shot {
     prompt: row.prompt,
     negativePrompt: row.negative_prompt,
     imageUrl: row.image_url,
+    ...(row.reference_images != null ? { referenceImages: row.reference_images } : {}),
     selectedImageTaskId: row.selected_image_task_id,
     selectedVideoTaskId: row.selected_video_task_id,
     continuityMode: row.continuity_mode,

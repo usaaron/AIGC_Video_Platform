@@ -1,3 +1,4 @@
+import { storyboardReferences } from './storyboardReferences.js'
 import type {
   CreateGenerationTask,
   GenerationTask,
@@ -5,7 +6,7 @@ import type {
   Principal,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
-import { generateScriptRequestSchema, characterAppearance, characterVariantName } from '@seqora/contracts'
+import { generateScriptRequestSchema } from '@seqora/contracts'
 import { Readable } from 'node:stream'
 import { compileStoryboardVideoPrompt, VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
@@ -182,26 +183,28 @@ export class GenerationService {
       this.videoProviderName,
     )
     const continuityMode = input.metadata.continuityMode === 'continue' ? 'continue' : 'independent'
+    const { images, manualReferenceImages, references } = storyboardReferences(
+      context.shot,
+      context.assets,
+      referenceAssetIds,
+      continuityMode === 'continue',
+    )
+    const hasContinuitySource =
+      typeof input.metadata.continuitySourceTaskId === 'string' &&
+      Boolean(input.metadata.continuitySourceTaskId)
+    if ((continuityMode === 'continue') !== hasContinuitySource)
+      throw new AppError(
+        400,
+        'INVALID_SHOT_CONTINUITY',
+        '镜头衔接方式与尾帧来源不一致，请刷新分镜后重新提交。',
+      )
     const compiledPrompt = compileStoryboardVideoPrompt({
       project: { ...context.project, visualStyle: context.project.visualStyle ?? 'cinematic-cg' },
       shot: context.shot,
       shots: context.shots,
       assets: context.assets,
-      references: referenceAssetIds.map((id) => {
-        const asset = context.assets.find((item) => item.id === id)
-        const variant = asset && characterAppearance(asset, `${context.shot.title}\n${context.shot.prompt}`)
-        return {
-          id,
-          ...(variant && asset
-            ? {
-                appearance: {
-                  name: characterVariantName(asset.name, variant.name),
-                  description: variant.description || '',
-                },
-              }
-            : {}),
-        }
-      }),
+      references,
+      manualReferenceCount: manualReferenceImages.length,
       continuityMode,
     })
     const sourceShotSnapshot = {
@@ -212,6 +215,7 @@ export class GenerationService {
       duration: context.shot.duration,
       prompt: context.shot.prompt,
       negativePrompt: context.shot.negativePrompt,
+      referenceImages: manualReferenceImages,
       continuityMode: context.shot.continuityMode,
       continuityNote: context.shot.continuityNote,
       episodeNumber: context.shot.episodeNumber,
@@ -225,6 +229,9 @@ export class GenerationService {
       metadata: {
         ...input.metadata,
         sourceShotSnapshot,
+        images,
+        manualReferenceImages,
+        manualReferenceUrl: manualReferenceImages[0]?.url ?? null,
         sourcePromptSnapshot: context.shot.prompt,
         sourcePromptHash: promptHash(context.shot.prompt),
         sourceShotUpdatedAt: context.shot.updatedAt,

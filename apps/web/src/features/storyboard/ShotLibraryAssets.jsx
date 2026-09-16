@@ -13,7 +13,7 @@ const categories = [
   ['script', '剧本'],
 ]
 
-export function ShotLibraryAssets({ projectId, disabled, imageUrl, onImage, onInsert }) {
+export function ShotLibraryAssets({ projectId, disabled, referenceCount = 0, onImage, onInsert }) {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState('image')
   const [query, setQuery] = useState('')
@@ -48,6 +48,7 @@ export function ShotLibraryAssets({ projectId, disabled, imageUrl, onImage, onIn
         setScript({ title: item.title, content })
         setSelection('')
       } else {
+        if (referenceCount >= 9) throw new Error('每个镜头最多使用 9 张参考图，请先移除多余图片。')
         const result = await api.importLibraryItem(projectId, { itemId: item.id, target: 'media' })
         if (
           result.imported?.type !== 'media' ||
@@ -55,7 +56,7 @@ export function ShotLibraryAssets({ projectId, disabled, imageUrl, onImage, onIn
           !result.imported.media.url
         )
           throw new Error('该资产没有可用图片，请选择其他资产。')
-        onImage(result.imported.media.url)
+        onImage({ url: result.imported.media.url, name: result.item.title.slice(0, 200) })
         setNotice(`已使用「${result.item.title}」作为参考图，保存分镜后生效`)
         setOpen(false)
       }
@@ -171,7 +172,7 @@ export function ShotLibraryAssets({ projectId, disabled, imageUrl, onImage, onIn
               <>
                 <p>
                   图片会导入当前项目作为本镜参考图；剧本可选取段落写入提示词。
-                  {imageUrl ? '使用新图片会替换当前参考图。' : ''}
+                  新图片会追加到参考图列表，按图1、图2依次编号。
                 </p>
                 <div className="shot-library-categories" role="group" aria-label="可用资产分类">
                   {categories.map(([value, label]) => (

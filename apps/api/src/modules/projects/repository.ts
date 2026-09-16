@@ -1,4 +1,9 @@
-import { assetInsertParams, shotInsertParams } from './workspaceSqlParams.js'
+import {
+  assetInsertParams,
+  shotInsertParams,
+  shotInsertColumns,
+  shotInsertValues,
+} from './workspaceSqlParams.js'
 import {
   summarizeEpisodeContent,
   draftContinuityState,
@@ -1254,28 +1259,7 @@ export class ProjectRepository {
       }
       const inserted = await client.query<ShotRow>(
         `
-        INSERT INTO shots (
-          id,
-          project_id,
-          tenant_id,
-          script_episode_id,
-          shot_order,
-          title,
-          framing,
-          duration_seconds,
-          prompt,
-          negative_prompt,
-          image_url,
-          continuity_mode,
-          continuity_note,
-          episode_break_before,
-          episode_number,
-          episode_title,
-          episode_kind,
-          created_at,
-          updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        INSERT INTO shots (${shotInsertColumns}) VALUES (${shotInsertValues})
         RETURNING ${shotColumns}
         `,
         shotInsertParams(shot),
@@ -1329,6 +1313,7 @@ export class ProjectRepository {
         prompt: input.prompt ?? current.prompt,
         negativePrompt: input.negativePrompt ?? current.negativePrompt,
         imageUrl: input.imageUrl === undefined ? current.imageUrl : input.imageUrl,
+        referenceImages: input.referenceImages ?? current.referenceImages,
         selectedImageTaskId:
           input.selectedImageTaskId === undefined ? current.selectedImageTaskId : input.selectedImageTaskId,
         selectedVideoTaskId:
@@ -1361,7 +1346,8 @@ export class ProjectRepository {
            episode_number = $17,
            episode_title = $18,
            episode_kind = $19,
-           updated_at = $20
+           updated_at = $20,
+           reference_images = $21
         WHERE id = $1 AND project_id = $2 AND tenant_id = $3
         RETURNING ${shotColumns}
         `,
@@ -1386,6 +1372,7 @@ export class ProjectRepository {
           updated.episodeTitle,
           updated.episodeKind,
           updated.updatedAt,
+          updated.referenceImages === undefined ? null : JSON.stringify(updated.referenceImages),
         ],
       )
       await touchProject(client, projectId, principal.tenantId, updated.updatedAt)
@@ -1489,28 +1476,7 @@ export class ProjectRepository {
         }
         const inserted = await client.query<ShotRow>(
           `
-          INSERT INTO shots (
-            id,
-            project_id,
-            tenant_id,
-            script_episode_id,
-            shot_order,
-            title,
-            framing,
-            duration_seconds,
-            prompt,
-            negative_prompt,
-            image_url,
-           continuity_mode,
-           continuity_note,
-           episode_break_before,
-           episode_number,
-           episode_title,
-           episode_kind,
-           created_at,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+          INSERT INTO shots (${shotInsertColumns}) VALUES (${shotInsertValues})
           RETURNING ${shotColumns}
           `,
           shotInsertParams(shot),
@@ -1599,12 +1565,7 @@ export class ProjectRepository {
           updatedAt: now,
         }
         await client.query(
-          `INSERT INTO shots (
-             id, project_id, tenant_id, script_episode_id, shot_order, title, framing,
-             duration_seconds, prompt, negative_prompt, image_url, continuity_mode,
-             continuity_note, episode_break_before, episode_number, episode_title,
-             episode_kind, created_at, updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+          `INSERT INTO shots (${shotInsertColumns}) VALUES (${shotInsertValues})`,
           shotInsertParams(shot),
         )
       }
@@ -2327,28 +2288,7 @@ async function insertScriptEpisodeFromStore(client: PoolClient, episode: ScriptE
 async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<boolean> {
   const result = await client.query(
     `
-    INSERT INTO shots (
-      id,
-      project_id,
-      tenant_id,
-      script_episode_id,
-      shot_order,
-      title,
-      framing,
-      duration_seconds,
-      prompt,
-      negative_prompt,
-      image_url,
-      continuity_mode,
-      continuity_note,
-      episode_break_before,
-      episode_number,
-      episode_title,
-      episode_kind,
-      created_at,
-      updated_at
-    )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    INSERT INTO shots (${shotInsertColumns}) SELECT ${shotInsertValues}
     WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
     ON CONFLICT (id) DO NOTHING
     RETURNING id

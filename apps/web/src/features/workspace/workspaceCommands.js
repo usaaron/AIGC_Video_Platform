@@ -1,3 +1,4 @@
+import { shotReferenceImages, validateShotReferences } from '@seqora/prompting'
 import { ASSET_SUGGESTION_MODEL, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import {
   compileStoryboardVideoPrompt,
@@ -360,6 +361,8 @@ export function createWorkspaceCommands({
         ? adjacentPreviousShot
         : null
     const actualContinuityMode = continuityMode === 'continue' && previousShot ? 'continue' : 'independent'
+    const manualReferenceImages = shotReferenceImages(shot)
+    validateShotReferences(shot.prompt, manualReferenceImages.length, actualContinuityMode === 'continue')
     let sourceTask = actualContinuityMode === 'continue' ? continuitySourceTask : null
     if (actualContinuityMode === 'continue' && previousShot && !sourceTask) {
       sourceTask = latestVideoTaskFor(tasks, previousShot, true)
@@ -381,12 +384,11 @@ export function createWorkspaceCommands({
       setToast('上一镜头虽已完成，但尾帧提取失败；请重新生成上一镜头后再继续')
       return null
     }
-    const manualReferenceUrl =
-      shot.imageUrl && !shot.imageUrl.startsWith('/api/v1/generation/tasks/') ? shot.imageUrl : null
+    const manualReferenceUrl = manualReferenceImages[0]?.url || null
     const images = selectVideoReferenceImages(
-      manualReferenceUrl,
+      manualReferenceImages.map((image) => image.url),
       references,
-      actualContinuityMode === 'continue' ? 4 : 9,
+      actualContinuityMode === 'continue' ? 8 : 9,
     )
     const selectedResolution = VIDEO_RESOLUTIONS.has(resolution) ? resolution : '720p'
     const videoPrompt = compileStoryboardVideoPrompt({
@@ -396,6 +398,7 @@ export function createWorkspaceCommands({
       assets: workspace.assets,
       references,
       continuityMode: actualContinuityMode,
+      manualReferenceCount: manualReferenceImages.length,
     })
     const dependencyIds = [sourceTask && sourceTask.status !== 'completed' ? sourceTask.id : null].filter(
       Boolean,
@@ -417,6 +420,7 @@ export function createWorkspaceCommands({
         ...(sourceTask ? { continuitySourceTaskId: sourceTask.id } : {}),
         ...(manualReferenceUrl ? { manualReferenceUrl } : {}),
         images,
+        manualReferenceImages,
         videoInputMode: sourceTask
           ? 'continuity-and-assets'
           : manualReferenceUrl
@@ -457,6 +461,13 @@ export function createWorkspaceCommands({
           generationConcurrency,
         )
       : planVideoBatch(shotsToGenerate, mode, generationConcurrency)
+    for (const lane of plan.lanes)
+      for (const shot of lane)
+        validateShotReferences(
+          shot.prompt,
+          shotReferenceImages(shot).length,
+          shot.continuityMode === 'continue',
+        )
     if (plan.continuityUpdates.length) {
       await Promise.all(
         plan.continuityUpdates.map((update) =>
@@ -497,6 +508,7 @@ export function createWorkspaceCommands({
                     continuityMode: shot.continuityMode,
                     previousTaskId: previousVideoTask?.id ?? null,
                     sourcePromptSnapshot: shot.prompt,
+                    manualReferenceImages: shotReferenceImages(shot),
                   }) &&
                   (!mustProvideLastFrame || hasLastFrame(task)),
               )

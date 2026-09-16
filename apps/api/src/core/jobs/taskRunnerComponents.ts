@@ -1,3 +1,4 @@
+import { resolveVideoImages } from './taskVideoReferences.js'
 import type { GenerationTask } from '@seqora/contracts'
 import {
   compileQualityRules,
@@ -39,7 +40,7 @@ import {
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import { DependencyResolver } from './taskDependencyResolver.js'
 import { compileImageTaskPrompt } from './imageTaskPrompt.js'
-import { resolveStoredImageReference, videoImageUrl, type VideoSourceUrl } from './taskImageReferences.js'
+import { resolveStoredImageReference, type VideoSourceUrl } from './taskImageReferences.js'
 import {
   GenerationResultWriteback,
   generatedDescriptors,
@@ -768,7 +769,10 @@ export class VideoTaskExecutor {
     if (!leaseToken || !this.options.videoProvider) return
     try {
       const preparedTask = await this.prepareStoryboardVideoTask(task)
-      const request = videoRequestFor(preparedTask, await this.resolveVideoImages(preparedTask))
+      const request = videoRequestFor(
+        preparedTask,
+        await resolveVideoImages(preparedTask, this.store, this.options),
+      )
       const submission = await observeProviderCall(
         {
           provider: stringValue(preparedTask.metadata.providerName, 'seedance'),
@@ -849,6 +853,9 @@ export class VideoTaskExecutor {
         : compileStoryboardVideoPrompt({
             project: { ...project, visualStyle: project.visualStyle ?? 'cinematic-cg' },
             shot: { ...shot, prompt: sourcePromptSnapshot },
+            ...(Array.isArray(stored.metadata.manualReferenceImages)
+              ? { manualReferenceCount: stored.metadata.manualReferenceImages.length }
+              : {}),
             shots,
             assets,
             references: referenceAssetIds.map((id) => ({ id })),
@@ -881,7 +888,10 @@ export class VideoTaskExecutor {
         ...(Array.isArray(stored.metadata.images)
           ? {
               images: stored.metadata.images.map((value) =>
-                typeof value === 'string' ? (trustedAliases.get(value) ?? value) : value,
+                typeof value === 'string' &&
+                (!Array.isArray(stored.metadata.manualReferenceImages) || value.startsWith('asset://'))
+                  ? (trustedAliases.get(value) ?? value)
+                  : value,
               ),
             }
           : {}),
@@ -902,57 +912,6 @@ export class VideoTaskExecutor {
       stored.updatedAt = now.toISOString()
       return stored
     })
-  }
-
-  private async resolveVideoImages(task: GenerationTask): Promise<VideoGenerationRequest['images']> {
-    const images: VideoGenerationRequest['images'] = []
-    const continuitySourceTaskId = stringValue(task.metadata.continuitySourceTaskId, '')
-    const legacyStoryboardImageUrl = stringValue(task.metadata.storyboardImageUrl, '')
-    if (continuitySourceTaskId) {
-      if (!this.options.objectStorage) throw new Error('连续镜头需要对象存储读取上一镜头尾帧')
-      const sourceTask = this.store.read(
-        (state) =>
-          state.tasks.find(
-            (item) =>
-              item.id === continuitySourceTaskId &&
-              item.projectId === task.projectId &&
-              item.tenantId === task.tenantId &&
-              item.status === 'completed',
-          ) ?? null,
-      )
-      const lastFrame = generatedDescriptors(sourceTask ?? undefined).find(
-        (item) => item.view === 'last-frame',
-      )
-      if (!lastFrame) throw new Error('上一镜头没有可用尾帧，请重新生成上一镜头后再继续')
-      const url = await videoImageUrl(this.options.objectStorage, lastFrame, this.options.videoSourceUrl)
-      images.push({ url, role: 'first_frame' })
-    }
-
-    if (!Array.isArray(task.metadata.images)) return images
-    for (const value of task.metadata.images.slice(0, Math.max(0, 9 - images.length))) {
-      if (typeof value !== 'string') continue
-      // Static storyboard frames are a legacy pre-video path. New videos rely on
-      // asset references and the preceding real video tail frame instead.
-      if (legacyStoryboardImageUrl && value === legacyStoryboardImageUrl) continue
-      if (/^asset:\/\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
-        images.push({ url: value, role: 'reference_image' })
-        continue
-      }
-      if (/^https?:\/\//.test(value)) {
-        images.push({ url: value, role: 'reference_image' })
-        continue
-      }
-      const stored = await resolveStoredImageReference(this.store, this.options.mediaRepository, task, value)
-      if (!this.options.objectStorage || !stored) {
-        if (task.metadata.providerName === 'dora-router-seedance') {
-          throw new Error('视频参考原图不存在或无权读取，请重新上传并确认人物面部')
-        }
-        continue
-      }
-      const url = await videoImageUrl(this.options.objectStorage, stored, this.options.videoSourceUrl)
-      images.push({ url, role: 'reference_image' })
-    }
-    return images
   }
 }
 
