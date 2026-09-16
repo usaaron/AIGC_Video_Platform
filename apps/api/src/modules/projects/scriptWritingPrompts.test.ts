@@ -23,6 +23,8 @@ describe('script prompt character provenance', () => {
         expect(system).toContain('续写沿用已有角色')
         expect(system).toContain('绝不能把示例姓名、职业、服装或情节当作故事事实')
         expect(system).toContain('有明确换装才增加')
+        expect(system).toContain('人物名-具体版本')
+        expect(system).toContain('相同造型不要改名重建')
       }
     })
 

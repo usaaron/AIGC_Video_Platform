@@ -8960,6 +8960,11 @@
 .character-workflow {
   margin-bottom: 18px;
 }
+.character-workflow > .muted {
+  margin: 8px 0 14px;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .character-stage-nav {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

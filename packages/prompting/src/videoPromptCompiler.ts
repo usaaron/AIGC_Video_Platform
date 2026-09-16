@@ -1,4 +1,4 @@
-export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v14'
+export const VIDEO_PROMPT_VERSION = 'seedance-storyboard-v15'
 
 export type PromptProject = {
   aspectRatio: string
@@ -25,7 +25,7 @@ export type PromptAsset = {
   attributes?: unknown
 }
 
-export type PromptReference = { id: string }
+export type PromptReference = { id: string; appearance?: { name: string; description: string } }
 
 const ASSET_KIND_LABELS: Record<string, string> = {
   character: '人物',
@@ -55,7 +55,11 @@ export function compileStoryboardVideoPrompt(input: {
   const authoritativePrompt = (explicitTimeline ? prompt : focusedPrompt || prompt).trim()
   const actionSequence = actionSequenceFor(prompt)
   const shotFields = promptFields(prompt)
-  const identityRules = referenceAssets.map((asset) => identityRuleFor(asset, referenceAssets)).join('；')
+  const identityRules = referenceAssets
+    .map((asset) =>
+      identityRuleFor(asset, referenceAssets, references.find((item) => item.id === asset.id)?.appearance),
+    )
+    .join('；')
   const actorPerformance = actorPerformanceFor(shotFields.角色, actionSequence, shotFields.对白)
   const soundPlan = soundPlanFor(shotFields.对白, prompt, referenceAssets)
   const shotAction = shotFields.动作 || shotFields.镜头内容
@@ -150,7 +154,11 @@ export function normalizedVideoDuration(value: unknown, minimum = 4): number {
   return Number.isFinite(parsed) ? Math.min(15, Math.max(min, Math.round(parsed))) : Math.max(5, min)
 }
 
-function identityRuleFor(asset: PromptAsset, referenceAssets: PromptAsset[]): string {
+function identityRuleFor(
+  asset: PromptAsset,
+  referenceAssets: PromptAsset[],
+  appearance?: PromptReference['appearance'],
+): string {
   const label = ASSET_KIND_LABELS[asset.kind] || '资产'
   const detail = [
     asset.description,
@@ -160,6 +168,8 @@ function identityRuleFor(asset: PromptAsset, referenceAssets: PromptAsset[]): st
     .filter(Boolean)
     .join('，')
   if (asset.kind === 'character') {
+    if (appearance)
+      return `${label}“${asset.name}”共用同一面部基准，五官、年龄和体型一致${detail ? `（${detail}）` : ''}。本镜头使用“${appearance.name}”：${appearance.description || '按该版本参考图'}；服装仅采用此版本，优先于人物基础描述中的旧服饰，不混用其他版本。`
     const linkedCostume = referenceAssets.find(
       (reference) =>
         reference.kind === 'costume' && costumeCharacterAssetId(reference.attributes) === asset.id,

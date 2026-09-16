@@ -8,10 +8,26 @@ import {
 import { AppStore } from '../../infra/store.js'
 import { ProjectRepository } from './repository.js'
 import { ProjectService } from './service.js'
+import { extractScriptAssetManifest } from './assetSuggestionExtraction.js'
+import { assetSummary } from './projectPresentation.js'
 
 const principal: Principal = { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] }
 
 describe('series asset suggestions', () => {
+  it('keeps different version facts on the same base name and deduplicates legacy labels across episodes', () => {
+    const script = [
+      '人物：顾砚｜基础人物：顾砚｜版本：工装版｜服装：蓝色棉布工装',
+      '人物：顾砚｜基础人物：顾砚｜版本：礼服版本｜服装：黑色羊毛礼服',
+      '人物：顾砚-工装版本｜基础人物：顾砚｜服装：蓝色棉布工装',
+    ]
+      .map((line) => `资产：\n${line}\n正文：\n顾砚进门。`)
+      .join('\n')
+    const manifest = extractScriptAssetManifest(script)
+    expect(manifest.character.map((item) => [item.name, item.facts['服装']])).toEqual([
+      ['顾砚-工装版本', '蓝色棉布工装'],
+      ['顾砚-礼服版本', '黑色羊毛礼服'],
+    ])
+  })
   it('reads every saved episode, merges costume variants and atomically reuses a character', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -44,8 +60,8 @@ describe('series asset suggestions', () => {
     expect(character.attributes.type).toBe('character')
     if (character.attributes.type !== 'character') throw new Error('missing character')
     expect(character.attributes.appearanceVariants.map((item) => item.name)).toEqual([
-      '林晚-标准版',
-      '林晚-工作服版',
+      '林晚-标准版本',
+      '林晚-工作服版本',
     ])
     const input = createAssetSchema.parse({ ...character, reuseExisting: true, sourceMode: 'generate' })
     const [first, second] = await Promise.all([
@@ -53,6 +69,8 @@ describe('series asset suggestions', () => {
       service.createAsset(project.id, input, principal),
     ])
     expect(first.id).toBe(second.id)
+    expect(assetSummary([first])).toContain('林晚-标准版本')
+    expect(assetSummary([first])).toContain('林晚-工作服版本')
     expect((await service.workspace(project.id, principal)).assets).toHaveLength(1)
     const rescanned = await service.suggestScriptAssets(
       project.id,

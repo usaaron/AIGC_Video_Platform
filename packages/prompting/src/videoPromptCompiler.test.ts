@@ -8,6 +8,16 @@ import {
 } from './videoPromptCompiler.js'
 
 describe('compileStoryboardVideoPrompt', () => {
+  it('gives the selected appearance priority over the base character clothing', () => {
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '9:16' },
+      shot: { id: 'shot', prompt: '顾砚-礼服版本走进大厅。' },
+      assets: [{ id: 'gu', kind: 'character', name: '顾砚', description: '短发，蓝色工装' }],
+      references: [{ id: 'gu', appearance: { name: '顾砚-礼服版本', description: '黑色羊毛礼服' } }],
+    })
+    expect(prompt).toContain('本镜头使用“顾砚-礼服版本”：黑色羊毛礼服')
+    expect(prompt).toContain('服装仅采用此版本，优先于人物基础描述中的旧服饰')
+  })
   it('combines a focused shot beat, asset identity and continuity rules', () => {
     const shots = [
       shot('shot-1', '场景：雨夜旧火车站。'),
@@ -42,7 +52,7 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v14')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v15')
     expect(prompt).toContain('连续4秒、9:16画幅')
     expect(prompt).toContain('【当前镜头】镜头，特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')

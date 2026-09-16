@@ -15,8 +15,8 @@ export function getAssetPreviewUrl(asset, tasks = []) {
         : null
     return (
       activeVariant?.bodyReference?.url ||
-      asset.attributes?.bodyReference?.url ||
-      asset.imageUrl ||
+      (!activeVariant && asset.attributes?.bodyReference?.url) ||
+      (!activeVariant && asset.imageUrl) ||
       generatedTaskUrl ||
       asset.attributes?.faceReference?.url ||
       trustedPortraitUrl ||
@@ -34,6 +34,9 @@ function latestCompletedAssetOutput(asset, tasks) {
         task.kind === 'image' &&
         task.status === 'completed' &&
         task.metadata?.assetId === asset.id &&
+        (!asset.attributes?.activeAppearanceVariantId ||
+          task.metadata?.attributes?.activeAppearanceVariantId ===
+            asset.attributes.activeAppearanceVariantId) &&
         Array.isArray(task.outputs) &&
         task.outputs.some((output) => output?.mediaType === 'image' && output?.url),
     )

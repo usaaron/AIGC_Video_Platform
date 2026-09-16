@@ -424,7 +424,7 @@ export function AssetEditor({
 
             <div className="asset-core-fields">
               <label>
-                <span>资产名称</span>
+                <span>{kind === 'character' ? '人物名称（各版本共用）' : '资产名称'}</span>
                 <input
                   required
                   value={draft.name}

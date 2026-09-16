@@ -11,6 +11,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { characterVariantName, characterVariantKey } from '@seqora/contracts'
 import { ImagePreviewModal } from '../../components/ImagePreviewModal'
 import { isTrustedPortraitTaskActive } from './assetTaskState'
 import { TrustedPortraitPanel } from './TrustedPortraitPanel'
@@ -94,12 +95,43 @@ export function CharacterWorkflow({
     appearanceVariants.find((variant) => variant.id === activeAppearanceVariantId) || null
 
   useEffect(() => {
-    if (stage !== 'turnaround' || variantName.trim()) return
-    setVariantName(
-      activeAppearanceVariant?.name ||
-        `${assetName || '人物'}-${appearanceVariants.length ? `造型${appearanceVariants.length + 1}版` : '标准版'}`,
-    )
-  }, [assetName, appearanceVariants.length, stage, variantName])
+    setVariantName(characterVariantName(assetName || '人物', activeAppearanceVariant?.name))
+  }, [assetName, activeAppearanceVariant?.id, activeAppearanceVariant?.name])
+
+  const checkedVariantName = () => {
+    if (!variantName.trim()) throw new Error('请填写版本名称，例如：人物名-日常便装版本')
+    const name = characterVariantName(assetName || '人物', variantName)
+    if (
+      appearanceVariants.some(
+        (item) =>
+          item.id !== activeAppearanceVariantId &&
+          characterVariantKey(item.name) === characterVariantKey(name),
+      )
+    ) {
+      throw new Error('已有同名人物版本，请切换使用，或填写不同的服装造型名称')
+    }
+    return name
+  }
+
+  const renameAppearance = async () => {
+    if (!activeAppearanceVariant) return
+    try {
+      const name = checkedVariantName()
+      setVariantName(name)
+      if (name === activeAppearanceVariant.name) return
+      await persist({
+        ...attributes,
+        appearanceVariants: appearanceVariants.map((item) =>
+          item.id === activeAppearanceVariantId
+            ? { ...item, name, updatedAt: new Date().toISOString() }
+            : item,
+        ),
+      })
+    } catch (renameError) {
+      setError(renameError.message)
+      setVariantName(characterVariantName(assetName || '人物', activeAppearanceVariant.name))
+    }
+  }
 
   const generate = async (targetStage, closeAfterQueue = false) => {
     setError('')
@@ -174,8 +206,7 @@ export function CharacterWorkflow({
       (bodyCandidate ? toReference(bodyCandidate, `${assetName || '人物'}-全身基准`) : null)
     if (!bodyReference) throw new Error('请先确认一整套身体图，再保存人物版本')
     if (references.length < 3) throw new Error('请等待正面、侧面、背面三张三视图全部生成')
-    const name = variantName.trim()
-    if (!name) throw new Error('请给这套身体图/三视图填写人物版本名称')
+    const name = checkedVariantName()
     const now = new Date().toISOString()
     const variant = {
       id: activeAppearanceVariant?.id || createVariantId(),
@@ -192,7 +223,7 @@ export function CharacterWorkflow({
       appearanceVariants: [...appearanceVariants.filter((item) => item.id !== variant.id), variant],
       activeAppearanceVariantId: variant.id,
     }
-    if (await persist(next)) setVariantName('')
+    if (await persist(next)) setVariantName(name)
   }
 
   const activateAppearanceVariant = async (variant) => {
@@ -205,7 +236,7 @@ export function CharacterWorkflow({
       turnaroundLayout: variant.turnaroundLayout || attributes.turnaroundLayout,
     }
     if (await persist(next)) {
-      setVariantName(variant.name)
+      setVariantName(characterVariantName(assetName || '人物', variant.name))
       onStageChange(
         attributes.faceStatus !== 'approved' ? 'face' : variant.bodyReference ? 'turnaround' : 'body',
       )
@@ -254,7 +285,7 @@ export function CharacterWorkflow({
     <section className="character-workflow">
       {appearanceVariants.length > 0 && (
         <label className="appearance-variant-name">
-          <span>人物造型（共用同一面部基准）</span>
+          <span>人物版本（共用同一面部基准）</span>
           <select
             className="text-input"
             aria-label="人物造型"
@@ -267,31 +298,43 @@ export function CharacterWorkflow({
             <option value="">选择造型</option>
             {appearanceVariants.map((variant) => (
               <option value={variant.id} key={variant.id}>
-                {variant.name}
+                {characterVariantName(assetName || '人物', variant.name)}
                 {variant.bodyReference ? ' · 已生成' : ' · 待生成'}
               </option>
             ))}
           </select>
           {activeAppearanceVariant && (
-            <textarea
-              className="text-input"
-              aria-label="造型描述"
-              maxLength={1000}
-              rows={3}
-              placeholder="描述这套服饰的颜色、面料、剪裁、配饰和使用场合，五官沿用面部基准"
-              value={activeAppearanceVariant.description || ''}
-              onChange={(event) =>
-                onAttributesChange({
-                  ...attributes,
-                  appearanceVariants: appearanceVariants.map((item) =>
-                    item.id === activeAppearanceVariantId
-                      ? { ...item, description: event.target.value }
-                      : item,
-                  ),
-                })
-              }
-              onBlur={() => void persist(attributes)}
-            />
+            <>
+              <span>当前版本名称</span>
+              <input
+                className="text-input"
+                aria-label="当前版本名称"
+                maxLength={80}
+                value={variantName}
+                placeholder={`${assetName || '人物'}-日常便装版本`}
+                onChange={(event) => setVariantName(event.target.value)}
+                onBlur={() => void renameAppearance()}
+              />
+              <textarea
+                className="text-input"
+                aria-label="造型描述"
+                maxLength={1000}
+                rows={3}
+                placeholder="描述这套服饰的颜色、面料、剪裁、配饰和使用场合，五官沿用面部基准"
+                value={activeAppearanceVariant.description || ''}
+                onChange={(event) =>
+                  onAttributesChange({
+                    ...attributes,
+                    appearanceVariants: appearanceVariants.map((item) =>
+                      item.id === activeAppearanceVariantId
+                        ? { ...item, description: event.target.value }
+                        : item,
+                    ),
+                  })
+                }
+                onBlur={() => void persist(attributes)}
+              />
+            </>
           )}
         </label>
       )}
@@ -301,9 +344,27 @@ export function CharacterWorkflow({
         disabled={submittingStage !== null || appearanceVariants.length >= 100}
         onClick={async () => {
           const now = new Date().toISOString()
+          const previous =
+            !appearanceVariants.length && attributes.bodyReference
+              ? [
+                  {
+                    id: createVariantId(),
+                    name: characterVariantName(assetName || '人物'),
+                    description: '',
+                    bodyReference: attributes.bodyReference,
+                    turnaroundReferences: [],
+                    turnaroundLayout: attributes.turnaroundLayout || 'sheet',
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                ]
+              : appearanceVariants
           const variant = {
             id: createVariantId(),
-            name: `${assetName || '人物'}-${appearanceVariants.length ? `造型${appearanceVariants.length + 1}版` : '标准版'}`,
+            name: characterVariantName(
+              assetName || '人物',
+              previous.length ? `造型${previous.length + 1}` : '标准',
+            ),
             description: '',
             bodyReference: null,
             turnaroundReferences: [],
@@ -314,7 +375,7 @@ export function CharacterWorkflow({
           if (
             await persist({
               ...attributes,
-              appearanceVariants: [...appearanceVariants, variant],
+              appearanceVariants: [...previous, variant],
               activeAppearanceVariantId: variant.id,
               bodyStatus: 'pending',
               bodyReference: null,
@@ -326,8 +387,9 @@ export function CharacterWorkflow({
           }
         }}
       >
-        新增人物造型
+        新增人物版本 / 换装
       </button>
+      <p className="muted">名称按“人物名-具体版本”保存。换装只新增造型，面部共用；同一套衣服跨集复用。</p>
       {onGenerateAppearance && missingVariants.length > 0 && (
         <button
           type="button"
@@ -791,7 +853,7 @@ function AppearanceVariantPanel({
             className="text-input"
             value={variantName}
             maxLength={80}
-            placeholder={`${assetName || '人物'} · 日常装`}
+            placeholder={`${assetName || '人物'}-日常便装版本`}
             onChange={(event) => onVariantNameChange(event.target.value)}
           />
         </label>

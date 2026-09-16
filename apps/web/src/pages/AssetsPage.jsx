@@ -15,6 +15,7 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { assetDisplayName, characterVariantName } from '@seqora/contracts'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { IconButton, PageHeader } from '../components/ui'
 import { AssetEditor } from '../features/assets/AssetEditor'
@@ -75,7 +76,16 @@ export function AssetsPage({
   }, [project.contentType, tab])
   const hunyuanConfigured = imageModels?.hunyuan === 'configured'
   const filtered = assets.filter(
-    (asset) => asset.kind === tab && asset.name.toLowerCase().includes(search.toLowerCase()),
+    (asset) =>
+      asset.kind === tab &&
+      [
+        asset.name,
+        assetDisplayName(asset),
+        ...(asset.attributes.appearanceVariants || []).map((item) => item.name),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(search.toLowerCase()),
   )
   const generatable = filtered.filter(
     (asset) =>
@@ -287,6 +297,7 @@ export function AssetsPage({
 }
 
 function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate, onPreview, busy }) {
+  const displayName = assetDisplayName(asset)
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
   const [emptyTitle, emptyDescription] = emptyAssetCopy[asset.kind] || ['资产待生成', '完成生成后在此预览']
   const tags = [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)]
@@ -299,12 +310,12 @@ function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate
           <button
             className="asset-image-preview"
             type="button"
-            aria-label={`放大查看 ${asset.name}`}
+            aria-label={`放大查看 ${displayName}`}
             onClick={() =>
-              onPreview({ url: previewUrl, alt: asset.name, fileName: `${asset.name}-资产预览` })
+              onPreview({ url: previewUrl, alt: displayName, fileName: `${displayName}-资产预览` })
             }
           >
-            <img src={previewUrl} alt={asset.name} loading="eager" decoding="async" />
+            <img src={previewUrl} alt={displayName} loading="eager" decoding="async" />
           </button>
         ) : (
           <div className={`asset-empty-state asset-empty-${asset.kind}`}>
@@ -342,11 +353,15 @@ function AssetCard({ asset, task, tasks, linkedCharacterName, onEdit, onGenerate
       <div className="asset-body">
         <div className="asset-title">
           <div>
-            <h3>{asset.name}</h3>
+            <h3>{displayName}</h3>
             <p>{asset.description || '暂无补充说明'}</p>
           </div>
         </div>
         <div className="asset-meta-tags">
+          {asset.kind === 'character' &&
+            (asset.attributes.appearanceVariants || []).map((item) => (
+              <span key={item.id}>{characterVariantName(asset.name, item.name)}</span>
+            ))}
           {tags.map((tag) => (
             <span key={tag}>{tag}</span>
           ))}

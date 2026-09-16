@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { assetDisplayName, characterVariantName } from '@seqora/contracts'
 import {
   ArrowRight,
   CheckSquare2,
@@ -302,7 +303,7 @@ export function AssetSuggestionsPanel({
                                   aria-label={`选择${asset.name}导入资产`}
                                 />
                                 {isSelected ? <CheckSquare2 size={16} /> : <Square size={16} />}
-                                <strong>{asset.name}</strong>
+                                <strong>{assetDisplayName(asset)}</strong>
                               </label>
                               <span>优先级 {asset.priority}</span>
                             </div>
@@ -337,7 +338,8 @@ export function AssetSuggestionsPanel({
                             {asset.kind === 'character' &&
                               asset.attributes?.appearanceVariants?.map((variant) => (
                                 <p key={variant.id}>
-                                  <strong>{variant.name}</strong> · {variant.description}
+                                  <strong>{characterVariantName(asset.name, variant.name)}</strong> ·{' '}
+                                  {variant.description}
                                 </p>
                               ))}
                             <small>{asset.reason}</small>

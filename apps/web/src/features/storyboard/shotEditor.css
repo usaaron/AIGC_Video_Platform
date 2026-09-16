@@ -18,7 +18,7 @@
 }
 
 .shot-editor-dialog .storyboard-shot-editor {
-  width: min(1080px, calc(100vw - 24px));
+  width: min(1240px, calc(100vw - 24px));
   padding: 24px;
   margin: 12px auto;
 }
@@ -213,7 +213,7 @@
 
 .shot-editor-prompt-panel .shot-editor-prompt-input,
 .storyboard-shot-editor .shot-editor-prompt-input > textarea {
-  min-height: 230px;
+  min-height: clamp(420px, 44dvh, 600px);
   font-size: 14px;
 }
 
@@ -486,6 +486,11 @@
 }
 
 .shot-editor-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 12px;
+  background: #fff;
   align-items: center;
   gap: 9px;
 }
@@ -539,7 +544,7 @@
 
   .shot-editor-prompt-panel .shot-editor-prompt-input,
   .storyboard-shot-editor .shot-editor-prompt-input > textarea {
-    min-height: 220px;
+    min-height: 360px;
   }
 }
 

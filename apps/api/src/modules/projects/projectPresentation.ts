@@ -1,4 +1,4 @@
-import type { Asset, ScriptCreativeDirection } from '@seqora/contracts'
+import { characterVariantName, type Asset, type ScriptCreativeDirection } from '@seqora/contracts'
 import { headExcerpt } from './shotPlanning.js'
 
 export function assetSummary(assets: Asset[]): string {
@@ -47,7 +47,16 @@ export function assetAttributeSummary(asset: Asset): string {
       attributes.background,
     ]
       .filter(Boolean)
-      .join('、')}`
+      .join('、')}；可复用人物版本：${
+      attributes.appearanceVariants.length
+        ? attributes.appearanceVariants
+            .map(
+              (item) =>
+                `${characterVariantName(asset.name, item.name)}${item.description ? `（${headExcerpt(item.description, 160)}）` : ''}`,
+            )
+            .join('；')
+        : characterVariantName(asset.name)
+    }`
   }
   if (attributes.type === 'scene') {
     return `结构化场景：${[

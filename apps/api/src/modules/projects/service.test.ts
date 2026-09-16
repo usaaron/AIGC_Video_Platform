@@ -843,7 +843,7 @@ describe('ProjectService asset suggestions', () => {
           name: '林晚',
           attributes: expect.objectContaining({
             appearanceVariants: expect.arrayContaining([
-              expect.objectContaining({ name: '林晚-灰色防风服版' }),
+              expect.objectContaining({ name: '林晚-灰色防风服版本' }),
             ]),
           }),
         }),

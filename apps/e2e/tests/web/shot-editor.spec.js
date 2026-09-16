@@ -100,6 +100,9 @@ for (const width of [1440, 390]) {
     await edit.click()
     const dialog = page.getByRole('dialog', { name: '编辑镜头', exact: true })
     const prompt = dialog.getByRole('textbox', { name: '画面提示词' })
+    await expect
+      .poll(async () => (await prompt.boundingBox()).height)
+      .toBeGreaterThanOrEqual(width === 390 ? 360 : 420)
     await expect(dialog.getByRole('button', { name: '插入人物 林晚' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: '插入物品 旧怀表' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: '插入场景 诊所' })).toBeVisible()

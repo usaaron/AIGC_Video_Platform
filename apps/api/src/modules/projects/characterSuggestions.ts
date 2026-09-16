@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import {
   assetIdentityKey,
   characterIdentity,
+  characterVariantName,
+  characterVariantKey,
   mergeCharacterVariants,
   type Asset,
   type ScriptAssetSuggestion,
@@ -40,7 +42,7 @@ export function mergeProjectSuggestions(
     if (input.kind === 'character') {
       const identity = characterIdentity(input.name)
       const name = input.sourceFacts?.['基础人物'] || identity.name
-      const variantName = `${name}-${input.sourceFacts?.['版本'] || identity.variant}`.replace(/版本$/u, '版')
+      const variantName = characterVariantName(name, input.sourceFacts?.['版本'] || identity.variant)
       const variantId = `look-${createHash('sha256').update(variantName).digest('hex').slice(0, 24)}`
       const now = new Date().toISOString()
       suggestion = {
@@ -74,13 +76,15 @@ export function mergeProjectSuggestions(
     if (existing.attributes.type !== 'character' || suggestion.attributes.type !== 'character') return false
     // A legacy character already represents its standard look; only recommend genuinely new outfits.
     const known = new Set(
-      [`${existing.name}-标准版`, ...existing.attributes.appearanceVariants.map((item) => item.name)].map(
-        (name) => assetIdentityKey({ kind: 'character', name }),
-      ),
+      (existing.attributes.appearanceVariants.length
+        ? existing.attributes.appearanceVariants.map((item) => item.name)
+        : [characterVariantName(existing.name)]
+      ).map(characterVariantKey),
     )
     suggestion.attributes.appearanceVariants = suggestion.attributes.appearanceVariants.filter(
-      (item) => !known.has(assetIdentityKey({ kind: 'character', name: item.name })),
+      (item) => !known.has(characterVariantKey(item.name)),
     )
+    suggestion.attributes.activeAppearanceVariantId = suggestion.attributes.appearanceVariants[0]?.id || null
     return suggestion.attributes.appearanceVariants.length > 0
   })
 }

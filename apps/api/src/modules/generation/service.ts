@@ -5,7 +5,7 @@ import type {
   Principal,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
-import { generateScriptRequestSchema } from '@seqora/contracts'
+import { generateScriptRequestSchema, characterAppearance, characterVariantName } from '@seqora/contracts'
 import { Readable } from 'node:stream'
 import { compileStoryboardVideoPrompt, VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
@@ -187,7 +187,21 @@ export class GenerationService {
       shot: context.shot,
       shots: context.shots,
       assets: context.assets,
-      references: referenceAssetIds.map((id) => ({ id })),
+      references: referenceAssetIds.map((id) => {
+        const asset = context.assets.find((item) => item.id === id)
+        const variant = asset && characterAppearance(asset, `${context.shot.title}\n${context.shot.prompt}`)
+        return {
+          id,
+          ...(variant && asset
+            ? {
+                appearance: {
+                  name: characterVariantName(asset.name, variant.name),
+                  description: variant.description || '',
+                },
+              }
+            : {}),
+        }
+      }),
       continuityMode,
     })
     const sourceShotSnapshot = {

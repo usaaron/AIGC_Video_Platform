@@ -3,6 +3,21 @@ import { createDefaultAttributes } from './assetOptions'
 import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 
 describe('asset prompt compiler', () => {
+  it('uses the selected outfit name even before its optional description is written', () => {
+    const asset = {
+      name: '顾砚',
+      description: '',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      attributes: {
+        ...createDefaultAttributes('character'),
+        activeAppearanceVariantId: 'formal',
+        appearanceVariants: [{ id: 'formal', name: '顾砚-礼服版', description: '' }],
+      },
+    }
+    expect(compileCharacterStagePrompt(asset, '9:16', 'body')).toContain('本次造型：顾砚-礼服版本')
+    expect(compileCharacterStagePrompt(asset, '9:16', 'face')).not.toContain('本次造型')
+  })
   it('includes selected character controls and project ratio', () => {
     const attributes = createDefaultAttributes('character')
     attributes.legStretch = true

@@ -1,4 +1,9 @@
-import type { ScriptAssetSuggestion } from '@seqora/contracts'
+import {
+  characterIdentity,
+  characterVariantName,
+  characterVariantKey,
+  type ScriptAssetSuggestion,
+} from '@seqora/contracts'
 
 export const SCRIPT_ASSET_FIELD_BOUNDARIES = [
   '场次',
@@ -138,12 +143,18 @@ function extractSingleAssetManifest(script: string): ScriptAssetManifest {
         .split(/[｜|]/u)
         .map((segment) => segment.trim())
         .filter(Boolean)
-      const name = cleanAssetName(segments.shift() || '', kind)
+      let name = cleanAssetName(segments.shift() || '', kind)
       if (!isPlausibleAssetName(name, kind)) continue
       const facts: Record<string, string> = {}
       for (const segment of segments) {
         const fact = segment.match(/^([^：:]{1,20})\s*[：:]\s*(.+)$/u)
         if (fact?.[1] && fact[2]) facts[fact[1].trim()] = fact[2].trim()
+      }
+      if (kind === 'character' && (facts['版本'] || characterIdentity(name).name !== name)) {
+        const identity = characterIdentity(name)
+        facts['基础人物'] ||= identity.name
+        name = characterVariantName(facts['基础人物'], facts['版本'] || identity.variant)
+        facts['版本'] = name.slice(facts['基础人物'].length + 1)
       }
       const details = Object.entries(facts)
         .map(([label, detail]) => `${label}：${detail}`)
@@ -211,7 +222,15 @@ export function namesFromManifestOrFields(
     return [
       ...new Set([
         ...manifest[kind].map((item) => item.name),
-        ...extractAssetNames(script, fields, [], limit, kind),
+        ...extractAssetNames(script, fields, [], limit, kind).filter(
+          (name) =>
+            kind !== 'character' ||
+            !manifest.character.some((item) =>
+              characterIdentity(name).name === name
+                ? characterIdentity(item.name).name === name
+                : characterVariantKey(item.name) === characterVariantKey(name),
+            ),
+        ),
       ]),
     ].slice(0, limit)
   return extractAssetNames(script, fields, fallback, limit, kind)

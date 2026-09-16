@@ -1,4 +1,5 @@
 import { Check, Package, MapPinned, Users } from 'lucide-react'
+import { characterVariantName } from '@seqora/contracts'
 import { findAssetMentions } from '../assets/AssetShortcutBar'
 import { getAssetPreviewUrl } from '../assets/assetPreview'
 
@@ -35,24 +36,33 @@ export function ShotAssetShortcuts({ shot, assets, tasks, prompt, onInsert, disa
               {label}
             </span>
             <div>
-              {entries.map((asset) => {
-                const preview = getAssetPreviewUrl(asset, tasks)
-                return (
-                  <button
-                    key={asset.id}
-                    type="button"
-                    className={mentionedIds.has(asset.id) ? 'mentioned' : ''}
-                    disabled={disabled}
-                    aria-label={`插入${label} ${asset.name}`}
-                    title={`${asset.name} · ${preview ? '已有参考图' : '可插入名称，图片待生成'}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onInsert(asset.name)}
-                  >
-                    {preview ? <img src={preview} alt="" loading="lazy" /> : <Icon size={16} />}
-                    <span>{asset.name}</span>
-                    {mentionedIds.has(asset.id) && <Check size={13} />}
-                  </button>
-                )
+              {entries.flatMap((asset) => {
+                const variants = asset.kind === 'character' ? asset.attributes?.appearanceVariants || [] : []
+                return (variants.length ? variants : [null]).map((variant) => {
+                  const name = variant ? characterVariantName(asset.name, variant.name) : asset.name
+                  const preview = variant
+                    ? variant.bodyReference?.url || asset.attributes.faceReference?.url
+                    : getAssetPreviewUrl(asset, tasks)
+                  const mentioned = variant
+                    ? prompt.includes(name) || prompt.includes(variant.name)
+                    : mentionedIds.has(asset.id)
+                  return (
+                    <button
+                      key={`${asset.id}:${variant?.id || ''}`}
+                      type="button"
+                      className={mentioned ? 'mentioned' : ''}
+                      disabled={disabled}
+                      aria-label={`插入${label} ${name}`}
+                      title={`${name} · ${preview ? '已有参考图' : '可插入名称，图片待生成'}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onInsert(name)}
+                    >
+                      {preview ? <img src={preview} alt="" loading="lazy" /> : <Icon size={16} />}
+                      <span>{name}</span>
+                      {mentioned && <Check size={13} />}
+                    </button>
+                  )
+                })
               })}
             </div>
           </div>

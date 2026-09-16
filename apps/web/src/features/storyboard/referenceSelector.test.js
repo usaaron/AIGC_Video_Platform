@@ -13,6 +13,24 @@ const assets = [
 ]
 
 describe('selectShotAssetReferences', () => {
+  it('uses the requested outfit with its shared portrait instead of the globally selected outfit', () => {
+    const character = asset('gu', 'character', '顾砚', '年轻男性', '/face.png', '/standard.png')
+    character.attributes.activeAppearanceVariantId = 'standard'
+    character.attributes.trustedPortrait = { assetId: 'portrait-gu', status: 'active' }
+    character.attributes.appearanceVariants = [
+      { id: 'standard', name: '顾砚-标准版', bodyReference: { url: '/standard.png' } },
+      { id: 'formal', name: '顾砚-礼服版', description: '黑色礼服', bodyReference: { url: '/formal.png' } },
+      { id: 'work', name: '顾砚-工装版本', description: '蓝色工装', bodyReference: null },
+    ]
+    const references = selectShotAssetReferences([character], { prompt: '顾砚-礼服版本走进大厅。' })
+    expect(references[0]).toMatchObject({
+      url: '/formal.png',
+      appearance: { name: '顾砚-礼服版本', description: '黑色礼服' },
+    })
+    expect(selectVideoReferenceImages(null, references)).toEqual(['asset://portrait-gu', '/formal.png'])
+    expect(selectShotAssetReferences([character], { prompt: '顾砚-工装版本进门。' })[0].url).toBe('/face.png')
+    expect(character.attributes.activeAppearanceVariantId).toBe('standard')
+  })
   it('ranks named characters and their costume before generic assets', () => {
     const references = selectShotAssetReferences(assets, {
       title: '林夏抵达',

@@ -1,4 +1,5 @@
 import { optionLabel } from './assetOptions'
+import { characterVariantName } from '@seqora/contracts'
 
 export function compileAssetPrompt(asset, aspectRatio) {
   const automatic = compileAutomatic(asset, aspectRatio)
@@ -53,8 +54,8 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
   const variant = attributes.appearanceVariants?.find(
     (item) => item.id === attributes.activeAppearanceVariantId,
   )
-  return stage !== 'face' && variant?.description
-    ? `${compiled}。本次造型：${variant.name}，${variant.description}。服饰按本次造型，面部沿用已确认基准。`
+  return stage !== 'face' && variant
+    ? `${compiled}。本次造型：${characterVariantName(asset.name, variant.name)}${variant.description ? `，${variant.description}` : ''}。服饰按本次造型，面部沿用已确认基准。`
     : compiled
 }
 
@@ -222,7 +223,7 @@ export function summarizeAsset(asset) {
         : optionLabel('gender', attributes.gender),
       optionLabel('visualStyle', attributes.visualStyle),
       attributes.turnaround ? '三视图' : optionLabel('framing', attributes.framing),
-      activeVariant?.name ? `当前版本：${activeVariant.name}` : '',
+      activeVariant?.name ? `当前版本：${characterVariantName(asset.name, activeVariant.name)}` : '',
     ]
   }
   if (attributes.type === 'scene') {

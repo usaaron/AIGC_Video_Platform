@@ -98,6 +98,11 @@ for (const viewport of [
     ]
     const submitted = []
     await mockWebApi(page, state)
+    await page.route('**/api/v1/projects/project-1/assets/character-1', async (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback()
+      Object.assign(state.workspace.assets[0], route.request().postDataJSON())
+      await route.fulfill({ json: state.workspace.assets[0] })
+    })
     await page.route('**/api/v1/generation/tasks', async (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
       const body = route.request().postDataJSON()
@@ -129,5 +134,26 @@ for (const viewport of [
     expect(submitted.every((task) => task.metadata.references[0].id === 'face')).toBe(true)
     expect(submitted[0].prompt).toContain('晚礼服版')
     expect(state.workspace.assets[0].attributes.activeAppearanceVariantId).toBe('look-0')
+    await page.getByRole('combobox', { name: '人物造型', exact: true }).selectOption('look-2')
+    const versionName = page.getByRole('textbox', { name: '当前版本名称', exact: true })
+    await expect(versionName).toHaveValue('林晚-晚礼服版本')
+    await versionName.fill('深蓝礼服')
+    await page.getByRole('textbox', { name: '造型描述', exact: true }).click()
+    await expect
+      .poll(() => state.workspace.assets[0].attributes.appearanceVariants[2].name)
+      .toBe('林晚-深蓝礼服版本')
+    expect(state.workspace.assets[0].attributes.faceReference).toEqual(face)
+    await versionName.fill('林晚-标准版本')
+    await page.getByRole('textbox', { name: '造型描述', exact: true }).click()
+    await expect(page.getByText('已有同名人物版本，请切换使用，或填写不同的服装造型名称')).toBeVisible()
+    expect(state.workspace.assets[0].attributes.appearanceVariants).toHaveLength(4)
+    await expect(versionName).toHaveValue('林晚-深蓝礼服版本')
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+      .toBe(true)
+    await page.screenshot({
+      path: testInfo.outputPath(`character-version-name-${viewport.width}.png`),
+      fullPage: true,
+    })
   })
 }

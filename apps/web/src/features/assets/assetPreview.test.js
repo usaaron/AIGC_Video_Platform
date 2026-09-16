@@ -6,6 +6,31 @@ afterEach(() => {
 })
 
 describe('asset preview selection', () => {
+  it('does not show another outfit as the selected ungenerated version', () => {
+    expect(
+      getAssetPreviewUrl(
+        {
+          id: 'gu',
+          kind: 'character',
+          imageUrl: '/old-outfit.png',
+          attributes: {
+            activeAppearanceVariantId: 'formal',
+            faceReference: { url: '/face.png' },
+            bodyReference: { url: '/old-outfit.png' },
+            appearanceVariants: [{ id: 'formal', bodyReference: null }],
+          },
+        },
+        [
+          {
+            kind: 'image',
+            status: 'completed',
+            metadata: { assetId: 'gu', attributes: { activeAppearanceVariantId: 'old' } },
+            outputs: [{ mediaType: 'image', url: '/another-outfit.png' }],
+          },
+        ],
+      ),
+    ).toBe('/face.png')
+  })
   it('uses the full-body image as a character card cover once it exists', () => {
     expect(
       getAssetPreviewUrl({
