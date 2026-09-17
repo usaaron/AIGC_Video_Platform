@@ -261,3 +261,57 @@ export function summarizeAsset(asset) {
     attributes.loop ? '循环' : '单次',
   ]
 }
+
+export function compactAssetDescription(asset) {
+  const description = String(asset.description || '').trim()
+  const attributes = asset.attributes || {}
+  if (attributes.type === 'character') {
+    if (attributes.subjectType === 'animal') {
+      const animalFacts = [attributes.species || '动物', attributes.anthropomorphic ? '拟人形态' : '自然形态']
+      const animalDescription = dedupeDescription(description)
+      return [animalFacts.join(' · '), animalDescription].filter(Boolean).join('；')
+    }
+    const identity = [
+      optionLabel('gender', attributes.gender),
+      attributes.ageGroup ? optionLabel('ageGroup', attributes.ageGroup) : '',
+      attributes.exactAge ? `${attributes.exactAge}岁` : '',
+    ].filter((value) => value && value !== '不限')
+    const role = firstLabeledValue(description, ['身份', '角色身份', '人物背景'])
+    const appearance = [
+      firstLabeledValue(description, ['体型']),
+      firstLabeledValue(description, ['脸型']),
+      firstLabeledValue(description, ['发型']),
+      firstLabeledValue(description, ['肤色']),
+    ].filter(Boolean)
+    const outfit = firstLabeledValue(description, ['基础造型', '造型', '服装'])
+    if (description && !role && !appearance.length && !outfit) return dedupeDescription(description)
+    const compact = [
+      identity.join(' · '),
+      role ? `身份：${role}` : '',
+      appearance.length ? `外观：${appearance.join('、')}` : '',
+      outfit ? `造型：${outfit}` : '',
+    ].filter(Boolean)
+    return compact.length ? compact.join('；') : dedupeDescription(description)
+  }
+  return dedupeDescription(description)
+}
+
+function firstLabeledValue(text, labels) {
+  for (const label of labels) {
+    const match = text.match(new RegExp(`${escapeRegExp(label)}\\s*[:：]\\s*([^；;\\n]+)`, 'u'))
+    if (match?.[1]) return match[1].trim()
+  }
+  return ''
+}
+
+function dedupeDescription(value) {
+  const parts = String(value || '')
+    .split(/[；;\n]+/u)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return [...new Set(parts)].join('；')
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+}

@@ -98,7 +98,8 @@ Migration 文件位于 `apps/api/src/infra/migrations`。dev/test 启动时可�
 - 默认文本：Rehdasu OpenAI 兼容接口，`glm-5.2`，服务端变量 `REHDASU_*`。
 - GPT 文本和图片：TokenAdvent；图片只实现 GPT Image 2，混元图片模型尚无 Provider。
 - 视频：DoraRouter 的 Seedance 兼容接口为默认路径；StringX 和 Volc Ark 是可配置的显式回滚通道。三条路径都通过同一个视频 Provider 抽象进入队列。
-- 可信人像：DoraRouter 素材库 API，默认与 Seedance 共用服务端 Bearer Token；旧 StringX MaaS 适配器仅作为显式回滚通道。
+- 可信人像：生产显式使用 StringX MaaS 素材库（`ASSET_LIBRARY_PROVIDER=volc-ark`），由独立 AK/SK 鉴权。DoraRouter 视频与素材库分开配置；其 `/v1/material` 已实测 404，不能因视频可用就同步选择 DoraRouter 素材适配器。
+- DoraRouter 视频使用 `/doubao/api/v3/contents/generations/tasks`。已入库 AI 人物引用转换为匹配面部原图的签名链接；`asset://` 不跨供应商互传，真人授权资源暂在当前通道拦截。视频和生图共用媒体 Repository，内联与独立 Worker 共用临时链接签名逻辑。详见 `PORTRAIT_VIDEO_VALIDATION_2026-09-15.md`。
 - 邮件：Resend，负责验证码、邮箱验证、邀请和密码重置。
 
 生产媒体使用私有 GCS，通过鉴权 API 或短期签名地址读取。Provider 密钥只能存在 API/Worker 环境，不得进入 Web、文档、日志或任务元数据。

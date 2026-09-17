@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultAttributes } from './assetOptions'
-import { compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
+import { compactAssetDescription, compileAssetPrompt, compileCharacterStagePrompt } from './promptCompiler'
 
 describe('asset prompt compiler', () => {
+  it('shows one compact character summary instead of repeating source facts', () => {
+    const summary = compactAssetDescription({
+      name: '陈默',
+      description:
+        '人物资产：陈默-标准版本；男性，青年，28岁，身份：拾荒者；体型：偏瘦但结实；脸型：瘦长轮廓；发型：黑色短寸头；肤色：古铜偏黄；基础造型：旧皮夹克、深灰工装裤、军靴；基础人物：陈默；版本：标准版本；性别：男；年龄段：青年；年龄：28岁；身份：拾荒者；体型：偏瘦但结实；脸型：瘦长轮廓；发型：黑色短寸头；肤色：古铜偏黄；基础造型：旧皮夹克、深灰工装裤、军靴',
+      attributes: {
+        ...createDefaultAttributes('character'),
+        gender: 'male',
+        ageGroup: 'young',
+        exactAge: 28,
+      },
+    })
+
+    expect(summary).toBe(
+      '男 · 青年 · 28岁；身份：拾荒者；外观：偏瘦但结实、瘦长轮廓、黑色短寸头、古铜偏黄；造型：旧皮夹克、深灰工装裤、军靴',
+    )
+    expect(summary.match(/身份：/gu)).toHaveLength(1)
+    expect(summary.match(/基础造型：/gu)).toBeNull()
+  })
+
   it('uses the selected outfit name even before its optional description is written', () => {
     const asset = {
       name: '顾砚',

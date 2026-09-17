@@ -233,6 +233,14 @@
   text-underline-offset: 3px;
 }
 
+.storyboard-shot-editor .prompt-reference-text {
+  color: #76500d;
+  background-color: #f8d982;
+  border-radius: 3px;
+  text-decoration: underline solid #b87916;
+  text-underline-offset: 3px;
+}
+
 .shot-template-legend {
   display: block;
   margin-top: 7px;
@@ -629,13 +637,15 @@
 }
 .shot-reference-thumbnails > div {
   position: relative;
-  border: 2px solid transparent;
+  border: 2px solid #dfc27b;
   border-radius: 9px;
-  background: #f0f1eb;
+  background: #fff8e7;
   overflow: hidden;
 }
 .shot-reference-thumbnails > div.selected {
-  border-color: #657448;
+  border-color: #c18725;
+  background: #ffefc4;
+  box-shadow: 0 0 0 2px rgba(193, 135, 37, 0.14);
 }
 .shot-reference-thumbnails button:first-child {
   display: flex;
@@ -654,7 +664,7 @@
 .shot-reference-thumbnails span {
   padding: 4px 8px;
   font-size: 12px;
-  color: #34442d;
+  color: #815b1b;
 }
 .shot-reference-thumbnails .icon-button {
   position: absolute;
@@ -665,13 +675,35 @@
   background: #ffffffed;
 }
 .shot-prompt-reference-group small {
-  color: #727a69;
+  color: #896c32;
   font-size: 12px;
 }
 
 .shot-prompt-reference-group {
   grid-template-columns: 64px minmax(0, 1fr);
+  margin-top: 12px;
+  padding: 9px 10px 10px;
+  border: 1px solid #e2c985;
+  border-radius: 8px;
+  background: #fff9eb;
 }
 .shot-prompt-reference-group > span {
+  color: #835d1b;
   white-space: nowrap;
+}
+.shot-prompt-reference-group button.reference-added {
+  max-width: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border-color: #dfb85c;
+  background: #fff2ca;
+  color: #76521a;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+.shot-prompt-reference-group button.reference-added:hover:not(:disabled),
+.shot-prompt-reference-group button.reference-added.mentioned {
+  border-color: #b87916;
+  background: #f8d982;
+  color: #65440e;
+  box-shadow: 0 2px 8px rgba(183, 121, 22, 0.16);
 }

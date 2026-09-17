@@ -5,6 +5,8 @@ import { LoaderCircle, RotateCcw, Upload, Video, X } from 'lucide-react'
 import { IconButton } from '../../components/ui'
 import { AssetAwareTextarea } from '../assets/AssetShortcutBar'
 import {
+  cleanShotContinuityNote,
+  cleanStoryboardPrompt,
   normalizedVideoDuration,
   removeShotReferenceToken,
   shotReferenceImages,
@@ -34,12 +36,16 @@ export function ShotEditor({
   const title = shot.title || `镜头 ${orderedShots.length + 1}`
   const framing = shot.framing || '中景'
   const [duration, setDuration] = useState(normalizedVideoDuration(shot.duration, minDuration))
-  const [prompt, setPrompt] = useState(shot.prompt || '')
+  const initialPrompt = cleanStoryboardPrompt(shot.prompt)
+  const [prompt, setPrompt] = useState(initialPrompt)
   const [templateHighlights, setTemplateHighlights] = useState([])
   const promptArea = useRef(null)
   const negativePrompt = shot.negativePrompt || ''
-  const continuityNote = shot.continuityNote || ''
+  const continuityNote = cleanShotContinuityNote(shot.continuityNote, shot.continuityMode)
   const [referenceImages, setReferenceImages] = useState(() => shotReferenceImages(shot))
+  const referenceHighlights = [...prompt.matchAll(/【图(\d+)】/gu)]
+    .filter((match) => Number(match[1]) >= 1 && Number(match[1]) <= referenceImages.length)
+    .map((match) => ({ start: match.index, end: match.index + match[0].length, kind: 'reference' }))
   const [scriptEpisodeId, setScriptEpisodeId] = useState(shot.scriptEpisodeId || null)
   const [episodeNumber, setEpisodeNumber] = useState(shot.episodeNumber || 1)
   const [episodeTitle, setEpisodeTitle] = useState(shot.episodeTitle || `第 ${shot.episodeNumber || 1} 集`)
@@ -257,9 +263,9 @@ export function ShotEditor({
               <button
                 type="button"
                 className="button secondary"
-                disabled={busy || prompt === (shot.prompt || '')}
+                disabled={busy || prompt === initialPrompt}
                 onClick={() => {
-                  setPrompt(shot.prompt || '')
+                  setPrompt(initialPrompt)
                   setTemplateHighlights([])
                   setError('')
                 }}
@@ -274,7 +280,7 @@ export function ShotEditor({
               assets={assets}
               tasks={tasks}
               value={prompt}
-              highlights={templateHighlights}
+              highlights={[...templateHighlights, ...referenceHighlights]}
               id="shot-visual-prompt"
               maxLength={5000}
               disabled={busy}

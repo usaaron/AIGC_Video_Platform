@@ -887,12 +887,12 @@ describe('ProjectService director beat splitting', () => {
     expect(shots).toHaveLength(2)
     expect(shots.map((shot) => shot.duration)).toEqual([4, 5])
     expect(shots[0]).toMatchObject({
-      prompt: expect.stringContaining('目标：岚星确认异常来源'),
+      prompt: expect.stringContaining('动作：动作1：岚星抬眼看向异常光点'),
     })
-    expect(shots[0]?.prompt).toContain('入场状态：岚星停在左侧护栏旁')
-    expect(shots[0]?.prompt).not.toContain('出场状态：岚星半蹲')
-    expect(shots[1]?.prompt).toContain('出场状态：岚星半蹲贴在护栏内侧')
-    expect(shots[1]?.continuityNote).toContain('本镜所在场次的最终出场状态')
+    expect(shots[0]?.prompt).toContain('首帧：岚星停在左侧护栏旁')
+    expect(shots[0]?.prompt).not.toContain('尾帧：岚星半蹲')
+    expect(shots[1]?.prompt).toContain('尾帧：岚星半蹲贴在护栏内侧')
+    expect(shots[1]?.continuityNote).toBe('')
     expect(shots[1]?.prompt).toContain('动作2：她侧身贴近护栏，手指划过导航环投出坐标')
     expect(shots[1]?.prompt).toContain('对白：无台词')
     expect(shots[1]?.prompt).not.toContain('坐标为什么在我身上')
@@ -936,12 +936,12 @@ describe('ProjectService director beat splitting', () => {
     expect(shots).toHaveLength(2)
     expect(shots.map((shot) => shot.duration)).toEqual([10, 10])
     expect(shots[0]).toMatchObject({ framing: '俯拍大全景' })
-    expect(shots[0]?.prompt).toContain('镜头任务：建立空间与威胁')
+    expect(shots[0]?.prompt).toContain('二十余只丧尸从十字路口东侧逼近')
     expect(shots[0]?.prompt).toContain('尸群位于东侧路口')
     expect(shots[0]?.prompt).not.toContain('锁死了')
-    expect(shots[1]?.prompt).toContain('镜头任务：验证退路并改变决定')
+    expect(shots[1]?.prompt).toContain('左手拉动门把两次确认后门锁死')
     expect(shots[1]?.prompt).toContain('林晚：锁死了')
-    expect(shots[1]?.prompt).toContain('出场状态：林晚在西侧药柜前半蹲')
+    expect(shots[1]?.prompt).toContain('尾帧：林晚半蹲在程野右侧取出消炎药')
     expect(shots[1]?.continuityMode).toBe('continue')
   })
 

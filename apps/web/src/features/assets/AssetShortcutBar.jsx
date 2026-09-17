@@ -307,10 +307,13 @@ function renderHighlightedText(value, mentions, tasks, highlights = []) {
   return boundaries.slice(0, -1).map((start, index) => {
     const end = boundaries[index + 1]
     const mention = mentions.find((range) => range.start <= start && range.end >= end)
-    const template = highlights.some((range) => range.start <= start && range.end >= end)
+    const activeHighlights = highlights.filter((range) => range.start <= start && range.end >= end)
+    const reference = activeHighlights.some((range) => range.kind === 'reference')
+    const template = activeHighlights.some((range) => range.kind !== 'reference')
     const className = [
       mention && `asset-inline-mention kind-${mention.asset.kind} ${assetState(mention.asset, tasks)}`,
       template && 'prompt-template-text',
+      reference && 'prompt-reference-text',
     ]
       .filter(Boolean)
       .join(' ')

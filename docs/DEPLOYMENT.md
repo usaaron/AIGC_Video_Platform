@@ -59,8 +59,8 @@ chmod 600 deploy/demo.env
 - 2 vCPU / 4GB 机器先保留 `API_MEMORY_LIMIT=1536m`、`API_NODE_HEAP_MB=768`、`WORKER_MEMORY_LIMIT=1536m`、`WORKER_NODE_HEAP_MB=768`、`WEB_MEMORY_LIMIT=192m`；发生 OOM 时优先升级内存，不要移除所有上限。
 - 使用默认的 `VIDEO_PROVIDER=dora-router`，填写 `DORA_ROUTER_BASE_URL=https://www.dorarouter.com` 和服务端 `DORA_ROUTER_API_KEY`；StringX/Ark 只作为显式回退 Provider。另填写私有 `GCS_BUCKET`、默认中文文本模型需要的 `REHDASU_API_KEY` 和图片生成需要的 `TOKENADVENT_API_KEY`；选择 DeepSeek V3 时需要 `DEEPSEEK_API_KEY`，选择 DeepSeek V4 Flash 时需要独立的 `DEEPSEEK_V4_API_KEY`。
 - 生产启动会强制检查当前视频 Provider 密钥、当前文本模型对应密钥和 TokenAdvent GPT Image 2 密钥，缺少时直接停止，不允许静默使用 Mock 结果。
-- 可信人像/加白库默认复用 `DORA_ROUTER_API_KEY`，并使用 `ASSET_LIBRARY_PROVIDER=dora-router`；它与默认 Seedance 视频 Provider 共用 `DORA_ROUTER_BASE_URL`。仅在明确回滚到旧素材接口时设置 `ASSET_LIBRARY_PROVIDER=volc-ark`，再填写成对的 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和 `VOLC_ARK_PROJECT_NAME`。DoraRouter Bearer Token 不能填入旧 AK/SK 字段。
-- `ASSET_LIBRARY_CONSOLE_URL` 仅用于旧素材库回滚入口；Dora 真人认证直接由人物编辑器创建 H5/二维码，不需要把上游控制台地址暴露给用户。
+- 素材库与视频独立配置。当前生产显式使用 `ASSET_LIBRARY_PROVIDER=volc-ark`，填写成对的 `VOLC_ACCESS_KEY`、`VOLC_SECRET_KEY` 和 `VOLC_ARK_PROJECT_NAME`；DoraRouter Bearer Token 不能填入 AK/SK 字段。DoraRouter `/v1/material` 已实测 404，不要因视频切换而同步切换素材库，也不要依赖遗留的 Provider 默认值。
+- `ASSET_LIBRARY_CONSOLE_URL` 可配置为已验证的素材库控制台入口；当前 VolcArk 适配器仅支持已有真人素材查询/绑定，`realValidationReady=false`，人物编辑器新建 H5 认证不开放。
 - `ARK_API_*` 只用于官方火山回滚，默认全弦序链路不读取这些变量。
 - 不要把 `deploy/demo.env`、服务账号 JSON 或任何 Key 提交到 Git。
 

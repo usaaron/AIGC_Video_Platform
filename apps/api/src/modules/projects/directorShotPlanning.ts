@@ -40,7 +40,6 @@ const DIRECTOR_DETAIL_LABELS = [
 
 type DirectorShotSpec = {
   duration?: number
-  task?: string
   framing?: string
   position?: string
   composition?: string
@@ -88,9 +87,8 @@ export function splitScriptIntoSmartSceneShots(
         episodeBreakBefore: scriptParagraph.forceEpisodeBreakBefore,
         continuityMode:
           shots.length === 0 || !continuesPreviousScene ? ('independent' as const) : ('continue' as const),
-        continuityNote: continuityNoteFor(previousParagraph?.text || '', '上一场', {
+        continuityNote: continuityNoteFor(previousParagraph?.text || '', {
           entryState: direction.入场状态,
-          exitState: direction.出场状态,
           current: paragraph,
           visualContinuity: continuesPreviousScene,
         }),
@@ -98,7 +96,7 @@ export function splitScriptIntoSmartSceneShots(
       continue
     }
 
-    const fallbackSpecs = fallbackDirectorShotSpecs(fields, requestedShotCount, isWebSeries)
+    const fallbackSpecs = fallbackDirectorShotSpecs(fields, requestedShotCount)
     const plans = fallbackSpecs.map((fallback, index) => ({ ...fallback, ...explicitSpecs[index] }))
     const sceneDialogueCues = spokenDialogueCues(fields.对白)
     const fallbackDialogueGroups =
@@ -138,7 +136,6 @@ export function splitScriptIntoSmartSceneShots(
           content,
           dialogue,
           framing,
-          duration,
           shotIndex,
           plans.length,
         ),
@@ -153,9 +150,8 @@ export function splitScriptIntoSmartSceneShots(
           shots.length === 0 || (shotIndex === 0 && !continuesPreviousScene)
             ? ('independent' as const)
             : ('continue' as const),
-        continuityNote: continuityNoteFor(previousSource, shotIndex > 0 ? '上一镜' : '上一场', {
+        continuityNote: continuityNoteFor(previousSource, {
           entryState: shotIndex === 0 ? direction.入场状态 : plan.firstFrame,
-          exitState: shotIndex === plans.length - 1 ? direction.出场状态 : plan.lastFrame,
           current: currentSource,
           visualContinuity: shotIndex > 0 || continuesPreviousScene,
         }),
@@ -189,7 +185,6 @@ function parseDirectorShotSpec(source: string): DirectorShotSpec {
   const duration = parseDurationSeconds(read('时长'))
   return {
     ...(duration ? { duration } : {}),
-    ...(read('任务', '镜头任务', '叙事任务') ? { task: read('任务', '镜头任务', '叙事任务')! } : {}),
     ...(read('景别') ? { framing: read('景别')! } : {}),
     ...(read('机位') ? { position: read('机位')! } : {}),
     ...(read('构图') ? { composition: read('构图')! } : {}),
@@ -209,11 +204,7 @@ function parseDirectorShotSpec(source: string): DirectorShotSpec {
   }
 }
 
-function fallbackDirectorShotSpecs(
-  fields: DirectorSceneFields,
-  count: number,
-  isWebSeries: boolean,
-): DirectorShotSpec[] {
+function fallbackDirectorShotSpecs(fields: DirectorSceneFields, count: number): DirectorShotSpec[] {
   const actionSegments = splitFieldBeats(fields.动作 || fields.剧情 || '')
   const dialogueSegments = spokenDialogueCues(fields.对白)
   const actionGroups = partitionForDirectorShots(actionSegments, count)
@@ -222,21 +213,15 @@ function fallbackDirectorShotSpecs(
     const action = actionGroups[index]?.join('；').trim()
     const dialogue = dialogueGroups[index]?.join('；').trim()
     const establishesScene = index === 0
-    const fallbackContent = establishesScene
-      ? `先建立${fields.场景 || '当前场景'}的空间、人物位置和可见阻力，再推进本场前半段行动`
-      : `承接上一镜尾帧，推进本场后半段行动并形成${index === count - 1 ? '明确结果' : '下一处变化'}`
-    const content = action || fallbackContent
+    const content = action || ''
     const framing = directorFraming({}, content, dialogue || '', index)
     return {
-      task: establishesScene ? '建立场景空间、威胁来源和人物目标' : '承接行动并完成本场信息变化',
       framing,
-      position: establishesScene ? '从能交代空间关系的稳定机位开始' : '保持人物视线高度和轴线连续',
-      camera: inferredDirectorCamera(content, dialogue || '', establishesScene),
+      camera: fields.运镜 || inferredDirectorCamera(content, dialogue || '', establishesScene),
       content,
       ...(dialogue ? { dialogue } : {}),
       sound: fields.声音 || nonSpokenSoundCues(fields.对白).join('；'),
       ...(fields.光影 ? { lighting: fields.光影 } : {}),
-      ...(isWebSeries ? { performance: '对白与动作同时推进，听者必须有同步视线和表情反应' } : {}),
     }
   })
 }
@@ -307,15 +292,15 @@ function directorFraming(plan: DirectorShotSpec, content: string, dialogue: stri
 
 function inferredDirectorCamera(content: string, dialogue: string, establishesScene: boolean): string {
   if (establishesScene && /环境|空间|合围|尸群|人群|街道|城市/u.test(content)) {
-    return '从高位远景缓慢下降或推进，在不切镜的前提下建立空间关系'
+    return '缓慢向前推进，拍清人物与周围环境的位置关系'
   }
   if (/跑|冲|追|撤退|进入|离开|战斗|移动/u.test(content)) {
     return '人物视线高度的中景跟拍，摄影机与主体平行移动并保持方向稳定'
   }
   if (dialogueTextForTiming(dialogue).length || /表情|眼神|迟疑|恐惧|愤怒|悲伤/u.test(content)) {
-    return '从双人关系构图缓慢推近说话者面部，听者保留在前景并同步反应'
+    return '缓慢推近人物面部'
   }
-  return '稳定推进主体，结尾停在下一镜可承接的位置'
+  return '固定机位'
 }
 
 function compactDirectorShotPrompt(
@@ -325,49 +310,35 @@ function compactDirectorShotPrompt(
   content: string,
   dialogue: string,
   framing: string,
-  duration: number,
   shotIndex: number,
   shotCount: number,
 ): string {
+  const opening = plan.firstFrame || (shotIndex === 0 ? direction.入场状态 : '')
+  const ending = plan.lastFrame || (shotIndex === shotCount - 1 ? direction.出场状态 : '')
   return [
-    fieldPart('场次', fields.场次 || '未编号场次', 24),
-    fieldPart('剧情', shotPlotFor(plan.task, content), 420),
-    fieldPart('镜头任务', plan.task || '完成当前叙事阶段并产生可见变化', 220),
-    fieldPart('目标', direction.目标 || '角色完成当前可见行动', 180),
-    fieldPart('阻力', direction.阻力 || '当前环境或对手阻碍角色推进', 180),
-    fieldPart('变化', direction.变化 || '动作结束后角色状态发生可见变化', 180),
-    fieldPart('场景', fields.场景 || '沿用上一场空间与时间', 420),
-    fieldPart('角色', fields.角色 || '沿用上一场所有角色', 520),
+    fieldPart('场景', fields.场景, 420),
+    fieldPart('角色', fields.角色, 520),
     fieldPart('服装', fields.服装, 260),
     fieldPart('关键物件', fields.关键物件, 260),
     fieldPart('资产引用', plan.assetReferences, 300),
-    ...(shotIndex === 0 ? [fieldPart('入场状态', direction.入场状态, 320)] : []),
-    `镜头边界：本镜是当前场次第 ${shotIndex + 1}/${shotCount} 个导演镜头，只完成本镜任务；允许多个连续动作，但不得重演上一镜或提前执行下一镜内容`,
-    '镜头隔离：只执行本镜的镜头内容和对白；不得执行、复述或让人物说出本场其他导演镜头的动作、对白或结尾状态',
-    dialogue
-      ? `对白执行：本镜仅使用下方对白并按发生顺序完整说完，共 ${spokenDialogueCues(dialogue).length} 句；网剧镜头目标约 4 句，不得省略、改写或重复到其他镜头`
-      : '对白执行：本镜没有可用对白，不得借用其他镜头台词；只保留本镜的动作声和环境声',
-    fieldPart('镜头内容', content, 720),
-    fieldPart('对白', dialogue || '无对白，仅保留必要动作声和环境声', 420),
+    fieldPart('首帧', opening && !content.includes(opening) ? opening : '', 500),
+    fieldPart('动作', content, Infinity),
+    fieldPart('对白', dialogue || '无台词', Infinity),
     fieldPart('表演', plan.performance, 300),
     fieldPart('声音', plan.sound || fields.声音 || nonSpokenSoundCues(fields.对白).join('；'), 280),
     fieldPart('景别', framing, 120),
-    fieldPart('机位', plan.position || '保持人物运动轴线和视线方向稳定', 220),
-    fieldPart('构图', plan.composition || fields.构图 || `${framing}，主体位置和前中后景关系清晰`, 260),
-    fieldPart('光影', plan.lighting || fields.光影 || '沿用场景既定光源方向与色温', 240),
-    fieldPart('运镜', plan.camera || inferredDirectorCamera(content, dialogue, shotIndex === 0), 320),
-    fieldPart('首帧', plan.firstFrame, 320),
-    fieldPart('尾帧', plan.lastFrame, 320),
-    `执行时序：0-1秒确认首帧和人物位置，1-${Math.max(2, duration - 1)}秒连续完成镜头内容、对白与听者反应，最后1秒固定尾帧人物位置、视线和物件状态`,
-    fieldPart('衔接', fields.衔接 || '人物位置、视线、服装、物件和光线状态交给下一镜', 320),
-    ...(shotIndex === shotCount - 1 ? [fieldPart('出场状态', direction.出场状态, 320)] : []),
+    fieldPart('机位', plan.position, 220),
+    fieldPart('构图', plan.composition || fields.构图, 260),
+    fieldPart('光影', plan.lighting || fields.光影, 240),
+    fieldPart(
+      '运镜',
+      plan.camera || fields.运镜 || inferredDirectorCamera(content, dialogue, shotIndex === 0),
+      320,
+    ),
+    fieldPart('尾帧', ending && !content.includes(ending) ? ending : '', 500),
   ]
     .filter(Boolean)
-    .join('｜')
-}
-
-function shotPlotFor(task: string | undefined, content: string): string {
-  return [task ? `本镜叙事目的：${task}` : '', `本镜只推进：${content}`].filter(Boolean).join('；')
+    .join('\n')
 }
 
 function directorContinuitySource(fields: DirectorSceneFields, plan: DirectorShotSpec): string {

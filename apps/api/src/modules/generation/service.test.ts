@@ -258,7 +258,7 @@ describe('GenerationService task creation', () => {
 
     const task = await service.createTask(input, principal)
 
-    expect(task.prompt).toContain('斗笠试探')
+    expect(task.prompt).toContain('景别：低机位')
     expect(task.prompt).toContain('场景：废弃戏楼屋顶')
     expect(task.prompt).toContain('0-2秒：侠客摘下斗笠。')
     expect(task.prompt).toContain('2-5秒：雷霆人抬起左臂挡开斗笠。')

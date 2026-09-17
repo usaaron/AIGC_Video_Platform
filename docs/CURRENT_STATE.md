@@ -36,7 +36,7 @@
 | 资产管理       | 已开放                 | Postgres + ObjectStorage                               | 人物、场景、物品、服装；音频仅支持上传/配置，不支持 AI 音频生成                               |
 | 图片生成       | 已开放                 | TokenAdvent GPT Image 2                                | 直接导入、参考图再生成、纯文本生成；混元图片模型未配置且禁用                                  |
 | 人物定稿       | 已开放                 | Worker 图片任务                                        | 面部、全身、三视图，支持人种/肤色/瞳色/发色、腿部优化、造型版本                               |
-| 可信人像       | 已开放                 | DoraRouter 素材库 Worker                               | AI 虚拟人入库、状态刷新、已有 AIGC/真人资源查询和绑定；旧 VolcArk 可显式回退                  |
+| 可信人像       | 已开放                 | 弦序 MaaS 素材库 Worker（volc-ark）                    | 新上传 AI 入库到 Active 已验收；DoraRouter 用 AI 面部原图，暂不支持真人 H5 或真人素材视频     |
 | 分镜与分集     | 已开放                 | Postgres                                               | 默认一场一镜、高级动作细拆、30-300 秒自动分集、卡片视频直预览、手工编辑、参考图、前一版本历史 |
 | 视频生成       | 已开放                 | DoraRouter Seedance 兼容接口                           | 图片非必需；资产/文本可直接生成；480p/720p/1080p；单镜音频开启；StringX/Ark 可显式回退        |
 | 连续生成       | 已开放                 | 依赖 + 尾帧                                            | 分段并发、全片串联、全部独立；链内等待上一镜真实尾帧                                          |
@@ -63,16 +63,20 @@
 
 ### 资产
 
+- 2026-09-17 本地界面调整（尚未部署）：资产卡片去重描述并隐藏最终提示词；分镜参考图插入后以琥珀色标记按钮和正文编号，模板保持深绿色，详见 `ASSET_GENERATION.md` 和 `SHOT_REFERENCE_IMAGES.md`。
 - 图片来源分为直接使用原图、参考图再生成和纯提示词生成。
 - 场景、物品和服装最多 3 张参考图；人物面部固定 1:1，三视图设定表固定 16:9。
 - 高级提示词 UI 以完全覆盖为主；contracts 中 `append | replace` 仍为旧数据兼容，不应在新 UI 重新暴露追加选择。
 - 2026-09-14 人物生成修复（2026-09-15 已部署）：标准提示词明确人类身份；Worker 使用 `quality-floor-v2` 按人物任务的 `subjectType` 添加防动物化约束，高级覆盖提示词也生效。明确选择动物的角色保留动物生成能力；缺少类型的旧人物任务默认人类。详见 [资产生成](ASSET_GENERATION.md#服务端质量下限)。验证使用 Provider 测试替身，尚未验证真实付费出图；没有新增图像识别拦截，已有错误图片仍需重新生成。
-- 人物只有确认面部基准后才允许创建 StringX AI 人像资源。入库走 Worker，不依赖编辑器保持打开。
+- 人物只有确认面部基准后才允许创建 AI 人像资源。2026-09-15 补充修复：确认平台生成的人类面部后自动提交 1 积分后台加白任务；重复确认复用任务，失败需手动重试，换脸后旧回写不可覆盖新面部。动物、直接导入和真人授权素材不自动提交。提示词升级为 `quality-floor-v3`，修复 Provider 双重否定并加入服务端正向人类身份约束。验收和发布状态见 [人物身份与自动加白](CHARACTER_IDENTITY_AND_AUTO_PORTRAIT_2026-09-15.md)。
 - 可信人像必须到 `active` 才能在仿真人视频里使用。`processing` 不能当成功，`failed` 必须展示上游错误。
+- 2026-09-15 人物视频实测：AI 图片上传 → 入库 Active → DoraRouter 5 秒视频 → 播放/下载通过。当前通道传已确认 AI 面部原图的临时签名链接，不传弦序 `asset://` 编号；新建真人 H5 与真人授权资源视频仍不开放。发布版本、音轨检查、退款与限制见 [联调记录](PORTRAIT_VIDEO_VALIDATION_2026-09-15.md)。
 - 物品/服装提示词必须排除人、人体和局部肢体；场景提示词根据项目/剧本时代推断，结构化模板不是唯一事实源。
 
 ### 分镜、视频和成片
 
+- 2026-09-17 本地通道配置修复：历史本地 `.env` 显式选择 StringX，曾返回 `429 api key credit quota exceeded`。现已将本地视频配置对齐生产 DoraRouter，并独立指定现有 VolcArk 素材库；本地 health 确认 `dora-router-seedance`，Dora 模型目录鉴权返回 200。仅修复本地环境，未发布代码或触发付费视频；旧失败任务保留原通道和错误记录。
+- 2026-09-17 本地提示词调整（尚未部署）：分镜改为场景、角色、具体动作、原文对白和已有拍摄信息；不再填充抽象目标/阻力/变化、重复剧情、固定节拍或整段前镜回顾。`seedance-storyboard-v17` 完整保留本镜连续动作、时间轴和参考图用途，不再截取第一项动作；旧自动分镜在展示、编辑和新视频请求中使用同一兼容清理逻辑。真实尾帧依赖和编号偏移保留，效果仍需真实出片评估。详见 `SHOT_REFERENCE_IMAGES.md`。
 - 按场次智能生成是一场对应一个视频镜头，不再自动拆场内动作；只有用户主动选择“按动作拆分镜头”时才拆明确动作节拍，逗号不会被当成切镜点。
 - 当前自动分镜不调用导演模型，本质是按剧本换行和动作标点做确定性拆分，再套用景别与时长；它不是完整导演分镜。质量升级方案见 `DIRECTOR_PIPELINE_AUDIT.md`。
 - 网剧镜头时长按 3 到 15 秒规范化，其他项目按 4 到 15 秒规范化。
@@ -110,7 +114,7 @@ flowchart LR
   Outbox --> Redis["Redis / BullMQ"]
   Worker["独立 Worker"] --> Redis
   Worker --> PG
-  Worker --> Providers["文本 / Img2 / Seedance / DoraRouter 素材库"]
+  Worker --> Providers["文本 / Img2 / Seedance / 弦序素材库"]
   API --> Storage["GCS / 本地 ObjectStorage"]
   Worker --> Storage
 ```
@@ -132,6 +136,8 @@ Postgres 是账号、组织、账单、项目、资产、分镜、生成任务�
 - 2026-09-15 13:33（北京时间）：随后已发布主项目 `2f8058164f8a4ed6a8e0b81d996358a183f4cfbd`，API/Worker 使用 `seqora-api:2f8058164f8a`，Web 使用 `seqora-web:2f8058164f8a`，取代上一条配置更新阶段的旧镜像。迁移 `041_script_master_deliveries.sql`、health/readiness、Worker 心跳、未登录 API/Admin 拦截和新静态资源验证通过，DoraRouter 配置完整保留。服务器未部署 `project111-final2` 独立服务，也未配置 `SCRIPT_MASTER_URL/SHARED_SECRET`，因此剧本大师入口仍显示未配置；充值/会员仍为模拟支付。备份与验证详情见 [发布记录](OPERATIONS_RUNBOOK.md#2026-09-15-合并分支主项目发布)。
 
 - 2026-09-15 14:33 起：补齐剧本大师独立服务 `f3d62e11f9a88bc1c7fab16f81bc533b469da555`（从 `final2` 的 `d659fb0` 适配），生产地址 `https://xumutv.com/script-master`。主 API/Worker 保持 `seqora-api:2f8058164f8a`，Web 网关更新为 `seqora-web:2a13788-gateway`，已配置宿主 URL/共享密钥。线上实际 iframe、项目库、新建表单与标签正常，正式接口项目创建/更新/读取验证通过；未付费生成。独立服务增加账号数据库/缓存隔离、读写权限及主站短期票据续期。此次修复覆盖并取代上一条“独立服务未部署”的状态；完整证据见 [部署验收](SCRIPT_MASTER_DEPLOYMENT_2026-09-15.md)。
+
+- 2026-09-15 15:03：加白素材库恢复。DoraRouter `/v1/material` 实测不存在，已单独将 `ASSET_LIBRARY_PROVIDER` 改为 `volc-ark`，使用原有弦序 AK/SK；DoraRouter 视频及剧本大师配置保留。主站 AI/真人素材列表均返回 200，上游列表和已有 Active 素材详情正常；health/readiness 通过。覆盖上文“加白接口 404 未修复”的旧状态，但尚未验证新人物上传及跨线路视频兼容性，当前新建真人 H5 不可用。备份与证据见 [加白接口恢复](OPERATIONS_RUNBOOK.md#2026-09-15-加白素材接口恢复)。
 
 生产凭据、邀请码和用户信息不得写进本文。具体巡检和发布见 `OPERATIONS_RUNBOOK.md`。
 

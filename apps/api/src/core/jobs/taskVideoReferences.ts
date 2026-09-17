@@ -6,6 +6,10 @@ import type { VideoGenerationRequest } from '../generation/videoProvider.js'
 import { generatedDescriptors } from './taskWriteback.js'
 import { resolveStoredImageReference, videoImageUrl, type VideoSourceUrl } from './taskImageReferences.js'
 
+export function hasManualVideoReferences(task: GenerationTask): boolean {
+  return Array.isArray(task.metadata.manualReferenceImages) && task.metadata.manualReferenceImages.length > 0
+}
+
 export async function resolveVideoImages(
   task: GenerationTask,
   store: AppStore,
@@ -39,14 +43,14 @@ export async function resolveVideoImages(
   }
 
   if (!Array.isArray(task.metadata.images)) return images
-  const numbered = Array.isArray(task.metadata.manualReferenceImages)
-  if (numbered && task.metadata.images.length + images.length > 9)
+  const hasManualReferenceImages = hasManualVideoReferences(task)
+  if (hasManualReferenceImages && task.metadata.images.length + images.length > 9)
     throw new Error('视频参考图超过 9 张，请重新保存分镜后生成')
   for (const value of task.metadata.images.slice(0, Math.max(0, 9 - images.length))) {
     if (typeof value !== 'string') continue
     // Static storyboard frames are a legacy pre-video path. New videos rely on
     // asset references and the preceding real video tail frame instead.
-    if (!numbered && legacyStoryboardImageUrl && value === legacyStoryboardImageUrl) continue
+    if (!hasManualReferenceImages && legacyStoryboardImageUrl && value === legacyStoryboardImageUrl) continue
     if (/^asset:\/\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
       images.push({ url: value, role: 'reference_image' })
       continue
@@ -55,15 +59,29 @@ export async function resolveVideoImages(
       images.push({ url: value, role: 'reference_image' })
       continue
     }
-    const stored = await resolveStoredImageReference(store, options.mediaRepository, task, value)
+    let stored: Awaited<ReturnType<typeof resolveStoredImageReference>>
+    try {
+      stored = await resolveStoredImageReference(store, options.mediaRepository, task, value)
+    } catch (error) {
+      if (hasManualReferenceImages) {
+        throw new Error(`视频参考原图读取失败，请重新上传并确认人物面部：${(error as Error).message}`)
+      }
+      continue
+    }
     if (!options.objectStorage || !stored) {
-      if (numbered || task.metadata.providerName === 'dora-router-seedance') {
+      if (hasManualReferenceImages) {
         throw new Error('视频参考原图不存在或无权读取，请重新上传并确认人物面部')
       }
       continue
     }
-    const url = await videoImageUrl(options.objectStorage, stored, options.videoSourceUrl)
-    images.push({ url, role: 'reference_image' })
+    try {
+      const url = await videoImageUrl(options.objectStorage, stored, options.videoSourceUrl)
+      images.push({ url, role: 'reference_image' })
+    } catch (error) {
+      if (hasManualReferenceImages) {
+        throw new Error(`视频参考原图读取失败，请重新上传并确认人物面部：${(error as Error).message}`)
+      }
+    }
   }
   return images
 }

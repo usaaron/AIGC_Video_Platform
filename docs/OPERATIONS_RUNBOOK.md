@@ -17,6 +17,25 @@
 
 生产密钥位于服务器 `/opt/seqora/deploy/demo.env`，权限应为 `600`。不要执行会把该文件内容输出到终端、聊天、CI 日志或文档的命令。
 
+### 2026-09-17 本地视频通道配置纠正
+
+- 本地失败请求 `seedance_req_01a0acac-2725-70b4-adc2-01db92ea49d9` 的任务记录为 `stringx-seedance`；本地 `.env` 仍显式选择 StringX 且没有 Dora 配置。线上 health 同时为 `dora-router-seedance`，不是线上回退或错误文案误标。`api key credit quota exceeded` 表示该上游密钥额度不足，不能仅按普通 429 频率限制处理，也不是站内积分余额不足。
+- 仅将本地 API 的四个视频设置对齐线上现用配置，密钥未输出或提交；素材库显式使用本地已有 VolcArk 凭据，避免视频切换后误启用不存在的 Dora 素材接口。线上配置和历史任务不改动。
+- 重启后本地 health：视频 `dora-router-seedance`、素材库 `volc-ark-material`、队列 `inline`。Dora `/v1/models` 返回 200 且列出所选模型；Provider 选择与 Dora 适配器 25 项测试通过。未执行付费生成，模型目录鉴权不代表生成额度或出片效果已验证。
+- 排查此类问题先比对失败任务的 `metadata.providerName`、当前 `/api/v1/health` 与环境选择器；历史错误不会随通道切换改写，新建任务才使用当前通道。
+
+### 2026-09-15 加白素材接口恢复
+
+后续于 22:27（北京时间）发布人物身份约束与确认后自动加白修复 `8caa3f2`；API/Worker 镜像 `seqora-api:8caa3f2c3e41-identity`，Web 镜像 `seqora-web:8caa3f2c3e41-identity`，备份 `/opt/seqora-backups/portrait-identity-20260915T142716Z`。环境配置和独立剧本大师保留；迁移、readiness、权限保护与线上 Active 人像重复确认不扣费验证通过。详见 [本次验收](CHARACTER_IDENTITY_AND_AUTO_PORTRAIT_2026-09-15.md#生产发布)。
+
+- 15:03（北京时间）核对并修复：DoraRouter 视频入口可达，但 `/v1/material?Action=ListAssetGroups&Version=2024-01-01` 返回 `404 Invalid URL (POST /v1/material)`。其公开文档未提供素材库接口；不能将视频接入成功推断为素材库可用。
+- 使用服务器已有弦序素材库 AK/SK，先只读验证 `ListAssetGroups` / `ListAssets` / `GetAsset`，再将 `ASSET_LIBRARY_PROVIDER` 单独改为 `volc-ark`。源环境文件对比仅该一项变化；API/Worker 同步重建，继续使用 `seqora-api:2f8058164f8a`，DoraRouter 视频地址/模型/密钥及剧本大师配置保留。
+- 发布前无 queued/running 生成任务。备份 `/opt/seqora-backups/material-provider-20260915T070312Z` 包含原环境、镜像版本文件、Compose 文件、5,077,486 字节数据库 dump；私密备份和环境文件权限 600。使用两个 env 文件核对镜像后，仅重建 API/Worker。
+- 验证：health/readiness 200 且 `ready=true`；`providerNames.assetLibrary=volc-ark-material`；未登录素材查询 401；测试账号的 AIGC、LivenessFace 列表均为 200；上游返回 87 条 AI 素材，抽样详情为 `active`。普通测试账号看不到未绑定的 AI 素材，空列表符合现有隔离逻辑。独立剧本大师服务保持 healthy。
+- 此次是配置修复，未更新业务镜像、未上传人物、未调用付费模型；不代表弦序素材与 DoraRouter 视频跨线路兼容性已验收。当前素材 Provider 不实现新建真人 H5 认证，配置返回 `realValidationReady=false`，已有真人素材查询/绑定仍可用。
+- 本地定向回归 33 项通过：VolcArk 素材 Provider、Provider 选择、可信素材 Service。环境模板已显式选择 `volc-ark`，减少新部署再次将素材库指向无效 DoraRouter 路径的风险。
+- 验证摘要保存在备份目录 `verification.json`。如需回退，将备份 `demo.env` 恢复至 `deploy/demo.env`，使用下方两个 env 文件的命令重建 API/Worker；回退会恢复原先不可用的 DoraRouter 素材接口。
+
 ### 2026-09-15 合并分支主项目发布
 
 - 13:33（北京时间）通过源码包发布 `codex/script-master-merged-20260914` 的提交 `2f8058164f8a4ed6a8e0b81d996358a183f4cfbd`。API/Worker 镜像为 `seqora-api:2f8058164f8a`，Web 为 `seqora-web:2f8058164f8a`。
@@ -253,6 +272,12 @@ sudo docker compose --env-file deploy/demo.env -f compose.demo.yml restart worke
 - 当前镜像或源码版本标识。
 
 源码包发布失败时 `update-source.sh` 自动恢复 `/opt/seqora-backups/source-*`。镜像发布失败时 `update-release.sh` 恢复 `release.env`。数据库 migration 通常不能通过切回代码自动回退；破坏性变更必须预先设计向后兼容 migration 和恢复步骤。
+
+## 2026-09-15 AI 人物视频联调发布
+
+当前主站 API/Worker 使用 `seqora-api:1d64262-portrait`，Web 使用 `seqora-web:ed6c7b5-portrait`。源码归档和摘要位于 `/opt/seqora-releases/portrait-1d64262`，在线目录有 `PORTRAIT_HOTFIX_RELEASE.json`。独立剧本大师镜像保持 `f3d62e11f9a8`。
+
+最终发布前备份 `/opt/seqora-backups/portrait-worker-20260915T082128Z`（数据库 5,089,906 字节），已先执行迁移再发布并验证 readiness。完整发布链、所有退款和成功样片证据见 [人物视频联调](PORTRAIT_VIDEO_VALIDATION_2026-09-15.md)。回滚必须同时使用两个 env 文件，且不要回滚素材库/视频密钥配置。旧镜像存在本记录所述人物视频缺陷，回滚后不得继续对外宣称该链路可用。
 
 ## 安全红线
 

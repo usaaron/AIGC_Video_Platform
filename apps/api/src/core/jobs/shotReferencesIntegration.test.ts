@@ -209,6 +209,33 @@ describe('shot editor references through API snapshot, worker and Dora payload',
       'failed',
     )
   })
+  it('skips a missing automatic asset reference when the shot has no manual image', async () => {
+    const { store, context, create } = await fixture(false, true)
+    context.shot.referenceImages = []
+    context.shot.prompt = '角色出现并走过场景。'
+    await create()
+    const provider = {
+      submit: vi.fn(async () => ({ providerTaskId: 'remote-auto-reference', status: 'queued', progress: 0 })),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const storage = {
+      get: vi.fn(async (key: string) => Buffer.from(key)),
+      put: vi.fn(),
+      delete: vi.fn(),
+    } as ObjectStorage
+
+    await new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      videoProviderName: 'stringx-seedance',
+      objectStorage: storage,
+    }).tick()
+
+    expect(provider.submit).toHaveBeenCalledOnce()
+    expect(provider.submit.mock.calls[0]?.[0].images).toEqual([
+      { url: 'asset://trusted-actor', role: 'reference_image' },
+    ])
+  })
   it.each(['dangling', 'overflow'])('rejects %s before charging', async (failure) => {
     const { context, repository, create } = await fixture(true)
     if (failure === 'dangling') context.shot.prompt = '使用【图3】'

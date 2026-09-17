@@ -16,7 +16,7 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { assetDisplayName, characterVariantName } from '@seqora/contracts'
+import { assetDisplayName } from '@seqora/contracts'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { IconButton, PageHeader } from '../components/ui'
 import { AssetEditor } from '../features/assets/AssetEditor'
@@ -28,7 +28,7 @@ import {
   characterAssetStatus,
   latestAssetImageTask,
 } from '../features/assets/assetTaskState'
-import { summarizeAsset } from '../features/assets/promptCompiler'
+import { compactAssetDescription, summarizeAsset } from '../features/assets/promptCompiler'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
 const emptyAssetCopy = {
@@ -315,6 +315,8 @@ function AssetCard({
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
   const [emptyTitle, emptyDescription] = emptyAssetCopy[asset.kind] || ['资产待生成', '完成生成后在此预览']
   const tags = [...(linkedCharacterName ? [`归属：${linkedCharacterName}`] : []), ...summarizeAsset(asset)]
+    .filter(Boolean)
+    .filter((tag, index, all) => all.indexOf(tag) === index)
   const previewUrl = getAssetPreviewUrl(asset, tasks)
   const taskCardState = assetTaskCardState(task, previewUrl)
   return (
@@ -368,24 +370,14 @@ function AssetCard({
         <div className="asset-title">
           <div>
             <h3>{displayName}</h3>
-            <p>{asset.description || '暂无补充说明'}</p>
+            <p>{compactAssetDescription(asset) || '暂无补充说明'}</p>
           </div>
         </div>
         <div className="asset-meta-tags">
-          {asset.kind === 'character' &&
-            (asset.attributes.appearanceVariants || []).map((item) => (
-              <span key={item.id}>{characterVariantName(asset.name, item.name)}</span>
-            ))}
           {tags.map((tag) => (
             <span key={tag}>{tag}</span>
           ))}
         </div>
-        <label>{asset.sourceMode === 'import' ? '素材使用方式' : '最终提示词'}</label>
-        <p className="prompt-text">
-          {asset.sourceMode === 'import'
-            ? '直接使用本地原图，不调用 Img2；描述和标签只用于资产检索与镜头匹配。'
-            : asset.prompt || '编辑资产后自动生成中文提示词'}
-        </p>
         <div className="asset-actions">
           <button onClick={asset.kind === 'character' || asset.sourceMode === 'import' ? onEdit : onGenerate}>
             {asset.kind === 'character' || asset.sourceMode === 'import' ? (

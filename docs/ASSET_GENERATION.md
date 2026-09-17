@@ -18,24 +18,26 @@
 
 人物编辑器按“阶段导航 -> 当前阶段参数 -> 生成结果”的顺序排版。面部阶段的真人/动物、性别、年龄和画风选项位于“身份锚点”结果区上方；全身阶段的体型和背景使用同一位置。人物资产卡始终优先使用 `faceReference` 作为封面，即使后续全身或三视图任务更新了资产输出，也不会用全身图覆盖脸部预览。
 
+资产卡片只展示图片、名称、去重后的简短描述、标签和操作，不展示最终生成提示词。人物的身份、外观和造型各展示一次；无结构化标签的自然语言描述保留。摘要只用于卡片展示，完整描述及提示词仍在编辑器和生成链路中使用。
+
 资产卡、导入参考图、面部/全身候选和三视图源图都可以点击放大。统一预览弹层支持鉴权读取、下载到本地、按钮关闭、点击遮罩关闭和 `Escape` 关闭。人物每个阶段，以及场景、物品、服装编辑器，都提供“后台生成并退出”：前端先保存当前草稿，等待创建任务接口确认入队，再关闭编辑器；建单失败时保留编辑器和错误信息。该操作不等待第三方图片生成完成。
 
 ## 可信人像与人脸审核
 
 素材组的上游 `Description` 上限为 300 个字符。两个素材库适配器统一在提交时截取前 300 个 Unicode 字符，项目中完整的人物描述和生图提示词不受影响。2026-09-16 修复此前按 500 字符提交导致的 `Description exceeds 300 characters`，同时保留真实供应商的错误信息，避免重复附加错误的 Dora 前缀。63 项相关回归通过（含 PostgreSQL 自动加白测试），供应商调用使用接口替身；已有失败任务需要在更新后手动重试。
 
-Seedance 2.0 不允许把任意含真人人脸的公网图片或 Base64 直接作为参考素材。TokenAdvent 生成的仿真人图片属于跨平台产物，也不会自动成为 Dora 可信素材。人物在进入视频任务前按来源走两条真实链路：
+当前主项目要求仿真人或已授权真人引用有效可信素材；TokenAdvent 出图成功不等于在视频供应商完成加白。不同供应商的素材 ID 不能仅凭格式相同就认定互通。人物按来源走以下流程：
 
-1. **AI 虚拟人物**：先确认面部基准，我们的 API 生成 30 分钟有效的 HTTPS 下载地址，再通过配置的素材库 Provider 创建 `GroupType=AIGC` 的素材组和图片资源。`CreateAsset` 是异步接口，状态从 `Processing` 变为 `Active` 后才可用于视频；人物编辑器每 5 秒自动刷新，也保留手动刷新；`Failed` 时显示上游 `Error.Code/Message`。
-2. **已授权真人**：人物编辑器调用 DoraRouter `CreateVisualValidateSession` 生成一次性 H5 链接和二维码；演员本人打开 H5 完成人脸认证，服务端每 3 秒调用 `GetVisualValidateResult`，拿到 `LivenessFace GroupId` 后自动把当前面部基准创建为真人图片素材。`BytedToken` 只保存在服务端，不返回浏览器；认证会话持久化到 Postgres，刷新页面或切换设备后仍可继续同步。产品不能伪造或代替本人认证。
+1. **AI 虚拟人物**：平台生成的人类面部在点击“设为面部基准”后，由确认接口自动提交后台加白任务（1 积分）。未确认的候选、动物、直接导入图片和已授权真人不会自动提交；导入 AI 图片仍可手动创建人像资源。API 生成 24 小时有效的 HTTPS 下载地址，再通过配置的素材库 Provider 创建 `GroupType=AIGC` 的素材组和图片资源。`CreateAsset` 是异步接口，状态从 `Processing` 变为 `Active` 后才可用于视频；人物编辑器每 5 秒自动刷新，也保留手动刷新；`Failed` 时显示上游 `Error.Code/Message`。确认面部成功与加白任务是否成功分别返回，积分不足或配置缺失不会撤销面部确认；自动任务失败需手动重试，不会在每次保存时重复扣费。
+2. **已授权真人**：当前生产 VolcArk 适配器支持查询和绑定已有 `LivenessFace` 素材，不提供新建真人 H5 认证，配置接口返回 `realValidationReady=false`。DoraRouter 适配器中的 `CreateVisualValidateSession` / `GetVisualValidateResult` 是已有代码能力，其素材接口尚未验证可用，不能写成生产已开放。演员认证仍须由本人在支持该能力的供应商处完成。
 
 真人素材建议使用清晰正面图。全身参考图为竖版、人物全身正面；人脸特写图为竖版、正面无表情、肩部以上且面部约占画面三分之二。图片支持 JPEG/JPG/PNG/WebP/GIF/HEIC，小于 30MB，宽高比在 `(0.4, 2.5)`，边长在 300 到 6000px。一个真人素材组只能保存同一演员的不同妆造；每次补充素材都会做人脸一致性校验。
 
-视频和可信素材可以共用 DoraRouter：Seedance 视频和可信人像/加白库默认都走 `https://www.dorarouter.com` 的 Bearer Token，素材库动作使用 `/v1/material?Action=...&Version=2024-01-01`；StringX 与官方 Ark 仍可作为显式回退。旧 MaaS 素材库 `https://maas-ark.stringx.top` 使用一对 Access Key/Secret Key + 火山 SigV4，仅在 `ASSET_LIBRARY_PROVIDER=volc-ark` 时启用。素材的 `ProjectName` 当前默认 `default`，必须与上游工作空间一致：
+2026-09-15 线上核对：DoraRouter `/v1/material?Action=...&Version=2024-01-01` 返回 `404 Invalid URL`，其[公开文档](https://docs.dorarouter.com)没有列出加白接口。生产已将素材库单独切回 `ASSET_LIBRARY_PROVIDER=volc-ark`，地址为 `https://maas-ark.stringx.top`，使用原有 Access Key/Secret Key + 火山 SigV4；视频继续使用 DoraRouter。素材的 `ProjectName` 默认 `default`，必须与上游工作空间一致：
 
 ```dotenv
 PUBLIC_API_BASE_URL=https://xumutv.com
-ASSET_LIBRARY_PROVIDER=dora-router
+ASSET_LIBRARY_PROVIDER=volc-ark
 DORA_ROUTER_BASE_URL=https://www.dorarouter.com
 DORA_ROUTER_API_KEY=
 DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS=300000
@@ -47,15 +49,17 @@ ASSET_LIBRARY_CONSOLE_URL=
 VOLC_ASSET_REQUEST_TIMEOUT_MS=30000
 ```
 
-`DORA_ROUTER_API_KEY` 同时用于视频和可信素材库，不会复制到前端。健康检查的 `providerNames.assetLibrary` 会显示 `dora-router-material`；如需回滚旧素材接口，改为 `ASSET_LIBRARY_PROVIDER=volc-ark` 并同时配置 `VOLC_ACCESS_KEY` 与 `VOLC_SECRET_KEY`，健康检查会显示 `volc-ark-material`。
+当前 `DORA_ROUTER_API_KEY` 用于视频，素材库使用独立的 `VOLC_ACCESS_KEY` / `VOLC_SECRET_KEY`，均不进入前端。健康检查的 `providerNames.assetLibrary` 为 `volc-ark-material`。必须显式配置 `ASSET_LIBRARY_PROVIDER`；代码中遗留的 DoraRouter 默认值不代表该公开主机支持素材 API。只有取得并验证对应素材接口后才能切换回去。
 
-自动入库需要 `PUBLIC_API_BASE_URL`。服务端为已确认面部生成 24 小时有效的 HMAC 签名下载地址，DoraRouter 取回素材后异步入库；链接不包含 API Key，过期或篡改后返回 404。localhost 无法被上游访问，临时隧道也可能在 DoraRouter 异步取图前失效，因此正式联调必须使用稳定 HTTPS Demo 域名或对象存储。
+自动入库需要 `PUBLIC_API_BASE_URL`。服务端为已确认面部生成 24 小时有效的 HMAC 签名下载地址，素材库供应商取回图片后异步入库；链接不包含 API Key，过期或篡改后返回 404。此处的签名链接 404 与 DoraRouter 不存在的 API 路径是两类问题。正式联调必须使用稳定 HTTPS 域名或对象存储。
 
-人物编辑器的“同步白名单”会先调用 `ListAssetGroups(Filter.GroupType)`，再用得到的 `GroupIds` 调用 `ListAssets`；支持 `AIGC` 虚拟人和 `LivenessFace` 已授权真人。DoraRouter 和旧 VolcArk 适配器共享这一业务契约。同步结果以缩略图卡片展示名称、Asset ID 和处理状态，只允许选择 `Active` 素材，同时保留手动输入 Asset ID 作为兜底。绑定结果会写回人物资产并在重新进入编辑器时恢复，无需重复绑定。绑定后，视频建单把人物引用转换为 `asset://<asset_id>` 并提交给弦序 Seedance。弦序 MaaS 当前返回的 ID 可能以 `maas-` 开头，调度器不能假设固定为 `asset-` 前缀；非弦序视频 Provider 引用 `maas-*` 时会在扣积分前拒绝。
+本次恢复已验证主站两类素材列表返回 200、上游 AI 素材查询成功、已有素材详情为 `Active`。后续完成了新图片上传、AI 入库到 Active 的验收，并修正 DoraRouter 视频适配。最终视频结果与发布信息见 [人物视频联调记录](PORTRAIT_VIDEO_VALIDATION_2026-09-15.md)。
+
+人物编辑器的“同步白名单”会先调用 `ListAssetGroups(Filter.GroupType)`，再用得到的 `GroupIds` 调用 `ListAssets`；支持 `AIGC` 虚拟人和 `LivenessFace` 已授权真人。同步结果只允许绑定 Active 素材。StringX 使用 `asset://<asset_id>`；DoraRouter 原生接口实测不支持这个协议，已入库 AI 人物改用已确认面部原图的临时签名链接。DoraRouter 下真人授权素材在分镜建单前返回 `409 REAL_PORTRAIT_VIDEO_UNSUPPORTED`，Worker 再次校验，不把真人资源转换为普通原图提交。
 
 2026-07-20 真实联调确认：`CreateAsset` 成功并返回弦序北京 TOS URL，不等于弦序已成功取到原图。弦序工作人员确认两条测试素材均未上传成功，控制台破损缩略图和长期 `Processing` 是源图获取失败的表现。`Processing` 状态下直接发送 `asset://maas-*` 会返回 `ResourceNotFound (10004)`；发送原始图片或 TOS URL 会返回 `SecurityConstraintViolation (10501)`。必须重新上传并等到 `Active`，不能通过替换 URL 绕过注册。
 
-人物的 `trustedPortrait` 保存非敏感审计字段：Asset ID、Group ID、`AIGC/LivenessFace`、`processing/active/failed`、错误原因和最近校验时间。已 `Active` 的人物在视频请求中使用 `asset://<asset_id>`；分镜图片和资产预览仍使用本地图片 URL。仿真人或已授权真人没有 `Active` 资源时，任务创建接口在积分预扣前返回 `409 TRUSTED_PORTRAIT_REQUIRED`。
+人物的 `trustedPortrait` 保存非敏感审计字段：Asset ID、Group ID、`AIGC/LivenessFace`、面部引用 ID、状态、错误和最近校验时间。视频参考按上述通道能力转换；分镜图片和资产预览仍使用受登录保护的图片 URL。仿真人没有 Active 资源时，任务创建接口在积分预扣前返回 `409 TRUSTED_PORTRAIT_REQUIRED`；当前通道不支持的真人素材也会提前拦截。面板的“已入库”不代表所有视频通道均可使用。
 
 相关接口：
 
@@ -196,7 +200,7 @@ StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Pro
 
 批量入口提供“并发优先”和“连续优先”。并发优先会把已有连续链均衡规划成最多套餐并发数条链，会员最多 3 条、免费用户 1 条；只把新增链首改为 `independent` 并持久化，链内仍按尾帧依赖顺序生成。连续优先完全保留用户现有衔接。后端 Worker 仍是最终并发控制者：会员同一 tick 最多向 Provider 提交 3 个可运行任务，免费用户最多 1 个。队列页显示实际运行数 / 上限。
 
-API 从对象存储读取受保护的分镜图和资产图并转换为 Provider 可读取的图片内容；已激活的可信人物改用 `asset://<asset_id>`。Worker 内部保留 `first_frame/reference_image` 语义，没有图片时只发送提示词。任务用 `videoInputMode` 记录 `storyboard-and-assets`、`assets` 或 `text`，便于排查实际生成路径。请求同时携带模型、项目比例、所选清晰度，并默认请求单镜头音频。网剧镜头限制为 3 到 15 秒，其他内容限制为 4 到 15 秒；建单超时默认 120 秒，建单成功后每 5 秒异步轮询。
+视频与生图共用媒体 Repository 读取上传参考，保留项目与组织过滤。DoraRouter 生产请求使用 24 小时 HMAC 签名图片链接，防止大图 base64 超过网关限制；原图及连续镜头尾帧均适用，内联与独立 Worker 共用签名方法。缺少参考原图时明确失败，不静默丢图生成。其他通道的可信资源仍使用其支持的素材 URI。请求包含模型、比例、清晰度和单镜头音频；网剧镜头为 3 到 15 秒，其他内容为 4 到 15 秒，提交成功后每 5 秒轮询。
 
 承接镜头的上一镜尾帧排在弦序 `content` 图片数组首位，最多仍遵守 9 张图片限制。有当前目标分镜图时提交成对首尾帧；只有上一镜尾帧时使用 `reference_image`，避免触发弦序校验。它不会替代人物/场景的结构化资产，也不会把上一段视频当作当前镜头视频输入。
 

@@ -3466,7 +3466,7 @@ describe('API authorization', () => {
       title: '镜头 08',
       prompt: '剧本段落 8',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场已完成'),
+      continuityNote: '',
       imageUrl: null,
     })
     expect(generate).not.toHaveBeenCalled()
@@ -3573,7 +3573,7 @@ describe('API authorization', () => {
       title: '场次 1 · 动作 2',
       framing: '特写',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一镜已完成'),
+      continuityNote: '',
       prompt: expect.stringContaining('动作：她举起信封确认地址'),
     })
     expect(response.json()[1].prompt).toContain('[内心独白]林夏：有人来过。')
@@ -3587,7 +3587,7 @@ describe('API authorization', () => {
     expect(response.json()[3]).toMatchObject({
       title: '场次 2 · 动作 1',
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一场已完成'),
+      continuityNote: '',
     })
   })
 
@@ -3640,14 +3640,14 @@ describe('API authorization', () => {
     expect(response.json()[0]).toMatchObject({ continuityMode: 'independent' })
     expect(response.json()[1]).toMatchObject({
       continuityMode: 'continue',
-      continuityNote: expect.stringContaining('上一镜终态'),
+      continuityNote: expect.stringContaining('开场：林夏保持上一动作结束姿态'),
     })
-    expect(response.json()[1].continuityNote).toContain('本镜动作起点')
+    expect(response.json()[1].continuityNote).not.toContain('已完成林夏推开候车室木门')
     expect(response.json()[2]).toMatchObject({
       continuityMode: 'independent',
-      continuityNote: expect.stringContaining('只承接剧情状态，不携带上一场画面构图'),
+      continuityNote: '',
     })
-    expect(response.json()[2].continuityNote).toContain('人物位置、构图与光线按本镜新场景重新建立')
+    expect(response.json()[2].prompt).toContain('场景：清晨出租屋，窗外天光')
     expect(response.json()[3]).toMatchObject({ continuityMode: 'independent' })
   })
 
@@ -3708,9 +3708,9 @@ describe('API authorization', () => {
       scriptEpisodeId: secondEpisode.json().id,
       episodeNumber: 2,
       continuityMode: 'independent',
-      continuityNote: expect.stringContaining('上一集剧情终态'),
+      continuityNote: '',
     })
-    expect(secondShots.json()[0].continuityNote).toContain('不得读取上一集尾帧作为视觉参考')
+    expect(secondShots.json()[0].prompt).not.toContain('信封已经被人取走')
     expect(finalWorkspace.json().shots).toHaveLength(firstShots.json().length + secondShots.json().length)
     expect(
       finalWorkspace

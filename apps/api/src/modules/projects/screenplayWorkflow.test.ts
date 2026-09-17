@@ -51,6 +51,19 @@ const SINGLE_SCENE_WITH_DENSE_DIALOGUE = `场次：S01｜药店后巷｜傍晚�
 林晚：“抓紧我的肩。”`
 
 describe('readable screenplay workflow', () => {
+  it('writes concrete shots without duplicating actions or inventing lighting and staging', () => {
+    const script =
+      '场次：S01｜时长：20秒｜场景：废弃东街，白天｜角色：陈默、老周｜动作：陈默向亭边走三步；他停步握紧右拳；老周转身跑向后门；陈默留在原地观察街道｜对白：[对白]陈默：有人来了。；[对白]老周：跟我走。｜运镜：固定机位'
+    const shots = splitScriptIntoSmartSceneShots(splitScriptParagraphs(script), 120, true)
+    expect(shots).toHaveLength(2)
+    const prompts = shots.map((shot) => shot.prompt).join('\n')
+    expect(prompts.match(/陈默向亭边走三步/gu)).toHaveLength(1)
+    expect(prompts.match(/老周转身跑向后门/gu)).toHaveLength(1)
+    expect(prompts).not.toMatch(/叙事目的|镜头任务|阻力：|角色完成|执行时序|光影：|听者保留在前景/u)
+    expect(shots[1]?.continuityNote).toBe('')
+    expect(shots[0]?.prompt).toContain('运镜：固定机位')
+  })
+
   it('parses scene metadata, action, dialogue, and sound without visible production fields', () => {
     const paragraphs = splitScriptParagraphs(READABLE_SCRIPT)
     const first = parseShotFields(paragraphs[0]!.text)
@@ -83,7 +96,7 @@ describe('readable screenplay workflow', () => {
     expect(shots[1]?.prompt).not.toContain('卷帘门外十余只丧尸连续撞门')
     expect(shots[1]?.prompt).not.toContain('林晚：门能进，跟我走。')
     expect(shots[1]?.prompt).not.toContain('程野：后门能走吗？')
-    expect(shots[0]?.prompt).toContain('镜头隔离：只执行本镜的镜头内容和对白')
+    expect(shots[0]?.prompt).not.toMatch(/镜头隔离|本镜叙事目的|镜头任务|角色完成当前可见行动|执行时序/u)
   })
 
   it('keeps each natural scene shot and its dialogue cues disjoint', () => {

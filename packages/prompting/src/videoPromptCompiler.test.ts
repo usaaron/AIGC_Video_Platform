@@ -15,8 +15,8 @@ describe('compileStoryboardVideoPrompt', () => {
       assets: [{ id: 'gu', kind: 'character', name: '顾砚', description: '短发，蓝色工装' }],
       references: [{ id: 'gu', appearance: { name: '顾砚-礼服版本', description: '黑色羊毛礼服' } }],
     })
-    expect(prompt).toContain('本镜头使用“顾砚-礼服版本”：黑色羊毛礼服')
-    expect(prompt).toContain('服装仅采用此版本，优先于人物基础描述中的旧服饰')
+    expect(prompt).toContain('服装采用“顾砚-礼服版本”（黑色羊毛礼服）')
+    expect(prompt).not.toContain('蓝色工装')
   })
   it('combines a focused shot beat, asset identity and continuity rules', () => {
     const shots = [
@@ -52,21 +52,20 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'lin' }, { id: 'station' }],
     })
 
-    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v16')
-    expect(prompt).toContain('连续4秒、9:16画幅')
-    expect(prompt).toContain('【当前镜头】镜头，特写')
+    expect(VIDEO_PROMPT_VERSION).toBe('seedance-storyboard-v17')
+    expect(prompt).toContain('4秒，9:16')
+    expect(prompt).toContain('景别：特写')
     expect(prompt).not.toContain('上一镜结束：场景：雨夜旧火车站。')
     expect(prompt).not.toContain('下一镜开始：周野将旧铁盒放在长椅上。')
     expect(prompt).not.toContain('【前后镜头】')
     expect(prompt).not.toContain('【剧本上下文】')
-    expect(prompt).toContain('人物“林夏”保持参考图中的脸')
-    expect(prompt).toContain('场景“三号站台”保持结构')
-    expect(prompt).toContain('自然眨眼、呼吸、转头')
-    expect(prompt).toContain('【群像表演】')
-    expect(prompt).toContain('【声音执行】')
-    expect(prompt).toContain('不要输出静音视频')
-    expect(prompt).toContain('不是静止图片，不是幻灯片')
-    expect(prompt).toContain('禁止突然切镜、跳时、回切和蒙太奇')
+    expect(prompt).toContain('人物“林夏”沿用对应参考图的面部')
+    expect(prompt).toContain('场景“三号站台”采用对应参考图的外观')
+    expect(prompt).toContain('对白：（林夏）“胶片在哪里？”')
+    expect(prompt).toContain('声音：按正文生成对白和现场声')
+    expect(prompt).not.toMatch(/群像表演|每 2 到 3 秒|主动作|时间推进|电影感/)
+    expect(prompt).not.toContain('透明雨伞')
+    expect(prompt.length).toBeLessThan(600)
   })
 
   it('adds an explicit first-frame continuity rule for linked shots', () => {
@@ -81,10 +80,9 @@ describe('compileStoryboardVideoPrompt', () => {
       continuityMode: 'continue',
     })
 
-    expect(prompt).toContain('【镜头衔接】严格承接上一镜头尾帧')
-    expect(prompt).toContain('第一张是唯一的上一镜真实尾帧')
-    expect(prompt).toContain('不得用后续参考图重构首帧')
-    expect(prompt).toContain('【场景衔接上下文】上一场人物右手握住门把手')
+    expect(prompt).toContain('以输入图1（上一镜尾帧）作为开场')
+    expect(prompt).toContain('其他参考图用于外观，不替换开场画面')
+    expect(prompt).toContain('补充说明：上一场人物右手握住门把手')
   })
 
   it('uses episode continuity as narrative context without carrying over the previous frame', () => {
@@ -97,14 +95,26 @@ describe('compileStoryboardVideoPrompt', () => {
       continuityMode: 'independent',
     })
 
-    expect(prompt).toContain('【独立镜头】')
-    expect(prompt).toContain('【剧情承接（仅叙事约束）】上一集结尾')
-    expect(prompt).toContain('禁止使用上一镜或上一集尾帧')
-    expect(prompt).toContain('当前场景、人物位置和动作必须以当前分镜事实为准')
-    expect(prompt).not.toContain('【场景衔接上下文】')
+    expect(prompt).toContain('补充说明：上一集结尾')
+    expect(prompt).not.toContain('输入图1（上一镜尾帧）')
+    expect(prompt).not.toContain('0-1秒延续上镜状态')
   })
 
-  it('keeps one executable primary action and bounds a production prompt', () => {
+  it('states an explicit opening only once when it is already in the shot', () => {
+    const prompt = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9' },
+      shot: {
+        ...shot('opening', '首帧：陈默站在铁皮亭外，右手握拳。\n动作：他转身看向街角。'),
+        continuityNote: '开场：陈默站在铁皮亭外，右手握拳。',
+      },
+      continuityMode: 'continue',
+    })
+    expect(prompt.match(/陈默站在铁皮亭外，右手握拳/gu)).toHaveLength(1)
+    expect(prompt).toContain('他转身看向街角')
+    expect(prompt).toContain('输入图1（上一镜尾帧）')
+  })
+
+  it('retains every action in a shot without copying the entire script', () => {
     const prompt = compileStoryboardVideoPrompt({
       project: { aspectRatio: '9:16', script: '很长的剧本'.repeat(1_000) },
       shot: shot(
@@ -116,8 +126,10 @@ describe('compileStoryboardVideoPrompt', () => {
     })
 
     expect(prompt).toContain('动作：林夏踏入积水')
-    expect(prompt).not.toContain('她举起信封')
-    expect(prompt).toContain('【主动作】必须完整拍完这一项')
+    expect(prompt).toContain('她举起信封')
+    expect(prompt).toContain('挂钟突然倒转')
+    expect(prompt.match(/林夏踏入积水/gu)).toHaveLength(1)
+    expect(prompt).not.toContain('很长的剧本')
     expect(prompt.length).toBeLessThan(4_000)
   })
 
@@ -132,9 +144,9 @@ describe('compileStoryboardVideoPrompt', () => {
       ),
     })
 
-    expect(prompt).toContain('场次目标：岚星确认异常来源')
-    expect(prompt).toContain('场次阻力：巡逻守卫正在接近')
-    expect(prompt).toContain('场次变化：坐标指向导航环')
+    expect(prompt).toContain('目标：岚星确认异常来源')
+    expect(prompt).toContain('阻力：巡逻守卫正在接近')
+    expect(prompt).toContain('变化：坐标指向导航环')
     expect(prompt).toContain('入场状态：岚星停在左侧护栏旁')
     expect(prompt).toContain('出场状态：岚星右手握住导航环')
   })
@@ -156,8 +168,8 @@ describe('compileStoryboardVideoPrompt', () => {
       references: [{ id: 'hero' }, { id: 'damaged-costume' }],
     })
 
-    expect(prompt).toContain('服装造型以服装资产“轻度战损变体”为唯一准则')
-    expect(prompt).toContain('不得退回人物参考图中的旧服装')
+    expect(prompt).toContain('服装采用“轻度战损变体”')
+    expect(prompt).not.toContain('灰色常服')
   })
 
   it('preserves an explicit director timeline without conflicting single-action rules', () => {
@@ -176,9 +188,7 @@ describe('compileStoryboardVideoPrompt', () => {
       shot: shot('timeline', source, '低机位', 5),
     })
 
-    expect(prompt).toContain('【导演时间轴（最高优先级）】')
     expect(prompt).toContain(source)
-    expect(prompt).toContain('严格逐段执行导演时间轴')
     expect(prompt).not.toContain('本镜只完成一个主动作')
     expect(prompt).not.toContain('【主动作】')
     expect(prompt).not.toContain('【时间推进】0-1秒')
@@ -192,7 +202,7 @@ describe('compileStoryboardVideoPrompt', () => {
     })
 
     expect(extractScreenText(source)).toBe('万柏林区')
-    expect(prompt).toContain('禁止生成任何汉字、字母、数字')
+    expect(prompt).toContain('不生成汉字、字母、数字')
     expect(prompt).not.toContain('屏幕文字：万柏林区')
     expect(prompt).not.toContain('万柏林区')
   })
@@ -205,11 +215,10 @@ describe('compileStoryboardVideoPrompt', () => {
       shot: shot('ratio', source, '大全景', 5),
     })
 
-    expect(prompt).toContain('【导演时间轴（最高优先级）】')
     expect(prompt).toContain('清晨的汾河西岸滨河绿道')
     expect(prompt).toContain('青年沿绿道晨跑')
     expect(prompt).not.toContain('雨滴持续下落')
-    expect(prompt).toContain('不得凭空下雨')
+    expect(prompt).not.toContain('雨滴')
   })
 
   it('keeps an unstructured aspect-ratio prompt as authoritative shot facts', () => {
@@ -219,8 +228,37 @@ describe('compileStoryboardVideoPrompt', () => {
       shot: shot('plain-ratio', source, '中景', 5),
     })
 
-    expect(prompt).toContain('【当前分镜事实（最高优先级）】')
     expect(prompt).toContain(source)
+  })
+  it('preserves a long user timeline, reference instructions and camera choice', () => {
+    const source = `镜头固定，不推拉。${'人物绕过障碍，停步观察。'.repeat(80)}最后伸手接住【图1】中的红色杯子。`
+    const result = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9' },
+      shot: shot('long', source),
+      manualReferenceCount: 1,
+    })
+    expect(result).toContain(source)
+    expect(result).not.toContain('轻微推进')
+    expect(result).not.toContain('风带动头发')
+  })
+
+  it('does not override explicitly silent footage or invent weather from asset descriptions', () => {
+    const result = compileStoryboardVideoPrompt({
+      project: { aspectRatio: '16:9' },
+      shot: shot('silent', '场景：晴天街道｜动作：人物停步｜声音：静音'),
+      assets: [
+        {
+          id: 'person',
+          kind: 'character',
+          name: '路人',
+          description: '拿着雨伞',
+          attributes: { gender: 'male', faceStatus: 'confirmed' },
+        },
+      ],
+      references: [{ id: 'person' }],
+    })
+    expect(result).not.toContain('按正文生成对白')
+    expect(result).not.toMatch(/雨声|雨滴|gender=|faceStatus=/)
   })
 })
 

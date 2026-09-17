@@ -28,7 +28,7 @@ import {
   taskOutputUrl,
   videoResolutionForTask,
 } from './storyboardState'
-import { normalizedVideoDuration } from '@seqora/prompting'
+import { cleanShotContinuityNote, cleanStoryboardPrompt, normalizedVideoDuration } from '@seqora/prompting'
 
 export function ShotRow({
   shot,
@@ -53,6 +53,7 @@ export function ShotRow({
   onGenerateVideo,
 }) {
   const videoTask = taskFor(tasks, shot, 'video')
+  const continuityNote = cleanShotContinuityNote(shot.continuityNote, shot.continuityMode)
   const versions = shotVersionState(tasks, shot, 'video')
   const canRollback = Boolean(versions.previous && taskOutputUrl(versions.previous.task, 'video'))
   const previewVideoTaskId = selectedVersionTaskId(tasks, shot, 'video')
@@ -142,11 +143,11 @@ export function ShotRow({
               <Clock3 size={13} /> 输出 {normalizedVideoDuration(shot.duration, minDuration)} 秒
             </span>
           </div>
-          <p>{shot.prompt}</p>
-          {shot.continuityNote && (
+          <p>{cleanStoryboardPrompt(shot.prompt)}</p>
+          {continuityNote && (
             <p className="shot-continuity-context">
               <Link2 size={13} />
-              <span>{shot.continuityNote}</span>
+              <span>{continuityNote}</span>
             </p>
           )}
           <div className="shot-tags">

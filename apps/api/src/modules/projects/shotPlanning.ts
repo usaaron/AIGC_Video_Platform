@@ -1,4 +1,4 @@
-import type { CreateShot, GenerateShotsRequest, ScriptEpisode } from '@seqora/contracts'
+import type { CreateShot, GenerateShotsRequest } from '@seqora/contracts'
 import { FORCE_EPISODE_BREAK_MARKER, FORCE_SHOT_BREAK_MARKER } from '@seqora/contracts'
 import { isNaturalScreenplayHeader, parseNaturalScreenplayFields } from './screenplayParsing.js'
 
@@ -456,24 +456,21 @@ export function splitScriptIntoBeatShots(
         .join('；')
       const duration = estimateShotDuration(beat, dialogue, fields, isWebSeries)
       const previousSource =
-        beatIndex > 0
-          ? continuitySource(fields, direction, beats[beatIndex - 1] || '')
-          : previousParagraph?.text || ''
-      const currentSource = continuitySource(fields, direction, beat)
+        beatIndex > 0 ? continuitySource(fields, beats[beatIndex - 1] || '') : previousParagraph?.text || ''
+      const currentSource = continuitySource(fields, beat)
       shots.push({
         title: `场次 ${sceneNumber} · 动作 ${beatIndex + 1}`,
         framing: beatFraming(fields.构图, beat, dialogue, beatIndex, beats.length),
         duration,
-        prompt: compactShotPrompt(fields, direction, beat, dialogue, duration, beatIndex, beats.length),
+        prompt: compactShotPrompt(fields, direction, beat, dialogue, beatIndex, beats.length),
         negativePrompt: '',
         imageUrl: null,
         episodeBreakBefore: beatIndex === 0 && scriptParagraph.forceEpisodeBreakBefore,
         episodeKind: isHookParagraph(paragraph) && beatIndex === beats.length - 1 ? 'hook' : 'standard',
         continuityMode:
           shots.length === 0 || (beatIndex === 0 && !continuesPreviousScene) ? 'independent' : 'continue',
-        continuityNote: continuityNoteFor(previousSource, beatIndex > 0 ? '上一镜' : '上一场', {
+        continuityNote: continuityNoteFor(previousSource, {
           entryState: beatIndex === 0 ? direction.入场状态 : undefined,
-          exitState: beatIndex === beats.length - 1 ? direction.出场状态 : undefined,
           current: currentSource,
           visualContinuity: beatIndex > 0 || continuesPreviousScene,
         }),
@@ -505,16 +502,7 @@ export function splitScriptIntoSceneShots(
         ? estimateShotDuration(fields.动作 || fields.剧情 || paragraph, fields.对白, fields, isWebSeries)
         : Math.min(15, Math.max(isWebSeries ? 3 : 4, Math.ceil(paragraph.length / 18))),
       prompt: structured
-        ? compactShotPrompt(
-            fields,
-            direction,
-            fields.动作 || fields.剧情 || paragraph,
-            fields.对白,
-            undefined,
-            0,
-            1,
-            'scene',
-          )
+        ? compactShotPrompt(fields, direction, fields.动作 || fields.剧情 || paragraph, fields.对白, 0, 1)
         : paragraph,
       negativePrompt: '',
       imageUrl: null,
@@ -522,9 +510,8 @@ export function splitScriptIntoSceneShots(
       episodeKind: isHookParagraph(paragraph) ? ('hook' as const) : ('standard' as const),
       continuityMode:
         index === 0 || !continuesPreviousScene ? ('independent' as const) : ('continue' as const),
-      continuityNote: continuityNoteFor(previousParagraph?.text || '', '上一场', {
+      continuityNote: continuityNoteFor(previousParagraph?.text || '', {
         entryState: direction.入场状态,
-        exitState: direction.出场状态,
         current: paragraph,
         visualContinuity: continuesPreviousScene,
       }),
@@ -539,61 +526,29 @@ export function isHookParagraph(paragraph: string): boolean {
 
 export function continuityNoteFor(
   previous: string,
-  previousLabel: '上一场' | '上一镜',
   sceneState: {
     entryState?: string | undefined
-    exitState?: string | undefined
     current?: string | undefined
     visualContinuity?: boolean | undefined
   } = {},
 ): string {
   if (!previous.trim()) return ''
-  const previousDirection = parseSceneDirectionFields(previous)
-  const previousFields = parseShotFields(previous)
-  const currentFields = parseShotFields(sceneState.current || '')
-  const previousAction = previousFields.动作 || previousFields.剧情 || previous
-  const currentAction = currentFields.动作 || currentFields.剧情 || sceneState.current || ''
-  return [
-    sceneState.visualContinuity
-      ? `${previousLabel}已完成；首帧直接承接该镜真实尾帧，不得重演、解释或复述上一镜已经完成的事件。`
-      : `${previousLabel}已完成；本镜使用独立首帧，只承接剧情状态，不携带上一场画面构图。`,
-    `上一镜终态：${[
-      previousFields.场景 ? `场景在${headExcerpt(previousFields.场景, 100)}` : '',
-      previousFields.角色 ? `人物为${headExcerpt(previousFields.角色, 140)}` : '',
-      previousAction ? `已完成${tailExcerpt(previousAction, 180)}` : '',
-      previousDirection.出场状态 ? `形成${tailExcerpt(previousDirection.出场状态, 180)}` : '',
-    ]
-      .filter(Boolean)
-      .join('；')}`,
-    `本镜动作起点：${[
-      currentFields.场景 ? `场景为${headExcerpt(currentFields.场景, 100)}` : '',
-      currentFields.角色 ? `画内人物为${headExcerpt(currentFields.角色, 140)}` : '',
-      sceneState.entryState ? headExcerpt(sceneState.entryState, 180) : '',
-      currentAction ? `随后只执行${headExcerpt(currentAction, 180)}` : '',
-    ]
-      .filter(Boolean)
-      .join('；')}`,
-    sceneState.visualContinuity
-      ? '人物位置、视线、动作方向、服装、关键物品和光线保持连续；本镜直接执行自己的主动作。'
-      : '人物身份、服装和关键物品归属保持连续；人物位置、构图与光线按本镜新场景重新建立。',
-    '本镜结束时保留清晰的结束姿态、视线落点和物件状态，供下一镜真实尾帧直接承接。',
-    sceneState.exitState ? `本镜所在场次的最终出场状态：${tailExcerpt(sceneState.exitState, 220)}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
+  if (!sceneState.visualContinuity) return ''
+  // The actual previous frame carries visual state. Only add an explicitly known opening;
+  // never copy a completed action or a whole scene's future ending into this shot.
+  const opening = sceneState.entryState || parseSceneDirectionFields(previous).出场状态
+  if (opening && parseShotFields(sceneState.current || '').动作?.includes(opening)) return ''
+  return opening ? `开场：${opening}` : ''
 }
 
 function continuitySource(
   fields: Partial<Record<(typeof SHOT_FIELD_NAMES)[number], string>>,
-  direction: SceneDirectionFields,
   action: string,
 ): string {
   return [
     fieldPart('场景', fields.场景, 320),
     fieldPart('角色', fields.角色, 420),
-    fieldPart('动作', action, 520),
-    fieldPart('入场状态', direction.入场状态, 240),
-    fieldPart('出场状态', direction.出场状态, 240),
+    fieldPart('动作', action, Infinity),
   ]
     .filter(Boolean)
     .join('｜')
@@ -633,30 +588,6 @@ export function normalizedSceneIdentity(value: string): string {
     .replace(/(?:清晨|早晨|上午|中午|下午|傍晚|黄昏|深夜|夜晚|夜间|白天|雨天|雪天|晴天|雾天)/gu, '')
     .replace(/[\s·|｜()（）【】\-—]/gu, '')
     .trim()
-}
-
-export function episodeOpeningContinuityNote(
-  previousEpisode: ScriptEpisode | undefined,
-  episode: ScriptEpisode,
-  shotContinuityNote: string,
-): string {
-  if (!previousEpisode) return shotContinuityNote
-  const previousState = Object.keys(previousEpisode.continuityState || {}).length
-    ? JSON.stringify(previousEpisode.continuityState)
-    : previousEpisode.summary || previousEpisode.content.replace(/\s+/gu, ' ').slice(-500)
-  return [
-    `剧集边界：第 ${episode.episodeNumber} 集使用独立首帧，不得读取上一集尾帧作为视觉参考。`,
-    `上一集剧情终态：${tailExcerpt(previousState, 500)}`,
-    '只承接人物关系、已知信息、情绪和关键物品归属；当前镜头的场景、时间、人物位置与动作以本集开场分镜为准。',
-    shotContinuityNote,
-  ]
-    .filter(Boolean)
-    .join('\n')
-}
-
-function tailExcerpt(value: string, limit: number): string {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  return normalized.length <= limit ? normalized : normalized.slice(-limit)
 }
 
 export function headExcerpt(value: string, limit: number): string {
@@ -763,44 +694,29 @@ function compactShotPrompt(
   direction: SceneDirectionFields,
   beat: string,
   dialogue?: string,
-  duration?: number,
   beatIndex = 0,
   beatCount = 1,
-  scope: 'scene' | 'beat' = 'beat',
 ): string {
-  const action = beat.trim() || fields.动作 || '角色保持当前状态并产生可见变化'
-  const resolvedDialogue =
-    dialogue === undefined
-      ? fields.对白 || '无台词，角色通过表情和动作传达变化'
-      : dialogue || '无台词，仅保留本镜动作声、环境声和画内人物反应'
+  const action = beat.trim() || fields.动作 || fields.剧情 || ''
+  const opening = beatIndex === 0 ? direction.入场状态 : ''
+  const ending = beatIndex === beatCount - 1 ? direction.出场状态 : ''
   return [
-    fieldPart('场次', fields.场次 || '未编号场次', 24),
-    fieldPart('剧情', fields.剧情 || '本场继续推进当前冲突', 260),
-    fieldPart('目标', direction.目标 || '角色完成当前可见行动', 180),
-    fieldPart('阻力', direction.阻力 || '当前环境或对手阻碍角色推进', 180),
-    fieldPart('变化', direction.变化 || '动作结束后角色状态发生可见变化', 180),
-    fieldPart('场景', fields.场景 || '沿用上一场空间与时间', 320),
-    fieldPart('角色', fields.角色 || '沿用上一场所有角色；每位画面内人物都必须有动作、表情或视线变化', 420),
-    ...(beatIndex === 0 ? [fieldPart('入场状态', direction.入场状态, 240)] : []),
-    fieldPart(
-      '镜头边界',
-      scope === 'scene'
-        ? '本镜只覆盖当前场次，按动作字段顺序完成，不重演上一场，不提前进入下一场'
-        : '本镜只表现当前动作，不重演上一镜已完成动作，不提前执行本场后续动作',
-      160,
-    ),
-    fieldPart('动作', action, 520),
-    fieldPart('对白', resolvedDialogue, 280),
-    fieldPart('风格', fields.风格 || '沿用项目视觉风格，角色与场景材质统一', 180),
-    fieldPart('构图', fields.构图 || '中景，主体位于画面重心，前中后景清晰', 220),
-    fieldPart('光影', fields.光影 || '沿用上一场光源方向和色温，避免跳变', 200),
-    fieldPart('运镜', fields.运镜 || '稳定跟随动作，结尾停在下一动作起点', 240),
-    fieldPart('衔接', fields.衔接 || '承接上一场人物位置、视线、动作、服装、物件和光线状态', 300),
-    ...(beatIndex === beatCount - 1 ? [fieldPart('出场状态', direction.出场状态, 240)] : []),
-    fieldPart('导演节拍', directorBeatFor(action, fields.角色, resolvedDialogue, duration, scope), 480),
+    fieldPart('场景', fields.场景, 420),
+    fieldPart('角色', fields.角色, 520),
+    fieldPart('服装', fields.服装, 260),
+    fieldPart('关键物件', fields.关键物件, 260),
+    fieldPart('首帧', opening && !action.includes(opening) ? opening : '', 500),
+    fieldPart('动作', action, Infinity),
+    fieldPart('对白', (dialogue === undefined ? fields.对白 : dialogue) || '无台词', Infinity),
+    fieldPart('声音', fields.声音, 280),
+    fieldPart('风格', fields.风格, 180),
+    fieldPart('构图', fields.构图, 220),
+    fieldPart('光影', fields.光影, 200),
+    fieldPart('运镜', fields.运镜, 240),
+    fieldPart('尾帧', ending && !action.includes(ending) ? ending : '', 500),
   ]
     .filter(Boolean)
-    .join('｜')
+    .join('\n')
 }
 
 function estimateShotDuration(
@@ -838,48 +754,6 @@ export function dialogueTextForTiming(dialogue: string | undefined): string {
     .replace(/\[(?:音效|环境声|音乐|音乐\/环境声)\][^；;]*/gu, '')
     .replace(/[\s，。！？、；;“”"'（）()——-]/gu, '')
     .trim()
-}
-
-function directorBeatFor(
-  action: string,
-  roleField: string | undefined,
-  dialogue: string | undefined,
-  duration: number | undefined,
-  scope: 'scene' | 'beat' = 'beat',
-): string {
-  const roles = namedRolesForDirector(roleField)
-  const lead = roles[0] || '主角'
-  const supporting = roles.slice(1).join('、')
-  const hasDialogue = dialogueTextForTiming(dialogue).length > 0 && !/无台词/u.test(String(dialogue || ''))
-  const endSecond = Math.max(2, Number(duration || 4) - 1)
-  return [
-    scope === 'scene'
-      ? `本镜完整表现当前场次，不新增场外事件：${headExcerpt(action, 180)}`
-      : `本镜只完成一个主动作：${headExcerpt(action, 180)}`,
-    scope === 'scene'
-      ? `0-1 秒承接入场状态，1-${endSecond} 秒按动作字段的既定顺序完成表演与反应，最后 1 秒固定人物位置、视线和物件状态`
-      : `0-1 秒承接既有状态，1-${endSecond} 秒完整表现动作起势、执行与一次表情或视线变化，最后 1 秒停在可被下一镜承接的结束姿态`,
-    supporting
-      ? `主角 ${lead} 推进主动作；配角 ${supporting} 只做同步的转头、视线、停步或姿态反应，不新增第二个剧情动作`
-      : `主角 ${lead} 推进主动作；其他画内人物只做同步的视线、表情或姿态反应，不新增第二个剧情动作`,
-    hasDialogue
-      ? '对白在动作进行中自然说完，口型与听者反应同步，不为念完长台词而另起动作'
-      : '无对白时用表情、视线、环境声和动作音效推进信息，不留空镜填时长',
-  ].join('；')
-}
-
-function namedRolesForDirector(roleField: string | undefined): string[] {
-  const raw = String(roleField || '').trim()
-  if (!raw) return []
-  const profiledRoles = [...raw.matchAll(/(?:^|[；;])\s*([^（(；;]{1,40})[（(]/gu)]
-    .map((match) => match[1]?.trim())
-    .filter((name): name is string => Boolean(name))
-  if (profiledRoles.length) return profiledRoles
-  return raw
-    .split(/[；;]/u)
-    .flatMap((role) => (role.split(/[，,]/u)[0] || '').split('、'))
-    .map((role) => role.replace(/[（(].*$/u, '').trim())
-    .filter(Boolean)
 }
 
 export function fieldPart(label: string, value: string | undefined, limit: number): string {

@@ -37,15 +37,18 @@
 
 ## 测试与质量
 
-| 文档                                                         | 用途                                           |
-| ------------------------------------------------------------ | ---------------------------------------------- |
-| [BACKEND_TESTING.md](BACKEND_TESTING.md)                     | 单元、契约、集成和安全测试分层                 |
-| [TEST_REPORT_2026-09-14.md](TEST_REPORT_2026-09-14.md)       | 主项目与剧本大师本地全量测试、失败项和上线阻断 |
-| [SCRIPT_MASTER_INTEGRATION.md](SCRIPT_MASTER_INTEGRATION.md) | 独立剧本大师运行、交接边界与已知限制           |
-| [NON_FUNCTIONAL_QUALITY.md](NON_FUNCTIONAL_QUALITY.md)       | k6、混沌和安全测试计划                         |
-| [RELIABILITY_GATES.md](RELIABILITY_GATES.md)                 | CI 与生产拨测门禁                              |
-| [OBSERVABILITY.md](OBSERVABILITY.md)                         | 日志、健康、readiness、指标和 trace            |
-| [USAGE_METRICS.md](USAGE_METRICS.md)                         | 用量指标名称、时间窗口、计数规则和可见范围     |
+- [人物身份约束与确认后自动加白](CHARACTER_IDENTITY_AND_AUTO_PORTRAIT_2026-09-15.md)：2026-09-15 修复、测试范围和发布状态。
+
+| 文档                                                                                           | 用途                                           |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| [BACKEND_TESTING.md](BACKEND_TESTING.md)                                                       | 单元、契约、集成和安全测试分层                 |
+| [TEST_REPORT_2026-09-14.md](TEST_REPORT_2026-09-14.md)                                         | 主项目与剧本大师本地全量测试、失败项和上线阻断 |
+| [SCRIPT_MASTER_INTEGRATION.md](SCRIPT_MASTER_INTEGRATION.md)                                   | 独立剧本大师运行、交接边界与已知限制           |
+| [SCRIPT_MASTER_ADAPTATION_REVIEW_2026-09-15.md](SCRIPT_MASTER_ADAPTATION_REVIEW_2026-09-15.md) | 线上适配检查、项目绑定与修订版问题、交接验证   |
+| [NON_FUNCTIONAL_QUALITY.md](NON_FUNCTIONAL_QUALITY.md)                                         | k6、混沌和安全测试计划                         |
+| [RELIABILITY_GATES.md](RELIABILITY_GATES.md)                                                   | CI 与生产拨测门禁                              |
+| [OBSERVABILITY.md](OBSERVABILITY.md)                                                           | 日志、健康、readiness、指标和 trace            |
+| [USAGE_METRICS.md](USAGE_METRICS.md)                                                           | 用量指标名称、时间窗口、计数规则和可见范围     |
 
 ## 部署与运维
 

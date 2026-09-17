@@ -1,4 +1,4 @@
-import { resolveVideoImages } from './taskVideoReferences.js'
+import { hasManualVideoReferences, resolveVideoImages } from './taskVideoReferences.js'
 import type { GenerationTask } from '@seqora/contracts'
 import {
   compileQualityRules,
@@ -843,6 +843,7 @@ export class VideoTaskExecutor {
         referenceAssets,
         stringValue(stored.metadata.providerName, ''),
       )
+      const hasManualReferenceImages = hasManualVideoReferences(stored)
       const sourcePromptSnapshot = stringValue(stored.metadata.sourcePromptSnapshot, shot.prompt)
       const hasCurrentTaskPromptSnapshot =
         typeof stored.metadata.sourcePromptHash === 'string' &&
@@ -888,8 +889,7 @@ export class VideoTaskExecutor {
         ...(Array.isArray(stored.metadata.images)
           ? {
               images: stored.metadata.images.map((value) =>
-                typeof value === 'string' &&
-                (!Array.isArray(stored.metadata.manualReferenceImages) || value.startsWith('asset://'))
+                typeof value === 'string' && (!hasManualReferenceImages || value.startsWith('asset://'))
                   ? (trustedAliases.get(value) ?? value)
                   : value,
               ),

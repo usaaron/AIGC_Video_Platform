@@ -52,7 +52,6 @@ import {
   alignEnrichedSceneRows,
   assignShotEpisodes,
   countStructuredScenes,
-  episodeOpeningContinuityNote,
   expandLongScriptParagraphs,
   hasStructuredSceneRows,
   preserveScriptBreakMarkers,
@@ -886,27 +885,18 @@ export class ProjectService {
           input.episodeId ? '该集尚未保存，请先保存本集' : '请先保存至少一集剧本',
         )
       }
-      const orderedSavedEpisodes = [...savedEpisodes].sort(
-        (left, right) => left.episodeNumber - right.episodeNumber,
-      )
       const generated = selectedEpisodes.flatMap((episode) => {
         const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(episode.content))
         const shots =
           input.mode === 'beat'
             ? splitScriptIntoBeatShots(paragraphs, input.maxShots, true)
             : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, true)
-        const previousEpisode = orderedSavedEpisodes
-          .filter((candidate) => candidate.episodeNumber < episode.episodeNumber)
-          .at(-1)
         return shots.map((shot, index) => ({
           ...shot,
           scriptEpisodeId: episode.id,
           episodeBreakBefore: index === 0 && episode.episodeNumber > 1,
           continuityMode: index === 0 ? ('independent' as const) : shot.continuityMode,
-          continuityNote:
-            index === 0
-              ? episodeOpeningContinuityNote(previousEpisode, episode, shot.continuityNote)
-              : shot.continuityNote,
+          continuityNote: index === 0 ? '' : shot.continuityNote,
           episodeNumber: episode.episodeNumber,
           episodeTitle: episode.title,
           episodeKind: 'standard' as const,

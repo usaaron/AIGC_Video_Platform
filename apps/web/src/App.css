@@ -8129,7 +8129,7 @@
 }
 .asset-card,
 .add-asset {
-  min-height: 396px;
+  min-height: 360px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #fff;
@@ -8240,9 +8240,15 @@
   font-size: 14px;
 }
 .asset-title p {
-  margin: 0;
+  display: -webkit-box;
+  max-height: 57px;
+  margin: 5px 0 0;
+  overflow: hidden;
   color: #8a9087;
   font-size: 9px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 .asset-check {
   width: 20px;
@@ -8252,23 +8258,6 @@
   border-radius: 50%;
   background: #e9f3ce;
   color: #587122;
-}
-.asset-body label {
-  display: block;
-  margin: 15px 0 5px;
-  color: #9b9f98;
-  font-size: 8px;
-}
-.prompt-text {
-  height: 33px;
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 0;
-  color: #676d65;
-  font-size: 9px;
-  line-height: 1.6;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 .asset-actions {
   display: flex;
@@ -8419,10 +8408,126 @@
 .asset-studio-form {
   padding: 22px;
 }
+.asset-studio-overview {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px 17px;
+  border: 1px solid #d6e2ae;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f8fbe9 0%, #f4f7eb 100%);
+}
+.asset-studio-overview-copy {
+  display: grid;
+  gap: 4px;
+}
+.asset-studio-overview-copy h3 {
+  margin: 0;
+  color: #303a1e;
+  font-size: 16px;
+}
+.asset-studio-overview-copy p {
+  max-width: 720px;
+  margin: 2px 0 0;
+  color: #737d62;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.asset-studio-overview-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.asset-studio-overview-steps li {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 8px;
+  border: 1px solid #e0e7c8;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.66);
+}
+.asset-studio-overview-steps li > span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: #79836a;
+  background: #e9eed8;
+  font-size: 9px;
+  font-weight: 700;
+}
+.asset-studio-overview-steps li > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.asset-studio-overview-steps strong {
+  overflow: hidden;
+  color: #586244;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.asset-studio-overview-steps small {
+  overflow: hidden;
+  color: #89927a;
+  font-size: 8px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.asset-studio-overview-steps li.active {
+  border-color: #9caf45;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(156, 175, 69, 0.24);
+}
+.asset-studio-overview-steps li.active > span {
+  color: #fff;
+  background: #71872c;
+}
+.asset-studio-overview-steps li.active strong {
+  color: #354015;
+}
+.asset-studio-overview-steps li.completed > span {
+  color: #fff;
+  background: #9caf45;
+}
 .prompt-workbench {
   padding: 22px;
   border-left: 1px solid var(--line);
   background: #fff;
+}
+.prompt-workbench-purpose {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 15px;
+  padding: 12px 13px;
+  border: 1px solid #dfe7c9;
+  border-radius: 7px;
+  background: #f7faed;
+}
+.prompt-workbench-purpose span {
+  color: #79845f;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.prompt-workbench-purpose strong {
+  color: #3f4c22;
+  font-size: 12px;
+}
+.prompt-workbench-purpose p {
+  margin: 1px 0 0;
+  color: #7d866f;
+  font-size: 9px;
+  line-height: 1.65;
 }
 .source-switch {
   display: grid;
@@ -13745,6 +13850,12 @@
   .asset-core-fields {
     grid-template-columns: 1fr;
   }
+  .asset-studio-overview {
+    padding: 14px;
+  }
+  .asset-studio-overview-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .asset-studio-actions {
     min-height: 66px;
     grid-template-columns: 1fr 1fr;
@@ -13787,6 +13898,12 @@
   }
   .source-switch.two-options {
     grid-template-columns: 1fr;
+  }
+  .asset-studio-overview-steps {
+    grid-template-columns: 1fr;
+  }
+  .asset-studio-overview-copy h3 {
+    font-size: 14px;
   }
   .asset-choice-field > div {
     display: grid;

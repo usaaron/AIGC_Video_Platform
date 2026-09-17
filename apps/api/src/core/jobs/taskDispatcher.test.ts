@@ -2374,7 +2374,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     expect(videoProvider.submit).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('不是静止图片，不是幻灯片'),
+        prompt: expect.stringContaining('临港市雨夜，镜头缓慢推向废弃火车站'),
         images: [
           {
             url: `data:image/png;base64,${Buffer.from('storyboard-image').toString('base64')}`,
@@ -2389,7 +2389,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       store.read((state) => state.tasks.find((task) => task.id === videoTask.id)?.metadata),
     ).toMatchObject({
       duration: 5,
-      compiledPrompt: expect.stringContaining('禁止突然切镜、跳时、回切和蒙太奇'),
+      compiledPrompt: expect.stringContaining('临港市雨夜，镜头缓慢推向废弃火车站'),
       videoPromptVersion: VIDEO_PROMPT_VERSION,
     })
     expect(store.read((state) => state.tasks.find((task) => task.id === videoTask.id)?.status)).toBe(

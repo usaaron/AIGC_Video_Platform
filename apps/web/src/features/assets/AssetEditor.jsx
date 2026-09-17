@@ -367,6 +367,13 @@ export function AssetEditor({
 
         <div className="asset-studio-body" inert={savingAction === 'confirm-face'}>
           <section className="asset-studio-form">
+            <AssetWorkflowOverview
+              kind={kind}
+              kindLabel={kindLabel}
+              stage={characterStage}
+              directImport={directImport}
+              creationMode={creationMode}
+            />
             {(kind !== 'character' || characterStage === 'face') && (
               <div
                 className={`source-switch ${kind === 'audio' ? 'two-options' : ''}`}
@@ -531,6 +538,23 @@ export function AssetEditor({
 
           {promptWorkbenchVisible ? (
             <aside className="prompt-workbench">
+              <div className="prompt-workbench-purpose">
+                <span>右侧是本次生成的最终提交内容</span>
+                <strong>
+                  {kind === 'character'
+                    ? characterStage === 'face'
+                      ? '面部身份基准'
+                      : characterStage === 'body'
+                        ? '全身人物形象'
+                        : '三视图设定表'
+                    : `${kindLabel || '资产'}生成`}
+                </strong>
+                <p>
+                  {kind === 'character'
+                    ? '左侧设定会自动整理进提示词；确认后的面部基准会继续用于全身、三视图和后续分镜。'
+                    : '你可以先用标准模式检查系统整理的内容，需要精确控制时再切换高级模式。'}
+                </p>
+              </div>
               <div className="prompt-workbench-head">
                 <span>
                   <Sparkles size={16} />
@@ -672,6 +696,57 @@ export function AssetEditor({
       </form>
     </div>,
     document.body,
+  )
+}
+
+function AssetWorkflowOverview({ kind, kindLabel, stage, directImport, creationMode }) {
+  const isCharacter = kind === 'character'
+  const characterSteps = [
+    ['人物设定', '身份、外观与画风'],
+    [directImport ? '确认原图' : '生成面部', '锁定面部身份基准'],
+    ['生成全身', '继承面部并补全身体'],
+    ['保存版本', '用于分镜与视频'],
+  ]
+  const otherSteps = [
+    [
+      '选择来源',
+      directImport ? '上传原图直接使用' : creationMode === 'reference' ? '上传参考图再生成' : '使用文字生成',
+    ],
+    ['填写设定', '名称、描述与输出参数'],
+    ['生成或保存', '进入资产库等待复用'],
+    ['用于创作', '导入分镜与视频任务'],
+  ]
+  const steps = isCharacter ? characterSteps : otherSteps
+  const currentIndex = isCharacter ? ({ face: 1, body: 2, turnaround: 3 }[stage] ?? 1) : directImport ? 0 : 1
+  const assetTitle = kindLabel || (isCharacter ? '人物' : '资产')
+  const currentTitle = `${assetTitle}资产 · ${steps[currentIndex]?.[0] || '制作中'}`
+
+  return (
+    <section className="asset-studio-overview" aria-label="资产生成流程">
+      <div className="asset-studio-overview-copy">
+        <span className="eyebrow">资产生成流程</span>
+        <h3>{currentTitle}</h3>
+        <p>
+          {isCharacter
+            ? '先锁定同一张面部基准，再生成身体和人物版本。完成后可以在分镜中反复调用。'
+            : '按下面的顺序完成设置，保存后这份资产会进入资产库，供分镜和视频使用。'}
+        </p>
+      </div>
+      <ol className="asset-studio-overview-steps">
+        {steps.map(([title, description], index) => (
+          <li
+            key={title}
+            className={index === currentIndex ? 'active' : index < currentIndex ? 'completed' : ''}
+          >
+            <span>{index + 1}</span>
+            <div>
+              <strong>{title}</strong>
+              <small>{description}</small>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 

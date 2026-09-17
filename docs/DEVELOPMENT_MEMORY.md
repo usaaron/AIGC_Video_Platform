@@ -7,6 +7,12 @@
 
 这份文档是按时间累积的长期开发记忆。**从“历史记录”开始的旧章节保留当时语境，其中使用“当前”“已完成”的句子只代表记录日期，不能覆盖 2026-08-03 快照。** 新开发者或新 Agent 必须先读根目录 `AGENTS.md`、`docs/CURRENT_STATE.md`、`docs/HANDOFF_GUIDE.md` 和目标模块代码，再按需查本文。文档只记录环境变量名称，**绝不记录真实 API Key、Cookie、云凭据或用户上传内容**。
 
+## 2026-09-15 15:03 加白接口恢复
+
+生产仅将 `ASSET_LIBRARY_PROVIDER` 从 `dora-router` 改为 `volc-ark`，用原有弦序 AK/SK 恢复素材库。原因是 DoraRouter 的 `/v1/material` 实测不存在，公开文档只提供视频接口。视频继续使用原 DoraRouter 配置，API/Worker 镜像保持 `2f8058164f8a`；独立剧本大师 `f3d62e11f9a8` 保持部署。
+
+主站 AI/真人素材查询均返回 200，上游列表及已有 Active 素材详情读取成功，health/readiness 通过。没有上传人物或付费生成；当前 Provider 的真人新建 H5 认证不可用，跨线路视频素材兼容性尚未验收。下方历史记录中“加白 404 未修复”不再代表当前配置。备份及证据见 `docs/OPERATIONS_RUNBOOK.md` 的加白素材接口恢复记录。
+
 ## 2026-09-15 13:33 主项目合并分支发布
 
 用户要求部署当前版本后，已将 `2f8058164f8a4ed6a8e0b81d996358a183f4cfbd` 发布到 `xumutv.com`。API/Worker/Web 使用固定提交标签 `2f8058164f8a`；DoraRouter 环境配置保留。新增交接表迁移、健康与就绪状态、Worker 心跳、未登录 API/Admin 拦截、新页面静态资源和运行镜像质量规则已验证。
