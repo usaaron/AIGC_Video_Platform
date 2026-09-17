@@ -55,3 +55,18 @@ Postgres 测试 fixture 改用独立临时数据库，避免历史 migration 中
 合计 3,472 项通过。剧本大师跳过项为 1 项显式启用的真实模型调用及 2 项仅限 POSIX 的进程组测试。主站浏览器另行目视确认资产卡片和分类导航正常。本地开发 API 未配置剧本大师启动地址，正式环境的身份票据与独立工作台在发布后单独验收。
 
 所有自动化生成与充值验证使用 mock 或隔离测试服务；本报告不代表真实供应商额度、付费出片质量、真实支付到账或百集生产吞吐的验证。正式发布保留两套服务的独立镜像和数据卷，最终源码版本写入各自的 `DEPLOY_BUILD.txt`。
+
+## 发布结果
+
+2026-09-17 16:00（北京时间）已完成 `https://xumutv.com` 发布：
+
+- 主站运行源码：`b4f780e1800ffa1be1dda094cfca145f4f04dcfe`；API / Worker 镜像 `seqora-api:b4f780e1800f`，Web 镜像 `seqora-web:b4f780e1800f`。
+- 剧本大师运行源码：`aebcb759dba3089593dab8648e7a0aea75a548da`；API / Web 使用同版本镜像 `aebcb759dba3`。
+- 主站数据备份：`/opt/seqora-backups/manual/20260917T075610Z`；旧源码：`/opt/seqora-backups/source-20260917-075711`。
+- 剧本大师备份：`/opt/script-master/backups/maintenance-20260917T080037Z`。
+- 两套数据库与 Redis 容器未重建，现有供应商配置 / 环境文件校验和未变；本次没有新增 migration。
+- 实际测试账号登录、会话、项目和资产读取、普通成员访问管理接口的 403、匿名访问受保护页面的 401、剧本大师签名票据和项目读取均通过。检查前后积分余额一致。
+- 浏览器验证主站登录、进入剧本大师、返回主站，以及剧本大师侧栏 / 页面排版；健康检查确认数据库、Redis、任务队列和 Worker 心跳正常。
+- 测试用临时 Postgres / Redis 容器、SSH 转发和本地测试 Web 服务已清理。
+
+代码已分别推送到 `codex/project-maintenance-20260917` 与 `codex/script-master-maintenance-20260917`。本节属于发布后文档记录，不改变上述镜像中的运行代码。
