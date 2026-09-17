@@ -17,6 +17,15 @@
 
 生产密钥位于服务器 `/opt/seqora/deploy/demo.env`，权限应为 `600`。不要执行会把该文件内容输出到终端、聊天、CI 日志或文档的命令。
 
+### 2026-09-17 10:34 分镜提示词与资产交互发布
+
+- 分支 `codex/script-master-refresh-20260916`，应用提交 `123a7fd57c1861d80180bf30b4b0eefa83d882c2`；API/Worker 为 `seqora-api:123a7fd57c18`，Web 为 `seqora-web:123a7fd57c18`。发布内容包括提示词精简、具体动作保留、旧分镜清理、资产卡片去重与参考图高亮，以及没有手动参考图时的自动引用兼容处理。
+- 数据备份 `/opt/seqora-backups/manual/20260917T023114Z`：Postgres dump 6,519,042 字节，本地上传归档 1,726,696,746 字节。源码回退目录 `/opt/seqora-backups/source-20260917-023318`；发布日志 `/var/tmp/seqora-deploy-123a7fd.log`，退出码 0。源码包 SHA-256：`d3fc8555549dfb8f11b1577408aa19a54617ba49203bfe8a93cc84fe67e7ec6e`。
+- 迁移已是最新；生产 `demo.env` 发布前后哈希一致，视频仍为 `dora-router-seedance`、素材库为 `volc-ark-material`。独立剧本大师三个容器保持原镜像运行。运行容器确认提示词版本 `seedance-storyboard-v17`，旧模板清理验证通过。
+- Health/readiness、数据库、Redis、Worker 心跳和队列均正常。首页及登录页可加载；未登录的账号接口、Admin、剧本大师入口返回 401。普通测试账号登录、读取会话和项目库、读取剧本大师配置及打开 `/script-master` 均为 200，访问 Admin 为 403；验证后已退出测试会话。环境中的 bootstrap 管理员凭据登录返回 401，未修改密码，因此本次未验证管理员登录后的页面。
+- 本次重新运行：Web 276 项、API 单元命令 187 项、分镜与参考图专项 119 项、提示词 35 项、contracts 68 项、Admin 19 项通过（不同命令的覆盖有重叠，不能求和作为唯一测试数）。Web/Admin/API 构建、格式、架构、安全配置检查及 lint 通过。`pnpm check` 在 Docker 数据库预检处中断；此前扩展旧 API 资产建议 5 项失败仍未解决，不得称为全量测试通过。本次未调用付费生成。
+- 备份恢复阶段，旧脚本的 `up -d api worker` 同时重建了 Postgres 容器，原数据卷保留；恢复后 readiness、登录与项目读取正常。后续维护备份脚本时应让恢复应用的命令使用 `--no-deps`，避免无关的数据容器重建。
+
 ### 2026-09-17 本地视频通道配置纠正
 
 - 本地失败请求 `seedance_req_01a0acac-2725-70b4-adc2-01db92ea49d9` 的任务记录为 `stringx-seedance`；本地 `.env` 仍显式选择 StringX 且没有 Dora 配置。线上 health 同时为 `dora-router-seedance`，不是线上回退或错误文案误标。`api key credit quota exceeded` 表示该上游密钥额度不足，不能仅按普通 429 频率限制处理，也不是站内积分余额不足。
