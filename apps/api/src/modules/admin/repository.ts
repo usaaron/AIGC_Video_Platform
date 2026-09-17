@@ -1,3 +1,4 @@
+import { insertAuditLog } from '../../core/audit/auditLog.js'
 import type {
   AdminAccountStatus,
   AdminAuditLogEntry,
@@ -37,7 +38,6 @@ import type {
   BillingReconciliationAlertStatus,
 } from '@seqora/contracts'
 import { ROLES } from '@seqora/contracts'
-import { randomUUID } from 'node:crypto'
 import {
   classifyComplianceRiskDetailed,
   complianceRiskScore,
@@ -2663,43 +2663,6 @@ async function revokeSessionsForUser(client: Queryable, userId: string): Promise
 function sessionStatus(expiresAt: string, revokedAt: string | null): AdminSessionStatus {
   if (revokedAt) return 'revoked'
   return new Date(expiresAt).getTime() <= Date.now() ? 'expired' : 'active'
-}
-
-async function insertAuditLog(
-  client: Queryable,
-  input: {
-    tenantId: string | null
-    userId: string | null
-    actorUserId: string | null
-    action: string
-    resourceType: string
-    resourceId: string | null
-    ipAddress: string | null
-    userAgent: string | null
-    metadata?: Record<string, unknown>
-  },
-): Promise<void> {
-  await client.query(
-    `
-    INSERT INTO audit_log_entries (
-      id, tenant_id, user_id, actor_user_id, action, resource_type, resource_id,
-      ip_address, user_agent, metadata, created_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
-    `,
-    [
-      `audit-${randomUUID()}`,
-      input.tenantId,
-      input.userId,
-      input.actorUserId,
-      input.action,
-      input.resourceType,
-      input.resourceId,
-      input.ipAddress,
-      input.userAgent,
-      JSON.stringify(input.metadata ?? {}),
-    ],
-  )
 }
 
 function toIso(value: Date | string): string {

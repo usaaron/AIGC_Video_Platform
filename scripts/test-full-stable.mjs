@@ -27,7 +27,6 @@ const phases = [
   ['shared build', ['build:shared']],
   ['admin tests', ['--filter', '@seqora/admin', 'test']],
   ['web tests', ['--filter', '@seqora/web', 'test']],
-  ['api unit tests', ['--filter', '@seqora/api', 'test:unit']],
 ]
 
 let testDbStarted = false
@@ -47,9 +46,10 @@ try {
     ])
     testDbStarted = true
   }
-  await runPnpm('api db integration tests', ['--filter', '@seqora/api', 'test:integration'], {
+  await runPnpm('all api tests', ['--filter', '@seqora/api', 'test'], {
     env: testEnv,
   })
+  await runPnpm('browser regression tests', ['test:e2e'])
 } finally {
   if (testDbStarted) {
     await runDocker('stop shared test database', [...dockerComposeTestArgs, 'down', '-v'], {

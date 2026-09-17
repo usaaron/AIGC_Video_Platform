@@ -6,6 +6,26 @@ afterEach(() => {
 })
 
 describe('asset preview selection', () => {
+  it('uses the newest matching output and refreshes when a new task snapshot arrives', () => {
+    const asset = { id: 'asset-1', kind: 'scene', references: [] }
+    const old = {
+      id: 'old',
+      kind: 'image',
+      status: 'completed',
+      updatedAt: '2026-09-01',
+      metadata: { assetId: asset.id },
+      outputs: [{ mediaType: 'image', url: '/old.png' }],
+    }
+    const newest = {
+      ...old,
+      id: 'new',
+      updatedAt: '2026-09-02',
+      outputs: [{ mediaType: 'image', url: '/new.png' }],
+    }
+    const unrelated = { ...newest, metadata: { assetId: 'another-asset' }, updatedAt: '2026-09-03' }
+    expect(getAssetPreviewUrl(asset, [old, unrelated])).toBe('/old.png')
+    expect(getAssetPreviewUrl(asset, [old, newest, unrelated])).toBe('/new.png')
+  })
   it('does not show another outfit as the selected ungenerated version', () => {
     expect(
       getAssetPreviewUrl(

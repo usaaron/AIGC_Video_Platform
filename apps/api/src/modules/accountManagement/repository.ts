@@ -1,3 +1,4 @@
+import { insertAuditLog } from '../../core/audit/auditLog.js'
 import type {
   CreatedTenantInvitation,
   Membership,
@@ -1882,30 +1883,6 @@ function toSessionSummary(row: SessionRow, currentSessionId: string | null): Ses
     deviceLabel: row.device_label,
     current: currentSessionId === row.session_id,
   }
-}
-
-async function insertAuditLog(client: Queryable, input: AuditLogInput): Promise<void> {
-  await client.query(
-    `
-    INSERT INTO audit_log_entries (
-      id, tenant_id, user_id, actor_user_id, action, resource_type, resource_id,
-      ip_address, user_agent, metadata, created_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
-    `,
-    [
-      `audit-${randomUUID()}`,
-      input.tenantId,
-      input.userId,
-      input.actorUserId,
-      input.action,
-      input.resourceType,
-      input.resourceId,
-      input.ipAddress,
-      input.userAgent,
-      JSON.stringify(input.metadata ?? {}),
-    ],
-  )
 }
 
 function toIso(value: Date | string): string {

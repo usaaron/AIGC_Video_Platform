@@ -8,6 +8,12 @@ import {
 } from './assetSuggestions.js'
 
 describe('character asset suggestion presentation', () => {
+  it('keeps an explicit dog distinct from nearby people and a person distinct from pets', () => {
+    const script = '场次：1｜角色：少女小雨、黄狗、张宁｜动作：小雨牵着黄狗，张宁抱着一只小猫。'
+    const assets = fallbackAssetSuggestions(script, DEFAULT_SCRIPT_DIRECTION).assets
+    expect(assets.find((asset) => asset.name === '黄狗')?.attributes).toMatchObject({ subjectType: 'animal' })
+    expect(assets.find((asset) => asset.name === '张宁')?.attributes).toMatchObject({ subjectType: 'human' })
+  })
   it('keeps each character fact once after fast extraction and normalization', () => {
     const script = [
       '资产：',

@@ -169,6 +169,14 @@ describe('automatic catalog in Postgres', () => {
     expect(await automaticCatalogItems(database, store, principal)).toEqual([])
     const script = result.items.find((item) => item.kind === 'script')!
     expect(script.sourceSnapshot.inlineContent).toBe('林晚回家。')
+    const record = (await library.find(script.id, principal))!
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        library.saveAutomatic([record, { ...record, id: `same-storage-${index}` }]),
+      ),
+    )
+    expect((await library.list({ deleted: 'active', page: 1, pageSize: 24 }, principal)).total).toBe(3)
+    expect(await library.listVersions('same-storage-0', principal)).toEqual([])
     await library.delete(script.id, principal)
     await library.syncGenerated(principal)
     expect((await library.list({ deleted: 'active', page: 1, pageSize: 24 }, principal)).total).toBe(2)

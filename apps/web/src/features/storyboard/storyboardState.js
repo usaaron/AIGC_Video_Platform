@@ -1,6 +1,7 @@
 import { normalizedVideoDuration } from '@seqora/prompting'
 
-const taskIndexCache = new WeakMap()
+import { isActive, taskIndexFor, taskKey } from '../generation/taskIndex'
+export { isActive } from '../generation/taskIndex'
 
 export function taskFor(tasks, shot, kind) {
   const shotId = typeof shot === 'string' ? shot : shot.id
@@ -19,10 +20,6 @@ export function taskFor(tasks, shot, kind) {
 export function taskById(tasks, taskId) {
   if (!taskId) return null
   return taskIndexFor(tasks).byId.get(taskId) || null
-}
-
-export function isActive(task) {
-  return task?.status === 'queued' || task?.status === 'paused' || task?.status === 'running'
 }
 
 export function taskLabel(task, hasResult) {
@@ -191,28 +188,4 @@ function safeFileName(value) {
     .replace(/\s+/gu, ' ')
     .trim()
     .slice(0, 80)
-}
-
-function taskIndexFor(tasks) {
-  if (!Array.isArray(tasks)) return { byId: new Map(), byShotKind: new Map() }
-  const cached = taskIndexCache.get(tasks)
-  if (cached) return cached
-  const byId = new Map()
-  const byShotKind = new Map()
-  for (const task of tasks) {
-    if (task?.id) byId.set(task.id, task)
-    const shotId = task?.metadata?.shotId
-    if (!task?.kind || !shotId) continue
-    const key = taskKey(task.kind, shotId)
-    const candidates = byShotKind.get(key) || []
-    candidates.push(task)
-    byShotKind.set(key, candidates)
-  }
-  const index = { byId, byShotKind }
-  taskIndexCache.set(tasks, index)
-  return index
-}
-
-function taskKey(kind, shotId) {
-  return `${kind}:${shotId}`
 }

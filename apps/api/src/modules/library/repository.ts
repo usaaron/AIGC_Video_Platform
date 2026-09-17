@@ -823,7 +823,7 @@ async function insertItemFromStore(client: PoolClient, item: AssetLibraryItemRec
       $19, $20::jsonb, $21, $22, $23, $24
     WHERE EXISTS (SELECT 1 FROM tenants WHERE id = $2)
       AND EXISTS (SELECT 1 FROM users WHERE id = $3)
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT DO NOTHING
     RETURNING id
     `,
     itemParams(item),

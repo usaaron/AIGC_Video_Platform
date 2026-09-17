@@ -1,3 +1,5 @@
+import { taskIndexFor } from '../generation/taskIndex'
+
 export function getAssetPreviewUrl(asset, tasks = []) {
   if (asset.kind === 'audio') return null
   const generatedTaskUrl = latestCompletedAssetOutput(asset, tasks)
@@ -28,20 +30,21 @@ export function getAssetPreviewUrl(asset, tasks = []) {
 }
 
 function latestCompletedAssetOutput(asset, tasks) {
-  return tasks
-    .filter(
-      (task) =>
-        task.kind === 'image' &&
-        task.status === 'completed' &&
-        task.metadata?.assetId === asset.id &&
-        (!asset.attributes?.activeAppearanceVariantId ||
-          task.metadata?.attributes?.activeAppearanceVariantId ===
-            asset.attributes.activeAppearanceVariantId) &&
-        Array.isArray(task.outputs) &&
-        task.outputs.some((output) => output?.mediaType === 'image' && output?.url),
+  let latest = null
+  for (const task of taskIndexFor(tasks).byAsset.get(asset.id) || []) {
+    if (
+      task.kind === 'image' &&
+      task.status === 'completed' &&
+      (!asset.attributes?.activeAppearanceVariantId ||
+        task.metadata?.attributes?.activeAppearanceVariantId ===
+          asset.attributes.activeAppearanceVariantId) &&
+      Array.isArray(task.outputs) &&
+      task.outputs.some((output) => output?.mediaType === 'image' && output?.url) &&
+      (!latest || taskTimestamp(task) > taskTimestamp(latest))
     )
-    .sort((left, right) => taskTimestamp(right) - taskTimestamp(left))[0]
-    ?.outputs.find((output) => output?.mediaType === 'image' && output?.url)?.url
+      latest = task
+  }
+  return latest?.outputs.find((output) => output?.mediaType === 'image' && output?.url)?.url
 }
 
 function taskTimestamp(task) {

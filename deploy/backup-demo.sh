@@ -92,7 +92,7 @@ restore_quiesced_services() {
   trap - EXIT
   if [[ "$QUIESCE" == 'true' ]]; then
     if [[ "${#services_to_restore[@]}" -gt 0 ]]; then
-      "${compose[@]}" up -d "${services_to_restore[@]}" >/dev/null || true
+      "${compose[@]}" up -d --no-deps "${services_to_restore[@]}" >/dev/null || true
     fi
   fi
   exit "$exit_code"

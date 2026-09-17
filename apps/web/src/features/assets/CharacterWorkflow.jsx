@@ -1,3 +1,4 @@
+import { isActive } from '../generation/taskIndex'
 import {
   AlertCircle,
   CheckCircle2,
@@ -928,10 +929,6 @@ function completedOutput(task) {
 
 function sameReference(left, right) {
   return Boolean(left?.id && right?.id && left.id === right.id && left.url === right.url)
-}
-
-function isActive(task) {
-  return task?.status === 'queued' || task?.status === 'paused' || task?.status === 'running'
 }
 
 function toReference(candidate, name) {

@@ -1181,8 +1181,13 @@ describe('API authorization', () => {
       warnings: [],
     })
     expect(response.json().assets.map((asset: { kind: string }) => asset.kind)).toEqual(
-      expect.arrayContaining(['character', 'prop', 'scene', 'costume']),
+      expect.arrayContaining(['character', 'prop', 'scene']),
     )
+    expect(response.json().assets.some((asset: { kind: string }) => asset.kind === 'costume')).toBe(false)
+    expect(
+      response.json().assets.find((asset: { name: string }) => asset.name === '女剑客').attributes
+        .appearanceVariants,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ name: '女剑客-雪夜衣装版本' })]))
     expect(
       response
         .json()
@@ -1360,7 +1365,15 @@ describe('API authorization', () => {
         expect.objectContaining({ kind: 'character', name: '林川' }),
         expect.objectContaining({ kind: 'scene', name: '天台观星台' }),
         expect.objectContaining({ kind: 'prop', name: '星图密钥' }),
-        expect.objectContaining({ kind: 'costume', name: '苏遥浅灰研究员制服' }),
+        expect.objectContaining({
+          kind: 'character',
+          name: '苏遥',
+          attributes: expect.objectContaining({
+            appearanceVariants: expect.arrayContaining([
+              expect.objectContaining({ name: '苏遥-浅灰研究员制服版本' }),
+            ]),
+          }),
+        }),
       ]),
     )
   })
@@ -1519,13 +1532,13 @@ describe('API authorization', () => {
           }),
         }),
         expect.objectContaining({
-          kind: 'costume',
-          name: '翠翠日常衣装',
+          kind: 'character',
+          name: '翠翠',
           attributes: expect.objectContaining({
-            type: 'costume',
-            audience: 'female',
-            season: 'all-season',
-            turnaround: false,
+            type: 'character',
+            appearanceVariants: expect.arrayContaining([
+              expect.objectContaining({ name: '翠翠-日常衣装版本' }),
+            ]),
           }),
         }),
       ]),
@@ -4867,7 +4880,6 @@ function scriptAssetSuggestionsJson(): string {
         name: '女剑客',
         description: '贯穿主线的退隐女剑客，从复仇者转向守护者。',
         prompt: '退隐女剑客，清晰五官，克制神情，古风武侠角色，全身造型统一。',
-        negativePrompt: '',
         reason: '主角贯穿所有关键场次，需要优先建立角色一致性。',
         priority: 5,
         attributes: {
@@ -4875,22 +4887,6 @@ function scriptAssetSuggestionsJson(): string {
           subjectType: 'human',
           gender: 'female',
           ageGroup: 'young',
-          exactAge: null,
-          species: '',
-          anthropomorphic: false,
-          visualStyle: 'cinematic-cg',
-          framing: 'full',
-          bodyType: 'balanced',
-          background: 'solid',
-          faceStatus: 'pending',
-          bodyStatus: 'pending',
-          faceReference: null,
-          bodyReference: null,
-          portraitSource: 'ai-virtual',
-          trustedPortrait: null,
-          legStretch: false,
-          turnaround: false,
-          turnaroundLayout: 'sheet',
         },
       },
       {
@@ -4898,7 +4894,6 @@ function scriptAssetSuggestionsJson(): string {
         name: '边城药铺',
         description: '婚约与旧敌逼近的核心室内场景。',
         prompt: '古风边城药铺空场景，木柜、药屉、暖色油灯，窗外雪夜，预留人物表演空间。',
-        negativePrompt: '',
         reason: '开场和人物关系建立会重复使用。',
         priority: 4,
         attributes: {
@@ -4909,10 +4904,6 @@ function scriptAssetSuggestionsJson(): string {
           time: 'night',
           weather: 'snow',
           mood: 'romantic',
-          camera: 'wide',
-          visualStyle: 'cinematic-cg',
-          emptyScene: true,
-          activitySpace: true,
         },
       },
       {
@@ -4920,7 +4911,6 @@ function scriptAssetSuggestionsJson(): string {
         name: '旧长剑',
         description: '女剑客身份和选择的核心物件。',
         prompt: '古风旧长剑道具，金属剑身有使用痕迹，朴素剑柄，正面展示，纯色背景。',
-        negativePrompt: '',
         reason: '长剑作为关键物件跨场出现，影响动作和连续性。',
         priority: 5,
         attributes: {
@@ -4928,9 +4918,6 @@ function scriptAssetSuggestionsJson(): string {
           category: 'weapon',
           material: 'metal',
           condition: 'aged',
-          view: 'front',
-          background: 'solid',
-          visualStyle: 'cinematic-cg',
         },
       },
       {
@@ -4938,7 +4925,6 @@ function scriptAssetSuggestionsJson(): string {
         name: '女剑客雪夜衣装',
         description: '主角在雪夜行动段落使用的核心服装。',
         prompt: '古风女剑客深色冬季衣装，布料与皮革混合，轻便护腕，完整平铺展示。',
-        negativePrompt: '',
         reason: '主角服装需要跨场统一，避免生成时造型漂移。',
         priority: 4,
         attributes: {
@@ -4947,9 +4933,6 @@ function scriptAssetSuggestionsJson(): string {
           category: 'ancient',
           season: 'autumn-winter',
           design: 'chinese',
-          presentation: 'flat',
-          visualStyle: 'cinematic-cg',
-          turnaround: false,
         },
       },
     ],

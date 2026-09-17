@@ -168,10 +168,16 @@ describe('DoraRouter portrait worker integration', () => {
           generateAudio: true,
         }),
       )
-    } else {
+    } else if (groupType === 'LivenessFace') {
       expect(provider.submit).not.toHaveBeenCalled()
       expect(storage.get).not.toHaveBeenCalled()
       expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe('failed')
+    } else {
+      // Automatic stale references are optional; access-denied media must never
+      // be read or sent, while the authorized text-only task can still run.
+      expect(provider.submit).toHaveBeenCalledWith(expect.objectContaining({ images: [] }))
+      expect(storage.get).not.toHaveBeenCalled()
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe('running')
     }
   })
 

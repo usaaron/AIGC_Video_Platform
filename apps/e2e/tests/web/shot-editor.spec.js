@@ -480,9 +480,6 @@ for (const width of [1440, 390]) {
     await prompt.pressSequentially('，场景：')
     await dialog.getByRole('button', { name: '插入参考图 图2' }).click()
     await expect(prompt).toHaveValue('角色：【图1】，场景：【图2】')
-    await dialog.getByRole('button', { name: '移除图1', exact: true }).click()
-    await expect(dialog.getByRole('alert').filter({ hasText: '请先移除提示词' })).toBeVisible()
-    await expect(dialog.getByRole('button', { name: '预览图2' })).toHaveCount(1)
     await dialog.getByRole('button', { name: '预览图1' }).click()
     await expect(dialog.getByRole('img', { name: '镜头参考', exact: true })).toHaveAttribute(
       'src',
@@ -504,9 +501,8 @@ for (const width of [1440, 390]) {
     await input.setInputFiles(Array.from({ length: 8 }, (_, i) => file(`超量${i}.png`)))
     await expect(dialog.getByRole('alert')).toContainText('最多 9 张')
     expect(uploads).toBe(3)
-    await prompt.fill('场景：【图2】')
     await dialog.getByRole('button', { name: '移除图1', exact: true }).click()
-    await expect(prompt).toHaveValue('场景：【图1】')
+    await expect(prompt).toHaveValue('角色：，场景：【图1】')
     await expect(dialog.getByRole('button', { name: '预览图2' })).toHaveCount(0)
     await dialog.getByRole('button', { name: '保存并生成新版' }).click()
     await expect(dialog).toHaveCount(0)

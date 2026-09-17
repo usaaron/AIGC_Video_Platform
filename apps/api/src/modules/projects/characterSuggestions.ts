@@ -15,16 +15,22 @@ export function mergeProjectSuggestions(
   drama: boolean,
 ) {
   const merged = new Map<string, ScriptAssetSuggestion>()
+  const characters = suggestions
+    .filter((item) => item.kind === 'character')
+    .sort((a, b) => b.name.length - a.name.length)
+  const existingByKey = new Map<string, Asset>()
+  for (const asset of existingAssets) {
+    const key = assetIdentityKey(asset)
+    if (!existingByKey.has(key)) existingByKey.set(key, asset)
+  }
+  const now = new Date().toISOString()
   for (let input of suggestions) {
     if (drama && input.kind === 'costume') {
       const owner = input.sourceFacts?.['归属'] || input.sourceFacts?.['所属人物']
-      const character = suggestions
-        .filter((item) => item.kind === 'character')
-        .sort((a, b) => b.name.length - a.name.length)
-        .find((item) => {
-          const name = item.sourceFacts?.['基础人物'] || characterIdentity(item.name).name
-          return owner ? owner === name : input.name.startsWith(name)
-        })
+      const character = characters.find((item) => {
+        const name = item.sourceFacts?.['基础人物'] || characterIdentity(item.name).name
+        return owner ? owner === name : input.name.startsWith(name)
+      })
       if (!character) continue
       const name = character.sourceFacts?.['基础人物'] || characterIdentity(character.name).name
       const label = input.name.replace(name, '').replace(/^[-—·\s]+/u, '')
@@ -44,7 +50,6 @@ export function mergeProjectSuggestions(
       const name = input.sourceFacts?.['基础人物'] || identity.name
       const variantName = characterVariantName(name, input.sourceFacts?.['版本'] || identity.variant)
       const variantId = `look-${createHash('sha256').update(variantName).digest('hex').slice(0, 24)}`
-      const now = new Date().toISOString()
       suggestion = {
         ...input,
         name,
@@ -71,7 +76,7 @@ export function mergeProjectSuggestions(
     merged.set(key, previous ? mergeCharacterVariants(previous, suggestion) : suggestion)
   }
   return [...merged.values()].filter((suggestion) => {
-    const existing = existingAssets.find((asset) => assetIdentityKey(asset) === assetIdentityKey(suggestion))
+    const existing = existingByKey.get(assetIdentityKey(suggestion))
     if (!existing) return true
     if (existing.attributes.type !== 'character' || suggestion.attributes.type !== 'character') return false
     // A legacy character already represents its standard look; only recommend genuinely new outfits.

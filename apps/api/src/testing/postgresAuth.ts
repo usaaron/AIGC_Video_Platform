@@ -34,16 +34,18 @@ export type PostgresAuthFixture = {
 
 export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
   let server: SharedPostgresServer | null = null
-  let schemaName = ''
+  let databaseName = ''
   let adminPool: PgPool | null = null
   let database: AccountDatabase | null = null
 
   try {
     server = await getSharedPostgresServer()
-    schemaName = `seqora_test_${process.pid}_${randomUUID().replace(/-/g, '')}`
+    databaseName = `seqora_test_${process.pid}_${randomUUID().replace(/-/g, '')}`
     adminPool = new Pool({ connectionString: server.connectionString, max: 1 })
-    await adminPool.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`)
-    const connectionString = withSearchPath(server.connectionString, schemaName)
+    // Historical migrations inspect pg_constraint without schema filters. A separate
+    // database also isolates advisory locks and tests that open nested fixtures.
+    await adminPool.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`)
+    const connectionString = withDatabase(server.connectionString, databaseName)
     database = new AccountDatabase(connectionString)
     await database.migrate()
 
@@ -71,15 +73,17 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
       async close() {
         await database?.close()
         database = null
-        await adminPool?.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(schemaName)} CASCADE`)
+        await adminPool?.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`)
         await adminPool?.end()
         adminPool = null
       },
     }
   } catch (error) {
     await database?.close().catch(() => {})
-    if (schemaName) {
-      await adminPool?.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(schemaName)} CASCADE`).catch(() => {})
+    if (databaseName) {
+      await adminPool
+        ?.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`)
+        .catch(() => {})
     }
     await adminPool?.end().catch(() => {})
     await logPostgresFixtureDiagnostics(error, server).catch(() => {})
@@ -193,6 +197,7 @@ async function logPostgresFixtureDiagnostics(
 }
 
 async function postgresDiagnosticContainers(server: SharedPostgresServer | null): Promise<string[]> {
+  if (server && !server.containerName) return []
   const containers: string[] = []
   if (server?.containerName) containers.push(server.containerName)
   if (!containers.includes(sharedContainerName) && (await dockerContainerState(sharedContainerName))) {
@@ -238,9 +243,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.stack || error.message : String(error)
 }
 
-function withSearchPath(connectionString: string, schemaName: string): string {
+function withDatabase(connectionString: string, databaseName: string): string {
   const url = new URL(connectionString)
-  url.searchParams.set('options', `-c search_path=${schemaName},public`)
+  url.pathname = `/${databaseName}`
   return url.toString()
 }
 

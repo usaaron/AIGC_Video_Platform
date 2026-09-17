@@ -398,7 +398,7 @@ export function fallbackAssetSuggestions(
       const manifestItem = manifest.character.find((item) => item.name === name)
       const evidence = [name, manifestDetails(manifestItem), characterEvidenceWindow(name, script)].join('，')
       const subjectType = inferScriptCharacterSubjectType(
-        manifestItem ? `${name}，${manifestDetails(manifestItem)}` : evidence,
+        manifestItem ? `${name}，${manifestDetails(manifestItem)}` : name,
       )
       const gender = subjectType === 'animal' ? 'unspecified' : inferManifestGender(manifestItem, evidence)
       const exactAge = inferManifestExactAge(manifestItem) || inferScriptCharacterExactAge(name, script)
@@ -446,7 +446,7 @@ export function fallbackAssetSuggestions(
           anthropomorphic: false,
           visualStyle,
           framing: 'full',
-          bodyType: ageGroup === 'senior' ? 'balanced' : 'balanced',
+          bodyType: 'balanced',
           background: 'solid',
           faceStatus: 'pending',
           bodyStatus: 'pending',
@@ -603,7 +603,7 @@ export function fallbackAssetSuggestions(
 
 function inferScriptCharacterSubjectType(text: string): 'human' | 'animal' {
   if (/人类|男性|女性|男人|女人|少年|少女|男孩|女孩/u.test(text)) return 'human'
-  return /动物|物种|妖兽|灵兽|宠物|一只|小狗|小猫|小鸟|狐狸|白狼|老虎/u.test(text) ? 'animal' : 'human'
+  return /动物|物种|妖兽|灵兽|宠物|一只|黄狗|小狗|小猫|小鸟|狐狸|白狼|老虎/u.test(text) ? 'animal' : 'human'
 }
 
 function inferScriptCharacterGender(text: string): 'male' | 'female' | 'unspecified' {

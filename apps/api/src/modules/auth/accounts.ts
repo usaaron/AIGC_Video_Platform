@@ -1,3 +1,5 @@
+import type { AuditLogInput } from '../../core/audit/auditLog.js'
+export type { AuditLogInput } from '../../core/audit/auditLog.js'
 import type { Account, Plan, Role } from '@seqora/contracts'
 
 export type AuthAccount = {
@@ -73,18 +75,6 @@ export type VerifyEmailTokenInput = {
   tokenSecretHash: string
   ipAddress: string | null
   userAgent: string | null
-}
-
-export type AuditLogInput = {
-  tenantId: string | null
-  userId: string | null
-  actorUserId: string | null
-  action: string
-  resourceType: string
-  resourceId: string | null
-  ipAddress: string | null
-  userAgent: string | null
-  metadata?: Record<string, unknown>
 }
 
 export interface AuthAccounts {

@@ -1,3 +1,4 @@
+import { resolveTaskBillingTarget, type TaskBillingTarget } from '../billing/taskBillingTarget.js'
 import { buildQueuedGenerationTask, findTaskByClientRequest, taskInsertParams } from './taskCreation.js'
 import { preparePortraitSubmission, preparePortraitSubmissionInState } from './trustedPortraitSubmission.js'
 import type { CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
@@ -45,12 +46,6 @@ type Queryable = {
     text: string,
     params?: readonly unknown[],
   ): Promise<QueryResult<T>>
-}
-
-type TaskBillingTarget = {
-  id: string
-  credits: number | null
-  billingScope: 'membership' | 'organization'
 }
 
 type GenerationTaskImportResult = {
@@ -346,7 +341,7 @@ export class GenerationTaskRepository {
         this.database.query<GenerationShotRow>(
           `
           SELECT
-            id, project_id, tenant_id, shot_order, title, framing, duration_seconds,
+            id, project_id, tenant_id, script_episode_id, shot_order, title, framing, duration_seconds,
             prompt, negative_prompt, image_url, reference_images, selected_image_task_id, selected_video_task_id,
             continuity_mode, continuity_note,
             episode_break_before, episode_number, episode_title, episode_kind,
@@ -943,6 +938,7 @@ export class GenerationTaskRepository {
           id,
           project_id,
           tenant_id,
+          script_episode_id,
           shot_order,
           title,
           framing,
@@ -1023,7 +1019,7 @@ export class GenerationTaskRepository {
       }
 
       await assertNoActiveShotTask(client, input, principal)
-      const membership = await resolveMembershipForTask(client, principal, chargeCredits)
+      const membership = await resolveTaskBillingTarget(client, principal, chargeCredits)
       if (!membership) {
         throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
       }
@@ -1207,7 +1203,7 @@ export class GenerationTaskRepository {
       }
       const totalCredits = newInputs.reduce((total, input) => total + Math.max(0, input.estimatedCredits), 0)
 
-      const membership = await resolveMembershipForTask(client, principal, newInputs.length > 0)
+      const membership = await resolveTaskBillingTarget(client, principal, newInputs.length > 0)
       if (!membership) {
         throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist or is disabled')
       }
@@ -1874,76 +1870,6 @@ function videoShotConflict(): AppError {
   )
 }
 
-async function resolveMembershipForTask(
-  queryable: Queryable,
-  principal: Principal,
-  forUpdate: boolean,
-): Promise<TaskBillingTarget | null> {
-  const result = await queryable.query<{
-    id: string
-    credits: number | null
-    organization_type: string | null
-    roles: string[]
-  }>(
-    `
-    SELECT
-      m.id,
-      ${forUpdate ? 'b.credits' : 'NULL::integer'} AS credits,
-      t.organization_type,
-      m.roles
-    FROM tenant_memberships m
-    JOIN users u ON u.id = m.user_id AND u.status = 'active'
-    JOIN tenants t ON t.id = m.tenant_id AND t.status = 'active'
-    JOIN billing_accounts b ON b.membership_id = m.id
-    WHERE m.user_id = $1
-      AND m.tenant_id = $2
-      AND m.status = 'active'
-    LIMIT 1
-    ${forUpdate ? 'FOR UPDATE OF b' : ''}
-    `,
-    [principal.userId, principal.tenantId],
-  )
-  const row = result.rows[0]
-  if (!row) return null
-
-  const usesOrganizationPool =
-    row.organization_type === 'enterprise' &&
-    (row.roles.includes('organization_admin') || row.roles.includes('organization_member'))
-  if (!forUpdate || !usesOrganizationPool) {
-    return {
-      id: row.id,
-      credits: row.credits === null ? null : Number(row.credits),
-      billingScope: 'membership',
-    }
-  }
-
-  await queryable.query(
-    `
-    INSERT INTO organization_billing_accounts (tenant_id, credits, created_at, updated_at)
-    VALUES ($1, 0, now(), now())
-    ON CONFLICT (tenant_id) DO NOTHING
-    `,
-    [principal.tenantId],
-  )
-  const organizationAccount = await queryable.query<{ credits: number | string }>(
-    `
-    SELECT credits
-    FROM organization_billing_accounts
-    WHERE tenant_id = $1
-    LIMIT 1
-    FOR UPDATE
-    `,
-    [principal.tenantId],
-  )
-  const organizationCredits = organizationAccount.rows[0]?.credits
-  if (organizationCredits === undefined) return null
-  return {
-    id: row.id,
-    credits: Number(organizationCredits),
-    billingScope: 'organization',
-  }
-}
-
 async function updateBillingBalanceForTask(
   queryable: Queryable,
   principal: Principal,
@@ -2104,7 +2030,7 @@ async function insertCreatedTask(
 }
 
 async function insertTaskFromStore(client: PoolClient, task: GenerationTask): Promise<boolean> {
-  const membership = await resolveMembershipForTask(
+  const membership = await resolveTaskBillingTarget(
     client,
     { userId: task.userId, tenantId: task.tenantId, roles: [] },
     false,

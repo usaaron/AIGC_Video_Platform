@@ -9,6 +9,7 @@ const browserLaunch = chromiumExecutable ? { launchOptions: { executablePath: ch
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
+  workers: 2,
   timeout: 45_000,
   expect: { timeout: 8_000 },
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
@@ -57,9 +58,6 @@ function findChromiumExecutable() {
   const candidates = [
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     process.env.CHROMIUM_EXECUTABLE_PATH,
-    'C:/Users/Admin/AppData/Local/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-win64/chrome-headless-shell.exe',
-    'C:/Users/Admin/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe',
-    'C:/Users/Admin/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe',
   ].filter(Boolean)
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }

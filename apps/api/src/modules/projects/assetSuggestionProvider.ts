@@ -262,13 +262,17 @@ function distributedScriptParagraphs(script: string, limit: number, paragraphLim
     return distributedTextExcerpts(script, limit, paragraphLimit)
   }
   if (!paragraphs.length) return []
-  if (paragraphs.length <= limit) return paragraphs.map((paragraph) => headExcerpt(paragraph, paragraphLimit))
+  const sample = (paragraph: string) =>
+    paragraph.length <= paragraphLimit
+      ? paragraph
+      : distributedTextExcerpts(paragraph, 2, Math.floor(paragraphLimit / 2)).join('…')
+  if (paragraphs.length <= limit) return paragraphs.map(sample)
 
   const indexes = new Set<number>()
   for (let index = 0; index < limit; index += 1) {
     indexes.add(Math.round((index * (paragraphs.length - 1)) / (limit - 1)))
   }
-  return [...indexes].map((index) => headExcerpt(paragraphs[index] || '', paragraphLimit)).filter(Boolean)
+  return [...indexes].map((index) => sample(paragraphs[index] || '')).filter(Boolean)
 }
 
 function distributedTextExcerpts(text: string, limit: number, excerptLimit: number): string[] {

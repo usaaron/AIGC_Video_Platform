@@ -164,47 +164,6 @@ export const api = {
   createProject: (input) => request('/projects', json('POST', input)),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
-  novels: (id) => request(`/projects/${id}/novels`),
-  novel: (id, documentId) => request(`/projects/${id}/novels/${documentId}`),
-  previewNovelSplit: (id, input) => request(`/projects/${id}/novels/preview-split`, json('POST', input)),
-  importNovel: (id, input) => request(`/projects/${id}/novels/import`, json('POST', input)),
-  novelSummaries: (id, documentId) => request(`/projects/${id}/novels/${documentId}/summaries`),
-  novelBoundaries: (id, documentId) => request(`/projects/${id}/novels/${documentId}/boundaries`),
-  detectNovelBoundaries: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/boundaries/detect`, json('POST', input)),
-  generateNovelBoundaryNotes: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/boundaries/notes/generate`, json('POST', input)),
-  novelSummaryQueue: (id, documentId) => request(`/projects/${id}/novels/${documentId}/summary-queue`),
-  createNovelSummaryQueue: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue`, json('POST', input)),
-  runNovelSummaryQueueBatch: (id, documentId, queueId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/run-batch`, json('POST', input)),
-  pauseNovelSummaryQueue: (id, documentId, queueId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/pause`, { method: 'POST' }),
-  resumeNovelSummaryQueue: (id, documentId, queueId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/resume`, { method: 'POST' }),
-  retryNovelSummaryQueueItem: (id, documentId, queueId, itemId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/retry`, {
-      method: 'POST',
-    }),
-  skipNovelSummaryQueueItem: (id, documentId, queueId, itemId) =>
-    request(`/projects/${id}/novels/${documentId}/summary-queue/${queueId}/items/${itemId}/skip`, {
-      method: 'POST',
-    }),
-  commitNovelSummaryQueueResults: (id, documentId, queueId, input = {}) =>
-    request(
-      `/projects/${id}/novels/${documentId}/summary-queue/${queueId}/commit-results`,
-      json('POST', input),
-    ),
-  generateNovelSummaries: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/summaries/generate`, json('POST', input)),
-  novelStoryBible: (id, documentId) => request(`/projects/${id}/novels/${documentId}/story-bible`),
-  generateNovelStoryBible: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/story-bible/generate`, json('POST', input)),
-  suggestNovelAssets: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/asset-suggestions`, json('POST', input)),
-  generateNovelChapterAdaptation: (id, documentId, input = {}) =>
-    request(`/projects/${id}/novels/${documentId}/adapt-script`, json('POST', input)),
   suggestScriptAssets: (
     id,
     script,
