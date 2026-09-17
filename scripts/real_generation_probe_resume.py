@@ -41,7 +41,7 @@ def _final_checkpoint_digest(run: dict) -> str:
 
 
 def _files(directory: Path) -> dict[str, str]:
-    return {str(path.relative_to(directory)): file_sha256(path)
+    return {path.relative_to(directory).as_posix(): file_sha256(path)
             for path in sorted(directory.rglob("*")) if path.is_file()}
 
 

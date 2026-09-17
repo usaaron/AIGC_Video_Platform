@@ -18,7 +18,7 @@ from app.modules.script_engine.long_story_service import LongStoryService
 from app.modules.script_engine.llm_adapter import LLMRequestError
 
 
-SOURCE = json.loads((Path(__file__).parent / "fixtures/storyboard_screenplay.json").read_text())
+SOURCE = json.loads((Path(__file__).parent / "fixtures/storyboard_screenplay.json").read_text(encoding="utf-8"))
 PROJECT = "story_project.storyboard_test"
 
 

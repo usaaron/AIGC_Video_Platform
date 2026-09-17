@@ -33,11 +33,11 @@ def project_probe_continuity(
         raise RuntimeError("The continuity probe requires Node.js with TypeScript stripping support.")
     payload = {"workspace": workspace, "storyBible": bible, "focus": focus or {}}
     # The pure projection process does not need provider credentials or Node preload hooks.
-    environment = {key: os.environ[key] for key in ("PATH", "TMPDIR", "LANG") if key in os.environ}
+    environment = {key: os.environ[key] for key in ("PATH", "TMPDIR", "TEMP", "TMP", "LANG", "SystemRoot", "SYSTEMROOT", "WINDIR") if key in os.environ}
     result = subprocess.run(
         [node, "--experimental-strip-types", "--import", "./scripts/register-test-runtime.mjs",
          "./scripts/project-probe-continuity.mjs"],
-        input=json.dumps(payload, ensure_ascii=False), text=True, capture_output=True,
+        input=json.dumps(payload, ensure_ascii=False), text=True, encoding="utf-8", capture_output=True,
         cwd=ROOT / "frontend", env=environment, timeout=30, check=False,
     )
     if result.returncode:

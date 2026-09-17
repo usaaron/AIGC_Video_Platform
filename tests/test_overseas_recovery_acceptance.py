@@ -161,7 +161,8 @@ def test_failed_second_episode_reuses_pre_edit_and_completed_first_episode_survi
     root = Path(__file__).resolve().parents[1]
     child = subprocess.run(
         [sys.executable, str(Path(__file__).resolve()), str(database), str(request_path)],
-        cwd=root, env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": f"{root}:{root / 'backend'}"},
+        cwd=root, env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": os.pathsep.join([str(root), str(root / 'backend')]),
+                       "PYTHONUTF8": "1", **{key: os.environ[key] for key in ("SystemRoot", "SYSTEMROOT", "WINDIR") if key in os.environ}},
         capture_output=True, text=True, timeout=30, check=True,
     )
     restored = json.loads(child.stdout)

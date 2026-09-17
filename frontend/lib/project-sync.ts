@@ -39,7 +39,7 @@ type WorkspaceResponse = Omit<ApiSchemas["StoryProjectWorkspaceResponse"], "data
   data: WorkspaceData;
 };
 
-interface PlanningSessionResponse {
+export interface PlanningSessionResponse {
   data: {
     schema_version: string;
     session_id: string;
@@ -67,7 +67,7 @@ interface PlanningSessionResponse {
   };
 }
 
-function planningSessionFromRemote(value: PlanningSessionResponse["data"]): PlanningSession {
+export function planningSessionFromRemote(value: PlanningSessionResponse["data"]): PlanningSession {
   return {
     schemaVersion: value.schema_version as "v1",
     sessionId: value.session_id,

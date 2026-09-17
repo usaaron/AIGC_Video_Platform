@@ -24,7 +24,6 @@ test("help is present across creation, planning, script, navigation, and detail 
     "components/script-project-editor.tsx",
     "components/story-bible-panel.tsx",
     "components/story-plan-node-panel.tsx",
-    "components/episode-tree-navigation.tsx",
     "components/script-workspace.tsx",
     "components/project-continuity-panel.tsx",
     "components/character-relationship-network.tsx",

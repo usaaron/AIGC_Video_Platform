@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 
 import pytest
@@ -25,10 +26,11 @@ def load_template_environment(layout):
         else sorted((ROOT / "config/model-config.parts").glob("*.env.example"))
     )
     result = subprocess.run(
-        ["bash", "-c", 'set -a\nfor config_part in "$@"; do source "$config_part"; done\n'
+        [shutil.which("bash") or "bash", "-c", 'set -a\nfor config_part in "$@"; do source "$config_part"; done\n'
          '"$CONFIG_TEST_PYTHON" -c \'import os,json; print(json.dumps(dict(os.environ)))\'',
-         "template-check", *(str(path) for path in paths)],
-        env={"PATH": os.environ.get("PATH", ""), "CONFIG_TEST_PYTHON": sys.executable},
+         "template-check", *(path.as_posix() for path in paths)],
+        env={"PATH": os.environ.get("PATH", ""), "CONFIG_TEST_PYTHON": Path(sys.executable).as_posix(),
+             **{key: os.environ[key] for key in ("SystemRoot", "SYSTEMROOT", "WINDIR") if key in os.environ}},
         check=True, capture_output=True, text=True,
     )
     return json.loads(result.stdout)

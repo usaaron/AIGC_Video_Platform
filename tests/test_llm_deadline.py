@@ -158,6 +158,34 @@ def test_backend_checks_deadline_after_blocking_return_or_exception(
     assert inner.closed == (1 if operation in {"connect", "tls"} and not fails else 0)
 
 
+@pytest.mark.parametrize("operation", ["read", "connect", "tls"])
+@pytest.mark.parametrize("timeout", [None, 10, 2])
+def test_socket_timeout_uses_the_budget_that_limited_it(monkeypatch, operation, timeout):
+    clock = [100.0]
+    monkeypatch.setattr(llm_deadline.time, "monotonic", lambda: clock[0])
+    inner = _FakeStream()
+    backend = _FakeBackend(inner)
+
+    def timeout_just_before_deadline():
+        clock[0] += min(timeout or 5, 5) - 0.001
+        raise httpcore.ReadTimeout("socket timer rounded down")
+
+    expected = httpcore.ReadTimeout if timeout == 2 else DeadlineExceeded
+    with deadline_scope(5, scope="request"):
+        with pytest.raises(expected):
+            if operation == "read":
+                inner.on_read = timeout_just_before_deadline
+                llm_deadline._DeadlineStream(inner).read(10, timeout=timeout)
+            elif operation == "connect":
+                backend.on_connect = timeout_just_before_deadline
+                llm_deadline._DeadlineBackend(backend).connect_tcp("localhost", 80, timeout=timeout)
+            else:
+                inner.on_tls = timeout_just_before_deadline
+                llm_deadline._DeadlineStream(inner).start_tls(
+                    ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT), timeout=timeout
+                )
+
+
 def test_install_wraps_default_and_proxy_mounts_once_without_replacing_pools():
     proxy = httpx.HTTPTransport(proxy="http://127.0.0.1:8888", trust_env=False)
     mock = httpx.MockTransport(lambda request: httpx.Response(200))

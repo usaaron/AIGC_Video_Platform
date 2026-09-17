@@ -13,7 +13,7 @@ import {
 } from "./client-screenplay-format.ts";
 import { orderedScreenplayBody } from "./screenplay-body-order.ts";
 import { safeFilename } from "./filename.ts";
-import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
+import { episodeDurationSeconds } from "./draft-metadata.ts";
 import type { BilingualScriptView, GeneratedDraft, GeneratedScene } from "./types.ts";
 import type JSZip from "jszip";
 
@@ -347,17 +347,6 @@ export function seriesArchiveFilename(
   mode: "episodes" | "collection",
 ): string {
   return `${safeFilename(projectTitle)}-${mode === "episodes" ? "episodes" : "full-script"}.zip`;
-}
-
-function episodeDurationSeconds(draft: GeneratedDraft): number {
-  const estimated = draftMetadataCoercedNumber(draft, "estimated_duration_seconds") ?? Number.NaN;
-  if (Number.isFinite(estimated) && estimated >= 75 && estimated <= 115) {
-    return Math.round(estimated);
-  }
-  const target = Number(draft.target_duration_seconds);
-  return Number.isFinite(target) && target >= 75 && target <= 115
-    ? Math.round(target)
-    : 90;
 }
 
 async function addArchiveAttachments(

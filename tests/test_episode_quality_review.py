@@ -15,7 +15,7 @@ from tests.test_master_script_models import build_draft_payload
 RHYTHM_CALIBRATION_FIXTURE = Path(__file__).parent / "fixtures" / (
     "episode_quality_review_calibration/rhythm_shapes.json"
 )
-RHYTHM_CALIBRATION_CASES = json.loads(RHYTHM_CALIBRATION_FIXTURE.read_text())
+RHYTHM_CALIBRATION_CASES = json.loads(RHYTHM_CALIBRATION_FIXTURE.read_text(encoding="utf-8"))
 
 
 def _draft(

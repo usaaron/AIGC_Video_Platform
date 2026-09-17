@@ -17,7 +17,12 @@ import {
   buildEpisodePlanningMemory,
 } from "@/lib/episode-planning-memory";
 export { buildEpisodePlanningMemory } from "@/lib/episode-planning-memory";
-import { getClientInstanceId, recordProjectServerRevisions } from "@/lib/project-sync";
+import {
+  getClientInstanceId,
+  recordProjectServerRevisions,
+  planningSessionFromRemote as planningSessionFromApi,
+  type PlanningSessionResponse as SharedPlanningSessionResponse,
+} from "@/lib/project-sync";
 import { normalizeEpisodeDurationSeconds } from "@/lib/generation-planning";
 import type { EpisodePlanMaterializationDraft } from "@/lib/episode-plan-materializer";
 import {
@@ -50,7 +55,6 @@ import {
   type EpisodePlanMaterializationReceipt,
   type EpisodeDramaticUnit,
   type PlanningSession,
-  type PlanningTurn,
   type ScriptProject,
   type StoryBibleInteractiveCandidate,
   type StoryBibleInteractiveStep,
@@ -60,6 +64,12 @@ import {
   type StoryInspirationMessage,
   type StoryTreeQualityAudit,
 } from "@/lib/types";
+
+type PlanningSessionApi = SharedPlanningSessionResponse["data"] & {
+  client_instance_id: string;
+  payload_checksum: string;
+  payload_size_bytes: number;
+};
 
 interface GenerationStrategySummary {
   id: string;
@@ -137,68 +147,11 @@ interface StoryBibleDraftResponse extends StoryBibleResponse {
 
 interface StoryPlanNodeResponse { data: StoryPlanNode }
 
-interface PlanningSessionApi {
-  schema_version: string;
-  session_id: string;
-  story_project_id: string;
-  revision: number;
-  phase: PlanningSession["phase"];
-  status: PlanningSession["status"];
-  story_bible_author_instruction: string;
-  tree_author_instruction: string;
-  story_bible_step?: PlanningSession["storyBibleStep"];
-  story_bible_sections?: Record<string, unknown>;
-  active_node_id: string | null;
-  reviewed_node_ids: string[];
-  turns: Array<{
-    turn_id: string;
-    scope: PlanningTurn["scope"];
-    node_id: string | null;
-    instruction: string;
-    selected_candidate_titles: string[];
-    outcome: PlanningTurn["outcome"];
-    created_at: string;
-  }>;
-  started_at: string | null;
-  updated_at: string;
-  client_instance_id: string;
-  payload_checksum: string;
-  payload_size_bytes: number;
-}
-
 interface PlanningSessionResponse { data: PlanningSessionApi }
 type PlanningSessionPayload = Omit<
   PlanningSessionApi,
   "client_instance_id" | "payload_checksum" | "payload_size_bytes"
 >;
-
-function planningSessionFromApi(value: PlanningSessionApi): PlanningSession {
-  return {
-    schemaVersion: value.schema_version as "v1",
-    sessionId: value.session_id,
-    storyProjectId: value.story_project_id,
-    revision: value.revision,
-    phase: value.phase,
-    status: value.status,
-    storyBibleAuthorInstruction: value.story_bible_author_instruction,
-    treeAuthorInstruction: value.tree_author_instruction,
-    storyBibleStep: value.story_bible_step,
-    storyBibleSections: value.story_bible_sections ?? {},
-    activeNodeId: value.active_node_id ?? undefined,
-    reviewedNodeIds: [...value.reviewed_node_ids],
-    turns: value.turns.map((turn) => ({
-      turnId: turn.turn_id,
-      scope: turn.scope,
-      nodeId: turn.node_id ?? undefined,
-      instruction: turn.instruction,
-      selectedCandidateTitles: [...turn.selected_candidate_titles],
-      outcome: turn.outcome,
-      createdAt: turn.created_at,
-    })),
-    startedAt: value.started_at ?? undefined,
-    updatedAt: value.updated_at,
-  };
-}
 
 function planningSessionToApi(session: PlanningSession, projectId: string): PlanningSessionPayload {
   return {

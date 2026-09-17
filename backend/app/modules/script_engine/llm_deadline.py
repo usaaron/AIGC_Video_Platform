@@ -92,30 +92,39 @@ def cap_timeout(timeout: float | None) -> float | None:
     return _bounded_timeout(timeout)
 
 
-def _checked_call(operation: Callable[..., _Result], **kwargs: Any) -> _Result:
+def _checked_call(
+    operation: Callable[..., _Result], *, close_on_deadline: bool = False, **kwargs: Any
+) -> _Result:
+    deadline = _ACTIVE_DEADLINE.get()
+    remaining = remaining_deadline_seconds()
+    deadline_limited = False
+    if "timeout" in kwargs and remaining is not None:
+        timeout = kwargs["timeout"]
+        deadline_limited = timeout is None or remaining <= timeout
+        if deadline_limited:
+            kwargs["timeout"] = remaining
     try:
         result = operation(**kwargs)
-    except Exception:
+    except Exception as exc:
+        # Socket timers can expire just before the monotonic clock reaches the
+        # deadline. Classify the timeout by the budget that actually limited it.
+        if isinstance(exc, httpcore.TimeoutException) and deadline_limited:
+            raise DeadlineExceeded(deadline.scope) from exc
         check_deadline()
         raise
-    check_deadline()
+    try:
+        check_deadline()
+    except DeadlineExceeded:
+        if close_on_deadline:
+            result.close()
+        raise
     return result
 
 
 def _checked_stream_call(
     operation: Callable[..., httpcore.NetworkStream], **kwargs: Any
 ) -> _DeadlineStream:
-    try:
-        stream = operation(**kwargs)
-    except Exception:
-        check_deadline()
-        raise
-    try:
-        check_deadline()
-    except DeadlineExceeded:
-        stream.close()
-        raise
-    return _DeadlineStream(stream)
+    return _DeadlineStream(_checked_call(operation, close_on_deadline=True, **kwargs))
 
 
 class _DeadlineStream(httpcore.NetworkStream):
@@ -126,14 +135,14 @@ class _DeadlineStream(httpcore.NetworkStream):
         return _checked_call(
             self._stream.read,
             max_bytes=max_bytes,
-            timeout=_bounded_timeout(timeout),
+            timeout=timeout,
         )
 
     def write(self, buffer: bytes, timeout: float | None = None) -> None:
         _checked_call(
             self._stream.write,
             buffer=buffer,
-            timeout=_bounded_timeout(timeout),
+            timeout=timeout,
         )
 
     def start_tls(
@@ -146,7 +155,7 @@ class _DeadlineStream(httpcore.NetworkStream):
             self._stream.start_tls,
             ssl_context=ssl_context,
             server_hostname=server_hostname,
-            timeout=_bounded_timeout(timeout),
+            timeout=timeout,
         )
 
     def close(self) -> None:
@@ -172,7 +181,7 @@ class _DeadlineBackend(httpcore.NetworkBackend):
             self._backend.connect_tcp,
             host=host,
             port=port,
-            timeout=_bounded_timeout(timeout),
+            timeout=timeout,
             local_address=local_address,
             socket_options=socket_options,
         )
@@ -186,7 +195,7 @@ class _DeadlineBackend(httpcore.NetworkBackend):
         return _checked_stream_call(
             self._backend.connect_unix_socket,
             path=path,
-            timeout=_bounded_timeout(timeout),
+            timeout=timeout,
             socket_options=socket_options,
         )
 

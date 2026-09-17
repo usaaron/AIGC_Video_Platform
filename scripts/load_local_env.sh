@@ -21,4 +21,5 @@ load_local_env() {
   for index in "${!caller_names[@]}"; do
     export "${caller_names[$index]}=${caller_values[$index]}"
   done
+  return 0
 }
