@@ -17,6 +17,15 @@
 
 生产密钥位于服务器 `/opt/seqora/deploy/demo.env`，权限应为 `600`。不要执行会把该文件内容输出到终端、聊天、CI 日志或文档的命令。
 
+### 2026-09-18 11:47 创作端 UI 与页内剧本大师发布
+
+- 主站分支 `codex/studio-ui-20260917`，应用提交 `daa00829448f659a21ebab0f6ed0e78b552f813d`；剧本大师分支 `codex/script-master-ui-20260917`，应用提交 `3bace156a3b5f17cb102efcff23eb8abfcf47b42`。两条分支均已推送到 `usaaron/AIGC_Video_Platform`。
+- Web 镜像分别为 `seqora-web:daa00829448f`、`script-master-web:3bace156a3b5`。主站 API/Worker 继续使用 `seqora-api:b4f780e1800f`，独立 API 为 `script-master-api:aebcb759dba3`；六个后端、Worker、数据容器 ID 发布前后相同，无迁移或数据结构变化。
+- 备份 `/opt/seqora-backups/studio-ui-20260918T034620Z`：`seqora.dump` 6,556,688 字节、`script-master.dump` 2,414,880 字节，均经 `pg_restore --list` 检查；包含旧主站源码 `source/`、独立服务镜像配置及私密配置备份。配置文件哈希发布前后相同，备份权限 700/600。
+- 构建使用 Compose 内置构建流程；仅执行两个 Web 的 `up -d --no-build --no-deps --force-recreate`，健康或业务冒烟失败会恢复前一套 Web 镜像及源码。构建、重启、readiness 和业务验证证据位于上述备份目录。
+- Health/readiness、Worker、数据库和 Redis 正常；普通测试账号登录、项目和资产库读取、绑定网剧启动、签名读取及新静态包通过，普通账号 Admin 403、未登录 API/Admin/剧本大师 401；积分未变，测试会话已退出。当前视频仍走 DoraRouter，素材库为 VolcArk。
+- 前端回归与数据库测试未执行的限制见 [完整发布记录](STUDIO_INLINE_RELEASE_2026-09-18.md)。本次未运行付费生成、真实支付和 100 集完整产出验收。
+
 ### 2026-09-17 10:34 分镜提示词与资产交互发布
 
 - 分支 `codex/script-master-refresh-20260916`，应用提交 `123a7fd57c1861d80180bf30b4b0eefa83d882c2`；API/Worker 为 `seqora-api:123a7fd57c18`，Web 为 `seqora-web:123a7fd57c18`。发布内容包括提示词精简、具体动作保留、旧分镜清理、资产卡片去重与参考图高亮，以及没有手动参考图时的自动引用兼容处理。
