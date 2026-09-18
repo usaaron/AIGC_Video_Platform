@@ -78,7 +78,7 @@ SCRIPT_MASTER_SHARED_SECRET=<与 HOST_INTEGRATION_SECRET 完全相同>
 SCRIPT_MASTER_LAUNCH_TTL_SECONDS=300
 ```
 
-宿主 Caddyfile 必须包含 `/script-master` 代理及 Next.js 所需的内联启动脚本。当前本地 UI 分支在主站页内加载创作区，沿用同源 iframe 的 CSP 许可；独立打开仍保留整页工作台。其它主站页面仍保持原来的 CSP。界面和返回主站行为见 [HOST_WORKSPACE.md](HOST_WORKSPACE.md)。
+宿主 Caddyfile 必须包含 `/script-master` 代理及 Next.js 所需的内联启动脚本。2026-09-18 已发布在主站页内加载创作区的版本，沿用同源 iframe 的 CSP 许可；独立打开仍保留整页工作台。其它主站页面仍保持原来的 CSP。镜像版本、界面和返回主站行为见 [HOST_WORKSPACE.md](HOST_WORKSPACE.md)。
 
 发布宿主时必须同时加载两个 env 文件，防止选中旧的 `:local` 镜像：
 

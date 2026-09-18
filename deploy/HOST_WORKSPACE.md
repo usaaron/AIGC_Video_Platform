@@ -1,6 +1,8 @@
 # 剧本大师与主站工作区
 
-## 页内创作（2026-09-18，本地未发布）
+## 页内创作（2026-09-18，已发布）
+
+生产 Web 镜像 `script-master-web:3bace156a3b5`，对应分支 `codex/script-master-ui-20260917`，已推送到 `usaaron/AIGC_Video_Platform`。配套主站 Web 为 `seqora-web:daa00829448f`；独立 API/数据库保留原容器。备份 `/opt/seqora-backups/studio-ui-20260918T034620Z`，线上签名读取、页内通信代码与同源嵌入许可均通过检查。
 
 主站网剧剧本页直接嵌入同源 `/script-master`，保留序幕导航和「剧本创作 / 制作稿」切换。`AppShell` 在主站 iframe 内只呈现当前项目步骤、生成状态与同步入口；独立打开时仍使用完整布局。
 
