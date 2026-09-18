@@ -249,9 +249,8 @@ export function useScriptGeneration({
     setError('')
     try {
       if (isSeries) {
-        await onSaveEpisode(activeEpisode?.id || null, script)
-        setActiveEpisodeId(null)
-        setScript('')
+        const savedEpisode = await onSaveEpisode(activeEpisode?.id || null, script)
+        setActiveEpisodeId(savedEpisode?.id || activeEpisode?.id || null)
         setRevisionNote('')
         setHasGeneratedScript(true)
       } else {

@@ -1,47 +1,49 @@
-.billing-page .billing-summary {
-  grid-template-columns: repeat(3, minmax(100px, 0.6fr)) minmax(0, 1.6fr);
-}
-.billing-page .plan-summary {
-  grid-template-columns: 40px minmax(0, 1fr);
-}
-.billing-page .plan-summary p {
-  line-height: 1.7;
-}
-.billing-page .ledger-panel {
-  padding: 24px 0;
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-}
-.billing-page .panel-head h2,
-.billing-account-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.billing-account-note,
-.billing-refresh-message {
-  color: var(--muted);
-  font-size: 11px;
-}
-.billing-account-note {
-  margin-top: 20px;
-}
-.billing-refresh-message {
-  min-height: 17px;
-  margin: 10px 0 0;
-}
-@media (max-width: 1150px) {
+@layer legacy {
   .billing-page .billing-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(100px, 0.6fr)) minmax(0, 1.6fr);
   }
   .billing-page .plan-summary {
-    grid-column: 1 / -1;
+    grid-template-columns: 40px minmax(0, 1fr);
   }
-}
-@media (max-width: 480px) {
-  .billing-page .billing-summary {
-    grid-template-columns: 1fr;
+  .billing-page .plan-summary p {
+    line-height: 1.7;
+  }
+  .billing-page .ledger-panel {
+    padding: 24px 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+  }
+  .billing-page .panel-head h2,
+  .billing-account-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .billing-account-note,
+  .billing-refresh-message {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .billing-account-note {
+    margin-top: 20px;
+  }
+  .billing-refresh-message {
+    min-height: 17px;
+    margin: 10px 0 0;
+  }
+  @media (max-width: 1150px) {
+    .billing-page .billing-summary {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .billing-page .plan-summary {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (max-width: 480px) {
+    .billing-page .billing-summary {
+      grid-template-columns: 1fr;
+    }
   }
 }

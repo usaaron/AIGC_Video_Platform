@@ -1,208 +1,210 @@
-.storyboard-page .shot-action-button.rollback {
-  grid-column: 1 / -1;
-  min-height: 42px;
-  border-color: #cbd1bf;
-  color: #535f3f;
-  background: #fafbf7;
-}
+@layer legacy {
+  .storyboard-page .shot-action-button.rollback {
+    grid-column: 1 / -1;
+    min-height: 42px;
+    border-color: var(--line);
+    color: var(--muted);
+    background: var(--paper);
+  }
 
-.storyboard-page .shot-current-version {
-  grid-column: 1 / -1;
-  color: #767f6b;
-  text-align: right;
-  font-size: 10px;
-}
+  .storyboard-page .shot-current-version {
+    grid-column: 1 / -1;
+    color: var(--muted);
+    text-align: right;
+    font-size: 12px;
+  }
 
-.storyboard-page .shot-view-versions {
-  flex: 1;
-  justify-content: center;
-  min-height: 36px;
-}
+  .storyboard-page .shot-view-versions {
+    flex: 1;
+    justify-content: center;
+    min-height: 36px;
+  }
 
-.library-dialog.shot-rollback-dialog {
-  width: min(920px, calc(100vw - 24px));
-  max-height: calc(100dvh - 24px);
-  background: #fbfcf8;
-}
+  .library-dialog.shot-rollback-dialog {
+    width: min(920px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    background: var(--paper);
+  }
 
-.shot-rollback-body {
-  padding: 20px 24px 24px;
-}
-
-.shot-rollback-intro {
-  margin: 0 0 20px;
-  color: #717968;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.shot-rollback-intro strong {
-  color: #394230;
-}
-
-.shot-rollback-comparison {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-}
-
-.shot-rollback-arrow {
-  color: #889966;
-}
-
-.shot-rollback-version {
-  align-self: stretch;
-  min-width: 0;
-}
-
-.shot-rollback-version > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  color: #505846;
-}
-
-.shot-rollback-version header strong {
-  padding: 4px 10px;
-  border-radius: 4px;
-  background: #e8ebdf;
-  font-size: 13px;
-}
-
-.shot-rollback-version.target > header {
-  color: #566b29;
-}
-
-.shot-rollback-version.target header strong {
-  background: #e3edc6;
-}
-
-.shot-rollback-version > video {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  border-radius: 7px;
-  background: #20251c;
-  object-fit: contain;
-}
-
-.shot-rollback-time {
-  margin: 10px 0;
-  color: #7c8473;
-  font-size: 12px;
-}
-
-.shot-rollback-version .button {
-  min-height: 38px;
-  font-size: 12px;
-}
-
-.shot-rollback-empty {
-  box-sizing: border-box;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px;
-  border: 1px dashed #d2d8c6;
-  border-radius: 7px;
-  color: #849071;
-  text-align: center;
-}
-
-.shot-rollback-empty strong {
-  color: #626f50;
-  font-size: 14px;
-}
-
-.shot-rollback-empty p {
-  max-width: 240px;
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.shot-rollback-note {
-  margin-top: 22px;
-  padding: 14px 0;
-  border-top: 1px solid #e0e5d7;
-}
-
-.shot-rollback-note span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #586842;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.shot-rollback-note p {
-  margin: 7px 0 0;
-  color: #858c7c;
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.shot-rollback-warning {
-  padding: 10px;
-  border-radius: 5px;
-  background: #f8f1d7;
-  color: #826a20;
-  font-size: 12px;
-}
-
-.shot-rollback-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.shot-rollback-actions .button {
-  min-height: 44px;
-  justify-content: center;
-  font-size: 13px;
-}
-
-@media (max-width: 600px) {
   .shot-rollback-body {
-    padding: 16px 16px 18px;
+    padding: 20px 24px 24px;
+  }
+
+  .shot-rollback-intro {
+    margin: 0 0 20px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .shot-rollback-intro strong {
+    color: var(--ink);
   }
 
   .shot-rollback-comparison {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
   }
 
   .shot-rollback-arrow {
-    justify-self: center;
-    transform: rotate(90deg);
+    color: var(--muted);
   }
 
-  .shot-rollback-actions > .button {
-    flex: 1 1 auto;
+  .shot-rollback-version {
+    align-self: stretch;
+    min-width: 0;
+  }
+
+  .shot-rollback-version > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .shot-rollback-version header strong {
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    background: var(--surface-muted);
+    font-size: 14px;
+  }
+
+  .shot-rollback-version.target > header {
+    color: var(--green);
+  }
+
+  .shot-rollback-version.target header strong {
+    background: var(--surface-muted);
+  }
+
+  .shot-rollback-version > video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: var(--radius);
+    background: var(--canvas);
+    object-fit: contain;
+  }
+
+  .shot-rollback-time {
+    margin: 10px 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .shot-rollback-version .button {
+    min-height: 38px;
+    font-size: 14px;
+  }
+
+  .shot-rollback-empty {
+    box-sizing: border-box;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .shot-rollback-empty strong {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .shot-rollback-empty p {
+    max-width: 240px;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .shot-rollback-note {
+    margin-top: 22px;
+    padding: 14px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .shot-rollback-note span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .shot-rollback-note p {
+    margin: 7px 0 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .shot-rollback-warning {
+    padding: 10px;
+    border-radius: var(--radius);
+    background: var(--surface-muted);
+    color: var(--gold);
+    font-size: 14px;
   }
 
   .shot-rollback-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
-    padding: 12px 0;
-    background: #fbfcf8;
-    border-top: 1px solid #e0e5d7;
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
   }
 
-  .shot-rollback-actions > .button.primary {
-    flex: 2 1 auto;
+  .shot-rollback-actions .button {
+    min-height: 44px;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  @media (max-width: 600px) {
+    .shot-rollback-body {
+      padding: 16px 16px 18px;
+    }
+
+    .shot-rollback-comparison {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .shot-rollback-arrow {
+      justify-self: center;
+      transform: rotate(90deg);
+    }
+
+    .shot-rollback-actions > .button {
+      flex: 1 1 auto;
+    }
+
+    .shot-rollback-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
+      padding: 12px 0;
+      background: var(--paper);
+      border-top: 1px solid var(--line);
+    }
+
+    .shot-rollback-actions > .button.primary {
+      flex: 2 1 auto;
+    }
   }
 }

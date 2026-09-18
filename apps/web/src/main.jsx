@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './styles/studio.css'
 import { AuthProvider, useAuth } from './components/AuthProvider.jsx'
 import { LoginPage } from './pages/LoginPage.jsx'
 import { EmailVerificationPage } from './pages/EmailVerificationPage.jsx'

@@ -16,8 +16,8 @@ describe('function stack pages', () => {
   it('shows a safe connection state while the external module is unavailable', () => {
     const html = renderToStaticMarkup(<FunctionStackPage tool="writing-studio" />)
 
-    expect(html).toContain('正在准备你的剧本工作台…')
-    expect(html).toContain('返回单集剧本')
+    expect(html).toContain('正在恢复当前项目的创作…')
+    expect(html).toContain('返回项目剧本')
     expect(html).not.toContain('<iframe')
     expect(html).not.toContain('长剧本能力尚未接入当前版本')
   })

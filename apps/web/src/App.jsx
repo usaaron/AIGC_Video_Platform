@@ -59,6 +59,7 @@ import {
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
   const [activeStep, setActiveStep] = useState('home')
+  const [retainedSeriesId, setRetainedSeriesId] = useState(null)
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
   const [activeProjectId, setActiveProjectId] = useState(null)
@@ -237,6 +238,14 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [activeStep])
 
+  const project = workspace?.project
+  const retainSeriesEditor =
+    project?.contentType === 'short-drama' && (activeStep === 'script' || retainedSeriesId === project.id)
+  useEffect(() => {
+    if (project?.contentType === 'short-drama' && activeStep === 'script') setRetainedSeriesId(project.id)
+    else if (retainedSeriesId !== project?.id) setRetainedSeriesId(null)
+  }, [activeStep, project?.id, project?.contentType, retainedSeriesId])
+
   if (adminOnly)
     return (
       <div className="app-loading">
@@ -267,7 +276,6 @@ function App() {
       </div>
     )
 
-  const project = workspace?.project
   const {
     refreshWorkspace,
     mergeWorkspaceAsset,
@@ -323,12 +331,12 @@ function App() {
   if (workspaceRequired && activeProjectId && workspace?.project?.id !== activeProjectId) {
     return <WorkspaceLoading />
   }
-
-  const renderContent = () => {
-    if (activeStep === 'home') {
+  const renderContent = (step = activeStep) => {
+    if (step === 'home') {
       return (
         <ProjectHomePage
           projects={projects}
+          onNavigate={navigateTo}
           onCreate={() => setNewProjectOpen(true)}
           onOpen={openProject}
           onRename={async (projectId, name) => {
@@ -361,22 +369,24 @@ function App() {
         />
       )
     }
-    if (FUNCTION_STACK_IDS.has(activeStep)) {
+    if (FUNCTION_STACK_IDS.has(step)) {
       return (
         <FunctionStackPage
-          tool={activeStep}
+          tool={step}
           project={project}
           billing={billing}
           tasks={tasks}
           image2ProviderStatus={providerHealth?.providers?.img2 ?? null}
           onRefreshImageStudio={refreshCurrentProjectData}
+          onRefreshProduction={refreshWorkspace}
+          onOpenProduction={navigateTo}
           onOpenBilling={() => navigateTo('billing')}
           onOpenHome={() => navigateTo('home')}
           onOpenScript={() => navigateTo('script')}
         />
       )
     }
-    if (activeStep === 'billing') {
+    if (step === 'billing') {
       return (
         <BillingPage
           billing={billing}
@@ -386,7 +396,7 @@ function App() {
         />
       )
     }
-    if (activeStep === 'membership') {
+    if (step === 'membership') {
       return (
         <MembershipPage
           key={[session.account.id, session.account.organizationId, billing.billingScope, billing.plan].join(
@@ -398,7 +408,7 @@ function App() {
         />
       )
     }
-    if (activeStep === 'recharge') {
+    if (step === 'recharge') {
       return (
         <RechargePage
           key={[session.account.id, session.account.organizationId, billing.billingScope, billing.plan].join(
@@ -409,7 +419,7 @@ function App() {
         />
       )
     }
-    if (activeStep === 'settings') {
+    if (step === 'settings') {
       return (
         <SettingsPage
           key={session.account.id}
@@ -430,11 +440,11 @@ function App() {
         />
       )
     }
-    if (!project && activeStep === 'library') {
+    if (step === 'library') {
       return (
         <AssetLibraryPage
           onSyncExternal={api.syncScriptMasterLibrary}
-          currentProject={null}
+          currentProject={project ?? null}
           onToast={setToast}
           onLoadItems={(query) => api.libraryItems(query)}
           onLoadStats={() => api.libraryStats()}
@@ -448,13 +458,25 @@ function App() {
           onSaveTemplate={(input, itemId) =>
             itemId ? api.createLibraryItemVersion(itemId, input) : api.createLibraryItem(input)
           }
+          onImportToProject={
+            project
+              ? async (itemId, target = 'auto') => {
+                  const result = await api.importLibraryItem(project.id, { itemId, target })
+                  await refreshWorkspace()
+                  if (result.imported.type === 'script') navigateTo('script')
+                  setToast(`${result.item.title} 已导入当前项目`)
+                  return result
+                }
+              : undefined
+          }
         />
       )
     }
     if (!project) {
-      return <ProjectHomePage projects={[]} onCreate={() => setNewProjectOpen(true)} />
+      return (
+        <ProjectHomePage projects={[]} onNavigate={navigateTo} onCreate={() => setNewProjectOpen(true)} />
+      )
     }
-
     const pages = {
       overview: () => (
         <OverviewPage
@@ -482,7 +504,8 @@ function App() {
           tasks={tasks}
           textProviderStatus={providerHealth?.providers?.text ?? null}
           scriptModelCapabilities={providerHealth?.scriptModels ?? []}
-          onOpenLongForm={() => navigateTo('writing-studio')}
+          onRefreshProduction={refreshWorkspace}
+          onOpenProduction={navigateTo}
           onSave={async (script) => {
             await api.updateProject(project.id, { script })
             await refreshWorkspace()
@@ -862,41 +885,13 @@ function App() {
           onExport={() => exportProject(workspace, tasks)}
         />
       ),
-      library: () => (
-        <AssetLibraryPage
-          onSyncExternal={api.syncScriptMasterLibrary}
-          currentProject={project}
-          onToast={setToast}
-          onLoadItems={(query) => api.libraryItems(query)}
-          onLoadStats={() => api.libraryStats()}
-          onLoadDuplicates={() => api.libraryDuplicates()}
-          onDedupe={() => api.dedupeLibraryItems()}
-          onDelete={(itemId) => api.deleteLibraryItem(itemId)}
-          onRestore={(itemId) => api.restoreLibraryItem(itemId)}
-          onPermanentDelete={(itemId) => api.permanentlyDeleteLibraryItem(itemId)}
-          onLoadVersions={(itemId) => api.libraryItemVersions(itemId)}
-          onLoadText={api.libraryItemText}
-          onSaveTemplate={(input, itemId) =>
-            itemId ? api.createLibraryItemVersion(itemId, input) : api.createLibraryItem(input)
-          }
-          onImportToProject={async (itemId, target = 'auto') => {
-            const result = await api.importLibraryItem(project.id, { itemId, target })
-            await refreshWorkspace()
-            if (result.imported.type === 'script') navigateTo('script')
-            setToast(`${result.item.title} 已导入当前项目`)
-            return result
-          }}
-        />
-      ),
     }
-    return (pages[activeStep] || pages.overview)()
+    return (pages[step] || pages.overview)()
   }
-
-  const runningJobs = tasks.filter((task) => task.status === 'running')
   const activeFunction = FUNCTION_STACK_ITEMS.find((item) => item.id === activeStep)
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-workspace={activeStep}>
       <AppHeader
         projectName={
           activeStep === 'home' || !projects.length
@@ -905,7 +900,7 @@ function App() {
         }
         billing={billing}
         account={session.account}
-        runningJobs={runningJobs}
+        runningJobs={tasks.filter((task) => task.status === 'running')}
         notifications={notifications}
         onNotificationOpen={openNotification}
         onNotificationRetry={retryNotification}
@@ -916,6 +911,7 @@ function App() {
         onCreditsClick={() => navigateTo(billing.billingScope === 'organization' ? 'billing' : 'recharge')}
         onPlanClick={() => navigateTo(billing.billingScope === 'organization' ? 'billing' : 'membership')}
         onAccountClick={() => navigateTo('settings')}
+        onNavigate={navigateTo}
       />
       <AppSidebar
         activeStep={activeStep}
@@ -931,15 +927,23 @@ function App() {
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
       <main className="workspace">
-        <Suspense fallback={<WorkspaceLoading />}>
-          <WorkspaceErrorBoundary
-            projectId={activeProjectId}
-            step={activeStep}
-            onRetry={() => void openProject(activeProjectId)}
-          >
-            {renderContent()}
-          </WorkspaceErrorBoundary>
-        </Suspense>
+        <WorkspaceErrorBoundary
+          projectId={activeProjectId}
+          step={activeStep}
+          onRetry={() => void openProject(activeProjectId)}
+        >
+          {/* Keep the active writer outside other pages' lazy-loading boundary. */}
+          <Suspense fallback={<WorkspaceLoading />}>
+            {retainSeriesEditor && (
+              <div className="retained-series-workspace" hidden={activeStep !== 'script'}>
+                {renderContent('script')}
+              </div>
+            )}
+          </Suspense>
+          <Suspense fallback={<WorkspaceLoading />}>
+            {(!retainSeriesEditor || activeStep !== 'script') && renderContent()}
+          </Suspense>
+        </WorkspaceErrorBoundary>
       </main>
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
@@ -993,5 +997,4 @@ function App() {
     </div>
   )
 }
-
 export default App

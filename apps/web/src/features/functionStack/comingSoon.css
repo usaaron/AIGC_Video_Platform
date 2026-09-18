@@ -1,140 +1,142 @@
-.agent-coming-soon {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
-  align-items: center;
-  min-height: calc(100dvh - 170px);
-  padding: 48px clamp(16px, 4vw, 72px);
-  overflow: hidden;
-}
-.agent-soon-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 24px;
-  position: relative;
-  z-index: 1;
-}
-.agent-soon-badge {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 10px;
-  border: 1px solid #d3dac5;
-  border-radius: 20px;
-  background: #e9edde;
-  font-size: 11px;
-  color: #6c795c;
-}
-.agent-soon-copy h1 {
-  margin: 0;
-  font:
-    400 clamp(38px, 4vw, 62px)/1.4 'Songti SC',
-    STSong,
-    SimSun,
-    serif;
-  color: #384132;
-}
-.agent-soon-copy p {
-  margin: 0;
-  max-width: 360px;
-  font-size: 13px;
-  line-height: 2;
-  color: #7c856f;
-}
-.agent-soon-copy small {
-  font-size: 11px;
-  line-height: 1.8;
-  color: #929a87;
-}
-.agent-soon-art {
-  position: relative;
-  display: grid;
-  place-items: center;
-  aspect-ratio: 1;
-  max-width: 500px;
-  width: 100%;
-}
-.agent-soon-orbit {
-  position: absolute;
-  inset: 6%;
-  border: 1px solid #d6dccb;
-  border-radius: 50%;
-}
-.agent-soon-orbit::before {
-  content: '';
-  position: absolute;
-  inset: 12%;
-  border: 1px dashed #d6dccb;
-  border-radius: 50%;
-}
-.agent-soon-frame {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
-  width: 54%;
-  aspect-ratio: 3/4;
-  border: 1px solid #bdc8af;
-  border-radius: 6px;
-  background: linear-gradient(155deg, #eff3e6, #d8e2c7);
-  color: #78865e;
-  box-shadow: 15px 18px 0 #e6ebdc;
-  transform: rotate(-6deg);
-}
-.agent-soon-frame span {
-  font:
-    16px 'Songti SC',
-    STSong,
-    SimSun,
-    serif;
-  color: #536241;
-}
-.agent-soon-frame b {
-  font-size: 9px;
-  font-weight: 400;
-  color: #8a967b;
-}
-.agent-soon-note {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 20px;
-  border-radius: 5px;
-  border: 1px solid #d6dccb;
-  background: #fafbf5;
-  font-size: 12px;
-  color: #7a8769;
-  box-shadow: 0 6px 20px #38413208;
-}
-.note-script {
-  top: 7%;
-  left: 0;
-  transform: rotate(-8deg);
-}
-.note-spark {
-  top: 22%;
-  right: 0;
-  transform: rotate(9deg);
-}
-.note-film {
-  right: 2%;
-  bottom: 8%;
-  transform: rotate(-4deg);
-}
-@media (max-width: 800px) {
+@layer legacy {
   .agent-coming-soon {
-    grid-template-columns: 1fr;
-    padding: 28px 16px;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
+    align-items: center;
+    min-height: calc(100dvh - 170px);
+    padding: 48px clamp(16px, 4vw, 72px);
+    overflow: hidden;
   }
   .agent-soon-copy {
-    gap: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 24px;
+    position: relative;
+    z-index: 1;
+  }
+  .agent-soon-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--surface-muted);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .agent-soon-copy h1 {
+    margin: 0;
+    font:
+      400 clamp(38px, 4vw, 62px)/1.4 'Songti SC',
+      STSong,
+      SimSun,
+      serif;
+    color: var(--ink);
+  }
+  .agent-soon-copy p {
+    margin: 0;
+    max-width: 360px;
+    font-size: 14px;
+    line-height: 2;
+    color: var(--muted);
+  }
+  .agent-soon-copy small {
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--muted);
   }
   .agent-soon-art {
-    width: min(300px, 100%);
-    margin: 0 auto;
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    max-width: 500px;
+    width: 100%;
+  }
+  .agent-soon-orbit {
+    position: absolute;
+    inset: 6%;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+  }
+  .agent-soon-orbit::before {
+    content: '';
+    position: absolute;
+    inset: 12%;
+    border: 1px dashed var(--line);
+    border-radius: 50%;
+  }
+  .agent-soon-frame {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    width: 54%;
+    aspect-ratio: 3/4;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(155deg, var(--surface-muted), var(--surface-muted));
+    color: var(--muted);
+    box-shadow: 15px 18px 0 rgba(0, 0, 0, 0.75);
+    transform: rotate(-6deg);
+  }
+  .agent-soon-frame span {
+    font:
+      16px 'Songti SC',
+      STSong,
+      SimSun,
+      serif;
+    color: var(--muted);
+  }
+  .agent-soon-frame b {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .agent-soon-note {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--paper);
+    font-size: 14px;
+    color: var(--muted);
+    box-shadow: 0 6px 20px #38413208;
+  }
+  .note-script {
+    top: 7%;
+    left: 0;
+    transform: rotate(-8deg);
+  }
+  .note-spark {
+    top: 22%;
+    right: 0;
+    transform: rotate(9deg);
+  }
+  .note-film {
+    right: 2%;
+    bottom: 8%;
+    transform: rotate(-4deg);
+  }
+  @media (max-width: 800px) {
+    .agent-coming-soon {
+      grid-template-columns: 1fr;
+      padding: 28px 16px;
+      gap: 16px;
+    }
+    .agent-soon-copy {
+      gap: 18px;
+    }
+    .agent-soon-art {
+      width: min(300px, 100%);
+      margin: 0 auto;
+    }
   }
 }

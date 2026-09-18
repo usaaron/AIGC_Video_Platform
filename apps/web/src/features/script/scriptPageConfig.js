@@ -1,11 +1,10 @@
-import { BookOpenText, Clapperboard } from 'lucide-react'
 import { SCRIPT_MODEL_CATALOG } from '@seqora/contracts'
 
 export const SCRIPT_CONTENT_CONFIGS = {
   'short-drama': {
     productionMode: 'web-series',
     pageTitle: '网剧剧本',
-    pageDescription: '短素材按集生成，长素材先分集，得到可继续拆分镜的网剧制作稿。',
+    pageDescription: '统一规划整部网剧、创作分集正文与分镜，再同步到当前项目继续制作。',
     initialTitle: '从想法快速生成一集网剧',
     generatedTitle: '当前单集可以重新生成或继续精修',
     modeLabel: '单集生成',
@@ -18,7 +17,7 @@ export const SCRIPT_CONTENT_CONFIGS = {
     defaultDuration: 60,
     featureNote: '按集创作 · 长素材先确认分集计划 · 冲突对白 · 结尾钩子',
     documentName: '网剧剧本',
-    placeholder: '写下本集故事、冲突或已有剧本，系统会结合项目资产扩写成可制作的网剧场次。',
+    placeholder: '在这里查看、修改或导入已有剧本。新故事、续写和 AI 改写请切换上方的「剧本创作」。',
     progressText: '正在编排网剧冲突、表演节拍与结尾钩子',
     revisionTitle: '完善当前网剧',
     revisionHelp: '改写会按意见重写当前一集；续写只在末尾生成下一集，不会覆盖已有剧本。',
@@ -84,22 +83,6 @@ export const SCRIPT_CONTENT_CONFIGS = {
     appendAction: '续写短片',
   },
 }
-
-export const SCRIPT_SECTIONS = [
-  {
-    id: 'writing',
-    label: '单集生成',
-    description: '一次生成 1 集，快速进入资产与分镜',
-    icon: Clapperboard,
-  },
-  {
-    id: 'long-form',
-    label: '长剧本生成',
-    description: '进入外部研发的剧本大师',
-    status: '外部模块',
-    icon: BookOpenText,
-  },
-]
 
 export const SCRIPT_ASSET_SUGGESTION_COPY = {
   eyebrow: '辅助资产建议',

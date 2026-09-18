@@ -5,7 +5,10 @@ test('生图大师提交批次前确认积分，并只发送服务端托管参�
   const state = await mockWebApi(page)
 
   await page.goto('/')
-  await page.getByRole('button', { name: /生图大师/ }).click()
+  await page
+    .getByRole('navigation', { name: '功能栈' })
+    .getByRole('button', { name: /生图大师/ })
+    .click()
 
   await page.getByLabel('主提示词').fill('雨夜车站，女主站在发光站牌旁，电影感构图。')
   await page.getByLabel('画幅比例').selectOption('1536x864')
@@ -40,7 +43,10 @@ test('失败图片点击重试会确认积分并删除原失败任务', async ({
   await mockWebApi(page, state)
 
   await page.goto('/')
-  await page.getByRole('button', { name: /生图大师/ }).click()
+  await page
+    .getByRole('navigation', { name: '功能栈' })
+    .getByRole('button', { name: /生图大师/ })
+    .click()
   await page.getByText('点击重试').click()
 
   const confirm = page.getByRole('dialog', { name: '确认重试失败图片' })
@@ -87,7 +93,10 @@ test('预览弹窗可以查看并复制完整生成提示词', async ({ browser,
   )
 
   await page.goto('/')
-  await page.getByRole('button', { name: /生图大师/ }).click()
+  await page
+    .getByRole('navigation', { name: '功能栈' })
+    .getByRole('button', { name: /生图大师/ })
+    .click()
   await page.getByRole('button', { name: /预览第 1 张图片/ }).click()
   await page.getByRole('button', { name: '查看提示词' }).click()
 

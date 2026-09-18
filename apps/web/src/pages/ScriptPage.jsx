@@ -23,7 +23,6 @@ import {
   looksLikeDevelopedScript,
   orderScriptEpisodes,
   SCRIPT_CONTENT_CONFIGS,
-  SCRIPT_SECTIONS,
   scriptGenerationStatusMessage,
 } from '../features/script/scriptPageConfig'
 import {
@@ -42,8 +41,8 @@ import {
 } from '../features/script/scriptTaskState'
 import { useScriptTaskPreview } from '../features/script/useScriptTaskPreview'
 import { useAssetSuggestions } from '../features/script/useAssetSuggestions'
-import { EpisodePlanEditor } from '../features/script/EpisodePlanEditor'
 import { useScriptGeneration } from '../features/script/useScriptGeneration'
+import { SeriesCreationWorkspace } from '../features/script/ScriptMasterWorkspace'
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
 export function ScriptPage({
@@ -58,7 +57,8 @@ export function ScriptPage({
   onSaveEpisode,
   onDeleteEpisode,
   onClearEpisodes,
-  onOpenLongForm,
+  onRefreshProduction,
+  onOpenProduction,
   onGenerate,
   onGenerateSegment,
   onSuggestAssets,
@@ -73,8 +73,10 @@ export function ScriptPage({
 }) {
   const contentConfig = SCRIPT_CONTENT_CONFIGS[project.contentType] || SCRIPT_CONTENT_CONFIGS.animation
   const isSeries = project.contentType === 'short-drama'
+  const [seriesView, setSeriesView] = useState('creation')
   const orderedEpisodes = useMemo(() => orderScriptEpisodes(scriptEpisodes), [scriptEpisodes])
-  const initialDraftEpisode = orderedEpisodes.find((episode) => episode.status === 'draft')
+  const initialDraftEpisode =
+    orderedEpisodes.find((episode) => episode.status === 'draft') || orderedEpisodes[0]
   const productionMode = contentConfig.productionMode
   const usesDuration = contentConfig.usesDuration !== false
   const textGenerationUnavailable = textProviderStatus !== 'configured'
@@ -90,7 +92,7 @@ export function ScriptPage({
   const [episodeDurationSeconds, setEpisodeDurationSeconds] = useState(defaultEpisodeSeconds)
   const [segmentGoal, setSegmentGoal] = useState('')
   const [segmentDurationSeconds, setSegmentDurationSeconds] = useState(defaultEpisodeSeconds)
-  const [saved, setSaved] = useState(!initialDraftEpisode)
+  const [saved, setSaved] = useState(initialDraftEpisode?.status !== 'draft')
   const [generating, setGenerating] = useState(false)
   const [generationPhase, setGenerationPhase] = useState('idle')
   const [generationSeconds, setGenerationSeconds] = useState(0)
@@ -195,11 +197,10 @@ export function ScriptPage({
     setStoppingTaskId,
   })
   const {
-    episodePlan,
-    setEpisodePlan,
     commitEpisodeDuration,
     expand,
     generateSegment,
+    normalizeDuration: normalizeContentDuration,
     save,
     continueToAssets,
   } = useScriptGeneration({
@@ -296,12 +297,15 @@ export function ScriptPage({
 
   useEffect(() => {
     if (isSeries) {
-      const draftEpisode = orderedEpisodes.find((episode) => episode.status === 'draft')
+      const draftEpisode =
+        orderedEpisodes.find((episode) => episode.status === 'draft') ||
+        orderedEpisodes.find((episode) => episode.id === activeEpisodeId) ||
+        orderedEpisodes[0]
       setActiveEpisodeId(draftEpisode?.id || null)
       setScript(
         draftEpisode?.draftContent || draftEpisode?.content || (orderedEpisodes.length ? '' : project.script),
       )
-      setSaved(!draftEpisode)
+      setSaved(draftEpisode?.status !== 'draft')
     } else {
       setActiveEpisodeId(null)
       setScript(project.script)
@@ -398,199 +402,195 @@ export function ScriptPage({
   }
 
   return (
-    <div className="page editor-page script-page-redesign">
+    <div
+      className={`page editor-page script-page-redesign${isSeries && seriesView === 'creation' ? ' is-inline-creation' : ''}`}
+    >
       <PageHeader
         eyebrow="AI 创作工作台"
         title={`《${project.name}》${contentConfig.pageTitle}`}
         description={contentConfig.pageDescription}
       >
-        <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
-        <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
-          <Upload size={16} /> 导入文本
-        </button>
-        <button
-          className="button primary script-header-save"
-          disabled={saving || saved || !script.trim()}
-          onClick={() => void save()}
-        >
-          {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
-          {saving
-            ? '保存中'
-            : saved
-              ? '已保存'
-              : isSeries
-                ? '保存当前剧集'
-                : `保存${contentConfig.documentName}`}
-        </button>
+        <div hidden={isSeries && seriesView === 'creation'} className="script-document-actions">
+          <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
+          <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
+            <Upload size={16} /> 导入文本
+          </button>
+          <button
+            className="button primary script-header-save"
+            disabled={saving || saved || !script.trim()}
+            onClick={() => void save()}
+          >
+            {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
+            {saving
+              ? '保存中'
+              : saved
+                ? '已保存'
+                : isSeries
+                  ? '保存当前剧集'
+                  : `保存${contentConfig.documentName}`}
+          </button>
+        </div>
       </PageHeader>
 
-      {episodePlan && (
-        <EpisodePlanEditor
-          plan={episodePlan}
-          onChange={setEpisodePlan}
-          busy={generating}
-          onCancel={() => setEpisodePlan(null)}
-          onConfirm={() => void expand('generate', episodePlan)}
+      {isSeries && (
+        <SeriesCreationWorkspace
+          projectId={project.id}
+          episodeCount={orderedEpisodes.length}
+          view={seriesView}
+          onViewChange={setSeriesView}
+          busy={busy}
+          onSynced={onRefreshProduction}
+          onNavigate={onOpenProduction}
+          onOpenCreation={async () => {
+            if (saved || (await save())) setSeriesView('creation')
+          }}
         />
       )}
-
-      <section className="script-section-nav" aria-label="剧本工作区小项">
-        {SCRIPT_SECTIONS.map(({ id, label, description, status, icon: Icon }) => (
+      {isSeries && activeScriptTask && (
+        <div className="script-generation-messages" role="status">
+          <span>此前提交的剧集任务仍在运行，完成后会保留结果。</span>
           <button
-            type="button"
-            key={id}
-            className={id === 'writing' ? 'active' : ''}
-            aria-current={id === 'writing' ? 'page' : undefined}
-            onClick={() => {
-              if (id === 'long-form') onOpenLongForm?.()
-            }}
+            className="button secondary"
+            disabled={Boolean(stoppingTaskId)}
+            onClick={() => stopScriptTask(activeScriptTask, '剧集生成')}
           >
-            <Icon size={18} />
-            <span>
-              <strong>
-                {label}
-                {status && <em>{status}</em>}
-              </strong>
-              <small>{description}</small>
-            </span>
+            {stoppingTaskId ? '正在停止' : '停止当前任务'}
           </button>
-        ))}
-      </section>
+        </div>
+      )}
 
-      <>
-        <section className="script-direction-bar script-generation-console" aria-label="剧本生成设置">
-          <header className="script-generation-head">
-            <div className="script-direction-title">
-              <span className="direction-symbol">
-                <Sparkles size={17} />
-              </span>
-              <div>
-                <span className="eyebrow">AI 编剧</span>
-                <strong>
-                  {hasGeneratedScript ? contentConfig.generatedTitle : contentConfig.initialTitle}
-                </strong>
-              </div>
-            </div>
-            <div className="script-generation-summary">
-              <strong>{count.toLocaleString()} 字</strong>
-              <span>
-                {usesDuration
-                  ? `${formatEpisodeDuration(episodeDurationSeconds)} ${contentConfig.durationSuffix}`
-                  : '单次 1 集'}
-              </span>
-            </div>
-          </header>
-
-          <div className="script-generation-controls">
-            <section className="script-format-strip" aria-label="剧本节奏">
-              <div className="script-format-identity">
+      <div hidden={isSeries && seriesView !== 'production'}>
+        {!isSeries && (
+          <section className="script-direction-bar script-generation-console" aria-label="剧本生成设置">
+            <header className="script-generation-head">
+              <div className="script-direction-title">
                 <span className="direction-symbol">
-                  <Clapperboard size={17} />
+                  <Sparkles size={17} />
                 </span>
                 <div>
-                  <span className="eyebrow">项目节奏已锁定</span>
-                  <strong>{contentConfig.modeLabel}</strong>
+                  <span className="eyebrow">AI 编剧</span>
+                  <strong>
+                    {hasGeneratedScript ? contentConfig.generatedTitle : contentConfig.initialTitle}
+                  </strong>
                 </div>
               </div>
-              <span className="script-format-note">{contentConfig.modeNote}</span>
-              {usesDuration ? (
-                <label className="script-episode-seconds">
-                  <span>{contentConfig.durationLabel}</span>
-                  <span className="script-seconds-input">
-                    <input
-                      aria-label={`${contentConfig.durationLabel}（秒）`}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={episodeDurationSeconds}
-                      onChange={(event) => setEpisodeDurationSeconds(event.target.value.replace(/\D/g, ''))}
-                      onBlur={() => void commitEpisodeDuration()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') void commitEpisodeDuration()
-                      }}
-                    />
-                    <em>秒</em>
-                  </span>
-                </label>
-              ) : (
-                <span className="script-single-episode-budget">6～8 个场次</span>
-              )}
-            </section>
-
-            <section className="script-setting-block script-model-card" aria-label="生成模型">
-              <div className="script-setting-label">
-                <strong>生成模型</strong>
-                <small>当前 Provider</small>
+              <div className="script-generation-summary">
+                <strong>{count.toLocaleString()} 字</strong>
+                <span>
+                  {usesDuration
+                    ? `${formatEpisodeDuration(episodeDurationSeconds)} ${contentConfig.durationSuffix}`
+                    : '单次 1 集'}
+                </span>
               </div>
-              <label className="script-control-field">
-                <select value={scriptModel} onChange={(event) => setScriptModel(event.target.value)}>
-                  {scriptModelOptions.map((model) => (
-                    <option key={model.id} value={model.id} disabled={!model.available}>
-                      {model.label}
-                      {model.available ? '' : '（当前不可用）'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </section>
+            </header>
 
-            <div className="script-primary-generation">
-              <button
-                type="button"
-                className={`button primary direction-generate-button ${
-                  activeGenerateTask || (generating && generationPhase !== 'segment') ? 'is-generating' : ''
-                }`}
-                disabled={
-                  saving ||
-                  textGenerationUnavailable ||
-                  selectedScriptModelUnavailable ||
-                  (Boolean(activeScriptTask) && !activeGenerateTask) ||
-                  (generating && !activeGenerateTask) ||
-                  Boolean(stoppingTaskId)
-                }
-                onClick={() =>
-                  activeGenerateTask
-                    ? void stopScriptTask(activeGenerateTask, '智能生成')
-                    : isSeries && orderedEpisodes.length > 0 && !activeEpisode
-                      ? void generateSegment()
-                      : void expand('generate')
-                }
-              >
-                {activeGenerateTask || (generating && generationPhase !== 'segment') ? (
-                  <LoaderCircle size={16} className="spin" />
+            <div className="script-generation-controls">
+              <section className="script-format-strip" aria-label="剧本节奏">
+                <div className="script-format-identity">
+                  <span className="direction-symbol">
+                    <Clapperboard size={17} />
+                  </span>
+                  <div>
+                    <span className="eyebrow">项目节奏已锁定</span>
+                    <strong>{contentConfig.modeLabel}</strong>
+                  </div>
+                </div>
+                <span className="script-format-note">{contentConfig.modeNote}</span>
+                {usesDuration ? (
+                  <label className="script-episode-seconds">
+                    <span>{contentConfig.durationLabel}</span>
+                    <span className="script-seconds-input">
+                      <input
+                        aria-label={`${contentConfig.durationLabel}（秒）`}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={episodeDurationSeconds}
+                        onChange={(event) => setEpisodeDurationSeconds(event.target.value.replace(/\D/g, ''))}
+                        onBlur={() => void commitEpisodeDuration()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void commitEpisodeDuration()
+                        }}
+                      />
+                      <em>秒</em>
+                    </span>
+                  </label>
                 ) : (
-                  <Sparkles size={16} />
+                  <span className="script-single-episode-budget">6～8 个场次</span>
                 )}
-                {stoppingTaskId === activeGenerateTask?.id
-                  ? '正在停止'
-                  : activeGenerateTask
-                    ? '智能生成中 · 点击停止'
-                    : generating && generationPhase !== 'segment'
-                      ? usesDuration
+              </section>
+
+              <section className="script-setting-block script-model-card" aria-label="生成模型">
+                <div className="script-setting-label">
+                  <strong>生成模型</strong>
+                  <small>当前 Provider</small>
+                </div>
+                <label className="script-control-field">
+                  <select value={scriptModel} onChange={(event) => setScriptModel(event.target.value)}>
+                    {scriptModelOptions.map((model) => (
+                      <option key={model.id} value={model.id} disabled={!model.available}>
+                        {model.label}
+                        {model.available ? '' : '（当前不可用）'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </section>
+
+              <div className="script-primary-generation">
+                <button
+                  type="button"
+                  className={`button primary direction-generate-button ${
+                    activeGenerateTask || (generating && generationPhase !== 'segment') ? 'is-generating' : ''
+                  }`}
+                  disabled={
+                    saving ||
+                    textGenerationUnavailable ||
+                    selectedScriptModelUnavailable ||
+                    (Boolean(activeScriptTask) && !activeGenerateTask) ||
+                    (generating && !activeGenerateTask) ||
+                    Boolean(stoppingTaskId)
+                  }
+                  onClick={() =>
+                    activeGenerateTask
+                      ? void stopScriptTask(activeGenerateTask, '智能生成')
+                      : void expand('generate')
+                  }
+                >
+                  {activeGenerateTask || (generating && generationPhase !== 'segment') ? (
+                    <LoaderCircle size={16} className="spin" />
+                  ) : (
+                    <Sparkles size={16} />
+                  )}
+                  {stoppingTaskId === activeGenerateTask?.id
+                    ? '正在停止'
+                    : activeGenerateTask
+                      ? '智能生成中 · 点击停止'
+                      : generating && generationPhase !== 'segment'
                         ? '正在智能生成'
-                        : '正在生成本集'
-                      : `${isSeries && orderedEpisodes.length > 0 && !activeEpisode ? `继续生成第 ${orderedEpisodes.length + 1} 集` : usesDuration ? '智能生成' : activeEpisode ? '重新生成本集' : '生成第 1 集'} · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
-              </button>
-              <span className="script-primary-generation-note">{contentConfig.featureNote}</span>
+                        : `智能生成 · ${SCRIPT_OPERATION_CREDITS.generate} 积分`}
+                </button>
+                <span className="script-primary-generation-note">{contentConfig.featureNote}</span>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         <ScriptGenerationMessages
-          textGenerationUnavailable={textGenerationUnavailable}
+          textGenerationUnavailable={!isSeries && textGenerationUnavailable}
           textGenerationStatusMessage={textGenerationStatusMessage}
           latestFailedScriptTask={latestFailedScriptTask}
           generationWarnings={generationWarnings}
           latestTextTiming={latestTextTiming}
         />
 
-        <div className={`script-workspace ${hasGeneratedScript ? 'with-revision-tools' : 'full-width'}`}>
+        <div
+          className={`script-workspace ${hasGeneratedScript && !isSeries ? 'with-revision-tools' : 'full-width'}`}
+        >
           <section className="script-document" aria-busy={busy}>
             <div className="script-document-toolbar">
               <span className="script-document-toolbar-label">
-                {isSeries
-                  ? activeEpisode?.title || (orderedEpisodes.length ? '等待继续生成' : '第 1 集草稿')
-                  : `当前${contentConfig.documentName}`}
+                {isSeries ? activeEpisode?.title || '已有文本 · 制作稿' : `当前${contentConfig.documentName}`}
               </span>
               <div className="script-document-status">
                 <span className={saved ? 'saved' : 'unsaved'}>
@@ -629,7 +629,9 @@ export function ScriptPage({
                       if (episode) openEpisode(episode)
                     }}
                   >
-                    <option value="">继续生成第 {orderedEpisodes.length + 1} 集</option>
+                    <option value="" disabled>
+                      选择剧集
+                    </option>
                     {orderedEpisodes.map((episode) => {
                       const source = episode.draftContent || episode.content
                       return (
@@ -698,15 +700,7 @@ export function ScriptPage({
                       <Clapperboard size={24} />
                     </span>
                     <strong>上一集已保存</strong>
-                    <p>可继续生成第 {orderedEpisodes.length + 1} 集，或从上方剧集导航打开已有内容。</p>
-                    <button
-                      className="button primary script-continue-episode"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void generateSegment()}
-                    >
-                      <Sparkles size={17} /> 继续生成第 {orderedEpisodes.length + 1} 集
-                    </button>
+                    <p>从上方剧集导航查看制作稿；新增正文与分镜请打开网剧创作。</p>
                   </div>
                 )
               ) : (
@@ -807,7 +801,9 @@ export function ScriptPage({
               )}
               <span>{count} 字</span>
               <span>{paragraphCount} 段</span>
-              <span>{usesDuration ? `约 ${estimatedMinutes} 分钟` : '单集制作单元 · 6～8 场'}</span>
+              <span>
+                {usesDuration ? `约 ${estimatedMinutes} 分钟` : `已保存 ${orderedEpisodes.length} 集`}
+              </span>
               <button
                 className="script-document-save"
                 disabled={saving || saved || !script.trim()}
@@ -819,7 +815,7 @@ export function ScriptPage({
             </div>
           </section>
 
-          {hasGeneratedScript && (
+          {hasGeneratedScript && !isSeries && (
             <aside className="script-revision-panel" aria-label="剧本后续编辑">
               <header className="script-revision-panel-head">
                 <div>
@@ -974,7 +970,7 @@ export function ScriptPage({
           disabled={busy || (isSeries ? orderedEpisodes.length === 0 && !script.trim() : !script.trim())}
           onContinue={continueToAssets}
         />
-      </>
+      </div>
 
       {assetSuggestions.editor && (
         <AssetEditor

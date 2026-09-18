@@ -121,7 +121,7 @@ describe('script content modes', () => {
     const html = renderScriptPage({
       id: 'model-order-1',
       name: '模型顺序测试',
-      contentType: 'short-drama',
+      contentType: 'animation',
       episodeDurationSeconds: 60,
       aspectRatio: '9:16',
       synopsis: '验证前端模型顺序。',
@@ -140,7 +140,6 @@ describe('script content modes', () => {
     expect(html).toContain('<option value="glm-5.2" disabled="">')
     expect(html).toContain('<option value="deepseek-v4-flash" selected="">')
     expect(html).toContain('辅助资产建议')
-    expect(html).toContain('扫描全部已保存剧集，合并人物造型、场景和物品')
     expect(html).toContain('不会占用生成队列')
   })
 
@@ -149,7 +148,7 @@ describe('script content modes', () => {
       {
         id: 'model-capabilities-1',
         name: '模型能力测试',
-        contentType: 'short-drama',
+        contentType: 'animation',
         episodeDurationSeconds: 60,
         aspectRatio: '9:16',
         synopsis: '',
@@ -369,7 +368,9 @@ describe('script content modes', () => {
     expect(html).toContain('第 1 集 · 3 字 · 已保存')
     expect(navigatorIndex).toBeGreaterThan(-1)
     expect(navigatorIndex).toBeLessThan(editorIndex)
-    expect(html).toContain('继续生成第 3 集')
+    expect(html).not.toContain('继续生成第 3 集')
+    expect(html).toContain('网剧创作工作台')
+    expect(html).toContain('value="episode-1" selected=""')
     expect(html).toContain('aria-label="清空全部剧集"')
     expect(html).not.toContain('aria-label="删除第 1 集"')
 
@@ -398,7 +399,7 @@ describe('script content modes', () => {
     const html = renderUnavailableScriptPage({
       id: 'unavailable-1',
       name: '预发测试',
-      contentType: 'short-drama',
+      contentType: 'animation',
       episodeDurationSeconds: 60,
       aspectRatio: '9:16',
       synopsis: '测试文本模型不可用时的提示。',
@@ -414,7 +415,7 @@ describe('script content modes', () => {
       {
         id: 'unknown-provider-1',
         name: '状态检查中',
-        contentType: 'short-drama',
+        contentType: 'animation',
         episodeDurationSeconds: 60,
         aspectRatio: '9:16',
         synopsis: '测试健康检查未返回时的提示。',
@@ -426,4 +427,16 @@ describe('script content modes', () => {
     expect(html).toContain('暂时无法确认文本模型状态')
     expect(html).toContain('disabled=""')
   })
+})
+
+it('web series exposes one creation flow independent of the short-script text provider', () => {
+  const html = renderScriptPage(
+    { id: 'series', name: '全剧测试', contentType: 'short-drama', script: '' },
+    'unconfigured',
+  )
+  expect(html.split('aria-label="网剧创作工作台"')).toHaveLength(2)
+  expect(html).not.toContain('aria-label="剧本生成设置"')
+  expect(html).not.toContain('当前预发环境未配置可用的文本模型')
+  expect(html).toContain('全剧规划')
+  expect(html).toContain('制作稿')
 })

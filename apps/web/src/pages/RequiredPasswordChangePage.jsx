@@ -1,4 +1,5 @@
-import { CheckCircle2, KeyRound, LoaderCircle, LockKeyhole } from 'lucide-react'
+import { StudioAuthScene } from '../components/StudioAuthScene'
+import { CheckCircle2, LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useState } from 'react'
 import './LoginPage.css'
 
@@ -40,34 +41,12 @@ export function RequiredPasswordChangePage({ account, onChangePassword, onLogout
 
   return (
     <main className="login-page">
-      <section className="login-scene" aria-label="账号安全验证">
-        <img src="/demo/room.jpg" alt="暖光中的电影创作空间" />
-        <div className="login-scene-overlay" />
-        <div className="login-scene-frame" aria-hidden="true">
-          <span>02</span>
-          <span>ACCOUNT / SECURITY</span>
-        </div>
-        <div className="login-scanline" aria-hidden="true" />
-        <div className="login-brand">
-          <span>
-            <KeyRound size={20} />
-          </span>
-          <div>
-            <strong>序幕TV</strong>
-            <small>序幕TV创作工作台</small>
-          </div>
-        </div>
-        <div className="login-story">
-          <span>账号保护</span>
-          <h1>先设置自己的密码。</h1>
-          <p>临时密码只用于首次登录，更新后原有登录会话将自动失效。</p>
-        </div>
-        <div className="login-scene-footer" aria-hidden="true">
-          <span>SECURE FRAME</span>
-          <i />
-          <span>序幕TV</span>
-        </div>
-      </section>
+      <StudioAuthScene
+        label="账号安全验证"
+        kicker="账号保护"
+        title="先设置自己的密码。"
+        description="临时密码只用于首次登录，更新后原有登录会话将自动失效。"
+      />
       <section className="login-panel">
         <div className="login-panel-meta" aria-hidden="true">
           <span>序幕TV</span>

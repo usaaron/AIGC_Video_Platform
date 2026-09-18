@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Bell,
   BookOpenText,
-  Check,
   ChevronDown,
   CircleDollarSign,
   Clapperboard,
@@ -25,6 +24,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { BrandMark } from './BrandMark'
+import { StudioGuide } from './StudioGuide'
 import { IconButton, StatusDot } from './ui'
 import { FUNCTION_STACK_ITEMS } from '../features/functionStack/config'
 
@@ -54,6 +54,7 @@ export function AppHeader({
   onCreditsClick,
   onPlanClick,
   onAccountClick,
+  onNavigate,
   onNotificationOpen,
   onNotificationRetry,
   onNotificationRead,
@@ -103,6 +104,7 @@ export function AppHeader({
         <ChevronDown size={15} />
       </button>
       <div className="top-actions">
+        {onNavigate && <StudioGuide onNavigate={onNavigate} />}
         <div className="queue-indicator">
           <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
           {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
@@ -232,7 +234,6 @@ export function AppSidebar({
   onNavigate,
   onClose,
 }) {
-  const activeIndex = STEPS.findIndex((item) => item.id === activeStep)
   const usage = billing?.monthlyUsage
   const usageBudget = usage?.includedCredits || (usage?.netCredits ?? 0) + (billing?.credits ?? 0)
   const usagePercent = usageBudget
@@ -256,10 +257,10 @@ export function AppSidebar({
       </button>
       <div className="sidebar-group-heading">
         <span>功能栈</span>
-        <small>03</small>
+        <small>02</small>
       </div>
       <nav className="sidebar-tool-nav" aria-label="功能栈">
-        {FUNCTION_STACK_ITEMS.map((item) => {
+        {FUNCTION_STACK_ITEMS.filter((item) => item.id !== 'writing-studio').map((item) => {
           const Icon = FUNCTION_STACK_ICONS[item.id]
           return (
             <button
@@ -271,13 +272,7 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>
-                {item.availability === 'coming-soon'
-                  ? '筹备中'
-                  : item.id === 'writing-studio'
-                    ? '独立模块'
-                    : '已启用'}
-              </small>
+              <small>{item.availability === 'coming-soon' ? '筹备中' : '已启用'}</small>
             </button>
           )
         })}
@@ -292,9 +287,7 @@ export function AppSidebar({
               className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
               onClick={() => onNavigate(step.id)}
             >
-              <span className={`nav-index ${index < activeIndex ? 'done' : ''}`}>
-                {index < activeIndex ? <Check size={12} /> : index + 1}
-              </span>
+              <span className="nav-index">{String(index + 1).padStart(2, '0')}</span>
               <Icon size={17} />
               <span>{step.label}</span>
             </button>

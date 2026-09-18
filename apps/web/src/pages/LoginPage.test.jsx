@@ -16,7 +16,6 @@ describe('login guidance', () => {
     expect(html).toContain('序幕TV')
     expect(html).toContain('序幕起，')
     expect(html).toContain('好戏生。')
-    expect(html).toContain('/demo/room.jpg')
   })
 
   it('opens invitation links in registration mode with the token prefilled', () => {
@@ -73,7 +72,6 @@ describe('login guidance', () => {
     const html = renderToStaticMarkup(<EmailVerificationPage />)
 
     expect(html).toContain('序幕TV')
-    expect(html).toContain('/demo/room.jpg')
     expect(html).toContain('auth-result-icon checking')
     expect(html).not.toContain('auth-result-icon error')
   })
