@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { hostProjectId } from "@/lib/host-session";
-import { hostWorkspaceHref } from "@/lib/host-navigation";
+import { isHostEmbedded, notifyHost } from "@/lib/host-navigation";
+import { HostWorkspaceLink } from "@/components/host-return-link";
 import { importMaterial, loadImportTargets, readImportMaterial, type ImportReceipt } from "@/lib/host-import";
 import type { ImportMaterial } from "@/lib/host-import-payload";
 import type { ScriptProject } from "@/lib/types";
@@ -37,9 +38,11 @@ export function HostImportPanel({ project, onTarget, onClose }: { project: Scrip
       const [available, result] = await Promise.all([loadImportTargets(), readImportMaterial(snapshot)]);
       if (!mounted.current) return;
       if (snapshot.updatedAt !== current.current.updatedAt) throw new Error("读取期间剧本内容发生变化，请重新读取。");
-      setTargets(available); setMaterial(result); setEpisodeIds(result.episodes.map(e => e.sourceEpisodeId));
+      const scopedId = isHostEmbedded() ? hostProjectId() : null;
+      const allowed = scopedId ? available.filter(item => item.id === scopedId) : available;
+      setTargets(allowed); setMaterial(result); setEpisodeIds(result.episodes.map(e => e.sourceEpisodeId));
       loadedAt.current = snapshot.updatedAt;
-      setTarget(value => available.some(p => p.id === value) ? value : available.length === 1 ? available[0].id : "");
+      setTarget(value => allowed.some(p => p.id === value) ? value : allowed.length === 1 ? allowed[0].id : "");
     } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : "读取失败，请重试。"); }
     finally { if (mounted.current) setBusy(false); }
   }
@@ -51,12 +54,13 @@ export function HostImportPanel({ project, onTarget, onClose }: { project: Scrip
       const result = await importMaterial(current.current, target, material, { episodeIds, assets: includeAssets, shots: includeShots });
       if (!mounted.current) return;
       setReceipt(result); onTarget(target);
+      notifyHost("synced", result.targetProjectId);
     } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : "导入失败，已保存内容保留，请重试。"); }
     finally { if (mounted.current) setBusy(false); }
   }
   return <dialog className="host-import-dialog" ref={dialog} aria-labelledby="host-import-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <header><div><h3 id="host-import-title">批量导入主项目</h3><p>读取已保存正文、分镜和人物／场景／道具资料。</p></div><button aria-label="关闭批量导入" className="outline-action" disabled={busy} onClick={onClose} type="button">关闭</button></header>
-    <p>导入后在主项目的剧本、资产设计和分镜中继续制作。不会自动生成图片、视频或扣积分。</p>
+    <p>{hostProjectId() ? "当前创作已绑定主项目，确认范围后同步到该项目。" : "导入后在主项目的剧本、资产设计和分镜中继续制作。"}不会自动生成图片、视频或扣积分。</p>
     <button className="outline-action" disabled={busy} onClick={() => void read()} type="button">{busy ? "正在处理…" : material ? "重新读取分镜与资产" : "读取分镜与资产"}</button>
     {error && <p className="inline-notice is-error" role="alert">{error}</p>}
     {material && <fieldset disabled={busy}><legend>导入范围</legend>
@@ -73,6 +77,7 @@ export function HostImportPanel({ project, onTarget, onClose }: { project: Scrip
       <p>重复导入会复用来源记录；已定稿资产保留。来源中删除的条目不会删除主项目内容。</p>
       <button className="primary-action" disabled={!target || (!episodeIds.length && !(includeAssets && material.assets.length))} onClick={() => void submit()} type="button">确认导入所选内容</button>
     </fieldset>}
-    {receipt && <p className="inline-notice" role="status" ref={receiptElement}>导入完成：新增 {receipt.importedEpisodes} 集、更新 {receipt.updatedEpisodes} 集；新增 {receipt.importedShots} 镜、更新 {receipt.updatedShots} 镜；新增 {receipt.importedAssets} 项资产、更新 {receipt.updatedAssets} 项、保留 {receipt.preservedAssets} 项定稿资产。<a className="host-return-link" href={hostWorkspaceHref(receipt.targetProjectId)} target="_blank" rel="noopener noreferrer">返回主项目查看</a></p>}
+    {receipt && <><p className="inline-notice" role="status" ref={receiptElement}>导入完成：新增 {receipt.importedEpisodes} 集、更新 {receipt.updatedEpisodes} 集；新增 {receipt.importedShots} 镜、更新 {receipt.updatedShots} 镜；新增 {receipt.importedAssets} 项资产、更新 {receipt.updatedAssets} 项、保留 {receipt.preservedAssets} 项定稿资产。<HostWorkspaceLink className="host-return-link" projectId={receipt.targetProjectId}>查看制作稿</HostWorkspaceLink></p>
+      <div className="host-import-next"><HostWorkspaceLink className="primary-action" projectId={receipt.targetProjectId} view="assets">进入资产设计</HostWorkspaceLink><HostWorkspaceLink className="outline-action" projectId={receipt.targetProjectId} view="storyboard">进入分镜制作</HostWorkspaceLink></div></>}
   </dialog>;
 }

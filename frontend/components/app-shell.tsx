@@ -16,19 +16,25 @@ import { BrandLogo } from "@/components/brand-logo";
 import { MenuIcon } from "@/components/icons";
 import { BackgroundGenerationStatus } from "@/components/background-generation-status";
 import { LanguageToggle } from "@/components/language-toggle";
-import { ProjectSidebar } from "@/components/project-sidebar";
+import { ProjectSidebar, ProjectSteps } from "@/components/project-sidebar";
 import { HostReturnLink } from "@/components/host-return-link";
+import { StudioGuide } from "@/components/studio-guide";
+import { HostImportPanel } from "@/components/host-import-panel";
+import { hostDeliveryConfigured } from "@/lib/host-delivery";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 import { DEFAULT_GENERATION_SETTINGS } from "@/lib/types";
-import { hostProjectId as currentHostProjectId } from "@/lib/host-session";
-import { hostWorkspaceHref } from "@/lib/host-navigation";
+import { hostProjectId as currentHostProjectId, hostProjectContext } from "@/lib/host-session";
+import { hostWorkspaceHref, isHostEmbedded, notifyHost } from "@/lib/host-navigation";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [embedded, setEmbedded] = useState(false);
+  const [hostImportOpen, setHostImportOpen] = useState(false);
+  const [hostBootstrapError, setHostBootstrapError] = useState("");
   const [syncResolutionOpen, setSyncResolutionOpen] = useState(false);
   const [resolvingSync, setResolvingSync] = useState<{
     projectId: string;
@@ -43,6 +49,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     serverPersistenceAvailable,
     resolveProjectSyncConflict,
     createProject,
+    updateProject,
   } = useProjects();
   const { t } = useLocale();
   const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
@@ -60,30 +67,42 @@ export function AppShell({ children }: { children: ReactNode }) {
   ));
 
   useEffect(() => {
+    setEmbedded(isHostEmbedded());
+    const projectId = currentHostProjectId();
+    if (isReady) notifyHost("ready", projectId);
+  }, [isReady]);
+
+  useEffect(() => {
     if (!isReady) return;
     const hostProjectId = currentHostProjectId();
     if (!hostProjectId || hostBootstrapRef.current === hostProjectId) return;
-    if (projects.some((project) => project.id === hostProjectId)) {
+    const existing = projects.find((project) => project.id === hostProjectId);
+    if (existing) {
       hostBootstrapRef.current = hostProjectId;
-      if (!pathname.includes(hostProjectId)) router.replace(`/projects/${hostProjectId}/planning`);
+      if (pathname.split("/")[2] !== hostProjectId) router.replace(currentWorkspaceHref(existing));
       return;
     }
     if (serverPersistenceAvailable !== true) return;
     hostBootstrapRef.current = hostProjectId;
+    const context = hostProjectContext();
     void createProject({
       id: hostProjectId,
-      title: "主项目长剧本",
+      title: context?.name || "主项目长剧本",
       titleSource: "derived",
       creativePrompt: "",
       referenceMaterials: [],
       selectedTagIds: [],
       customTags: [],
       characters: [],
-      generationSettings: DEFAULT_GENERATION_SETTINGS,
+      hostDeliveryTargetProjectId: hostProjectId,
+      generationSettings: { ...DEFAULT_GENERATION_SETTINGS,
+        preferredEpisodeDurationMinutes: context?.episodeDurationSeconds
+          ? context.episodeDurationSeconds / 60 : DEFAULT_GENERATION_SETTINGS.preferredEpisodeDurationMinutes },
     }).then((created) => {
       router.replace(`/projects/${created.id}/planning`);
     }).catch(() => {
       hostBootstrapRef.current = null;
+      setHostBootstrapError("暂时无法准备网剧创作，已保存内容保留，请重试。");
     });
   }, [createProject, isReady, pathname, projects, router, serverPersistenceAvailable]);
 
@@ -124,12 +143,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className={`app-shell${sidebarOpen ? " is-sidebar-open" : ""}`}>
-      <header className="desktop-topbar">
+    <div className={`app-shell${embedded ? " is-host-embedded" : sidebarOpen ? " is-sidebar-open" : ""}`}>
+      {!embedded && <><header className="desktop-topbar">
         <BrandHome className="topbar-brand-link" {...brandHomeProps}>
           <BrandLogo spin />
         </BrandHome>
         <span className="topbar-divider" aria-hidden="true" />
+        <StudioGuide />
         <button
           aria-controls="project-navigation"
           aria-expanded={sidebarOpen}
@@ -151,9 +171,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <LanguageToggle compact />
         </div>
       </header>
-      <ProjectSidebar hostHref={showHostReturn ? hostHref : undefined} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigate={onSidebarNavigate} />
+      <ProjectSidebar hostHref={showHostReturn ? hostHref : undefined} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigate={onSidebarNavigate} /></>}
       <div className="app-main">
-        <header className="mobile-header">
+        {!embedded && <header className="mobile-header">
           <button
             aria-controls="project-navigation"
             aria-expanded={sidebarOpen}
@@ -166,9 +186,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
           <BrandHome className="topbar-brand-link" {...brandHomeProps}><BrandLogo compact spin /></BrandHome>
           {showHostReturn && <HostReturnLink href={hostHref} />}
+          <StudioGuide />
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
-        </header>
+        </header>}
+        {showHostReturn && currentProject && <section className="series-production-bar" aria-label="网剧制作流程">
+          {embedded ? <ProjectSteps project={currentProject} /> : <div><strong>网剧创作 · {currentProject.title}</strong><span>设定 → 全剧规划 → 正文与分镜 → 资产与视频制作</span></div>}
+          {embedded && <BackgroundGenerationStatus />}
+          {hostDeliveryConfigured() && <button className="primary-action" type="button" onClick={() => setHostImportOpen(true)}>同步到制作</button>}
+        </section>}
+        {hostImportOpen && currentProject && <HostImportPanel project={currentProject}
+          onTarget={id => void updateProject(currentProject.id, { hostDeliveryTargetProjectId: id })}
+          onClose={() => setHostImportOpen(false)} />}
         {storageError ? <div className="storage-alert">{t("nav.storageUnavailable")}</div> : null}
         {conflictedProjects.length ? (
           <div className="storage-alert sync-conflict-alert">
@@ -276,7 +305,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             </section>
           </div>
         ) : null}
-        {children}
+        {currentHostProjectId() && !projects.some(project => project.id === currentHostProjectId()) ? (
+          <section className="series-production-bar" role="status">
+            <p>{hostBootstrapError || (serverPersistenceAvailable === false ? "暂时无法连接创作服务，请重试。" : "正在恢复当前项目的网剧创作…")}</p>
+            {(hostBootstrapError || serverPersistenceAvailable === false) && <button className="outline-action" type="button" onClick={() => window.location.reload()}>重新连接</button>}
+          </section>
+        ) : children}
       </div>
     </div>
   );

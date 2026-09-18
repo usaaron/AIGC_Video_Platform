@@ -1138,6 +1138,7 @@ export interface MasterScriptFinalizationResult {
 export interface ProjectDraft {
   /** Host handoffs may provide the stable main-project identifier. */
   id?: string;
+  hostDeliveryTargetProjectId?: string;
   title: string;
   titleSource: ProjectTitleSource;
   creativePrompt: string;

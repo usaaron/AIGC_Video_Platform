@@ -10,7 +10,9 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { HostReturnLink } from "@/components/host-return-link";
 import { formatRelativeTime } from "@/lib/format";
 import { projectTagLabel } from "@/lib/tag-catalog";
-import { currentWorkspaceHref } from "@/lib/workspace-stage";
+import { currentWorkspaceHref, workspaceSectionAccess, workspaceSectionHref, type WorkspaceSectionId } from "@/lib/workspace-stage";
+import type { ScriptProject } from "@/lib/types";
+import { hostProjectId } from "@/lib/host-session";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 
@@ -27,6 +29,8 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
   const { projects, isReady, deleteProject, serverPersistenceAvailable } = useProjects();
   const { locale, t } = useLocale();
   const [search, setSearch] = useState("");
+  const scopedId = hostProjectId();
+  const scopedProject = projects.find(project => project.id === scopedId);
   const visibleProjects = projects.filter((project) => project.title.toLowerCase().includes(search.trim().toLowerCase()));
 
   useEffect(() => {
@@ -53,13 +57,13 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
         <div className="sidebar-module-head">
           <span className="sidebar-module-icon"><ScriptIcon /></span>
           <span>
-            <strong>{t("nav.scriptMaster")}</strong>
-            <small>{t("nav.scriptWorkspace")}</small>
+            <strong>{scopedId ? "网剧创作" : t("nav.scriptMaster")}</strong>
+            <small>{scopedId ? "当前项目 · 完整创作流程" : t("nav.scriptWorkspace")}</small>
           </span>
           <button aria-label={t("nav.close")} className="sidebar-close-button" onClick={onClose} type="button"><X aria-hidden="true" size={16} /></button>
         </div>
 
-        <Link className="new-script-button" href="/projects/new" onClick={onNavigate}>
+        {scopedId ? <ProjectSteps project={scopedProject} onNavigate={onNavigate} /> : <><Link className="new-script-button" href="/projects/new" onClick={onNavigate}>
           <PlusIcon />
           <span>{t("nav.create")}</span>
         </Link>
@@ -107,10 +111,10 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
               );
             })
           )}
-        </nav>
+        </nav></>}
 
         <div className="sidebar-footer">
-          <Link className="sidebar-library-link" href="/" onClick={onNavigate}>{t("nav.projectLibrary")}</Link>
+          {!scopedId && <Link className="sidebar-library-link" href="/" onClick={onNavigate}>{t("nav.projectLibrary")}</Link>}
           <LanguageToggle />
           <div className="local-mode-badge">
             <span className="local-mode-dot" />
@@ -127,4 +131,23 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
       </aside>
     </>
   );
+}
+
+export function ProjectSteps({ project, onNavigate }: { project?: ScriptProject; onNavigate?: () => void }) {
+  const pathname = usePathname();
+  return <nav className="project-history" aria-label="当前网剧创作步骤">
+          {project && ([
+            ["story-bible", "创作设定", true],
+            ["planning", "全剧规划", workspaceSectionAccess(project).planning],
+            ["script", "分集正文", workspaceSectionAccess(project).script],
+            ["storyboard", "分镜", workspaceSectionAccess(project).storyboard],
+          ] as [WorkspaceSectionId, string, boolean][]).map(([section, label, available], index) => {
+            const href = workspaceSectionHref(project, section);
+            return available ? <Link key={section} className="project-history-item" href={href} onClick={onNavigate} aria-current={pathname === href ? "page" : undefined}>
+              <span className="project-history-icon">0{index + 1}</span><strong>{label}</strong>
+            </Link> : <div key={section} className="project-history-item" aria-disabled="true" title="完成前一步并确认后开放">
+              <span className="project-history-icon">0{index + 1}</span><span>{label} · 待解锁</span>
+            </div>;
+          })}
+        </nav>;
 }

@@ -27,6 +27,8 @@ interface TicketIdentity {
   expiresAt: number;
 }
 
+interface HostProjectContext { id: string; name: string; episodeDurationSeconds?: number }
+
 // Claims only select browser storage and refresh timing. The backend must verify
 // the ticket signature, expiry, permissions and ownership on every API request.
 function ticketIdentity(token: string): TicketIdentity {
@@ -64,6 +66,7 @@ export function createHostSession(options: HostSessionOptions) {
   let validated = false;
   let anonymous = false;
   let identity: TicketIdentity | null = null;
+  let projectContext: HostProjectContext | null = null;
   let failure: HostSessionError | null = null;
   let refreshing: Promise<string | null> | null = null;
   let retryAt = 0;
@@ -107,6 +110,7 @@ export function createHostSession(options: HostSessionOptions) {
     if (failure) return failure;
     failure = new HostSessionError();
     token = null;
+    projectContext = null;
     validated = false;
     clearTimeout(timer);
     lifetime.abort(failure);
@@ -150,7 +154,7 @@ export function createHostSession(options: HostSessionOptions) {
         throw new HostSessionUnavailableError();
       }
       if (!response.ok) throw new HostSessionError();
-      let result: { enabled?: boolean; launchUrl?: string };
+      let result: { enabled?: boolean; launchUrl?: string; project?: HostProjectContext | null };
       try {
         result = await response.json() as typeof result;
       } catch (error) {
@@ -169,6 +173,12 @@ export function createHostSession(options: HostSessionOptions) {
       identity = nextIdentity;
       token = nextToken;
       validated = true;
+      // Context is accepted only from the authenticated refresh, for this target.
+      projectContext = result.project?.id === projectId && typeof result.project.name === "string"
+        ? { id: projectId!, name: result.project.name,
+          ...(Number.isFinite(result.project.episodeDurationSeconds) && result.project.episodeDurationSeconds! > 0
+            ? { episodeDurationSeconds: result.project.episodeDurationSeconds } : {}) }
+        : null;
       retryAt = 0;
       refreshError = null;
       try {
@@ -227,6 +237,7 @@ export function createHostSession(options: HostSessionOptions) {
       return identity ? validToken() : token;
     },
     hostProjectId(): string | null { readInitialTicket(); return projectId; },
+    hostProjectContext(): HostProjectContext | null { assertActive(); return projectContext; },
     assertActive,
     storageKey(key: string): string {
       assertActive();
@@ -253,6 +264,7 @@ const session = createHostSession({
 export const hostToken = session.hostToken;
 export const ensureHostToken = session.ensureHostToken;
 export const hostProjectId = session.hostProjectId;
+export const hostProjectContext = session.hostProjectContext;
 export const projectStorageKey = session.storageKey;
 export const assertHostSessionActive = session.assertActive;
 export const subscribeHostSessionFailure = session.subscribe;

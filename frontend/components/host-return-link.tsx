@@ -1,4 +1,13 @@
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import type { ReactNode } from "react";
+import { hostWorkspaceHref, notifyHost } from "@/lib/host-navigation";
+
+export function HostWorkspaceLink({ projectId, view = "script", className, children }: {
+  projectId: string; view?: "script" | "assets" | "storyboard"; className?: string; children: ReactNode;
+}) {
+  return <a className={className} href={hostWorkspaceHref(projectId, view)} target="_blank" rel="noopener noreferrer"
+    onClick={event => { if (notifyHost("navigate", projectId, view)) event.preventDefault(); }}>{children}</a>;
+}
 
 export function HostReturnLink({ href, detail = false }: { href: string; detail?: boolean }) {
   return (

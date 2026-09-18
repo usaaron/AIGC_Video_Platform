@@ -15,6 +15,24 @@ function setup(t, overrides = {}) {
   return { session, page, requests };
 }
 
+test("host project context is available only after validation, matched to the target, and cleared on expiry of login", async (t) => {
+  const page = browser("https://studio.test/script-master?host_project_id=series-1");
+  let response = { ...(await launchResponse().json()), project: { id: "series-1", name: "午夜列车", episodeDurationSeconds: 90 } };
+  const { session } = setup(t, { browser: () => page, fetch: async () => Response.json(response) });
+  assert.throws(() => session.hostProjectContext(), HostSessionError);
+  await session.ensureHostToken();
+  assert.deepEqual(session.hostProjectContext(), response.project);
+  response.project = { id: "another-series", name: "Wrong project", episodeDurationSeconds: 60 };
+  await session.ensureHostToken(true);
+  assert.equal(session.hostProjectContext(), null);
+  response.project = { id: "series-1", name: "午夜列车", episodeDurationSeconds: -1 };
+  await session.ensureHostToken(true);
+  assert.deepEqual(session.hostProjectContext(), { id: "series-1", name: "午夜列车" });
+  response.enabled = false;
+  await assert.rejects(session.ensureHostToken(true), HostSessionError);
+  assert.throws(() => session.hostProjectContext(), HostSessionError);
+});
+
 test("initial cached/fragment ticket must be validated using current host cookies before storage access", async (t) => {
   const pending = deferred();
   const page = browser(`https://studio.test/script-master?host_project_id=host%2F123#host_token=${ticket()}&other=kept`);

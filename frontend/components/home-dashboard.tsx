@@ -9,6 +9,7 @@ import { projectTagLabel } from "@/lib/tag-catalog";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
+import { StudioIntro } from "@/components/studio-intro";
 
 export function HomeDashboard() {
   const { projects, isReady, deleteProject } = useProjects();
@@ -45,6 +46,7 @@ export function HomeDashboard() {
   }
 
   return <main className="home-page library-workspace">
+    <StudioIntro />
     <header className="library-page-header">
       <div><span className="library-kicker">{t("nav.scriptMaster")}</span>
         <h1>{t("nav.projectLibrary")}</h1>
