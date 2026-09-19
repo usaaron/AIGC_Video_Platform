@@ -1,6 +1,6 @@
 import { createScreenplayDocxBlob } from "./episode-docx.ts";
 import {
-  applyChineseCharacterNames,
+  applyEnglishCharacterNames,
   mergeOverseasCharacterNames,
   overseasNarrativeText,
   overseasDialoguePresentation,
@@ -37,7 +37,7 @@ function uniqueValues(values: string[]): string[] {
 function sceneCharacterRefs(scene: GeneratedScene): string[] {
   const explicit = scene.content_manifest?.character_refs ?? scene.character_refs ?? [];
   if (explicit.length) return uniqueValues(explicit);
-  return uniqueValues(scene.dialogues.map((line) => line.chinese_character_name || line.character_name));
+  return uniqueValues(scene.dialogues.map((line) => line.character_name));
 }
 
 function sceneHeading(scene: GeneratedScene, sceneIndex: number, bilingualView?: BilingualScriptView): string {
@@ -74,14 +74,14 @@ function episodeInformationMarkdown(
   const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
   const cast = episodeCast(draft).map((name) => {
     const profile = draft.characters.find((character) => character.name.toLocaleLowerCase() === name.toLocaleLowerCase());
-    const label = applyChineseCharacterNames(name, characterNames);
-    return profile ? `${label}：${applyChineseCharacterNames(profile.role, characterNames)}` : label;
+    const label = applyEnglishCharacterNames(name, characterNames);
+    return profile ? `${label}：${applyEnglishCharacterNames(profile.role, characterNames)}` : label;
   });
-  const locations = episodeLocations(draft).map((location) => applyChineseCharacterNames(location, characterNames));
+  const locations = episodeLocations(draft).map((location) => applyEnglishCharacterNames(location, characterNames));
   const sceneRows = draft.scenes.map((scene, index) => {
     const manifest = scene.content_manifest;
-    const heading = applyChineseCharacterNames(sceneHeading(scene, index, bilingualView), characterNames);
-    const refs = sceneCharacterRefs(scene).map((ref) => applyChineseCharacterNames(ref, characterNames));
+    const heading = applyEnglishCharacterNames(sceneHeading(scene, index, bilingualView), characterNames);
+    const refs = sceneCharacterRefs(scene).map((ref) => applyEnglishCharacterNames(ref, characterNames));
     const props = manifest?.props?.length ? manifest.props.join("、") : "无特别道具";
     const objective = manifest?.objective ?? scene.purpose;
     const conflict = manifest?.conflict ?? scene.beat_summary;
@@ -89,10 +89,10 @@ function episodeInformationMarkdown(
     return [
       `${index + 1}. ${heading}`,
       `   出场人物：${refs.join("、") || "待补充"}`,
-      `   场景任务：${objective}`,
-      `   主要阻力：${conflict}`,
-      `   场景结果：${outcome}`,
-      `   必要道具：${props}`,
+      `   场景任务：${applyEnglishCharacterNames(objective, characterNames)}`,
+      `   主要阻力：${applyEnglishCharacterNames(conflict, characterNames)}`,
+      `   场景结果：${applyEnglishCharacterNames(outcome, characterNames)}`,
+      `   必要道具：${applyEnglishCharacterNames(props, characterNames)}`,
     ].join("\n");
   });
   return [
@@ -113,7 +113,7 @@ export function toEpisodeMarkdown(
 ): string {
   const dialoguePresentation = overseasDialoguePresentation(bilingualView);
   const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
-  const chineseEpisodeTitle = applyChineseCharacterNames(
+  const chineseEpisodeTitle = applyEnglishCharacterNames(
     clientEpisodeTitle(
       overseasNarrativeText(dialoguePresentation, "title", draft.title),
     ),
@@ -122,7 +122,7 @@ export function toEpisodeMarkdown(
   const scenes = draft.scenes.map((scene, sceneIndex) => {
     const body = orderedScreenplayBody(scene).map((item) => {
       if (item.kind === "action") {
-        return `△ ${applyChineseCharacterNames(
+        return `△ ${applyEnglishCharacterNames(
           overseasNarrativeText(
             dialoguePresentation,
             `scenes.${sceneIndex}.character_actions.${item.index}`,
@@ -141,7 +141,7 @@ export function toEpisodeMarkdown(
         characterNames,
       );
       const cue = line.intent.trim()
-        ? `\n（${applyChineseCharacterNames(
+        ? `\n（${applyEnglishCharacterNames(
           overseasNarrativeText(dialoguePresentation, `${prefix}.intent`, line.intent.trim()),
           characterNames,
         )}）`
@@ -155,7 +155,7 @@ export function toEpisodeMarkdown(
         ? `\n\n> 中文：${text.chinese}`
         : ""}`;
     }).join("\n\n");
-    const heading = applyChineseCharacterNames(sceneHeading(scene, sceneIndex, bilingualView), characterNames);
+    const heading = applyEnglishCharacterNames(sceneHeading(scene, sceneIndex, bilingualView), characterNames);
     return `## ${heading}\n\n${body}`;
   }).join("\n\n");
   return [
@@ -177,20 +177,20 @@ export function toEpisodePlainText(
 ): string {
   const dialoguePresentation = overseasDialoguePresentation(bilingualView);
   const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
-  const chineseEpisodeTitle = applyChineseCharacterNames(
+  const chineseEpisodeTitle = applyEnglishCharacterNames(
     clientEpisodeTitle(
       overseasNarrativeText(dialoguePresentation, "title", draft.title),
     ),
     characterNames,
   );
   const scenes = draft.scenes.map((scene, sceneIndex) => [
-    applyChineseCharacterNames(
+    applyEnglishCharacterNames(
       sceneHeading(scene, sceneIndex, bilingualView),
       characterNames,
     ),
     ...orderedScreenplayBody(scene).flatMap((item) => {
       if (item.kind === "action") {
-        return [`△ ${applyChineseCharacterNames(
+        return [`△ ${applyEnglishCharacterNames(
           overseasNarrativeText(
             dialoguePresentation,
             `scenes.${sceneIndex}.character_actions.${item.index}`,
@@ -216,7 +216,7 @@ export function toEpisodePlainText(
       return [
         `${speaker}${marker ? ` (${marker})` : ""}`,
         line.intent.trim()
-          ? `（${applyChineseCharacterNames(
+          ? `（${applyEnglishCharacterNames(
             overseasNarrativeText(dialoguePresentation, `${prefix}.intent`, line.intent.trim()),
             characterNames,
           )}）`
@@ -351,11 +351,12 @@ export function seriesArchiveFilename(
 
 function episodeDurationSeconds(draft: GeneratedDraft): number {
   const estimated = draftMetadataCoercedNumber(draft, "estimated_duration_seconds") ?? Number.NaN;
-  if (Number.isFinite(estimated) && estimated >= 75 && estimated <= 115) {
+  // Export the estimate even when the screenplay misses its planned duration window.
+  if (Number.isFinite(estimated) && estimated > 0) {
     return Math.round(estimated);
   }
   const target = Number(draft.target_duration_seconds);
-  return Number.isFinite(target) && target >= 75 && target <= 115
+  return Number.isFinite(target) && target > 0
     ? Math.round(target)
     : 90;
 }

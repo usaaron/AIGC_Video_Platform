@@ -62,6 +62,13 @@ class EpisodeScriptAgent:
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> EpisodeScriptAgentResult:
+        # Resumed pre-edit checkpoints bypass generate_draft. Revalidate the
+        # requested roadmap before reusing them or a completed cached result.
+        validate_progression = getattr(
+            self._generation_service, "validate_episode_plan_progression", None
+        )
+        if validate_progression is not None:
+            validate_progression(payload)
         episode_number = (
             payload.episode_context.episode_number
             if payload.episode_context is not None
@@ -82,6 +89,7 @@ class EpisodeScriptAgent:
                     }
                 ),
                 project_id=payload.story_project_id,
+                planning_revision_epoch=payload.planning_revision_epoch,
                 episode_number=episode_number or None,
             )
             if start.session is None:
@@ -137,6 +145,7 @@ class EpisodeScriptAgent:
                 kind=AgentToolKind.model,
                 operation=lambda: self._finalize_pre_edit(
                     pre_edit_run,
+                    planning_revision_epoch=payload.planning_revision_epoch,
                     progress_callback=progress_callback,
                     agent_run_id=session.record.run_id,
                     script_editor_checkpoint=editor_checkpoint,
@@ -243,6 +252,7 @@ class EpisodeScriptAgent:
         self,
         source_run: ScriptGenerationDraftRun,
         *,
+        planning_revision_epoch: int = 0,
         progress_callback: Callable[[str, dict[str, object]], None] | None,
         agent_run_id: str | None = None,
         script_editor_checkpoint: ScriptPostEditCheckpoint | None = None,
@@ -274,6 +284,8 @@ class EpisodeScriptAgent:
                 "script_editor_checkpoint": script_editor_checkpoint,
                 "script_editor_checkpoint_callback": script_editor_checkpoint_callback,
             }
+            if _supports_keyword(finalize, "planning_revision_epoch"):
+                kwargs["planning_revision_epoch"] = planning_revision_epoch
             if cancel_event is not None and _supports_keyword(finalize, "cancel_event"):
                 kwargs["cancel_event"] = cancel_event
             return finalize(source_run, **kwargs)

@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -45,6 +46,7 @@ def case():
         instruction="让主角在本集决定与对方合作，但保留她追查真相的目标。",
     )
     adapter.output = {
+        "rewrite_scope": "preserve_unaffected_text",
         "user_goal": "让主角选择合作，同时保留调查目标。",
         "conflicts": [{
             "source_ref": "source_draft_master_script.synopsis",
@@ -171,3 +173,28 @@ async def test_api_returns_review_as_data_and_rejects_changed_confirmation(case)
         response = await client.post("/script-generation/modify-draft", json=changed)
         assert response.status_code == 409
         assert "重新检查影响" in response.json()["detail"]
+
+
+@pytest.mark.parametrize('conflicting', [False, True])
+def test_detailed_revision_instruction_survives_review_and_candidate(case, conflicting):
+    service, request, adapter = case
+    instruction = '保留本集28轮回应和人物顺序，修正提前承认，不新增日期和往事。\n' * 40 + '最后要求：结尾仍停录，承认留到下一集。'
+    assert 1000 < len(instruction) < 4000
+    request = ScriptDraftModificationRequest.model_validate({**request.model_dump(), 'instruction': instruction})
+    if not conflicting:
+        adapter.output.update(conflicts=[], options=[])
+    result = service.modify_draft(request)
+    assert json.dumps(instruction, ensure_ascii=False) in adapter.prompts[0]
+    assert result.instruction == instruction
+    if conflicting:
+        assert result.conflict_review.instruction == instruction
+    else:
+        assert result.candidate_generation_run is not None
+    assert result.model_validate_json(result.model_dump_json()).instruction == instruction
+
+
+def test_revision_instruction_over_limit_rejected_before_execution(case):
+    from pydantic import ValidationError
+    _, request, _ = case
+    with pytest.raises(ValidationError, match='4000'):
+        ScriptDraftModificationRequest.model_validate({**request.model_dump(), 'instruction': '修' * 4001})

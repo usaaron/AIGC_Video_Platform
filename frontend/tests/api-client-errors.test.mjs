@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { userFacingError, visibleApiError } from "../lib/api-error.ts";
+import { CreatorNarrativeLanguageError } from "../lib/mainland-language.ts";
 
 test("storyboard conflicts retain actionable messages without exposing unknown errors", () => {
   for (const message of [
@@ -21,6 +22,10 @@ test("planning errors keep technical provider details out of the user interface"
     visibleApiError("LLM request timed out", 503),
     /生成服务响应超时/,
   );
+  assert.match(
+    visibleApiError("剧情规划模型响应超时，已保存的规划内容不会丢失，请重试当前部分。", 503),
+    /生成服务响应超时/,
+  );
   for (const detail of [
     "status 429: rate limit",
     "status 502: bad gateway",
@@ -37,6 +42,16 @@ test("unknown 503 no longer asserts that the model provider is unavailable", () 
   const message = visibleApiError("unclassified failure", 503);
   assert.match(message, /生成服务暂时未完成请求/);
   assert.doesNotMatch(message, /上游模型服务暂时不可用/);
+});
+
+test("bible language rejection explains why the draft was not saved", () => {
+  const message = visibleApiError(
+    "The Story Bible contains unresolved quality conflicts: non-Chinese field: escalation_stages.4.stage_opposition",
+    422,
+  );
+  assert.match(message, /未转换成中文/);
+  assert.match(message, /本次未保存/);
+  assert.doesNotMatch(message, /escalation_stages|non-Chinese|stage_opposition/);
 });
 
 test("configuration failures tell the user to fix settings instead of retrying", () => {
@@ -81,4 +96,17 @@ test("candidate errors explain the actual recovery without exposing arbitrary se
     assert.equal(visibleApiError(message, 422, "overseas"), message);
   }
   assert.doesNotMatch(visibleApiError(`${messages[0]} secret_details`, 422), /secret_details/);
+});
+
+test("retained bible candidates explain that retry continues the repair", () => {
+  const message = "故事总纲还有少量内容未完成中文转换。已保留生成进度，请重试继续修正。";
+  assert.equal(visibleApiError(message, 422), message);
+});
+
+test("local planning language errors retain field guidance without trusting arbitrary errors", () => {
+  const error = new CreatorNarrativeLanguageError(["核心前提", "进入状态"]);
+  assert.equal(userFacingError(error, "草稿保存失败"), error.message);
+  assert.match(error.message, /核心前提、进入状态/);
+  assert.match(error.message, /保留已确认的英文人物名/);
+  assert.equal(userFacingError(new Error(error.message + " INTERNAL_SECRET"), "草稿保存失败"), "草稿保存失败");
 });

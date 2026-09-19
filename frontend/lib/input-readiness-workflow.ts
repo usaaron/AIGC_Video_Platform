@@ -77,7 +77,7 @@ export function inputReadinessWorkflowIntent(
   source: InputReadinessWorkflowSource,
 ): InputReadinessWorkflowIntent {
   const analysis = readinessAnalysis(source);
-  if (!analysis || analysis.selectedPath !== "recommended") {
+  if (!analysis) {
     return {
       normalizeStoryBible: false,
       prepareCompletePlanning: false,
@@ -86,12 +86,10 @@ export function inputReadinessWorkflowIntent(
 
   return {
     normalizeStoryBible: analysis.detectedLevel !== "premise",
-    // Only a structurally complete episode plan may prepare the planning
-    // artifacts in the background. Partial plans remain in the normal review
-    // flow so missing episodes cannot be mistaken for an approved roadmap.
-    prepareCompletePlanning: analysis.assessmentVersion === 2 && analysis.structurallyComplete === true
-      && (analysis.detectedLevel === "script"
-        || (analysis.detectedLevel === "episode_plan" && analysis.recommendedStage === "script")),
+    // Every project still visits the planning stage. The readiness classifier
+    // describes source coverage, but never materializes or approves planning
+    // artifacts in the background.
+    prepareCompletePlanning: false,
   };
 }
 
@@ -104,7 +102,8 @@ export function shouldApplyImportedStoryBibleConstraints(
 export function shouldApplyImportedPlanningConstraints(
   source: InputReadinessWorkflowSource,
 ): boolean {
-  return inputReadinessWorkflowIntent(source).prepareCompletePlanning;
+  const analysis = readinessAnalysis(source);
+  return Boolean(analysis && (analysis.detectedLevel === "episode_plan" || analysis.detectedLevel === "script"));
 }
 
 export function importedStoryBibleInstruction(): string {

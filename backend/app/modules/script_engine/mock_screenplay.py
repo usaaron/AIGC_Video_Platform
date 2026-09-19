@@ -15,13 +15,14 @@ def build_mock_episode_draft(*, content_spec, generation_strategy, context: Epis
     chinese_name = next(iter(context.canonical_character_names), "演示主角")
     english_name = context.canonical_character_names.get(chinese_name, "Demo Lead")
     overseas = output_language.casefold().startswith("en")
+    display_name = english_name if overseas else chinese_name
     scenes = []
     for beat in plan.scene_execution_plan:
         final_scene = beat.scene_number == len(plan.scene_execution_plan)
         actions = [beat.visible_action]
         for index in range(1, min(beat.shot_target, 24)):
-            actions.append(f"{chinese_name}翻开第{context.episode_number}份材料的第{index}页，逐项核对记录。")
-        outcome = f"第{beat.scene_number}场核验结束，{chinese_name}在记录表签名，将本次比对结果归档。"
+            actions.append(f"{display_name}翻开第{context.episode_number}份材料的第{index}页，逐项核对记录。")
+        outcome = f"第{beat.scene_number}场核验结束，{display_name}在记录表签名，将本次比对结果归档。"
         actions[-1] = outcome
         scenes.append(DraftSceneCard(
             scene_number=beat.scene_number,
@@ -31,7 +32,7 @@ def build_mock_episode_draft(*, content_spec, generation_strategy, context: Epis
             character_refs=beat.character_refs, character_actions=actions,
             dialogues=[{
                 "character_name": english_name if overseas else chinese_name,
-                "chinese_character_name": chinese_name,
+                "chinese_character_name": None,
                 "intent": beat.dialogue_objective[:120],
                 "text": f"Check entry {index + 1} against the original record."
                 if overseas else f"第{index + 1}项也要对照原件，核实后再保存。",

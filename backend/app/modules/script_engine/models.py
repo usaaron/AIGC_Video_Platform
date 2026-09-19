@@ -2,17 +2,23 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from app.modules.content_spec.models import ResolvedCreativeContext
 from app.modules.script_engine.author_conflict_models import AuthorConflictResolution, AuthorConflictReview
+from app.modules.script_engine.author_instructions import (
+    SCRIPT_AUTHOR_INSTRUCTION_CONTEXT_MAX_CHARACTERS,
+    SCRIPT_PRIOR_AUTHOR_INSTRUCTION_MAX_COUNT,
+)
 from app.modules.master_script.models import DraftMasterScript
 from app.modules.orchestrator.models import OrchestrationPlan
 from app.modules.retrieval.models import RetrievalPlanResult
 from app.script_delivery_contract import (
     DEFAULT_ENDING_MODE,
+    SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH,
     EndingMode,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
@@ -163,6 +169,16 @@ class MemoryCapsule(BaseModel):
     priority: int = Field(default=50, ge=0, le=100)
     mandatory: bool = False
     conflict_note: str | None = Field(default=None, max_length=500)
+    # Optional structured character state keeps recall facts machine-checkable
+    # while remaining backwards compatible with summary-only capsules.
+    life_status: str | None = Field(default=None, pattern=r"^(alive|dead|missing|unknown)$")
+    physical_state: str | None = Field(default=None, max_length=300)
+    location: str | None = Field(default=None, max_length=300)
+    health_conditions: list[str] = Field(default_factory=list, max_length=30)
+    action_capabilities: list[str] = Field(default_factory=list, max_length=30)
+    lasting_marks: list[str] = Field(default_factory=list, max_length=30)
+    belief_or_attitude: str | None = Field(default=None, max_length=300)
+    personality_development: str | None = Field(default=None, max_length=300)
     knowledge_states: list[ContinuityKnowledgeState] = Field(default_factory=list, max_length=40_000)
     active_constraints: list[str] = Field(default_factory=list, max_length=30)
 
@@ -182,6 +198,18 @@ class MemoryCapsule(BaseModel):
         return values
 
 
+class SameEpisodeSetupPayoffSource(BaseModel):
+    """Claim about approved timing; the server must verify its durable source."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    setup_payoff_ref: str = Field(min_length=1, max_length=1_200)
+    episode_number: int = Field(ge=1, le=2_000)
+    source_node_id: str = Field(min_length=3, max_length=120)
+    source_node_version: int = Field(ge=1)
+    story_bible_version: int = Field(ge=1)
+
+
 class MemoryRecall(BaseModel):
     """Task-scoped recall result; it is a prompt input, never a canon write."""
 
@@ -196,6 +224,7 @@ class MemoryRecall(BaseModel):
     missing_requirements: list[str] = Field(default_factory=list, max_length=30)
     capsules: list[MemoryCapsule] = Field(default_factory=list, max_length=50)
     omitted_records: list[str] = Field(default_factory=list, max_length=50)
+    same_episode_setup_payoffs: list[SameEpisodeSetupPayoffSource] = Field(default_factory=list, max_length=20)
 
     @field_validator("required_refs", "missing_requirements", "omitted_records")
     @classmethod
@@ -1158,6 +1187,8 @@ class ScriptRevisionResponse(BaseModel):
 class ScriptGenerationDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    planning_revision_epoch: int = Field(default=0, ge=0)
+
     content_spec_id: str = Field(min_length=3, max_length=120)
     story_project_id: str | None = Field(default=None, min_length=3, max_length=120)
     agent_request_id: str | None = Field(default=None, min_length=3, max_length=240)
@@ -1432,6 +1463,10 @@ class ApprovedStoryNodeContext(BaseModel):
 
 class EpisodeGenerationContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    # Never serialized or accepted from a request: only durable-source validation
+    # may grant the same-episode exception used by deterministic continuity QC.
+    _verified_same_episode_setup_payoff_refs: set[str] = PrivateAttr(default_factory=set)
+    _persisted_setup_payoff_records: list[dict[str, Any]] = PrivateAttr(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -1487,7 +1522,7 @@ class EpisodeGenerationContext(BaseModel):
     planned_story_beat: str | None = Field(default=None, max_length=1_000)
     approved_story_node: ApprovedStoryNodeContext | None = None
     approved_episode_plan: ApprovedEpisodePlanContext | None = None
-    story_bible_context: str | None = Field(default=None, max_length=7000)
+    story_bible_context: str | None = Field(default=None, max_length=64_000)
     reference_material_context: str | None = Field(default=None, max_length=6000)
     canonical_character_names: dict[str, str] = Field(default_factory=dict, max_length=100)
     canonical_character_name_sources: list[str] = Field(default_factory=list, max_length=100)
@@ -1582,6 +1617,31 @@ class EpisodeGenerationContext(BaseModel):
                 <= self.batch_context.end_episode
             ):
                 raise ValueError("episode_number must be within the batch episode range.")
+        if (
+            self.memory_recall is not None
+            and self.memory_recall.through_episode_number >= self.episode_number
+        ):
+            raise ValueError(
+                "memory_recall.through_episode_number must be before episode_number."
+            )
+        for checkpoint_name in (
+            "provisional_continuity_checkpoint",
+            "confirmed_continuity_checkpoint",
+        ):
+            checkpoint_payload = getattr(self, checkpoint_name)
+            if not checkpoint_payload:
+                continue
+            try:
+                checkpoint = json.loads(checkpoint_payload)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(checkpoint, dict):
+                continue
+            through = checkpoint.get("through_episode_number")
+            if isinstance(through, int) and through >= self.episode_number:
+                raise ValueError(
+                    f"{checkpoint_name}.through_episode_number must be before episode_number."
+                )
         return self
 
 
@@ -1619,6 +1679,7 @@ class ScriptGenerationDraftResponse(BaseModel):
 class ScriptDraftReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    planning_revision_epoch: int = Field(default=0, ge=0)
     source_generation_run: ScriptGenerationDraftRun
     draft_master_script: DraftMasterScript
 
@@ -1627,22 +1688,66 @@ class ScriptDraftReviewResponse(BaseModel):
     data: ScriptGenerationDraftRun
 
 
+class PriorAuthorInstruction(BaseModel):
+    """An active earlier user requirement for this same episode, not a fact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=120)
+    instruction: str = Field(min_length=3, max_length=SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH)
+    selection_context: StoryBibleSelectionContext | None = None
+
+    @field_validator("id", "instruction")
+    @classmethod
+    def reject_blank_author_instruction(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Author instruction identity and text must not be blank.")
+        return value
+
+
 class ScriptDraftModificationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    planning_revision_epoch: int = Field(default=0, ge=0)
     source_generation_run: ScriptGenerationDraftRun
     source_draft_master_script: DraftMasterScript
-    instruction: str = Field(min_length=3, max_length=500)
+    instruction: str = Field(min_length=3, max_length=SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH)
+    prior_author_instructions: list[PriorAuthorInstruction] = Field(
+        default_factory=list, max_length=SCRIPT_PRIOR_AUTHOR_INSTRUCTION_MAX_COUNT,
+        description=(
+            "Active prior author requirements for this same project and episode, oldest first; "
+            "exclude the current instruction and all assistant/candidate content. Current and prior "
+            "instruction/selection strings together must not exceed 32000 characters."
+        ),
+    )
     selection_context: StoryBibleSelectionContext | None = None
     resolution: AuthorConflictResolution | None = None
     source_story_bible_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_author_instruction_context(self):
+        if len({item.id for item in self.prior_author_instructions}) != len(self.prior_author_instructions):
+            raise ValueError("Prior author instruction IDs must be distinct.")
+        character_count = 0
+        for item in [*self.prior_author_instructions, self]:
+            character_count += len(item.instruction)
+            if item.selection_context is not None:
+                character_count += sum(
+                    len(value) for value in item.selection_context.model_dump().values()
+                )
+        if character_count > SCRIPT_AUTHOR_INSTRUCTION_CONTEXT_MAX_CHARACTERS:
+            raise ValueError(
+                "Current and prior author instruction/selection text exceeds 32000 characters; "
+                "edit or explicitly withdraw obsolete requirements before retrying. Nothing was truncated."
+            )
+        return self
 
 
 class ScriptDraftModificationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_draft_master_script_id: str = Field(min_length=3, max_length=120)
-    instruction: str = Field(min_length=3, max_length=500)
+    instruction: str = Field(min_length=3, max_length=SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH)
     candidate_generation_run: ScriptGenerationDraftRun | None = None
     conflict_review: AuthorConflictReview | None = None
 

@@ -67,7 +67,7 @@ export function useScriptDraftEditing({ projectId, getProject, updateProject }: 
   function updateDraft(episodeNumber: number, update: ScriptDraftUpdater) {
     const project = getProject(projectId);
     const episode = project?.episodes.find((item) => item.episodeNumber === episodeNumber);
-    if (!episode || episodeIsLocked(episode) || episode.modificationCandidate
+    if (!episode || episode.sourceAmendment || episodeIsLocked(episode) || episode.modificationCandidate
       || episode.deepeningRun?.candidate_draft_master_script) return;
     const sourceDraft = pendingInlineDraftsRef.current.get(episodeNumber) ?? resolveWorkingDraft(episode);
     const nextDraft = update(sourceDraft);
@@ -75,7 +75,7 @@ export function useScriptDraftEditing({ projectId, getProject, updateProject }: 
     pendingInlineDraftsRef.current.set(episodeNumber, nextDraft);
     void updateProject(projectId, (latest) => {
       const current = latest.episodes.find((item) => item.id === episode.id && item.episodeNumber === episodeNumber);
-      if (!current || episodeIsLocked(current) || current.modificationCandidate
+      if (!current || current.sourceAmendment || episodeIsLocked(current) || current.modificationCandidate
         || current.deepeningRun?.candidate_draft_master_script) return {};
       return episodePatch(latest, current, {
         ...editedDraftPatch(nextDraft), status: "editing", hasLocalDraftEdits: true,
@@ -90,6 +90,7 @@ export function useScriptDraftEditing({ projectId, getProject, updateProject }: 
     reviewedRun: ScriptGenerationRun,
     sourceSnapshot = authorConflictSourceSnapshot(sourceProject, sourceEpisode, resolveWorkingDraft(sourceEpisode)),
   ) {
+    if (sourceEpisode.sourceAmendment) throw new ScriptDraftSaveError("请在来源修订正文复核区填写依据并采用候选。");
     const episodeNumber = sourceEpisode.episodeNumber;
     const candidates = candidateSnapshot(sourceEpisode);
     const pendingDraft = pendingInlineDraftsRef.current.get(episodeNumber);
@@ -158,7 +159,7 @@ export function useScriptDraftEditing({ projectId, getProject, updateProject }: 
       || episode.modificationCandidate || episode.deepeningRun?.candidate_draft_master_script) return;
     const draft = pendingInlineDraftsRef.current.get(episodeNumber) ?? resolveWorkingDraft(episode);
     const sourceSnapshot = authorConflictSourceSnapshot(project, episode, draft);
-    const save = reviewEpisodeDraft(episode.generationRun, draft)
+    const save = reviewEpisodeDraft(episode.generationRun, draft, project.planningRevisionEpoch ?? 0)
       .then((reviewedRun) => persistReviewedDraft(project, episode, reviewedRun, sourceSnapshot))
       .finally(() => saves.delete(episodeNumber));
     saves.set(episodeNumber, save);

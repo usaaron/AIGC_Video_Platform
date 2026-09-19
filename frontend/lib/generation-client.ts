@@ -1,3 +1,4 @@
+import type { PriorAuthorInstruction } from "./author-modification-instructions";
 import { ApiError, apiEventStream, apiRequest } from "@/lib/api-client";
 import { buildContinuityGenerationSummary } from "@/lib/continuity";
 import { generateWithAutomaticTransientRetry } from "@/lib/generation-retry";
@@ -9,11 +10,12 @@ import type {
   EpisodeExecutionPlan,
   StoryNodeExecutionContext,
 } from "@/lib/episode-generation-planning";
-import { buildStorylineDuties } from "@/lib/episode-generation-planning";
+import { buildStorylineDuties, storyBibleEpisodeContext } from "@/lib/episode-generation-planning";
 import { buildProvisionalContinuityCheckpoint } from "@/lib/continuity-checkpoint";
 import {
   buildEpisodeMemoryRecall,
   buildEpisodeModificationMemoryRecall,
+  projectBeforeEpisodeModification,
   type MemoryRecall,
 } from "@/lib/memory-recall";
 import { loadConfirmedContinuityCheckpoint } from "@/lib/project-sync";
@@ -35,6 +37,7 @@ import type {
   ScriptProject,
   StorylineDuty,
 } from "@/lib/types";
+import { enrichDraftWithActingProfiles } from "@/lib/character-acting-profile";
 import {
   marketProfileForReleaseRegion,
 } from "@/lib/types";
@@ -44,8 +47,11 @@ import {
 } from "@/lib/canonical-character-names";
 import { clientDialogueSpeaker } from "@/lib/client-screenplay-format";
 import { buildEpisodeHandoff } from "@/lib/episode-handoff";
+import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
 export { buildEpisodeHandoff } from "@/lib/episode-handoff";
 import type { StoryBibleSelectionContext } from "@/lib/story-planning-client";
+import { compileAmendedEpisodeSource } from "@/lib/amended-episode-context";
+import { loadActiveStoryPlanNodes, loadStoryBible } from "@/lib/story-planning-client";
 
 interface ApiList<T> { data: T[] }
 interface OntologyNode { id: string; label: string; category: string; is_active: boolean }
@@ -108,6 +114,7 @@ async function loadGenerationCatalog(): Promise<Pick<EpisodeGenerationRuntime, "
 export async function prepareEpisodeGenerationRuntime(
   project: ScriptProject,
 ): Promise<EpisodeGenerationRuntime> {
+  if (project.planningRevision?.status === "active") throw new Error("后续规划正在修订，请完成审校和逐集批准后再生成正文。");
   return generateWithAutomaticTransientRetry({
     generate: async () => {
       const [catalog, confirmedCheckpoint] = await Promise.all([
@@ -224,6 +231,7 @@ export async function generateSingleEpisode(
   runtime?: EpisodeGenerationRuntime,
   signal?: AbortSignal,
 ): Promise<ScriptGenerationRun> {
+  if (project.planningRevision?.status === "active") throw new Error("后续规划正在修订，请完成审校和逐集批准后再生成正文。");
   const isOverseasRelease = project.generationSettings.releaseRegion === "overseas";
   const isMainlandChina = !isOverseasRelease;
   const projectMarketProfile = marketProfileForReleaseRegion(
@@ -315,7 +323,7 @@ export async function generateSingleEpisode(
           ? "开篇建立明确矛盾或人物目标，并服务于长线故事发展。"
           : "开篇建立未解决的明确矛盾或人物目标，并服务于长线故事发展。",
         tone: resolveScriptTone(emotionTag?.id),
-        pacing: isMainlandChina ? "有推进但不过度压缩" : "快速推进但保留因果链条",
+        pacing: "快节奏短剧，冲突迅速展开，保留必要因果和有效攻防",
         target_emotion: "持续期待",
         asset_constraints: [],
         generation_notes: [
@@ -352,6 +360,7 @@ export async function generateSingleEpisode(
   // the same state and makes model latency grow with every episode.
   const provisionalContinuityCheckpoint = episode
     ? buildProvisionalContinuityCheckpoint(project, {
+        episodeNumber: episode.episodeNumber,
         characterRefs: episode.relevantCharacterRefs,
         storyLineRefs: episode.plannedStoryLineRefs,
         setupPayoffRefs: [
@@ -379,6 +388,7 @@ export async function generateSingleEpisode(
           ?? episode.adaptiveSceneCount
           ?? 3,
         memoryRecall,
+        episode.approvedEpisodePlan?.scene_execution_plan?.map(scene => scene.scene_number),
       )
     : [];
   const projectContinuitySummary = episode
@@ -392,6 +402,7 @@ export async function generateSingleEpisode(
       ) || null
     : null;
   const generationRequest = {
+      planning_revision_epoch: project.planningRevisionEpoch ?? 0,
       story_project_id: project.id,
       agent_request_id: episode?.agentRequestId ?? `agent-request.${crypto.randomUUID()}`,
       content_spec_id: resolution.data.content_spec.id,
@@ -526,6 +537,9 @@ export async function generateSingleEpisode(
     }
     return {
       ...result,
+      ...(result.draft_master_script
+        ? { draft_master_script: enrichDraftWithActingProfiles(project, result.draft_master_script) }
+        : {}),
       content_spec_id: resolution.data.content_spec.id,
     };
   }
@@ -537,6 +551,9 @@ export async function generateSingleEpisode(
   });
   return {
     ...generated.data,
+    ...(generated.data.draft_master_script
+      ? { draft_master_script: enrichDraftWithActingProfiles(project, generated.data.draft_master_script) }
+      : {}),
     content_spec_id: resolution.data.content_spec.id,
   };
 }
@@ -544,15 +561,112 @@ export async function generateSingleEpisode(
 export async function reviewEpisodeDraft(
   sourceGenerationRun: ScriptGenerationRun,
   draft: GeneratedDraft,
+  planningRevisionEpoch = 0,
 ): Promise<ScriptGenerationRun> {
   const response = await apiRequest<GenerationResponse>("/script-generation/review-draft", {
     method: "POST",
     body: JSON.stringify({
       source_generation_run: sourceGenerationRun,
       draft_master_script: draft,
+      planning_revision_epoch: planningRevisionEpoch,
     }),
   });
   return response.data;
+}
+
+export async function refreshEpisodeSourceForModification(
+  sourceGenerationRun: ScriptGenerationRun,
+  currentProject?: ScriptProject,
+): Promise<ScriptGenerationRun> {
+  let effectiveSource = sourceGenerationRun;
+  let sourceEpisodeContext = effectiveSource.episode_context;
+  // Legacy runs contain the old truncated bible summary. Refresh the exact
+  // version already supplied for the author-conflict check, never the latest
+  // unapproved draft, before compiling an edit or a clean reexecution.
+  const approvedBible = currentProject?.storyBibleVersion && sourceEpisodeContext
+    ? await loadStoryBible(currentProject.id, currentProject.storyBibleVersion)
+    : null;
+  if (currentProject && sourceEpisodeContext && currentProject.episodes.some(episode => (
+    episode.episodeNumber === sourceEpisodeContext!.episode_number && episode.sourceAmendment
+  ))) {
+    const nodes = approvedBible ? await loadActiveStoryPlanNodes(
+      currentProject.id, approvedBible.story_bible_id, approvedBible.version,
+    ) : [];
+    effectiveSource = await compileAmendedEpisodeSource(currentProject, sourceGenerationRun, approvedBible, nodes);
+    sourceEpisodeContext = effectiveSource.episode_context;
+  }
+  const memoryProject = currentProject && sourceEpisodeContext
+    ? projectBeforeEpisodeModification(currentProject, sourceEpisodeContext.episode_number)
+    : currentProject;
+  const previous = memoryProject?.episodes.find((episode) => (
+    episode.episodeNumber === (sourceEpisodeContext?.episode_number ?? 0) - 1
+  ));
+  const previousDraft = previous && (previous.finalizationResult?.master_script
+    ?? parseGeneratedDraft(previous.workingDraftJson)
+    ?? parseGeneratedDraft(previous.confirmedDraftJson)
+    ?? previous.generationRun.draft_master_script);
+  const refreshedSourceGenerationRun = currentProject && sourceEpisodeContext
+    ? {
+        ...effectiveSource,
+        episode_context: {
+          ...sourceEpisodeContext,
+          ...(approvedBible?.status === "approved" ? {
+            story_bible_context: storyBibleEpisodeContext(
+              approvedBible, undefined, {
+                character_refs: sourceEpisodeContext.relevant_character_refs,
+                story_line_refs: sourceEpisodeContext.planned_story_line_refs,
+                setup_refs: sourceEpisodeContext.planned_setup_refs,
+                payoff_refs: sourceEpisodeContext.planned_payoff_refs,
+              },
+            ),
+          } : {}),
+          project_continuity_summary: null,
+          confirmed_continuity_checkpoint: null,
+          provisional_continuity_checkpoint: null,
+          previous_episode_summary: null,
+          previous_episode_handoff: null,
+          previous_episode_question: null,
+          memory_recall: buildEpisodeModificationMemoryRecall(
+            memoryProject ?? currentProject,
+            sourceEpisodeContext.memory_recall,
+            {
+              episodeNumber: sourceEpisodeContext.episode_number,
+              storyBibleVersion: currentProject.storyBibleVersion,
+              relevantCharacterRefs: sourceEpisodeContext.relevant_character_refs,
+              plannedStoryLineRefs: sourceEpisodeContext.planned_story_line_refs,
+              plannedSetupRefs: sourceEpisodeContext.planned_setup_refs,
+              plannedPayoffRefs: sourceEpisodeContext.planned_payoff_refs,
+            },
+            new Set((memoryProject?.episodes ?? []).filter((episode) => (
+              episode.episodeNumber < sourceEpisodeContext.episode_number
+            )).map((episode) => episode.episodeNumber)),
+          ),
+          ...(currentProject.episodes.some(episode => episode.episodeNumber === sourceEpisodeContext.episode_number && episode.sourceAmendment) ? {
+            storyline_duties: buildStorylineDuties(
+              memoryProject ?? currentProject, sourceEpisodeContext.episode_number,
+              sourceEpisodeContext.planned_story_line_refs ?? [],
+              sourceEpisodeContext.approved_episode_plan?.scene_execution_plan?.length ?? 1,
+              null,
+              sourceEpisodeContext.approved_episode_plan?.scene_execution_plan?.map(scene => scene.scene_number),
+            ),
+          } : {}),
+          ...(previousDraft && memoryProject ? {
+            previous_episode_summary: buildEpisodeContinuitySummary(previousDraft),
+            previous_episode_handoff: buildEpisodeHandoff(previousDraft),
+            previous_episode_question: previousDraft.next_episode_question?.trim() || null,
+            provisional_continuity_checkpoint: buildProvisionalContinuityCheckpoint(memoryProject, {
+              episodeNumber: sourceEpisodeContext.episode_number,
+              characterRefs: sourceEpisodeContext.relevant_character_refs,
+              storyLineRefs: sourceEpisodeContext.planned_story_line_refs,
+              setupPayoffRefs: [...(sourceEpisodeContext.planned_setup_refs ?? []), ...(sourceEpisodeContext.planned_payoff_refs ?? [])],
+            }),
+            project_continuity_summary: null,
+            confirmed_continuity_checkpoint: null,
+          } : {}),
+        },
+      }
+    : effectiveSource;
+  return refreshedSourceGenerationRun;
 }
 
 export async function modifyEpisodeDraft(
@@ -563,28 +677,9 @@ export async function modifyEpisodeDraft(
   selectionContext?: StoryBibleSelectionContext | null,
   currentProject?: ScriptProject,
   resolution?: AuthorConflictResolution,
+  priorAuthorInstructions: PriorAuthorInstruction[] = [],
 ): Promise<ScriptDraftModificationResult> {
-  const sourceEpisodeContext = sourceGenerationRun.episode_context;
-  const refreshedSourceGenerationRun = currentProject && sourceEpisodeContext
-    ? {
-        ...sourceGenerationRun,
-        episode_context: {
-          ...sourceEpisodeContext,
-          memory_recall: buildEpisodeModificationMemoryRecall(
-            currentProject,
-            sourceEpisodeContext.memory_recall,
-            {
-              episodeNumber: sourceEpisodeContext.episode_number,
-              storyBibleVersion: currentProject.storyBibleVersion,
-              relevantCharacterRefs: sourceEpisodeContext.relevant_character_refs,
-              plannedStoryLineRefs: sourceEpisodeContext.planned_story_line_refs,
-              plannedSetupRefs: sourceEpisodeContext.planned_setup_refs,
-              plannedPayoffRefs: sourceEpisodeContext.planned_payoff_refs,
-            },
-          ),
-        },
-      }
-    : sourceGenerationRun;
+  const refreshedSourceGenerationRun = await refreshEpisodeSourceForModification(sourceGenerationRun, currentProject);
   const response = await apiRequest<ModificationResponse>("/script-generation/modify-draft", {
     method: "POST",
     body: JSON.stringify({
@@ -596,9 +691,11 @@ export async function modifyEpisodeDraft(
       },
       source_draft_master_script: draft,
       source_story_bible_version: currentProject?.storyBibleVersion ?? null,
+      planning_revision_epoch: currentProject?.planningRevisionEpoch ?? 0,
       instruction,
       selection_context: selectionContext ?? null,
       ...(resolution ? { resolution } : {}),
+      ...(priorAuthorInstructions.length ? { prior_author_instructions: priorAuthorInstructions } : {}),
     }),
     signal,
   });
@@ -667,11 +764,10 @@ export function buildEmbeddedOverseasDialogueView(
   };
   for (const [characterIndex, character] of draft.characters.entries()) {
     const translatedName = resolvedChineseName(character.name);
-    if (!translatedName) return undefined;
     items.push({
       path: `characters.${characterIndex}.name`,
       source_text: character.name.trim(),
-      translated_text: translatedName,
+      translated_text: translatedName ?? character.name.trim(),
     });
   }
   for (const [sceneIndex, scene] of draft.scenes.entries()) {
@@ -679,7 +775,7 @@ export function buildEmbeddedOverseasDialogueView(
       const translation = dialogue.chinese_translation?.trim();
       const translatedName = dialogue.chinese_character_name?.trim()
         || resolvedChineseName(dialogue.character_name);
-      if (!translation || !CHINESE_CHARACTER.test(translation) || !translatedName) {
+      if (!translation || !CHINESE_CHARACTER.test(translation)) {
         return undefined;
       }
       const prefix = `scenes.${sceneIndex}.dialogues.${dialogueIndex}`;
@@ -687,7 +783,7 @@ export function buildEmbeddedOverseasDialogueView(
         {
           path: `${prefix}.character_name`,
           source_text: dialogue.character_name.trim(),
-          translated_text: translatedName,
+          translated_text: translatedName ?? dialogue.character_name.trim(),
         },
         {
           path: `${prefix}.text`,

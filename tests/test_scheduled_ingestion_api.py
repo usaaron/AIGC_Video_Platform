@@ -1,7 +1,35 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.dependencies import get_scheduled_ingestion_service
 from app.main import create_app
+from app.modules.data_intelligence.models import AnalysisResult, DataPipelineResponse, MappedTag
+
+
+@pytest.mark.parametrize(
+    ("tag_groups", "expected"),
+    [
+        ([], []),
+        ([[], []], []),
+        (
+            [["tag.beta", "tag.alpha", "tag.beta"], ["tag.alpha", "tag.gamma"]],
+            ["tag.beta", "tag.alpha", "tag.gamma"],
+        ),
+        (
+            [["tag.alpha", "TAG.ALPHA", "", " tag.alpha "], ["", "TAG.ALPHA"]],
+            ["tag.alpha", "TAG.ALPHA", "", " tag.alpha "],
+        ),
+    ],
+)
+def test_collect_mapped_tag_ids_preserves_first_occurrence(tag_groups, expected) -> None:
+    # Isolate collection from schema validation, including empty IDs without filtering.
+    response = DataPipelineResponse.model_construct(analysis_results=[
+        AnalysisResult.model_construct(mapped_tags=[
+            MappedTag.model_construct(ontology_node_id=tag_id) for tag_id in group
+        ])
+        for group in tag_groups
+    ])
+    assert get_scheduled_ingestion_service()._collect_mapped_tag_ids(response) == expected
 
 
 def build_platform_profile_payload(profile_id: str) -> dict:

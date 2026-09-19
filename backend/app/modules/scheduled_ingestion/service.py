@@ -440,15 +440,11 @@ class ScheduledIngestionService:
         self,
         pipeline_response: DataPipelineResponse,
     ) -> list[str]:
-        tag_ids: list[str] = []
-        seen = set()
-        for result in pipeline_response.analysis_results:
-            for tag in result.mapped_tags:
-                if tag.ontology_node_id in seen:
-                    continue
-                seen.add(tag.ontology_node_id)
-                tag_ids.append(tag.ontology_node_id)
-        return tag_ids
+        return list(dict.fromkeys(
+            tag.ontology_node_id
+            for result in pipeline_response.analysis_results
+            for tag in result.mapped_tags
+        ))
 
     def _average_score(self, values: list[float]) -> float | None:
         if not values:

@@ -24,8 +24,8 @@ const REVIEW_REASON_KEYS: Record<string, string> = {
   protagonist_cost_evidence_missing: "workspace.qualityReview.reason.protagonistCost",
   visible_scene_change_missing: "workspace.qualityReview.reason.visibleChange",
   production_count_out_of_range: "workspace.qualityReview.reason.productionCount",
-  dialogue_function_warning: "workspace.qualityReview.reason.dialogueFunction",
   segmented_change_evidence_missing: "workspace.qualityReview.reason.segments",
+  script_body_below_preferred_minimum: "workspace.qualityReview.reason.bodyScale",
 };
 
 const DIALOGUE_CATEGORY_KEYS: Record<string, string> = {
@@ -219,6 +219,7 @@ export function EpisodeQualityReviewPanel({
 
         <section className="episode-quality-section">
           <h4><MessageSquareText aria-hidden="true" size={14} />{t("workspace.qualityReview.dialogue")}</h4>
+          <p className="episode-quality-empty">{t("workspace.qualityReview.dialogueDiagnostic")}</p>
           <div className="episode-quality-dialogue-summary">
             <strong>
               {t("workspace.qualityReview.dialogueCoverage")
@@ -237,7 +238,6 @@ export function EpisodeQualityReviewPanel({
             <ul className="episode-quality-dialogue-runs">
               {dialogue.repeatedRuns.map((run, index) => (
                 <li key={`${run.category}-${index}`}>
-                  <CircleAlert aria-hidden="true" size={12} />
                   <span>
                     {t("workspace.qualityReview.dialogueRun")
                       .replace("{category}", dialogueCategoryLabel(run.category, t))

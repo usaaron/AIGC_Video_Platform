@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from pydantic import BaseModel
+from app.modules.script_engine.overseas_identity import (
+    english_language_name_exceptions,
+    without_known_english_names,
+)
 
 from app.modules.master_script.models import LLMGeneratedDraftMasterScript
 from app.modules.script_engine.long_story_models import (
@@ -20,8 +25,9 @@ _COMMON_ABBREVIATION_PATTERN = re.compile(
 )
 
 
-def mainland_text_violates_language_contract(value: str | None) -> bool:
+def mainland_text_violates_language_contract(value: str | None, *, allowed_names: Iterable[str] = ()) -> bool:
     """Reject English-dominant prose while allowing common embedded abbreviations."""
+    value = without_known_english_names(value, english_language_name_exceptions(allowed_names))
     if value is None or not value.strip():
         return False
     value_without_abbreviations = _COMMON_ABBREVIATION_PATTERN.sub("", value)
@@ -34,7 +40,19 @@ def mainland_text_violates_language_contract(value: str | None) -> bool:
     return latin_count >= max(4, round(chinese_count * 0.25))
 
 
-def story_bible_chinese_issues(output: StoryBibleGenerationOutput) -> list[str]:
+def _without_identity_names(value: object, names: Iterable[str]) -> object:
+    if isinstance(value, str):
+        return without_known_english_names(value, names)
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={key: _without_identity_names(item, names) for key, item in value.__dict__.items()})
+    if isinstance(value, list):
+        return [_without_identity_names(item, names) for item in value]
+    return value
+
+
+def story_bible_chinese_issues(output: StoryBibleGenerationOutput, *, allowed_names: Iterable[str] = ()) -> list[str]:
+    output = _without_identity_names(output, english_language_name_exceptions(allowed_names))  # type: ignore[assignment]
+
     issues: list[str] = []
 
     def check(path: str, value: str | None) -> None:
@@ -55,6 +73,9 @@ def story_bible_chinese_issues(output: StoryBibleGenerationOutput) -> list[str]:
     for index, character in enumerate(output.character_registry):
         check(f"character_registry.{index}.name", character.name)
         check(f"character_registry.{index}.role", character.role)
+        if character.acting_profile:
+            for field, value in character.acting_profile.model_dump().items():
+                check(f"character_registry.{index}.acting_profile.{field}", value)
     for index, arc in enumerate(output.character_arc_targets):
         check(f"character_arc_targets.{index}.external_goal", arc.external_goal)
         check(f"character_arc_targets.{index}.internal_need", arc.internal_need)
@@ -85,7 +106,8 @@ def story_bible_chinese_issues(output: StoryBibleGenerationOutput) -> list[str]:
     return issues
 
 
-def planning_output_chinese_issues(output: BaseModel) -> list[str]:
+def planning_output_chinese_issues(output: BaseModel, *, allowed_names: Iterable[str] = ()) -> list[str]:
+    output = _without_identity_names(output, english_language_name_exceptions(allowed_names))  # type: ignore[assignment]
     if isinstance(output, StoryPlanNodeDecompositionOutput):
         return [
             f"children.{index}.{path}"
@@ -273,4 +295,8 @@ def _story_plan_node_chinese_issues(output: StoryPlanNodeGenerationOutput) -> li
     for index, value in enumerate(output.unit_story_beats):
         if mainland_text_violates_language_contract(value):
             issues.append(f"unit_story_beats.{index}")
+    for index, entry in enumerate(output.episode_developments):
+        for field_name in ("synopsis", "entry_state", "exit_state"):
+            if mainland_text_violates_language_contract(getattr(entry, field_name)):
+                issues.append(f"episode_developments.{index}.{field_name}")
     return issues

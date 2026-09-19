@@ -45,7 +45,7 @@ function episodeReadyForDelivery(episode: EpisodeWorkspace): boolean {
   // Match normalizeEpisodeLifecycle/episodeHasSavedDraft: legacy lifecycle
   // labels are normalized to saved when no edit or candidate is present.
   const locked = Boolean(episodeLockTimestamp(episode));
-  return (locked || (!episode.hasLocalDraftEdits && !episode.modificationCandidate))
+  return !episode.sourceAmendment && (locked || (!episode.hasLocalDraftEdits && !episode.modificationCandidate))
     && !episode.deepeningRun?.candidate_draft_master_script;
 }
 

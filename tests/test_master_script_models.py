@@ -200,15 +200,15 @@ def test_screenplay_body_order_recovers_invalid_legacy_order_locally() -> None:
     ]
 
 
-def test_screenplay_body_order_repairs_grouped_actions_and_dialogue() -> None:
+def test_screenplay_body_order_preserves_an_authored_silent_sequence_before_dialogue() -> None:
     scene = _screenplay_scene(
         body_order=["action:0", "action:1", "dialogue:0", "dialogue:1"]
     )
 
     assert scene.body_order == [
         "action:0",
-        "dialogue:0",
         "action:1",
+        "dialogue:0",
         "dialogue:1",
     ]
 

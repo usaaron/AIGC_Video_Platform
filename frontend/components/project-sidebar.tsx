@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { PlusIcon, ScriptIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ProjectDeleteButton } from "@/components/project-delete-button";
+import { ProjectMenuLoadState } from "@/components/project-menu-load-state";
 import { LanguageToggle } from "@/components/language-toggle";
 import { formatRelativeTime } from "@/lib/format";
 import { projectTagLabel } from "@/lib/tag-catalog";
@@ -19,11 +21,28 @@ interface ProjectSidebarProps {
 
 export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { projects, isReady, deleteProject, serverPersistenceAvailable } = useProjects();
+  const { projects, isReady, serverPersistenceAvailable, storageError } = useProjects();
   const { locale, t } = useLocale();
+  const sidebar = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [search, setSearch] = useState("");
   const visibleProjects = projects.filter((project) => project.title.toLowerCase().includes(search.trim().toLowerCase()));
+  const projectListLoaded = isReady && serverPersistenceAvailable === true && !storageError;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    sidebar.current?.querySelector<HTMLInputElement>("input")?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) onCloseRef.current();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      previousFocus?.focus();
+    };
+  }, [isOpen]);
 
   return (
     <>
@@ -35,7 +54,7 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
         onClick={onClose}
         type="button"
       />
-      <aside aria-hidden={!isOpen} inert={!isOpen} className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
+      <aside ref={sidebar} aria-hidden={!isOpen} inert={!isOpen} className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
         <div className="sidebar-module-head">
           <span className="sidebar-module-icon"><ScriptIcon /></span>
           <span>
@@ -49,6 +68,8 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
           <span>{t("nav.create")}</span>
         </Link>
 
+        <Link className="topbar-all-projects" href="/" onClick={onClose}>{t("nav.projectLibrary")}</Link>
+
         <div className="sidebar-section-heading">
           <span>{t("nav.myScripts")}</span>
           <span>{projects.length.toString().padStart(2, "0")}</span>
@@ -60,14 +81,9 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
         </label>
 
         <nav aria-label={t("nav.projects")} className="project-history">
-          {!isReady ? (
-            <div className="project-list-skeleton" aria-label={t("nav.loading")} />
-          ) : projects.length === 0 ? (
-            <div className="sidebar-empty">
-              {t("nav.empty")}
-            </div>
-          ) : visibleProjects.length === 0 ? (
-            <div className="sidebar-empty">{t("nav.noMatches")}</div>
+          <ProjectMenuLoadState />
+          {visibleProjects.length === 0 ? (
+            projectListLoaded ? <div className="sidebar-empty">{projects.length ? t("nav.noMatches") : t("nav.empty")}</div> : null
           ) : (
             visibleProjects.map((project) => {
               const primaryTag = projectTagLabel(project, project.selectedTagIds[0] ?? "", locale);
@@ -79,15 +95,12 @@ export function ProjectSidebar({ isOpen, onClose }: ProjectSidebarProps) {
                     <span className="project-history-icon"><ScriptIcon /></span>
                     <span className="project-history-copy">
                       <strong>{project.title}</strong>
-                      <small>{primaryTag ?? t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
+                      <small>{primaryTag ?? t("nav.storyIdea")} · {t("library.progress")} {project.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
                     </span>
                     <span className={`status-dot status-${project.status}`} />
                   </Link>
-                  <button aria-label={`${t("nav.delete")} ${project.title}`} className="project-delete-button" onClick={async () => {
-                    if (!window.confirm(t("nav.deleteConfirm"))) return;
-                    const deleted = await deleteProject(project.id);
-                    if (deleted && active) router.push("/");
-                  }} type="button"><TrashIcon /></button>
+                  <ProjectDeleteButton projectId={project.id} title={project.title}
+                    className="project-delete-button" onDeleted={onClose}><TrashIcon /></ProjectDeleteButton>
                 </div>
               );
             })

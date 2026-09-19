@@ -5,6 +5,7 @@ import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
 
+import * as authorInstructions from "../lib/author-modification-instructions.ts";
 import * as author from "../lib/author-conflict.ts";
 import * as draftState from "../lib/script-draft-state.ts";
 import { isRequestAborted, userFacingError } from "../lib/api-error.ts";
@@ -92,6 +93,7 @@ function harness(project = fixture()) {
     window: { location: { assign: (path) => calls.navigations.push(path) } },
     require(name) {
       if (name === "react") return react;
+      if (name === "@/lib/author-modification-instructions") return authorInstructions;
       if (name === "@/lib/author-conflict") return { ...author, createAuthorRevision: (...args) => { calls.revisions.push(args); return behavior.revise(...args); } };
       if (name === "@/lib/script-draft-state") return draftState;
       if (name === "@/lib/api-error") return { isRequestAborted, userFacingError };
@@ -193,6 +195,7 @@ for (const change of ["draft", "review", "direction", "withdrawn", "deleted", "r
     const gate = deferred();
     run.behavior.modify = () => gate.promise;
     const operation = run.hook.requestModification("Change");
+    await setImmediate();
     const source = run.project.episodes[0];
     if (change === "draft") run.project = { ...run.project, creativePrompt: "Changed intent" };
     if (change === "review") source.pendingAuthorConflict = { ...source.pendingAuthorConflict, review: { ...source.pendingAuthorConflict.review, review_id: "review.next" } };
@@ -214,6 +217,7 @@ test("a superseded request cannot replace the candidate or append a pause messag
   const failOld = new Error("cancelled"); failOld.name = "AbortError";
   run.behavior.modify = () => old.promise;
   const first = run.hook.requestModification("First");
+  await setImmediate();
   run.behavior.modify = async () => ({ candidate_generation_run: { draft_master_script: { title: "Second" } } });
   assert.equal(await run.hook.requestModification("Second"), true);
   assert.equal(run.calls.requests[0][3].aborted, true);
@@ -244,10 +248,11 @@ test("switching projects aborts requests and keeps project chats separate", asyn
   const gate = deferred();
   run.behavior.modify = () => gate.promise;
   const operation = run.hook.requestModification("Only project one");
+  await setImmediate();
   run.hook;
   run.projects.set("project.other", fixture("project.other"));
   run.memory.set("project.other", [{ id: "other", role: "user", text: "Project two" }]);
-  assert.equal(run.select("project.other").messages[0].text, "Project two");
+  assert.equal(run.select("project.other").messages.length, 0); // Unscoped legacy chat cannot become this episode's requirements.
   gate.resolve({ candidate_generation_run: run.project.episodes[0].generationRun });
   assert.equal(await operation, false);
   assert.equal(run.calls.requests[0][3].aborted, true);
@@ -384,4 +389,174 @@ test("candidate adoption delegates to draft persistence and does not repeat revi
   assert.equal(run.calls.commits[0][1], episode);
   assert.equal(run.calls.requests.length, 0);
   assert.deepEqual(run.calls.views, ["current"]);
+});
+
+test("author requirements reach a server ACK before the first model call and survive a clean reload", async () => {
+  const run = harness();
+  const gate = deferred();
+  let remote;
+  run.behavior.sync = async (project) => { remote = JSON.parse(JSON.stringify(project)); return gate.promise; };
+  const operation = run.hook.requestModification("保留三十轮与原定速度");
+  await setImmediate();
+  assert.equal(run.calls.requests.length, 0);
+  assert.equal(remote.episodes[0].authorModificationInstructions[0].instruction, "保留三十轮与原定速度");
+  gate.resolve({ status: "synced", workspaceRevision: 8 });
+  assert.equal(await operation, true);
+  assert.equal(run.calls.requests.length, 1);
+  const loaded = harness(remote); // No browser chat cache is restored.
+  assert.equal(loaded.hook.messages[0].text, "保留三十轮与原定速度");
+  await loaded.hook.requestModification("删除无来源的精确时间");
+  assert.deepEqual(loaded.calls.requests[0][7].map((item) => item.instruction), ["保留三十轮与原定速度"]);
+  assert.equal(loaded.calls.requests[0][7][0].id, remote.episodes[0].authorModificationInstructions[0].id);
+});
+
+for (const failure of ["local", "server", "throw"]) {
+  test(`${failure} save failure blocks the model and a retry preserves the requirement id`, async () => {
+    const run = harness();
+    if (failure === "local") run.behavior.persist = async () => false;
+    if (failure === "server") run.behavior.sync = async () => ({ status: "conflict" });
+    if (failure === "throw") run.behavior.sync = async () => { throw new Error("network unavailable"); };
+    assert.equal(await run.hook.requestModification("修订本集英文表达"), false);
+    assert.equal(run.calls.requests.length, 0);
+    const id = run.project.episodes[0].authorModificationInstructions[0].id;
+    run.behavior.persist = async () => true;
+    run.behavior.sync = async () => ({ status: "synced", workspaceRevision: 8 });
+    assert.equal(await run.hook.requestModification("修订本集英文表达"), true);
+    assert.equal(run.project.episodes[0].authorModificationInstructions.length, 1);
+    assert.equal(run.project.episodes[0].authorModificationInstructions[0].id, id);
+    assert.deepEqual(run.calls.requests[0][7], []);
+  });
+}
+
+test("changing requirements during ACK blocks the model and changing them during generation blocks its result", async () => {
+  for (const during of ["ack", "model"]) {
+    const run = harness();
+    const gate = deferred();
+    if (during === "ack") run.behavior.sync = () => gate.promise;
+    else run.behavior.modify = () => gate.promise;
+    const request = run.hook.requestModification("保留既有动作因果");
+    await setImmediate();
+    const target = run.project.episodes[0];
+    target.authorModificationInstructions = target.authorModificationInstructions.map((item) => ({ ...item, withdrawnAt: "later" }));
+    gate.resolve(during === "ack" ? { status: "synced", workspaceRevision: 8 } : { candidate_generation_run: target.generationRun });
+    assert.equal(await request, false);
+    assert.equal(run.calls.requests.length, during === "ack" ? 0 : 1);
+    assert.equal(run.project.episodes[0].modificationCandidate, undefined);
+  }
+});
+
+test("requirements and visible recovered messages stay within the episode, not local chat or candidate text", async () => {
+  const run = harness();
+  run.project.episodes.push({ ...run.project.episodes[0], id: "episode.two", episodeNumber: 2 });
+  await run.hook.requestModification("第一集必须保留秘密");
+  run.select(run.project.id, 2);
+  assert.equal(run.hook.messages.length, 0);
+  await run.hook.requestModification("第二集只改英语表达");
+  assert.deepEqual(run.calls.requests[1][7], []);
+  assert.equal(run.hook.messages.filter((item) => item.role === "user").length, 1);
+  run.select(run.project.id, 1);
+  await run.hook.requestModification("再精简动作描述");
+  assert.deepEqual(run.calls.requests[2][7].map((item) => item.instruction), ["第一集必须保留秘密"]);
+  assert.equal(run.calls.requests[2][7].some((item) => /候选|第二集/.test(item.instruction)), false);
+});
+
+test("the real discard-candidate button preserves durable requirements for the next request", async () => {
+  const run = harness();
+  await run.hook.requestModification("乐器补救必须通过动作");
+  const source = readFileSync(new URL("../components/script-workspace.tsx", import.meta.url), "utf8");
+  const ast = ts.createSourceFile("workspace.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let action;
+  function visit(node) {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "button"
+      && node.children.some((child) => ts.isJsxExpression(child) && child.expression?.getText(ast) === 't("workspace.discardCandidate")')) {
+      action = node.openingElement.attributes.properties.find((prop) => prop.name?.getText(ast) === "onClick").initializer.expression.getText(ast);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(action);
+  vm.runInNewContext(`(${action})()`, {
+    currentEpisode: run.project.episodes[0], hasCurrentEpisodeInlineEdits: () => false,
+    candidateBaseInlineEditsRef: { current: new Set() }, setSelectedDocumentView: () => {},
+    replaceEpisode: (patch) => { run.project.episodes[0] = { ...run.project.episodes[0], ...patch }; },
+  });
+  assert.equal(run.project.episodes[0].modificationCandidate, undefined);
+  await run.hook.requestModification("修正中文对应");
+  assert.deepEqual(run.calls.requests[1][7].map((item) => item.instruction), ["乐器补救必须通过动作"]);
+});
+
+test("explicit withdrawal saves its tombstone, invalidates old review and omits only that requirement", async () => {
+  const run = harness();
+  const review = run.project.episodes[0].pendingAuthorConflict.review;
+  run.behavior.modify = async () => ({ conflict_review: review });
+  await run.hook.requestModification("不要新增交通方式");
+  const first = run.project.episodes[0].authorModificationInstructions[0];
+  await run.hook.withdrawAuthorConflict();
+  assert.ok(run.project.episodes[0].authorModificationInstructions[0].withdrawnAt);
+  assert.equal(run.project.episodes[0].pendingAuthorConflict.resolved.kind, "withdrawn");
+  assert.ok(run.calls.syncs.at(-1).episodes[0].authorModificationInstructions[0].withdrawnAt);
+  assert.equal(run.hook.messages.find((item) => item.id === first.id).withdrawnAt != null, true);
+  await run.hook.requestModification("把对白改得自然");
+  assert.deepEqual(run.calls.requests[1][7], []);
+});
+
+test("failed withdrawal ACK restores the live requirement and can be retried", async () => {
+  const run = harness();
+  await run.hook.requestModification("不增加精确量值");
+  const id = run.project.episodes[0].authorModificationInstructions[0].id;
+  run.behavior.sync = async () => ({ status: "unavailable" });
+  await run.hook.withdrawScriptChatMessage(id);
+  assert.equal(run.project.episodes[0].authorModificationInstructions[0].withdrawnAt, undefined);
+  assert.match(run.hook.error, /保存确认/);
+  run.behavior.sync = async () => ({ status: "synced" });
+  await run.hook.withdrawScriptChatMessage(id);
+  assert.ok(run.project.episodes[0].authorModificationInstructions[0].withdrawnAt);
+});
+
+test("editing a previous user message persists the branch replacement before model submission", async () => {
+  const run = harness();
+  await run.hook.requestModification("保留所有英文台词");
+  await run.hook.requestModification("再修中文对白");
+  const old = run.project.episodes[0].authorModificationInstructions;
+  assert.equal(await run.hook.editScriptChatMessage(old[0].id, "保留原定三十轮台词"), true);
+  const history = run.project.episodes[0].authorModificationInstructions;
+  assert.equal(history.length, 3);
+  assert.ok(history[0].withdrawnAt && history[1].withdrawnAt);
+  assert.equal(history[2].withdrawnAt, undefined);
+  assert.deepEqual(run.calls.requests[2][7], []);
+  assert.deepEqual(run.calls.syncs.at(-1).episodes[0].authorModificationInstructions, history);
+});
+
+test("bridge replays exact prior history and custom recheck replaces current without duplicating it", async () => {
+  const run = harness();
+  await run.hook.requestModification("一直保留原速度");
+  const original = run.project.episodes[0].pendingAuthorConflict.review;
+  run.behavior.modify = async (_run, _draft, instruction) => ({ conflict_review: { ...original, instruction } });
+  await run.hook.requestModification("修改结尾动作");
+  const review = run.project.episodes[0].pendingAuthorConflict;
+  const reviewedPrior = structuredClone(run.calls.requests[1][7]);
+  run.behavior.modify = async () => ({ candidate_generation_run: run.project.episodes[0].generationRun });
+  await run.hook.confirmAuthorConflict(review.review.options[0], choice("bridge"));
+  assert.deepEqual(run.calls.requests[2][7], reviewedPrior);
+  assert.equal(run.project.episodes[0].authorModificationInstructions.length, 2);
+  run.project.episodes[0].pendingAuthorConflict = review;
+  await run.hook.recheckAuthorConflict({ selected_option_id: "bridge", custom_direction: "不增加新事实" });
+  assert.deepEqual(run.calls.requests[3][7], reviewedPrior);
+  assert.match(run.calls.requests[3][2], /修改结尾动作.*\n用户补充.*不增加新事实/);
+  const history = run.project.episodes[0].authorModificationInstructions;
+  assert.ok(history[1].withdrawnAt);
+  assert.equal(history.length, 3);
+});
+
+test("approved-body amendment bridge uses the same permitted amendment boundary as initial modification", async () => {
+  const run = harness();
+  run.project.episodes[0].lockedAt = "2026-09-17T00:00:00Z";
+  run.project.episodes[0].sourceAmendment = { status: "revision_required", amendmentId: "amendment.one" };
+  run.behavior.modify = async (_run, _draft, instruction) => ({ conflict_review: { ...run.project.episodes[0].pendingAuthorConflict.review, instruction } });
+  await run.hook.requestModification("只改批准的执行方式");
+  const pending = run.project.episodes[0].pendingAuthorConflict;
+  run.behavior.modify = async () => ({ candidate_generation_run: run.project.episodes[0].generationRun });
+  await run.hook.confirmAuthorConflict(pending.review.options[0], choice("bridge"));
+  assert.equal(run.calls.requests.length, 2);
+  assert.equal(run.project.episodes[0].pendingAuthorConflict.resolved.kind, "bridge");
 });

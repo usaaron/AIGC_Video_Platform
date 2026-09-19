@@ -1,0 +1,1104 @@
+{
+  "source": "overseas-holdout-artifacts-03/generation-00410-request.json and saved workspace; only fields used by deterministic source validation/recall retained",
+  "project": {
+    "storyBibleVersion": 2,
+    "characters": [
+      {
+        "id": "story-bible-character.lena",
+        "name": "Lena",
+        "dynamicState": {
+          "currentGoal": "迫使全队接受其主唱编曲版本，维持排练进度。",
+          "emotionalState": "焦躁、自尊受挫、防备",
+          "beliefOrAttitude": "认为 Noah 的退缩和改动干扰了合奏，试图用控制力压制分歧。",
+          "currentKnowledge": [
+            "已确认首次合奏尾段出现严重拍点与旋律脱节。"
+          ],
+          "knowledgeStates": [],
+          "activeConstraints": [
+            "排练室十点关门限制",
+            "明早搬走事实不可逆"
+          ],
+          "latestChangeSummary": "试图强行定版失败，其手写修改被 Sam 现场揭示，录音被 June 暂停。",
+          "latestChangeCause": "Sam 在谱面上指出了她的手写升音标记，且 Noah 拒绝妥协。",
+          "lastUpdatedEpisode": 2
+        },
+        "stateHistory": [
+          {
+            "episodeNumber": 1,
+            "summary": "启动录音并进行首次合奏，在尾段因冲突叫停，面对 Sam 的提问无法用流程回避。",
+            "cause": "合奏尾段出现严重错位， Sam 追问没对齐的原因。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "厘清尾段错位原因并重新合奏",
+            "emotionalState": "紧绷、压抑",
+            "status": "provisional"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "试图强行定版失败，其手写修改被 Sam 现场揭示，录音被 June 暂停。",
+            "cause": "Sam 在谱面上指出了她的手写升音标记，且 Noah 拒绝妥协。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "迫使全队接受其主唱编曲版本，维持排练进度。",
+            "emotionalState": "焦躁、自尊受挫、防备",
+            "status": "provisional"
+          }
+        ],
+        "lastUpdatedEpisode": 2
+      },
+      {
+        "id": "story-bible-character.noah",
+        "name": "Noah",
+        "dynamicState": {
+          "currentGoal": "防守原版吉他和弦，拒绝接受 Lena 单方面改动。",
+          "emotionalState": "冷淡、防御、不满",
+          "beliefOrAttitude": "认为自己被 Lena 排除在编曲决策之外，用原版弹奏进行抵抗。",
+          "currentKnowledge": [
+            "意识到 Lena 在合奏尾段处理的旋律与自己记忆中的版本不符。"
+          ],
+          "knowledgeStates": [],
+          "activeConstraints": [
+            "排练室十点关门限制"
+          ],
+          "latestChangeSummary": "不再用玩笑糊弄，直接用原版琴声和乐谱标记正面质疑 Lena 的独断。",
+          "latestChangeCause": "Lena 在对质中说出‘吉他切入总是缺席’，刺激到了他的敏感神经。",
+          "lastUpdatedEpisode": 2
+        },
+        "stateHistory": [
+          {
+            "episodeNumber": 1,
+            "summary": "用玩笑掩饰到场尴尬，合奏中按习惯弹奏尾段却遭遇错位，指出来源冲突。",
+            "cause": "合奏尾段与 Lena 的演唱拍点脱节。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "确认错位责任并维持排练进行",
+            "emotionalState": "防备、疑惑",
+            "status": "provisional"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "不再用玩笑糊弄，直接用原版琴声和乐谱标记正面质疑 Lena 的独断。",
+            "cause": "Lena 在对质中说出‘吉他切入总是缺席’，刺激到了他的敏感神经。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "防守原版吉他和弦，拒绝接受 Lena 单方面改动。",
+            "emotionalState": "冷淡、防御、不满",
+            "status": "provisional"
+          }
+        ],
+        "lastUpdatedEpisode": 2
+      },
+      {
+        "id": "story-bible-character.june",
+        "name": "June",
+        "dynamicState": {
+          "currentGoal": "阻止无意义的争吵消耗设备时间与排练室规则。",
+          "emotionalState": "冷静、果断、有边界",
+          "currentKnowledge": [],
+          "knowledgeStates": [],
+          "activeConstraints": [],
+          "latestChangeSummary": "直接按下录音暂停键，将版本矛盾定性为不可回避的前置条件。",
+          "latestChangeCause": "观察到 Lena 与 Noah 在录音状态下持续争吵浪费机器时间。",
+          "lastUpdatedEpisode": 2
+        },
+        "stateHistory": [
+          {
+            "episodeNumber": 1,
+            "summary": "重申十点关门与器材归位守则后离开走廊，保留管理边界。",
+            "cause": "履行排练室管理员职责。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "确保按时关门与器材完好",
+            "emotionalState": "平静、守界",
+            "status": "provisional"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "直接按下录音暂停键，将版本矛盾定性为不可回避的前置条件。",
+            "cause": "观察到 Lena 与 Noah 在录音状态下持续争吵浪费机器时间。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "阻止无意义的争吵消耗设备时间与排练室规则。",
+            "emotionalState": "冷静、果断、有边界",
+            "status": "provisional"
+          }
+        ],
+        "lastUpdatedEpisode": 2
+      },
+      {
+        "id": "story-bible-character.sam",
+        "name": "Sam",
+        "dynamicState": {
+          "currentGoal": "用客观事实厘清拍点混乱的原因。",
+          "emotionalState": "坦诚、紧张、主动",
+          "currentKnowledge": [
+            "确认尾段脱节并非自己单方面的鼓点失误。"
+          ],
+          "knowledgeStates": [],
+          "activeConstraints": [],
+          "latestChangeSummary": "从被动配合鼓点转向主动拿乐谱对比，成为揭示版本矛盾的关键人物。",
+          "latestChangeCause": "发现两人争论焦点在于谱面记号不一致，选择将客观证据摊开。",
+          "lastUpdatedEpisode": 2
+        },
+        "stateHistory": [
+          {
+            "episodeNumber": 1,
+            "summary": "完成鼓部准备并配合起拍，在错位后直接提出拍点不对齐的疑问。",
+            "cause": "听出尾段三方节奏严重脱节。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "搞清错位原因并配合纠正拍点",
+            "emotionalState": "谨慎、坦诚",
+            "status": "provisional"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "从被动配合鼓点转向主动拿乐谱对比，成为揭示版本矛盾的关键人物。",
+            "cause": "发现两人争论焦点在于谱面记号不一致，选择将客观证据摊开。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "currentGoal": "用客观事实厘清拍点混乱的原因。",
+            "emotionalState": "坦诚、紧张、主动",
+            "status": "provisional"
+          }
+        ],
+        "lastUpdatedEpisode": 2
+      }
+    ],
+    "storyLines": [
+      {
+        "id": "line_main_last_rehearsal",
+        "title": "最后一遍合奏",
+        "summary": "莉娜明早搬走，四人在今晚录完最后一遍完整合奏并收好器材；主线冲突集中在莉娜与诺亚对两人共同作品的尾段各自改动，以及两年前缺席造成的互误。",
+        "status": "active",
+        "currentState": "尾段错位的原因被锁定为乐谱上存在两种截然不同的手写改动，June 按停录音设备，迫使四人停下核对。",
+        "plannedResolution": "四人实际录完一遍共同接受的合奏并收好器材，莉娜照常搬走；诺亚承认退缩，二人恢复有限而可信的合作并愿继续联系。",
+        "lastProgressedEpisode": 2,
+        "episodeBeats": [
+          {
+            "episodeNumber": 1,
+            "summary": "完成到场准备与首次合奏，尾段暴露严重拍点与版本错位，合奏被叫停。",
+            "cause": "首次合奏在尾段中断",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "四人到齐并共同确认今晚要完整录完一遍合奏，同时让录音设备进入运行状态，首次合奏暴露尾段错位。；中心冲突：Lena用录音准备和组织任务压下不舍，Noah用玩笑保持距离，Sam怕拖累老成员；首次合奏在尾段因两版错位中断，差异尚未查清。；退出状态：四人已到齐并共同确认今晚要完整录完；录音设备已运行，首次合奏因尾段两版错位中断，但差异尚未查清、旧因尚未挑明。",
+            "alignment": "aligned",
+            "nextRequiredStep": "查清尾段错位具体来自哪两种不同改动。"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "尾段错位的原因被锁定为乐谱上存在两种截然不同的手写改动，June 按停录音设备，迫使四人停下核对。",
+            "cause": "Sam 指出谱面不同手写记号，June 按停录音机。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "把尾段错位查清为两种版本差异，并让Lena和Noah各自面对自己改过尾段的事实。；中心冲突：Lena用主唱身份要求照自己的版本解决，Noah用原版琴声对抗，两人都不愿先承认自己改过尾段。；退出状态：尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+            "alignment": "aligned"
+          }
+        ]
+      },
+      {
+        "id": "line_subplot_sam_question",
+        "title": "敢问简单问题",
+        "summary": "山姆是新鼓手，准备充分但怕拖累老成员；他学习表达自己听到的节拍与段落问题，不把失误藏起来。",
+        "status": "active",
+        "currentState": "Sam 拿取并对比两份乐谱，把抽象的节奏错位转化为具象的谱面记号差异。",
+        "plannedResolution": "山姆在尾段接不上时问出大家回避的问题，并在最终合奏中用鼓点稳定新配合，获得成员认可。",
+        "lastProgressedEpisode": 2,
+        "episodeBeats": [
+          {
+            "episodeNumber": 1,
+            "summary": "Sam 在合奏中断后第一时间说出大家回避的没对齐问题。",
+            "cause": "Sam 直接提问",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "四人到齐并共同确认今晚要完整录完一遍合奏，同时让录音设备进入运行状态，首次合奏暴露尾段错位。；中心冲突：Lena用录音准备和组织任务压下不舍，Noah用玩笑保持距离，Sam怕拖累老成员；首次合奏在尾段因两版错位中断，差异尚未查清。；退出状态：四人已到齐并共同确认今晚要完整录完；录音设备已运行，首次合奏因尾段两版错位中断，但差异尚未查清、旧因尚未挑明。",
+            "alignment": "aligned",
+            "nextRequiredStep": "在讨论中进一步对齐拍点。"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "Sam 拿取并对比两份乐谱，把抽象的节奏错位转化为具象的谱面记号差异。",
+            "cause": "Sam 不愿盲目配合错误拍子，选择指认客观事实。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "把尾段错位查清为两种版本差异，并让Lena和Noah各自面对自己改过尾段的事实。；中心冲突：Lena用主唱身份要求照自己的版本解决，Noah用原版琴声对抗，两人都不愿先承认自己改过尾段。；退出状态：尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+            "alignment": "aligned"
+          }
+        ]
+      },
+      {
+        "id": "line_subplot_june_boundary",
+        "title": "收尾边界",
+        "summary": "琼照看排练室，负责关门与器材归位，不替年轻人解决旧关系；她的职责在情绪升温时成为现场秩序的另一条线。",
+        "status": "active",
+        "currentState": "June 踏入排练室按停录音机，守护场地规则与设备时间，明确了排练的前提。",
+        "plannedResolution": "琼守住时间、器材和门锁边界，众人完成录音后共同收好器材离开。",
+        "lastProgressedEpisode": 2,
+        "episodeBeats": [
+          {
+            "episodeNumber": 1,
+            "summary": "June 完成十点关门与归位提醒，确立了今晚的时间与场地规则。",
+            "cause": "June 到场告知规矩",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "四人到齐并共同确认今晚要完整录完一遍合奏，同时让录音设备进入运行状态，首次合奏暴露尾段错位。；中心冲突：Lena用录音准备和组织任务压下不舍，Noah用玩笑保持距离，Sam怕拖累老成员；首次合奏在尾段因两版错位中断，差异尚未查清。；退出状态：四人已到齐并共同确认今晚要完整录完；录音设备已运行，首次合奏因尾段两版错位中断，但差异尚未查清、旧因尚未挑明。",
+            "alignment": "aligned",
+            "nextRequiredStep": "在后续排练中守护关门时间。"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "June 踏入排练室按停录音机，守护场地规则与设备时间，明确了排练的前提。",
+            "cause": "争吵导致设备白白运行，June 履行管理职责。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "把尾段错位查清为两种版本差异，并让Lena和Noah各自面对自己改过尾段的事实。；中心冲突：Lena用主唱身份要求照自己的版本解决，Noah用原版琴声对抗，两人都不愿先承认自己改过尾段。；退出状态：尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+            "alignment": "aligned"
+          }
+        ]
+      },
+      {
+        "id": "line_arc_lena_rehearsal",
+        "title": "莉娜：把不舍压成任务",
+        "summary": "莉娜用组织排练和指挥别人来消化即将离开的不舍，必须面对自己独自改过尾段的选择及其后果。",
+        "status": "active",
+        "currentState": "Lena 强行用主唱指挥权压制分歧失败，其独自修改乐谱的事实被 Sam 摊开在大家面前。",
+        "plannedResolution": "她接受搬家不可逆，承认具体选择，并给未来联系留下可信余地。",
+        "lastProgressedEpisode": 2,
+        "episodeBeats": [
+          {
+            "episodeNumber": 1,
+            "summary": "Lena 用组织流程压抑难过，但尾段中断迫使她直面问题。",
+            "cause": "合奏因尾段错位停摆",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "四人到齐并共同确认今晚要完整录完一遍合奏，同时让录音设备进入运行状态，首次合奏暴露尾段错位。；中心冲突：Lena用录音准备和组织任务压下不舍，Noah用玩笑保持距离，Sam怕拖累老成员；首次合奏在尾段因两版错位中断，差异尚未查清。；退出状态：四人已到齐并共同确认今晚要完整录完；录音设备已运行，首次合奏因尾段两版错位中断，但差异尚未查清、旧因尚未挑明。",
+            "alignment": "aligned",
+            "nextRequiredStep": "回应 Noah 对尾段版本的质问。"
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "Lena 强行用主唱指挥权压制分歧失败，其独自修改乐谱的事实被 Sam 摊开在大家面前。",
+            "cause": "乐谱上的手写升音符号被指认，使得控制手段失效。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "把尾段错位查清为两种版本差异，并让Lena和Noah各自面对自己改过尾段的事实。；中心冲突：Lena用主唱身份要求照自己的版本解决，Noah用原版琴声对抗，两人都不愿先承认自己改过尾段。；退出状态：尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+            "alignment": "aligned"
+          }
+        ]
+      },
+      {
+        "id": "line_arc_noah_rehearsal",
+        "title": "诺亚：少说但承认",
+        "summary": "诺亚用玩笑和旧借口回避两年前临场怯场的事实，把莉娜的改动误解成被排除；他需要在不靠长篇解释的前提下承认当年的退缩。",
+        "status": "active",
+        "currentState": "Noah 放弃了低调回避，用原版吉他和弦及谱面‘原版’字样同 Lena 正面交锋。",
+        "plannedResolution": "他承认缺席是怯场而非嫌弃作品，并在最终编排中提供一段与莉娜共同接受的配合。",
+        "lastProgressedEpisode": 2,
+        "episodeBeats": [
+          {
+            "episodeNumber": 2,
+            "summary": "Noah 放弃了低调回避，用原版吉他和弦及谱面‘原版’字样同 Lena 正面交锋。",
+            "cause": "Lena 的指责触及旧伤，让他公开反抗编曲修改。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "contributionType": "progress",
+            "plannedBeat": "把尾段错位查清为两种版本差异，并让Lena和Noah各自面对自己改过尾段的事实。；中心冲突：Lena用主唱身份要求照自己的版本解决，Noah用原版琴声对抗，两人都不愿先承认自己改过尾段。；退出状态：尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+            "alignment": "aligned"
+          }
+        ]
+      }
+    ],
+    "characterRelationships": [
+      {
+        "id": "relationship.story-bible-character.lena.story-bible-character.noah",
+        "sourceCharacterId": "story-bible-character.lena",
+        "targetCharacterId": "story-bible-character.noah",
+        "relationshipType": "旧队友 / 共同创作者",
+        "currentState": "冲突公开化，两人的手写改动均被公开，从技术争执推向信任危机。",
+        "sourceToTarget": "质问其为何改回原版，并怨怪其过去的缺席。",
+        "targetToSource": "冷淡抵触其单方面修改，指责其独断行事。",
+        "lastUpdatedEpisode": 2,
+        "episodeChanges": [
+          {
+            "episodeNumber": 1,
+            "summary": "尾段错位暴露了两人各自修改且未交流的事实。",
+            "sourceCharacterId": "story-bible-character.lena",
+            "targetCharacterId": "story-bible-character.noah",
+            "relationshipType": "旧队友与共同创作者",
+            "sourceToTarget": "试图用排练流程隔离私人情绪",
+            "targetToSource": "用轻慢玩笑试探对方底线",
+            "currentState": "首次合奏在尾段碰撞出明显版本分歧，双方对彼此的版本产生怀疑。",
+            "cause": "合奏尾段吉他与主唱切入时机严重错开。",
+            "evidenceSceneNumbers": [
+              1
+            ]
+          },
+          {
+            "episodeNumber": 2,
+            "summary": "争执从‘合奏没对齐’升级为‘谁擅自修改了尾段乐谱’。",
+            "sourceCharacterId": "story-bible-character.lena",
+            "targetCharacterId": "story-bible-character.noah",
+            "relationshipType": "旧队友 / 共同创作者",
+            "sourceToTarget": "质问其为何改回原版，并怨怪其过去的缺席。",
+            "targetToSource": "冷淡抵触其单方面修改，指责其独断行事。",
+            "currentState": "冲突公开化，两人的手写改动均被公开，从技术争执推向信任危机。",
+            "cause": "Sam 现场对比了两人的打印谱，暴露了不同的手写修改痕迹。",
+            "evidenceSceneNumbers": [
+              1
+            ]
+          }
+        ],
+        "userEdited": false
+      },
+      {
+        "id": "relationship.story-bible-character.june.story-bible-character.lena",
+        "sourceCharacterId": "story-bible-character.june",
+        "targetCharacterId": "story-bible-character.lena",
+        "relationshipType": "排练室管理员与使用者",
+        "currentState": "June 用暂停录音给 Lena 施加了明确的时间与规则阻力。",
+        "sourceToTarget": "干脆果断地限制其无意义消耗机器时间。",
+        "targetToSource": "试图向其解释并索要再一次数拍的机会。",
+        "lastUpdatedEpisode": 2,
+        "episodeChanges": [
+          {
+            "episodeNumber": 2,
+            "summary": "June 动手暂停录音，拒绝让 Lena 凭嘴上数拍继续录音。",
+            "sourceCharacterId": "story-bible-character.june",
+            "targetCharacterId": "story-bible-character.lena",
+            "relationshipType": "排练室管理员与使用者",
+            "sourceToTarget": "干脆果断地限制其无意义消耗机器时间。",
+            "targetToSource": "试图向其解释并索要再一次数拍的机会。",
+            "currentState": "June 用暂停录音给 Lena 施加了明确的时间与规则阻力。",
+            "cause": "双方争吵导致录音设备白白运转。",
+            "evidenceSceneNumbers": [
+              1
+            ]
+          }
+        ],
+        "userEdited": false
+      },
+      {
+        "id": "relationship.story-bible-character.noah.story-bible-character.sam",
+        "sourceCharacterId": "story-bible-character.sam",
+        "targetCharacterId": "story-bible-character.noah",
+        "relationshipType": "鼓手与吉他手",
+        "currentState": "Sam 的直接发问撕开了 Noah 一直用玩笑掩盖的乐谱矛盾。",
+        "sourceToTarget": "用谱面证据指认 Noah 拿到的乐谱记号。",
+        "targetToSource": "向 Sam 确认乐谱被修改的事实。",
+        "lastUpdatedEpisode": 2,
+        "episodeChanges": [
+          {
+            "episodeNumber": 2,
+            "summary": "Sam 用对比乐谱打破了 Noah 的回避策略。",
+            "sourceCharacterId": "story-bible-character.sam",
+            "targetCharacterId": "story-bible-character.noah",
+            "relationshipType": "鼓手与吉他手",
+            "sourceToTarget": "用谱面证据指认 Noah 拿到的乐谱记号。",
+            "targetToSource": "向 Sam 确认乐谱被修改的事实。",
+            "currentState": "Sam 的直接发问撕开了 Noah 一直用玩笑掩盖的乐谱矛盾。",
+            "cause": "Sam 拿出了两份乐谱并排摊开在桌上。",
+            "evidenceSceneNumbers": [
+              1
+            ]
+          }
+        ],
+        "userEdited": false
+      }
+    ],
+    "continuationHooks": [
+      {
+        "episodeNumber": 1,
+        "hookType": "错位悬置",
+        "summary": "录音设备仍在计时运转，首次合奏因尾段错位停摆， Sam 问出没对齐后 Lena 与 Noah 陷入沉默。",
+        "nextEpisodeObligation": "承接尾段错位问题，四人需要查清错位来自两种改动，并让 Lena 和 Noah 各自说出自己的选择。",
+        "targetPayoffEpisode": 2,
+        "status": "fulfilled",
+        "evidenceSceneNumbers": [
+          1
+        ],
+        "fulfilledEpisode": 2,
+        "respondsToEpisode": 1,
+        "responseSummary": "上一集结尾录音持续运转且尾段脱节，本集开头 Lena 与 Noah 试图直接纠正拍点，却因演奏版本不同产生正面冲突。"
+      },
+      {
+        "episodeNumber": 2,
+        "hookType": "版本分歧被摊开",
+        "summary": "June 动手按停了录音设备，Sam 指出了乐谱上两处截然相反的手写标记，Lena 和 Noah 无法再用流程或玩笑回避各自改过尾段的事实。",
+        "nextEpisodeObligation": "承接 June 暂停录音后的僵局，让 Lena 和 Noah 面对各自手写修改的原因，并首次开始触碰两年前的未解裂痕。",
+        "targetPayoffEpisode": 3,
+        "status": "open",
+        "evidenceSceneNumbers": []
+      }
+    ],
+    "setupPayoffs": [
+      {
+        "ref": "莉娜与诺亚各自修改的尾段在首次完整合奏中暴露为具体技术问题。",
+        "description": "莉娜与诺亚各自修改的尾段在首次完整合奏中暴露为具体技术问题。",
+        "status": "open",
+        "lastUpdatedEpisode": 1,
+        "warnings": [
+          "第1集计划铺设或强化该伏笔，但正文没有对应场景证据。"
+        ],
+        "history": []
+      },
+      {
+        "ref": "setup_ending_conflict",
+        "description": "首次合奏在尾段出现严重拍点错位，Sam 问出问题，差异正式浮出水面。",
+        "status": "overdue",
+        "setupEpisode": 1,
+        "lastUpdatedEpisode": 1,
+        "targetPayoffEpisode": 2,
+        "nextRequiredStep": "展现双方各自对尾段的具体改动。",
+        "warnings": [],
+        "history": [
+          {
+            "episodeNumber": 1,
+            "action": "setup",
+            "summary": "首次合奏在尾段出现严重拍点错位，Sam 问出问题，差异正式浮出水面。",
+            "cause": "合奏尾段挂停",
+            "evidenceSceneNumbers": [
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "ref": "莉娜与诺亚各自修改的尾段在首次完整合奏中暴露为具体技术问题",
+        "description": "莉娜与诺亚各自修改的尾段在首次完整合奏中暴露为具体技术问题",
+        "status": "open",
+        "lastUpdatedEpisode": 2,
+        "warnings": [
+          "第2集计划铺设或强化该伏笔，但正文没有对应场景证据。"
+        ],
+        "history": []
+      },
+      {
+        "ref": "最终以共同接受的新桥段收清。",
+        "description": "最终以共同接受的新桥段收清。",
+        "status": "open",
+        "lastUpdatedEpisode": 2,
+        "warnings": [
+          "第2集计划铺设或强化该伏笔，但正文没有对应场景证据。"
+        ],
+        "history": []
+      },
+      {
+        "ref": "generated.setup_payoff.c78e452ccbff",
+        "description": "技术问题已从声音错位进一步强化为乐谱手写标记冲突及录音设备被停用。",
+        "status": "open",
+        "setupEpisode": 2,
+        "lastUpdatedEpisode": 2,
+        "warnings": [],
+        "history": [
+          {
+            "episodeNumber": 2,
+            "action": "reinforce",
+            "summary": "技术问题已从声音错位进一步强化为乐谱手写标记冲突及录音设备被停用。",
+            "cause": "Sam 摊开乐谱，June 暂停录音。",
+            "evidenceSceneNumbers": [
+              1
+            ]
+          }
+        ]
+      }
+    ],
+    "continuityStates": [
+      {
+        "entityKey": "audio_recorder_status",
+        "entityType": "item",
+        "entityName": "音频接口录音设备",
+        "stateDomain": "condition",
+        "currentState": "录音状态已被 June 按下 Stop 键暂停，常亮红灯变为黄灯闪烁。",
+        "persistence": "ongoing",
+        "lastUpdatedEpisode": 2,
+        "history": [
+          {
+            "episodeNumber": 1,
+            "transition": "changed",
+            "currentState": "录音处于持续运行状态，指示灯保持红色",
+            "persistence": "ongoing",
+            "cause": "Lena 在合奏前按下录音键，叫停合奏后未手动关停",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "status": "provisional"
+          },
+          {
+            "episodeNumber": 2,
+            "transition": "changed",
+            "currentState": "录音状态已被 June 按下 Stop 键暂停，常亮红灯变为黄灯闪烁。",
+            "persistence": "ongoing",
+            "cause": "June 为终止设备时间浪费而手动按停了录音。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "status": "provisional"
+          }
+        ]
+      },
+      {
+        "entityKey": "sheet_music_versions",
+        "entityType": "item",
+        "entityName": "手写修改乐谱",
+        "stateDomain": "condition",
+        "currentState": "乐谱上存在两处相反手写记号：Lena 份有升音记号，Noah 份有划掉过门并注明‘原版’的字样。",
+        "persistence": "permanent",
+        "lastUpdatedEpisode": 2,
+        "history": [
+          {
+            "episodeNumber": 2,
+            "transition": "established",
+            "currentState": "乐谱上存在两处相反手写记号：Lena 份有升音记号，Noah 份有划掉过门并注明‘原版’的字样。",
+            "persistence": "permanent",
+            "cause": "Sam 将两份乐谱在桌面并排摊开对比。",
+            "evidenceSceneNumbers": [
+              1
+            ],
+            "status": "provisional"
+          }
+        ]
+      }
+    ],
+    "episodeRoadmaps": [
+      {
+        "episode_number": 1,
+        "pressure_escalation": "录音设备已运行，合奏中断后错位问题被直接摆到台面，版本分歧成为下一步必须面对的压力。",
+        "setup_refs": [
+          "莉娜与诺亚各自修改的尾段在首次完整合奏中暴露为具体技术问题。"
+        ],
+        "payoff_refs": [],
+        "exit_state": "四人已到齐并共同确认今晚要完整录完；录音设备已运行，首次合奏因尾段两版错位中断，但差异尚未查清、旧因尚未挑明。",
+        "character_refs": [
+          "character.lena",
+          "character.noah",
+          "character.june",
+          "character.sam"
+        ],
+        "story_line_refs": [
+          "line_main_last_rehearsal",
+          "line_subplot_sam_question",
+          "line_subplot_june_boundary",
+          "line_arc_lena_rehearsal"
+        ],
+        "next_episode_obligation": "承接尾段错位问题，四人需要查清错位来自两种改动，并让Lena和Noah各自说出自己的选择。",
+        "source_node_id": "story_plan.7f8f6737-8ecf-47f3-86e6-3804b9edebef.child.634831c7872e.1",
+        "source_node_version": 5,
+        "story_bible_version": 2,
+        "status": "approved"
+      },
+      {
+        "episode_number": 2,
+        "pressure_escalation": "录音被暂停，版本分歧成为继续排练的前置条件；Noah仍未承认两年前原因，旧因被压到下一场。",
+        "setup_refs": [
+          "莉娜与诺亚各自修改的尾段在首次完整合奏中暴露为具体技术问题",
+          "最终以共同接受的新桥段收清。"
+        ],
+        "payoff_refs": [],
+        "exit_state": "尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+        "character_refs": [
+          "character.lena",
+          "character.noah",
+          "character.june",
+          "character.sam"
+        ],
+        "story_line_refs": [
+          "line_main_last_rehearsal",
+          "line_subplot_sam_question",
+          "line_subplot_june_boundary",
+          "line_arc_lena_rehearsal",
+          "line_arc_noah_rehearsal"
+        ],
+        "next_episode_obligation": "承接June暂停录音后的对峙，让Lena和Noah各自说出自己改过尾段的选择，并开始触碰两年前的原因。",
+        "source_node_id": "story_plan.7f8f6737-8ecf-47f3-86e6-3804b9edebef.child.634831c7872e.1",
+        "source_node_version": 5,
+        "story_bible_version": 2,
+        "status": "approved"
+      },
+      {
+        "episode_number": 3,
+        "ending_mode": "serial_hook",
+        "episode_title": "THE OLD REASON｜旧因浮出",
+        "synopsis": "June把关门时限摆到台面，Lena先承认自己独自改过尾段。Noah仍用“那段编曲不适合我”挡开，Lena在Sam在场时直接提到两年前原定那场演出Noah没有到场。Sam追问缺席原因，Noah停下拨弦，承认自己是临场怯场，不是不需要这首歌。两人都说出各自选择，但音乐配合尚未修复，旧借口不能再用来回避。",
+        "locations": [
+          "社区排练室"
+        ],
+        "target_duration_seconds": 90,
+        "planned_scene_count": 1,
+        "planned_shot_count": 16,
+        "planned_dialogue_line_count": 30,
+        "episode_goal": "让Lena和Noah各自说出自己改过尾段的选择，并开始触碰两年前的原因。",
+        "entry_state": "尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+        "central_conflict": "Lena愿意承认自己改过尾段，Noah却仍用旧借口挡开两年前缺席；June的关门时限让回避无法继续拖延。",
+        "protagonist_decision": "Lena选择先承认自己独自改过尾段，并在Sam在场时把两年前Noah缺席的事实摆到台面，逼他面对旧因。",
+        "reveal": "Noah承认两年前缺席的原因是临场怯场，不是不需要这首歌。",
+        "emotional_movement": "从互相防备和旧借口，到Lena先放下自尊承认改动，再到Noah在追问下简短承认怯场；两人都更接近真实，但音乐配合仍未修复。",
+        "stage_opposition": "Noah用玩笑和旧借口退开，不愿先承认；Lena用流程和时限施压，两人都不愿先示弱。",
+        "episode_payoff": "两人都说出各自选择：Lena承认改过尾段，Noah承认缺席原因是临场怯场；旧借口被摊开，不能再靠它回避。",
+        "pressure_escalation": "June把关门时限摆上台面，版本分歧和旧因成为继续排练的前置条件；Noah仍未承认两年前原因，旧因被压到这一场。",
+        "dramatic_units": [
+          {
+            "trigger": "June把关门时限摆上台面，提醒再拖下去今晚录不完。",
+            "choice": "Lena先承认自己独自改过尾段，不再用指挥权压过问题。",
+            "visible_consequence": "Noah停下拨弦，抬头看她，旧借口被暂时搁置。",
+            "change_type": "关系",
+            "evidence_hint": "Lena说“是我改的”时，Noah没有接话，只看着她。"
+          },
+          {
+            "trigger": "Noah仍用“那段编曲不适合我”挡开两年前缺席。",
+            "choice": "Lena在Sam在场时直接提到两年前原定那场演出Noah没有到场。",
+            "visible_consequence": "Sam听见后追问缺席原因，Noah无法再用旧借口。",
+            "change_type": "信息",
+            "evidence_hint": "Sam问“你那天为什么没去”，Noah停下拨弦。"
+          },
+          {
+            "trigger": "Sam追问缺席原因，Noah被逼到无法回避。",
+            "choice": "Noah承认自己是临场怯场，不是不需要这首歌。",
+            "visible_consequence": "排练室安静下来，旧借口被摊开，但音乐配合仍未修复。",
+            "change_type": "关系",
+            "evidence_hint": "Noah说“我害怕了”，Lena没有立刻回应。"
+          }
+        ],
+        "protagonist_cost": "Lena先承认自己独自改过尾段，放下自尊，不再用指挥权保护自己。",
+        "setup_refs": [
+          "诺亚两年前缺席的真正原因是临场怯场",
+          "他不再用“那段编曲不适合我”掩盖",
+          "成为关系修复的关键。"
+        ],
+        "payoff_refs": [
+          "诺亚两年前缺席的真正原因是临场怯场",
+          "他不再用“那段编曲不适合我”掩盖",
+          "成为关系修复的关键。"
+        ],
+        "exit_state": "Lena和Noah都说出各自选择：Lena承认改过尾段，Noah承认缺席原因是临场怯场；音乐配合尚未修复，但不能再靠旧借口回避。",
+        "cliffhanger": "Noah承认了临场怯场，但两人都还没有真正听见彼此的尾段版本，音乐配合仍停在原地。",
+        "character_refs": [
+          "character.lena",
+          "character.noah",
+          "character.june",
+          "character.sam"
+        ],
+        "story_line_refs": [
+          "line_main_last_rehearsal",
+          "line_subplot_sam_question",
+          "line_subplot_june_boundary",
+          "line_arc_lena_rehearsal",
+          "line_arc_noah_rehearsal"
+        ],
+        "continuity_requirements": [
+          "Noah已承认两年前缺席原因是临场怯场，后续不能再把“那段编曲不适合我”当作未揭示的秘密。",
+          "Lena已承认自己独自改过尾段，后续不能再把这一事实当作新发现。",
+          "June的关门时限已摆上台面，后续排练必须在收尾时间前完成。",
+          "Sam已听见Noah缺席原因并追问，后续他不能再对此一无所知。",
+          "录音设备仍处于暂停状态，版本分歧和旧因尚未解决前不能继续合奏。",
+          "Lena明早搬走的事实不变，搬家决定不会因演奏取消。"
+        ],
+        "source_turning_points": [
+          "Lena在Sam在场时针对Noah的旧借口，明确提到两年前原定那场演出Noah没有到场；Sam听见后追问缺席原因，Noah承认自己是临场怯场，不是不需要这首歌。"
+        ],
+        "source_unit_story_beats": [
+          "Lena承认独自改过尾段；Noah用“那段编曲不适合我”挡开，June把关门时限放到台面。",
+          "Lena在Sam在场时针对Noah的旧借口，明确提到两年前原定那场演出Noah没有到场；Sam听见后追问缺席原因，Noah承认自己是临场怯场，不是不需要这首歌。"
+        ],
+        "ending_hook_type": "旧因已认，音乐未修",
+        "next_episode_obligation": "承接Noah承认怯场后的沉默，让Lena和Noah真正听见彼此的尾段版本，开始尝试新的配合。",
+        "hook_payoff_target_episode": 4,
+        "scene_execution_plan": [
+          {
+            "scene_number": 1,
+            "scene_heading": "INT. 社区排练室 - 晚上，录音暂停后",
+            "character_refs": [
+              "character.lena",
+              "character.noah",
+              "character.june",
+              "character.sam"
+            ],
+            "scene_objective": "让Lena和Noah各自说出自己改过尾段的选择，并开始触碰两年前的原因。",
+            "opposition": "Noah用旧借口挡开两年前缺席，Lena不愿先承认自己改过尾段；June的关门时限让回避无法继续拖延。",
+            "information_shift": "Lena承认自己独自改过尾段；Noah承认两年前缺席原因是临场怯场，不是不需要这首歌。",
+            "choice_or_cost": "Lena选择先承认自己改过尾段，放下自尊；Noah选择在追问下承认怯场，不再用旧借口保护自己。",
+            "evidence_requirements": [
+              "Lena明确说出“是我改的”或同等承认，观众能听见。",
+              "Noah明确说出“我害怕了”或同等承认，观众能听见。",
+              "Sam追问缺席原因，观众能听见他的问题。",
+              "June提醒关门时限，观众能听见具体时间压力。",
+              "Noah停下拨弦，身体正对Lena，显示他不再回避。"
+            ],
+            "forbidden_changes": [
+              "不能让Noah在Lena承认改过尾段之前就承认怯场。",
+              "不能让Lena在Noah承认怯场之前就完全软化。",
+              "不能让June介入私人争执或替年轻人解决关系。",
+              "Sam必须先在场听见Lena明确指出两年前那场演出Noah没有到场，才能追问缺席原因；此时Sam尚不知道怯场原因，必须由Noah在追问后亲口承认。",
+              "不能让录音设备重新启动，版本分歧和旧因尚未解决。",
+              "不能让Lena明早搬走的事实改变。"
+            ],
+            "visible_action": "June从录音设备旁走到两人中间，提醒关门时限，说再拖下去今晚录不完。Lena走到谱架前，承认自己独自改过尾段，不再用指挥权压过问题。Noah停下拨弦，抬头看她，仍用“那段编曲不适合我”挡开两年前缺席。Lena在Sam在场时直接提到两年前原定那场演出Noah没有到场。Sam听见后追问缺席原因，Noah被逼到无法回避，承认自己是临场怯场，不是不需要这首歌。排练室安静下来，旧借口被摊开，但音乐配合仍未修复。",
+            "turn_or_reveal": "Noah承认两年前缺席的原因是临场怯场，不是不需要这首歌；Lena承认自己独自改过尾段。",
+            "dialogue_objective": "通过Lena先承认改动、Noah用旧借口挡开、Lena提到两年前缺席、Sam追问、Noah承认怯场，让两人各自说出选择，旧借口不能再用来回避。",
+            "dialogue_line_target": 30,
+            "shot_target": 16,
+            "exit_state": "Lena和Noah都说出各自选择：Lena承认改过尾段，Noah承认缺席原因是临场怯场；音乐配合尚未修复，但不能再靠旧借口回避。"
+          }
+        ],
+        "execution_ready": true,
+        "layer_contracts": {
+          "schema_version": "episode_three_layer_contract.v1",
+          "pacing": {
+            "duration_seconds": 90,
+            "scene_count": 1,
+            "shot_count": 16,
+            "dialogue_line_count": 30,
+            "average_shot_interval_seconds": 5.62,
+            "dialogue_lines_per_minute": 20,
+            "information_progression_count": 8,
+            "information_progression_per_minute": 5.33,
+            "meets_contract": true
+          },
+          "hook": {
+            "category": "危机升级",
+            "ending_hook_count": 1,
+            "planned_hook_beat_count": 4,
+            "planned_hook_beats_per_minute": 2.67,
+            "has_next_episode_obligation": true,
+            "payoff_target_episode": 4,
+            "meets_contract": true
+          },
+          "story": {
+            "causal_step_count": 5,
+            "distinct_causal_step_count": 5,
+            "continuity_anchor_count": 11,
+            "character_count": 4,
+            "story_line_count": 5,
+            "local_resolution_planned": true,
+            "escalation_planned": true,
+            "causal_chain_complete": true,
+            "meets_contract": true
+          },
+          "meets_contract": true
+        },
+        "source_node_id": "story_plan.7f8f6737-8ecf-47f3-86e6-3804b9edebef.child.634831c7872e.1",
+        "source_node_version": 5,
+        "story_bible_version": 2,
+        "status": "approved"
+      }
+    ],
+    "episodes": [
+      {
+        "episodeNumber": 1,
+        "generationRun": {
+          "draft_master_script": {
+            "setup_payoff_updates": [
+              {
+                "setup_payoff_ref": "setup_ending_conflict",
+                "action": "setup",
+                "status": "setup",
+                "progress_summary": "首次合奏在尾段出现严重拍点错位，Sam 问出问题，差异正式浮出水面。",
+                "next_required_step": "展现双方各自对尾段的具体改动。",
+                "target_payoff_episode": 2,
+                "change_cause": "合奏尾段挂停",
+                "evidence_scene_numbers": [
+                  1
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "episodeNumber": 2,
+        "generationRun": {
+          "draft_master_script": {
+            "setup_payoff_updates": [
+              {
+                "setup_payoff_ref": "generated.setup_payoff.c78e452ccbff",
+                "action": "reinforce",
+                "status": "active",
+                "progress_summary": "技术问题已从声音错位进一步强化为乐谱手写标记冲突及录音设备被停用。",
+                "next_required_step": null,
+                "target_payoff_episode": null,
+                "change_cause": "Sam 摊开乐谱，June 暂停录音。",
+                "evidence_scene_numbers": [
+                  1
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "context": {
+    "generation_mode": "full",
+    "episode_number": 3,
+    "total_episodes": 10,
+    "planned_setup_refs": [
+      "诺亚两年前缺席的真正原因是临场怯场",
+      "他不再用“那段编曲不适合我”掩盖",
+      "成为关系修复的关键。"
+    ],
+    "planned_payoff_refs": [
+      "诺亚两年前缺席的真正原因是临场怯场",
+      "他不再用“那段编曲不适合我”掩盖",
+      "成为关系修复的关键。"
+    ],
+    "relevant_character_refs": [
+      "character.lena",
+      "character.noah",
+      "character.june",
+      "character.sam"
+    ],
+    "planned_story_line_refs": [
+      "line_main_last_rehearsal",
+      "line_subplot_sam_question",
+      "line_subplot_june_boundary",
+      "line_arc_lena_rehearsal",
+      "line_arc_noah_rehearsal"
+    ],
+    "approved_story_node": {
+      "node_id": "story_plan.7f8f6737-8ecf-47f3-86e6-3804b9edebef.child.634831c7872e.1",
+      "node_version": 5,
+      "title": "最后一遍排练·全剧十集剧情叶",
+      "start_episode": 1,
+      "end_episode": 10,
+      "episode_position": 3,
+      "episode_function": "增加新的阻力、信息或关系变化，迫使主角调整行动，不能重复阶段开端",
+      "narrative_purpose": "本节点覆盖全剧10集的完整可执行因果链：把四人在今晚从到齐、首次合奏、尾段冲突、旧因承认、听见彼此、形成新桥段、最终录音，到收好器材与告别全部落地。主线不把成功演奏写成抹掉旧伤，支线让Sam敢提出问题、June守住关门和器材边界。",
+      "entry_state": "今晚排练室内四人先后到场；Lena把搬家前的难过压成组织任务，Noah以玩笑和试音保持熟稔距离，Sam准备充分但怕拖累老成员，June已掌握关门与器材归位边界。录音设备已在准备，旧伤和尾段差异尚未摊开。",
+      "central_conflict": "Lena与Noah对两人共同创作的歌曲尾段做了相反处理，又因两年前Noah临场怯场缺席而彼此误读；今晚要完成一遍共同接受的合奏，必须在时间压力下承认具体选择，并形成双方都愿意演奏的新配合，而不是用成功演奏抹掉旧伤。",
+      "turning_points": [
+        "四人开始首次完整合奏，尾段两版错位逼停录音；Sam点出那一段没有对齐。",
+        "Lena在Sam在场时针对Noah的旧借口，明确提到两年前原定那场演出Noah没有到场；Sam听见后追问缺席原因，Noah承认自己是临场怯场，不是不需要这首歌。",
+        "Lena试过后认可Noah桥段加自己收句；四人完成中段修正练习，把变拍交给底鼓过渡。",
+        "最终完整录音中，Sam用鼓点拉回Noah抢拍，Lena落在共同收句；录音完整保存。",
+        "门外，Noah叫住Lena，在怯场原因已公开的前提下不重复旧因，主动承担当年缺席造成的后果并接受Lena明早搬走；两人达成有限普通联系，June锁门离开。"
+      ],
+      "unit_story_beats": [
+        "Lena清点器材并启动录音准备；June向Lena重申关门与归位要求，Noah和Sam就位。",
+        "四人开始首次完整合奏，尾段两版错位逼停录音；Sam点出那一段没有对齐。",
+        "Lena要求照她的版本解决，Noah弹回原版互指改动；Sam举谱指出标记不同，June停录要求先说清差异。",
+        "Lena承认独自改过尾段；Noah用“那段编曲不适合我”挡开，June把关门时限放到台面。",
+        "Lena在Sam在场时针对Noah的旧借口，明确提到两年前原定那场演出Noah没有到场；Sam听见后追问缺席原因，Noah承认自己是临场怯场，不是不需要这首歌。",
+        "Noah解释原版保留旧和声，Lena解释自己把收句改短；两人各演示版本，Sam标出错拍和接点。",
+        "Sam提出用底鼓拍点拆接两版；Noah认真提供保留旧和声、采用Lena收句节奏的新桥段。",
+        "Lena试过后认可Noah桥段加自己收句；四人完成中段修正练习，把变拍交给底鼓过渡。",
+        "临录前Noah旧习抢拍，Sam停鼓重数；Lena等待，Noah重新起奏，June提醒只剩最后一次录音。",
+        "最终完整录音中，Sam用鼓点拉回Noah抢拍，Lena落在共同收句；录音完整保存。",
+        "四人拆线、收谱、归位乐器和谱架并保存录音；June逐项核验设备，Sam获得尾段认可。",
+        "门外，Noah叫住Lena，在怯场原因已公开的前提下不重复旧因，主动承担当年缺席造成的后果并接受Lena明早搬走；两人达成有限普通联系，June锁门离开。"
+      ],
+      "unit_resolution": "全剧范围收束：四人录完并保存在同一排练室内的共同接受合奏，器材归位、June锁门；Noah在怯场原因已公开的前提下主动承担当年缺席后果，与Lena恢复有限而可信的合作并约好继续联系；Sam问出问题并稳定新尾段，June守住时间、器材和门锁边界。",
+      "handoff_pressure": "完结：不制造新危机或关系魔法；若后续扩展，只能承接两人已同意的普通联系和Lena已完成的搬家事实，不能重开旧伤为冲突。",
+      "emotional_direction": "从礼貌压住旧伤的紧张，到排练中断后的争执与承认，再进入试奏新配合时的小心；最终录音带来短暂喘口气，但收尾告别保持克制，把搬家、旧伤和以后联系放进同一晚却不互相取消。",
+      "exit_state": "四人最终录完一遍能共同接受的合奏并收好器材，莉娜照常搬走。诺亚承认当年的退缩，两人恢复有限而可信的合作，愿意以后继续联系，但不把成功演奏变成抹除伤害或转变关系的魔法。"
+    },
+    "approved_episode_plan": {
+      "episode_number": 3,
+      "ending_mode": "serial_hook",
+      "target_duration_seconds": 90,
+      "planned_scene_count": 1,
+      "planned_shot_count": 16,
+      "planned_dialogue_line_count": 30,
+      "episode_goal": "让Lena和Noah各自说出自己改过尾段的选择，并开始触碰两年前的原因。",
+      "entry_state": "尾段分歧已被谱面和琴声摊开为两种版本；Noah仍未承认两年前原因，排练停在确认双方选择之前。",
+      "central_conflict": "Lena愿意承认自己改过尾段，Noah却仍用旧借口挡开两年前缺席；June的关门时限让回避无法继续拖延。",
+      "protagonist_decision": "Lena选择先承认自己独自改过尾段，并在Sam在场时把两年前Noah缺席的事实摆到台面，逼他面对旧因。",
+      "reveal": "Noah承认两年前缺席的原因是临场怯场，不是不需要这首歌。",
+      "emotional_movement": "从互相防备和旧借口，到Lena先放下自尊承认改动，再到Noah在追问下简短承认怯场；两人都更接近真实，但音乐配合仍未修复。",
+      "stage_opposition": "Noah用玩笑和旧借口退开，不愿先承认；Lena用流程和时限施压，两人都不愿先示弱。",
+      "episode_payoff": "两人都说出各自选择：Lena承认改过尾段，Noah承认缺席原因是临场怯场；旧借口被摊开，不能再靠它回避。",
+      "pressure_escalation": "June把关门时限摆上台面，版本分歧和旧因成为继续排练的前置条件；Noah仍未承认两年前原因，旧因被压到这一场。",
+      "dramatic_units": [
+        {
+          "trigger": "June把关门时限摆上台面，提醒再拖下去今晚录不完。",
+          "choice": "Lena先承认自己独自改过尾段，不再用指挥权压过问题。",
+          "visible_consequence": "Noah停下拨弦，抬头看她，旧借口被暂时搁置。",
+          "change_type": "关系",
+          "evidence_hint": "Lena说“是我改的”时，Noah没有接话，只看着她。"
+        },
+        {
+          "trigger": "Noah仍用“那段编曲不适合我”挡开两年前缺席。",
+          "choice": "Lena在Sam在场时直接提到两年前原定那场演出Noah没有到场。",
+          "visible_consequence": "Sam听见后追问缺席原因，Noah无法再用旧借口。",
+          "change_type": "信息",
+          "evidence_hint": "Sam问“你那天为什么没去”，Noah停下拨弦。"
+        },
+        {
+          "trigger": "Sam追问缺席原因，Noah被逼到无法回避。",
+          "choice": "Noah承认自己是临场怯场，不是不需要这首歌。",
+          "visible_consequence": "排练室安静下来，旧借口被摊开，但音乐配合仍未修复。",
+          "change_type": "关系",
+          "evidence_hint": "Noah说“我害怕了”，Lena没有立刻回应。"
+        }
+      ],
+      "protagonist_cost": "Lena先承认自己独自改过尾段，放下自尊，不再用指挥权保护自己。",
+      "setup_refs": [
+        "诺亚两年前缺席的真正原因是临场怯场",
+        "他不再用“那段编曲不适合我”掩盖",
+        "成为关系修复的关键。"
+      ],
+      "payoff_refs": [
+        "诺亚两年前缺席的真正原因是临场怯场",
+        "他不再用“那段编曲不适合我”掩盖",
+        "成为关系修复的关键。"
+      ],
+      "exit_state": "Lena和Noah都说出各自选择：Lena承认改过尾段，Noah承认缺席原因是临场怯场；音乐配合尚未修复，但不能再靠旧借口回避。",
+      "cliffhanger": "Noah承认了临场怯场，但两人都还没有真正听见彼此的尾段版本，音乐配合仍停在原地。",
+      "character_refs": [
+        "character.lena",
+        "character.noah",
+        "character.june",
+        "character.sam"
+      ],
+      "story_line_refs": [
+        "line_main_last_rehearsal",
+        "line_subplot_sam_question",
+        "line_subplot_june_boundary",
+        "line_arc_lena_rehearsal",
+        "line_arc_noah_rehearsal"
+      ],
+      "continuity_requirements": [
+        "Noah已承认两年前缺席原因是临场怯场，后续不能再把“那段编曲不适合我”当作未揭示的秘密。",
+        "Lena已承认自己独自改过尾段，后续不能再把这一事实当作新发现。",
+        "June的关门时限已摆上台面，后续排练必须在收尾时间前完成。",
+        "Sam已听见Noah缺席原因并追问，后续他不能再对此一无所知。",
+        "录音设备仍处于暂停状态，版本分歧和旧因尚未解决前不能继续合奏。",
+        "Lena明早搬走的事实不变，搬家决定不会因演奏取消。"
+      ],
+      "source_turning_points": [
+        "Lena在Sam在场时针对Noah的旧借口，明确提到两年前原定那场演出Noah没有到场；Sam听见后追问缺席原因，Noah承认自己是临场怯场，不是不需要这首歌。"
+      ],
+      "source_unit_story_beats": [
+        "Lena承认独自改过尾段；Noah用“那段编曲不适合我”挡开，June把关门时限放到台面。",
+        "Lena在Sam在场时针对Noah的旧借口，明确提到两年前原定那场演出Noah没有到场；Sam听见后追问缺席原因，Noah承认自己是临场怯场，不是不需要这首歌。"
+      ],
+      "ending_hook_type": "旧因已认，音乐未修",
+      "next_episode_obligation": "承接Noah承认怯场后的沉默，让Lena和Noah真正听见彼此的尾段版本，开始尝试新的配合。",
+      "hook_payoff_target_episode": 4,
+      "scene_execution_plan": [
+        {
+          "scene_number": 1,
+          "scene_heading": "INT. 社区排练室 - 晚上，录音暂停后",
+          "character_refs": [
+            "character.lena",
+            "character.noah",
+            "character.june",
+            "character.sam"
+          ],
+          "scene_objective": "让Lena和Noah各自说出自己改过尾段的选择，并开始触碰两年前的原因。",
+          "opposition": "Noah用旧借口挡开两年前缺席，Lena不愿先承认自己改过尾段；June的关门时限让回避无法继续拖延。",
+          "information_shift": "Lena承认自己独自改过尾段；Noah承认两年前缺席原因是临场怯场，不是不需要这首歌。",
+          "choice_or_cost": "Lena选择先承认自己改过尾段，放下自尊；Noah选择在追问下承认怯场，不再用旧借口保护自己。",
+          "evidence_requirements": [
+            "Lena明确说出“是我改的”或同等承认，观众能听见。",
+            "Noah明确说出“我害怕了”或同等承认，观众能听见。",
+            "Sam追问缺席原因，观众能听见他的问题。",
+            "June提醒关门时限，观众能听见具体时间压力。",
+            "Noah停下拨弦，身体正对Lena，显示他不再回避。"
+          ],
+          "forbidden_changes": [
+            "不能让Noah在Lena承认改过尾段之前就承认怯场。",
+            "不能让Lena在Noah承认怯场之前就完全软化。",
+            "不能让June介入私人争执或替年轻人解决关系。",
+            "Sam必须先在场听见Lena明确指出两年前那场演出Noah没有到场，才能追问缺席原因；此时Sam尚不知道怯场原因，必须由Noah在追问后亲口承认。",
+            "不能让录音设备重新启动，版本分歧和旧因尚未解决。",
+            "不能让Lena明早搬走的事实改变。"
+          ],
+          "visible_action": "June从录音设备旁走到两人中间，提醒关门时限，说再拖下去今晚录不完。Lena走到谱架前，承认自己独自改过尾段，不再用指挥权压过问题。Noah停下拨弦，抬头看她，仍用“那段编曲不适合我”挡开两年前缺席。Lena在Sam在场时直接提到两年前原定那场演出Noah没有到场。Sam听见后追问缺席原因，Noah被逼到无法回避，承认自己是临场怯场，不是不需要这首歌。排练室安静下来，旧借口被摊开，但音乐配合仍未修复。",
+          "turn_or_reveal": "Noah承认两年前缺席的原因是临场怯场，不是不需要这首歌；Lena承认自己独自改过尾段。",
+          "dialogue_objective": "通过Lena先承认改动、Noah用旧借口挡开、Lena提到两年前缺席、Sam追问、Noah承认怯场，让两人各自说出选择，旧借口不能再用来回避。",
+          "dialogue_line_target": 30,
+          "shot_target": 16,
+          "exit_state": "Lena和Noah都说出各自选择：Lena承认改过尾段，Noah承认缺席原因是临场怯场；音乐配合尚未修复，但不能再靠旧借口回避。"
+        }
+      ],
+      "execution_ready": true,
+      "layer_contracts": {
+        "schema_version": "episode_three_layer_contract.v1",
+        "pacing": {
+          "duration_seconds": 90,
+          "scene_count": 1,
+          "shot_count": 16,
+          "dialogue_line_count": 30,
+          "average_shot_interval_seconds": 5.62,
+          "dialogue_lines_per_minute": 20,
+          "information_progression_count": 8,
+          "information_progression_per_minute": 5.33,
+          "meets_contract": true
+        },
+        "hook": {
+          "category": "危机升级",
+          "ending_hook_count": 1,
+          "planned_hook_beat_count": 4,
+          "planned_hook_beats_per_minute": 2.67,
+          "has_next_episode_obligation": true,
+          "payoff_target_episode": 4,
+          "meets_contract": true
+        },
+        "story": {
+          "causal_step_count": 5,
+          "distinct_causal_step_count": 5,
+          "continuity_anchor_count": 11,
+          "character_count": 4,
+          "story_line_count": 5,
+          "local_resolution_planned": true,
+          "escalation_planned": true,
+          "causal_chain_complete": true,
+          "meets_contract": true
+        },
+        "meets_contract": true
+      }
+    },
+    "memory_recall": {
+      "schema_version": "memory_recall.v1",
+      "memory_layer": "provisional",
+      "task": "episode_generation",
+      "through_episode_number": 2,
+      "status": "insufficient",
+      "required_refs": [
+        "character.lena",
+        "character.noah",
+        "character.june",
+        "character.sam",
+        "line_main_last_rehearsal",
+        "line_subplot_sam_question",
+        "line_subplot_june_boundary",
+        "line_arc_lena_rehearsal",
+        "line_arc_noah_rehearsal",
+        "诺亚两年前缺席的真正原因是临场怯场",
+        "他不再用“那段编曲不适合我”掩盖",
+        "成为关系修复的关键。"
+      ],
+      "missing_requirements": [
+        "诺亚两年前缺席的真正原因是临场怯场",
+        "他不再用“那段编曲不适合我”掩盖",
+        "成为关系修复的关键。"
+      ],
+      "capsules": [],
+      "omitted_records": []
+    }
+  }
+}

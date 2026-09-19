@@ -16,9 +16,6 @@ import { useLocale } from "@/providers/locale-provider";
 export function ProjectContinuityPanel({ project }: { project: ScriptProject }) {
   const { t } = useLocale();
   const characters = deduplicateCharacterCards(project.characters);
-  const activeStoryLineCount = project.storyLines.filter(
-    (line) => line.status !== "resolved",
-  ).length;
   const relationshipProgress = relationshipNetworkProgress(project);
   const coreCharacters = relationshipProgress.ready
     ? selectCoreRelationshipCharacters(project)
@@ -90,16 +87,6 @@ export function ProjectContinuityPanel({ project }: { project: ScriptProject }) 
           </div>
         )}
 
-        <Link className="story-reference-destination" href={`/projects/${project.id}/storylines`}>
-          <span className="story-reference-destination-index">02</span>
-          <span className="story-reference-destination-copy">
-            <strong>{t("continuity.storyLines")}</strong>
-            <small>{t("continuity.storyLineSummary")
-              .replace("{total}", String(project.storyLines.length))
-              .replace("{active}", String(activeStoryLineCount))}</small>
-          </span>
-          <ArrowIcon />
-        </Link>
       </div>
     </section>
   );

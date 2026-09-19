@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
+from app.modules.script_engine.setup_payoff_provenance import stable_setup_payoff_id
 
 from app.modules.script_engine.long_story_models import (
     ContinuityCharacterState,
@@ -431,9 +432,10 @@ def _project_character_state(
         health_conditions=_updated_list(update, "health_conditions", prior),
         action_capabilities=_updated_list(update, "action_capabilities", prior),
         lasting_marks=_updated_list(update, "lasting_marks", prior),
-        active_constraints=_string_list(update.get("active_constraints")) or (
-            list(prior.active_constraints) if prior else []
-        ),
+        # Keep an explicitly supplied empty list: it records that a prior
+        # constraint has been cleared. _updated_list only falls back when the
+        # field is absent (or legacy null).
+        active_constraints=_updated_list(update, "active_constraints", prior),
         personality_development=(
             _optional_text(update.get("personality_change"))
             or (prior.personality_development if prior else None)
@@ -499,20 +501,21 @@ def _project_setup_payoffs(
     raw_updates: Any,
     episode_number: int,
 ) -> list[SetupPayoffRecord]:
-    records = {item.setup_payoff_id: item for item in existing}
+    records = {(item.source_ref or item.setup_payoff_id): item for item in existing}
     if not isinstance(raw_updates, list):
         return list(records.values())
     for update in raw_updates:
         if not isinstance(update, dict):
             continue
-        setup_payoff_ref = str(update.get("setup_payoff_ref", "")).strip()
+        setup_payoff_ref = str(update.get("source_ref") or update.get("setup_payoff_ref") or update.get("setup_payoff_id", "")).strip()
         if not setup_payoff_ref:
             continue
         prior = records.get(setup_payoff_ref)
         action = str(update.get("action", "setup")).strip()
         paid_off = action == "payoff" or update.get("status") == "paid_off"
         records[setup_payoff_ref] = SetupPayoffRecord(
-            setup_payoff_id=setup_payoff_ref,
+            setup_payoff_id=prior.setup_payoff_id if prior else stable_setup_payoff_id(setup_payoff_ref),
+            source_ref=setup_payoff_ref if stable_setup_payoff_id(setup_payoff_ref) != setup_payoff_ref else prior.source_ref if prior else None,
             description=str(update.get("progress_summary", "")).strip(),
             status=(SetupPayoffStatus.paid_off if paid_off else SetupPayoffStatus.setup),
             setup_episode=(prior.setup_episode if prior and prior.setup_episode else episode_number),

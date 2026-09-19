@@ -16,6 +16,7 @@ from app.modules.master_script.models import (
     LLMScriptEditorialPatch,
 )
 from app.script_delivery_contract import (
+    SHORT_DRAMA_PACING_CONTRACT,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -43,6 +44,9 @@ from app.modules.script_engine.mainland_language import (
 )
 from app.modules.script_engine.mainland_screenplay import (
     draft_screenplay_style_issues,
+)
+from app.modules.script_engine.overseas_identity import (
+    english_names_from_payload, identity_aliases, normalize_new_overseas_payload, without_known_english_names,
 )
 from app.modules.script_engine.models import GenerationStrategy
 from app.modules.script_engine.screenplay_duration import (
@@ -92,7 +96,6 @@ _OVERSEAS_ROOT_LANGUAGE_FIELDS = (
     "next_episode_question",
 )
 _OVERSEAS_CHARACTER_LANGUAGE_FIELDS = (
-    "name",
     "role",
     "description",
     "motivation",
@@ -293,8 +296,7 @@ class ScriptPostEditor:
                 draft,
                 include_narrative=False,
             )
-            if path.endswith(".chinese_character_name")
-            or path.endswith(".chinese_translation")
+            if path.endswith(".chinese_translation")
         ]
 
     def ensure_overseas_dialogue_pairs(
@@ -305,7 +307,7 @@ class ScriptPostEditor:
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> tuple[DraftMasterScript, int]:
-        """Fill every required Chinese speaker name and line in the same run."""
+        """Fill required Chinese dialogue translations without translating names."""
 
         paths = self.overseas_dialogue_pair_issues(draft)
         if not paths:
@@ -587,6 +589,8 @@ class ScriptPostEditor:
             normalized = {
                 key: value for key, value in raw_patch.items() if key != "_meta"
             }
+            if overseas_release:
+                normalized = normalize_new_overseas_payload(normalized, identity_aliases(draft.model_dump(), canonical_names))
             try:
                 patch = LLMScriptEditorialPatch.model_validate(normalized)
                 candidate = self._apply_patch(
@@ -1261,13 +1265,14 @@ class ScriptPostEditor:
         include_narrative: bool = False,
     ) -> list[str]:
         issues: list[str] = []
+        known_names = english_names_from_payload(draft.model_dump())
 
         def check(path: str, value: str | None, *, required = False) -> None:
             if value is None or not value.strip():
                 if required:
                     issues.append(path)
                 return
-            if mainland_text_violates_language_contract(value):
+            if mainland_text_violates_language_contract(without_known_english_names(value, known_names)):
                 issues.append(path)
 
         if include_narrative:
@@ -1318,13 +1323,6 @@ class ScriptPostEditor:
             for action_index, action in enumerate(scene.character_actions):
                 check(f"scenes.{scene_index}.character_actions.{action_index}", action, required=True)
             for dialogue_index, dialogue in enumerate(scene.dialogues):
-                chinese_name = dialogue.chinese_character_name
-                chinese_name_path = (
-                    f"scenes.{scene_index}.dialogues.{dialogue_index}.chinese_character_name"
-                )
-                check(chinese_name_path, chinese_name, required=True)
-                if chinese_name and not _CHINESE_TEXT.search(chinese_name):
-                    issues.append(chinese_name_path)
                 check(
                     f"scenes.{scene_index}.dialogues.{dialogue_index}.intent",
                     dialogue.intent,
@@ -1339,7 +1337,7 @@ class ScriptPostEditor:
                 translation = dialogue.chinese_translation
                 if (
                     not translation
-                    or mainland_text_violates_language_contract(translation)
+                    or mainland_text_violates_language_contract(without_known_english_names(translation, known_names))
                     or len(_CHINESE_TEXT.findall(translation)) < 2
                 ):
                     issues.append(
@@ -1384,7 +1382,7 @@ class ScriptPostEditor:
                 )
             if (
                 translation_can_be_restored
-                and self._overseas_language_value_is_valid(path, source_value)
+                and self._overseas_language_value_is_valid(path, source_value, english_names_from_payload(source_payload))
             ):
                 self._set_language_field_value(
                     repaired_payload,
@@ -1473,7 +1471,7 @@ class ScriptPostEditor:
             "dialogues.text必须至少包含一个可说的英文词和两个拉丁字母，不能只返回省略号、"
             "标点、中文、拼音或中英混写；沉默、犹豫或反应也要写成符合原意的简短美式英语台词。"
             "chinese_translation必须是对应当前英文text的自然简体中文，不得返回英文。"
-            "chinese_character_name必须是该说话人的简体中文名，不得返回英文名。"
+            "人物名沿用稳定英文名，chinese_character_name不补写。"
             if focused
             else ""
         )
@@ -1484,18 +1482,19 @@ class ScriptPostEditor:
 每集总合同：
 """
             + OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT
+            + "\n" + SHORT_DRAMA_PACING_CONTRACT
             + """
 
 规则：
 1. title、logline、synopsis、hook、episode_goal、next_episode_question、人物资料、状态信息、
-   场景标题/描述、scene_causality、character_actions和dialogues.intent只用简体中文；动作中出现的人名也写中文。
+   场景标题/描述、scene_causality、character_actions和dialogues.intent用简体中文；其中出现的人名沿用稳定英文名。
 2. dialogues.text只用自然、简洁、可表演的美式英语，保留原句含义和潜台词。
 3. dialogues.chinese_translation只用简体中文，必须准确对应同一条dialogues.text的
 含义、语气、称谓和信息量，不得另写剧情或翻译其他字段。
 逐句保留动作主体、具体行为、对象、因果、否定、时态与确定程度；不得把明确执行者的具体行为
 改写为无主体的结果，也不得擅自补出原句未指明的执行者。屏幕、材料和受众的指代沿用给定上下文，
 不得把操作端预览改成观众已看见，或把未向外发布改成从未向任何人展示。
-4. dialogues.chinese_character_name只写character_name对应人物的稳定简体中文名；character_name本身保持稳定英文名。
+4. 人物名在所有字段中沿用稳定英文名；dialogues.chinese_character_name是旧数据兼容字段，不补写中文名。
 5. 每个给定path必须且只能返回一次，path必须原样复制，不得返回其他字段。
 6. value只填写修复后的纯文本，不要解释，不要Markdown。
 7. dialogues.text不能只写省略号或标点；即使原值表示沉默或犹豫，也必须根据说话人、intent和
@@ -1550,7 +1549,7 @@ class ScriptPostEditor:
             "required_language": (
                 "准确对应当前英文台词的自然简体中文"
                 if path.endswith(".chinese_translation")
-                else "说话人稳定英文名对应的简体中文人物名"
+                else "旧数据兼容别名，不生成或补写"
                 if path.endswith(".chinese_character_name")
                 else
                 "natural American English dialogue with at least one spoken word"
@@ -1604,7 +1603,8 @@ class ScriptPostEditor:
                 scene["dialogue_prompts"] = list(dict.fromkeys(dialogue_texts))[:6]
 
     @staticmethod
-    def _overseas_language_value_is_valid(path: str, value: str) -> bool:
+    def _overseas_language_value_is_valid(path: str, value: str, known_names: tuple[str, ...] = ()) -> bool:
+        value = without_known_english_names(value, known_names) or ""
         if path.endswith(".chinese_character_name"):
             return (
                 bool(_CHINESE_TEXT.search(value))
@@ -1805,10 +1805,9 @@ class ScriptPostEditor:
                 "你现在同时是剧本大师和语言大师。"
                 f"{OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT}"
                 "所有可见叙事字段必须保持简体中文；动作、画面描述和intent中提到人物时"
-                "只使用对应中文名，不得混入英文名；"
+                "只使用已确认的稳定英文名，不音译或展示双名；"
                 "character_name保持原稿中的稳定英文连续性人物标识，不得擅自改名；每条"
-                "dialogue.chinese_character_name同时写该说话人的稳定中文名。最终"
-                "展示层会统一输出中文名（ENGLISH NAME）。逐句检查并润色英文对白，使其符合美国短剧的"
+                "dialogue.chinese_character_name填写null。逐句检查并润色英文对白，使其符合美国短剧的"
                 "口语、节奏、打断、反击和潜台词习惯。只优化语言表达，不得改变剧情内容、"
                 "人物意图、事实、关系、信息量、语气强弱、剧情顺序或结尾钩子。当前字段只写"
                 "润色后的英文对白；每条dialogue.chinese_translation同时写该条最终英文"
@@ -1836,15 +1835,16 @@ class ScriptPostEditor:
                     separators=(",", ":"),
                 )
                 + "。海外路径的character_name必须逐字沿用对应英文名，禁止改名、音译、缩写、"
-                "大小写改写或用模型重新起名；动作和intent只能写对应中文名。中文路径仍使用中文人物名。"
+                "大小写改写或用模型重新起名；人物卡、动作、intent和中文译文的人名均使用该英文名。中文路径仍使用中文人物名。"
             )
         dialogue_style_rule = (
             "采用自然、可表演的短剧口语，以及短句、打断、反击和潜台词节奏；"
             "不得拆句、重复或添加解释性台词凑数。"
         )
         pacing_rule = (
-            "25–35句台词必须共同支撑75–115秒真实表演时长，不能全部压成口号或单词式短句；"
-            "用潜台词、打断、试探和反击承载信息，不得用复述或说明凑量。"
+            "25–35句台词与可拍动作共同支撑75–115秒真实表演时长；允许短促攻防、"
+            "打断、反击、强情绪和激烈冲突，保留必要交锋与因果，不能因句短或情绪强就拉长或降强度。"
+            "不得靠无效碎句、复述或重复说明凑量。"
         )
         correction_block = (
             "\n当前待修正文仍有以下问题，必须全部修正：\n- "
@@ -1990,6 +1990,8 @@ class ScriptPostEditor:
         return f"""Market path: {market_path}
 你是剧本大师工作流中的终审编剧。DeepSeek已经完成一集完整初稿。
 你的任务只是在不改变剧情事实、人物关系、伏笔、连续性结果、场景数量、场景顺序、场景标题和结尾义务的前提下，优化每场的可拍动作与人物对白。
+
+{SHORT_DRAMA_PACING_CONTRACT}
 
 当前项目规则：
 1. 单集最终成片范围为{EDITOR_DURATION_MIN_SECONDS}–{EDITOR_DURATION_MAX_SECONDS}秒，内部安全目标为{EDITOR_PREFERRED_DURATION_MIN_SECONDS}–{EDITOR_PREFERRED_DURATION_MAX_SECONDS}秒，本集目标约{target_duration}秒；当前待修正文稿估算约{current_duration.total_seconds}秒。若当前初稿已在范围内，必须保持在范围内，不得为了润色压缩有效动作或对白。

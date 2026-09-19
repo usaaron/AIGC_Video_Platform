@@ -52,12 +52,14 @@ _INPUT_FIELDS = {
 }
 
 
+from app.script_delivery_contract import SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH
+
 class AuthorRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_story_bible_version: int = Field(ge=1)
     expected_workspace_revision: int = Field(ge=1)
-    instruction: str = Field(min_length=1, max_length=500)
+    instruction: str = Field(min_length=1, max_length=SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH)
     resolution_plan: str = Field(min_length=1, max_length=2_000)
     request_id: UUID
     review_id: str = Field(min_length=3, max_length=120)

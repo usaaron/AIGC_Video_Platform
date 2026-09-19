@@ -39,3 +39,33 @@ def test_duration_estimate_flags_an_overlong_episode() -> None:
     )
 
     assert estimate.total_seconds > 90
+
+
+def test_runtime_prompt_budget_uses_same_estimator_and_preserves_dialogue_contract() -> None:
+    from app.modules.script_engine.screenplay_duration import screenplay_runtime_prompt_guidance
+
+    guidance = screenplay_runtime_prompt_guidance(
+        target_duration_seconds=95, scene_count=3, chinese_dialogue=True,
+    )
+    # 380 spoken Chinese characters fit 95 seconds under the actual estimator.
+    script = SimpleNamespace(scenes=[
+        SimpleNamespace(character_actions=[], dialogues=[SimpleNamespace(text="字" * count)])
+        for count in (127, 127, 126)
+    ])
+    assert estimate_screenplay_duration(script).total_seconds == 95
+    assert "目标95秒，对白总量参考约380汉字" in guidance
+    assert "至多约464汉字" in guidance
+    assert "静默场" in guidance and "不能默认全部与对白并行" in guidance
+    assert "不能删减必要信息、合并或减少对白轮次" in guidance
+    assert "正文总字数包括动作，不是对白配额" in guidance
+
+
+def test_runtime_prompt_uses_spoken_english_words_without_changing_rate() -> None:
+    from app.modules.script_engine.screenplay_duration import screenplay_runtime_prompt_guidance
+
+    guidance = screenplay_runtime_prompt_guidance(
+        target_duration_seconds=95, scene_count=3, chinese_dialogue=False,
+    )
+    assert "自然英文单词总数÷2.7" in guidance
+    assert "目标95秒，对白总量参考约244自然英文单词" in guidance
+    assert "至多约298自然英文单词" in guidance

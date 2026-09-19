@@ -45,7 +45,11 @@ def storyboard_errors():
     except StoryboardConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except (ValidationError, LLMStructuredOutputError) as exc:
-        logger.warning("Storyboard output rejected error_type=%s", type(exc).__name__)
+        details = [
+            {"loc": issue["loc"], "type": issue["type"], "msg": issue["msg"]}
+            for issue in exc.errors(include_input=False, include_context=False, include_url=False)
+        ] if isinstance(exc, ValidationError) else type(exc).__name__
+        logger.warning("Storyboard output rejected error_type=%s details=%s", type(exc).__name__, details)
         raise HTTPException(422, "分镜数据未通过结构检查，已保存的内容仍保留。") from exc
     except MissingLLMConfigurationError as exc:
         raise HTTPException(503, "分镜模型配置不完整，请检查规划编辑模型配置。") from exc

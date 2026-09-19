@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { creationBriefWithInput, initialCreationSettingStep } from "../lib/creation-setting-flow.ts";
+import { creationBriefWithInput, hasExistingStoryDirection, initialCreationSettingStep } from "../lib/creation-setting-flow.ts";
 import { EMPTY_INSPIRATION_BRIEF } from "../lib/story-inspiration-session.ts";
 
 const fresh = { messages: [{ role: "assistant", questions: [] }], readyToGenerate: false };
@@ -14,6 +14,16 @@ test("creation starts with optional ideas and resumes unfinished answers without
 test("ready conversations and imported structures enter review without triggering generation", () => {
   assert.equal(initialCreationSettingStep({ ...fresh, readyToGenerate: true }, false, true), "review");
   assert.equal(initialCreationSettingStep(fresh, true), "review");
+});
+
+test("existing direction summaries enter review while a single premise keeps the guided questions", () => {
+  const partial = { ...EMPTY_INSPIRATION_BRIEF, story_promise: "一名调查员追查一段被篡改的录音。", core_obstacle: "档案负责人试图销毁原件。" };
+  const singlePremise = { ...EMPTY_INSPIRATION_BRIEF, story_promise: partial.story_promise };
+  const session = { ...fresh, brief: partial };
+  assert.equal(hasExistingStoryDirection(partial), true);
+  assert.equal(initialCreationSettingStep(session, hasExistingStoryDirection(partial)), "review");
+  assert.equal(hasExistingStoryDirection(singlePremise), false);
+  assert.equal(initialCreationSettingStep({ ...fresh, brief: singlePremise }, false), "idea");
 });
 
 test("review, saving and generation share the unsent idea without changing authored constraints", () => {

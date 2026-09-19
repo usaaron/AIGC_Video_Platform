@@ -1,7 +1,7 @@
 import type { BilingualScriptView, GeneratedDraft } from "./types.ts";
 import { draftMetadataCoercedNumber } from "./draft-metadata.ts";
 import {
-  applyChineseCharacterNames,
+  applyEnglishCharacterNames,
   mergeOverseasCharacterNames,
   overseasDialoguePresentation,
   overseasDialogueSpeaker,
@@ -138,7 +138,7 @@ function episodeParagraphs(
   const dialoguePresentation = overseasDialoguePresentation(episode.bilingualView);
   const characterNames = mergeOverseasCharacterNames(new Map(), episode.bilingualView);
   const paragraphs: InstanceType<typeof docx.Paragraph>[] = [];
-  const chineseEpisodeTitle = applyChineseCharacterNames(
+  const chineseEpisodeTitle = applyEnglishCharacterNames(
     clientEpisodeTitle(
       overseasNarrativeText(dialoguePresentation, "title", draft.title),
     ),
@@ -168,7 +168,7 @@ function episodeParagraphs(
   const cast = [...new Set(
     (draft.episode_cast?.length
       ? draft.episode_cast
-      : draft.scenes.flatMap((scene) => scene.character_refs ?? scene.dialogues.map((line) => line.chinese_character_name || line.character_name)))
+      : draft.scenes.flatMap((scene) => scene.character_refs ?? scene.dialogues.map((line) => line.character_name)))
       .map((value) => value.trim())
       .filter(Boolean),
   )];
@@ -186,7 +186,7 @@ function episodeParagraphs(
     `使用场地：${locations.join("、") || "待补充"}`,
     ...draft.scenes.map((scene, index) => {
       const manifest = scene.content_manifest;
-      const refs = (manifest?.character_refs ?? scene.character_refs ?? scene.dialogues.map((line) => line.chinese_character_name || line.character_name)).join("、");
+      const refs = (manifest?.character_refs ?? scene.character_refs ?? scene.dialogues.map((line) => line.character_name)).join("、");
       return `场景${index + 1}｜出场：${refs || "待补充"}｜任务：${manifest?.objective ?? scene.purpose}｜结果：${manifest?.outcome ?? scene.turning_point ?? scene.beat_summary}｜道具：${manifest?.props?.join("、") || "无特别道具"}`;
     }),
   ];
@@ -194,14 +194,14 @@ function episodeParagraphs(
     paragraphs.push(new docx.Paragraph({
       keepNext: true,
       spacing: { after: 70, line: 250 },
-      children: [new docx.TextRun({ text: row, color: COLORS.charcoal, size: 18 })],
+      children: [new docx.TextRun({ text: applyEnglishCharacterNames(row, characterNames), color: COLORS.charcoal, size: 18 })],
     }));
   }
   paragraphs.push(screenplayMarker(docx, "正式正文"));
   paragraphs.push(screenplayMarker(docx, "FADE IN / 淡入："));
 
   draft.scenes.forEach((scene, sceneIndex) => {
-    const setting = applyChineseCharacterNames(
+    const setting = applyEnglishCharacterNames(
       clientSceneHeading(overseasNarrativeText(
         dialoguePresentation,
         scene.scene_heading
@@ -229,7 +229,7 @@ function episodeParagraphs(
         paragraphs.push(new docx.Paragraph({
           spacing: { after: 95, line: 270 },
           children: [new docx.TextRun({
-            text: `△ ${applyChineseCharacterNames(
+            text: `△ ${applyEnglishCharacterNames(
               overseasNarrativeText(
                 dialoguePresentation,
                 `scenes.${sceneIndex}.character_actions.${item.index}`,
@@ -281,7 +281,7 @@ function episodeParagraphs(
           },
           spacing: { after: 25 },
           children: [new docx.TextRun({
-            text: `（${applyChineseCharacterNames(
+            text: `（${applyEnglishCharacterNames(
               overseasNarrativeText(
                 dialoguePresentation,
                 `${prefix}.intent`,
@@ -366,11 +366,12 @@ function latinUppercase(value: string): string {
 
 function episodeDurationSeconds(draft: GeneratedDraft): number {
   const estimated = draftMetadataCoercedNumber(draft, "estimated_duration_seconds") ?? Number.NaN;
-  if (Number.isFinite(estimated) && estimated >= 75 && estimated <= 115) {
+  // Export the estimate even when the screenplay misses its planned duration window.
+  if (Number.isFinite(estimated) && estimated > 0) {
     return Math.round(estimated);
   }
   const target = Number(draft.target_duration_seconds);
-  return Number.isFinite(target) && target >= 75 && target <= 115
+  return Number.isFinite(target) && target > 0
     ? Math.round(target)
     : 90;
 }

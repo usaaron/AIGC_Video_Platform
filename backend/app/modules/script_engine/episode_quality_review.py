@@ -216,8 +216,6 @@ def review_episode_dramatic_evidence(
         review_reasons.append("visible_scene_change_missing")
     if production_review["status"] == "warning":
         review_reasons.append("production_count_out_of_range")
-    if dialogue_review["status"] == "warning":
-        review_reasons.append("dialogue_function_warning")
     if segmented_review["status"] == "review_required":
         review_reasons.append("segmented_change_evidence_missing")
     limitations = [
@@ -227,8 +225,8 @@ def review_episode_dramatic_evidence(
             "不能替代编导对段落功能的判断。"
         ),
         (
-            "对白功能来自有限关键词，只用于定位重复风险，"
-            "不能证明对白的真实功能。"
+            "对白类别来自有限关键词，仅提供定位线索；连续同类别可以是有效攻防，"
+            "低覆盖也可能来自词表局限，二者都不能证明语义重复或低质量，不触发自动修复。"
         ),
         "本报告是编导审阅信号，不是质量评分，也不阻断正文保存。",
     ]
@@ -438,17 +436,19 @@ def _dialogue_function_review(draft: DraftMasterScript) -> dict[str, Any]:
     if repeated_run_count:
         alerts.append({
             "type": "repeated_function_run",
-            "severity": "warning",
+            "severity": "info",
             "run_count": repeated_run_count,
         })
     if len(lines) >= 4 and classified_line_ratio < 0.25:
         alerts.append({
             "type": "low_keyword_classification_coverage",
-            "severity": "warning",
+            "severity": "info",
             "classified_line_ratio": classified_line_ratio,
         })
     return {
-        "status": "warning" if alerts else "within_range",
+        # Keyword categories cannot distinguish repeated exposition from
+        # escalating refusals, pressure, or rapid exchanges in a short drama.
+        "status": "diagnostic_only",
         "line_count": len(lines),
         "category_counts": category_counts,
         "covered_categories": sorted(
@@ -466,6 +466,12 @@ def _dialogue_function_review(draft: DraftMasterScript) -> dict[str, Any]:
         "line_details_truncated": len(lines) > _MAX_REPORTED_DIALOGUE_LINES,
         "classification_method": "bounded_keyword_candidates_v1",
         "is_quality_gate": False,
+        "requires_repair": False,
+        "matching_is_semantic_proof": False,
+        "diagnostic_note": (
+            "同类标签连续出现不证明语义或剧情重复；低覆盖反映有限词表的分类范围。"
+            "这些定位线索不能单独触发质量失败或自动修复，须结合交锋内容、人物回应和因果判断。"
+        ),
     }
 
 

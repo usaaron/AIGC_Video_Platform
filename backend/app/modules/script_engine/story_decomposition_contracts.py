@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from difflib import SequenceMatcher
 
 from app.modules.script_engine.long_story_models import (
@@ -23,6 +24,66 @@ from app.modules.script_engine.planning_errors import StoryPlanningInputError
 
 logger = logging.getLogger(__name__)
 TECHNICAL_STORY_ROOT_MARKER = "system_story_bible_root.v1"
+
+PARENT_EVENT_INHERITANCE_CONTRACT = (
+    "父级因果事件是已批准合同，不是可压缩的背景摘要。除技术根外，父级每一条"
+    "unit_story_beats 必须通过 parent_event_bindings 归属且仅归属于一个子级。"
+    "parent_event_index 从1开始引用当前版本父级事件表；child_event_indices 从1开始引用"
+    "本子级 unit_story_beats 中完整演出该父事件的具体事件，可将一句复合父事件展开为多个原子事件。"
+    "所有兄弟合计必须完整覆盖父事件索引，每个父索引一次，按父事件原顺序列出绑定；"
+    "不得引用不存在的本地事件。技术根无已定事件归属，返回空绑定数组。"
+    "不要求复合父句在子级逐字重演；必须完整保留原行动者、对象、前提、因果结果与先后，"
+    "不能用索引掩盖省略或改写事实。额外过程事件不能代替已定事件。"
+    "尤其不得保留核验或成功结果，却删掉联系来源、取得材料、获得许可、作出选择"
+    "或实际付出代价的动作。绑定是来源证据，不是语义已通过；审校会对照父原文与绑定展开。"
+)
+
+
+def validate_inherited_parent_events(
+    output: StoryPlanNodeDecompositionOutput, parent: StoryPlanNode, *, require_bindings: bool = False,
+) -> None:
+    if parent.decomposition_reason == TECHNICAL_STORY_ROOT_MARKER:
+        if any(child.parent_event_bindings for child in output.children):
+            raise StoryPlanningInputError("Technical-root children must not invent parent event bindings.")
+        return
+    has_bindings = any(child.parent_event_bindings for child in output.children)
+    if require_bindings or has_bindings:
+        assigned: list[int] = []
+        for child in output.children:
+            for binding in child.parent_event_bindings:
+                if not binding.child_event_indices or any(
+                    index < 1 or index > len(child.unit_story_beats)
+                    for index in binding.child_event_indices
+                ):
+                    raise StoryPlanningInputError("Parent event bindings must reference existing local child events.")
+                if len(set(binding.child_event_indices)) != len(binding.child_event_indices):
+                    raise StoryPlanningInputError("Parent event bindings cannot repeat a local child event index.")
+                assigned.append(binding.parent_event_index)
+        expected = list(range(1, len(parent.unit_story_beats) + 1))
+        if sorted(assigned) != expected:
+            raise StoryPlanningInputError(
+                "parent_event_bindings must cover every approved parent event exactly once across children; "
+                f"expected={expected}; assigned={assigned}."
+            )
+        if assigned != expected:
+            raise StoryPlanningInputError("Child nodes reordered approved parent causal events.")
+        return
+    # Saved legacy nodes have no binding field. Retain their original exact
+    # contract; never guess provenance from fuzzy text similarity.
+    required = list(dict.fromkeys(event.strip() for event in parent.unit_story_beats))
+    if not required:
+        return
+    actual = [event.strip() for child in output.children for event in child.unit_story_beats]
+    counts = Counter(actual)
+    missing = [event for event in required if not counts[event]]
+    repeated = [event for event in required if counts[event] > 1]
+    if missing or repeated:
+        raise StoryPlanningInputError(
+            "Child nodes must retain every approved parent causal event exactly once; "
+            + "omitted=" + " | ".join(missing) + "; repeated=" + " | ".join(repeated)
+        )
+    if [event for event in actual if event in set(required)] != required:
+        raise StoryPlanningInputError("Child nodes reordered approved parent causal events.")
 
 def story_plan_node_episode_span(node: StoryPlanNode) -> int:
         if node.planned_start_episode is None or node.planned_end_episode is None:
@@ -40,8 +101,7 @@ def enforce_decomposition_episode_policy(
         """Normalize readiness only; narrative-aware repairs own boundary changes."""
 
         normalized_children: list[StoryPlanNodeChildOutput] = []
-        previous_exit_state: str | None = None
-        for index, child in enumerate(output.children):
+        for child in output.children:
             if (
                 child.planned_start_episode is None
                 or child.planned_end_episode is None
@@ -57,13 +117,9 @@ def enforce_decomposition_episode_policy(
                     else "expand"
                 ),
             }
-            if index == 0:
-                update["entry_state"] = parent.entry_state
-            elif previous_exit_state is not None:
-                update["entry_state"] = previous_exit_state
-            if index == len(output.children) - 1:
-                update["exit_state"] = parent.exit_state
-            previous_exit_state = str(update.get("exit_state", child.exit_state))
+            # Entry/exit states are story content. Copying the required outcome
+            # over a contradictory result would hide a missing causal movement.
+            # Let validation request a narrative repair instead.
             normalized_children.append(child.model_copy(update=update))
         return output.model_copy(update={"children": normalized_children})
 
@@ -112,7 +168,11 @@ def validate_decomposition_ranges(
                     "recommended_next_step must be episode_ready for an 8-12 episode "
                     "child and expand for a child covering at least 16 episodes."
                 )
-            if index == 0 and child.entry_state.strip() != parent.entry_state.strip():
+            if (
+                index == 0
+                and getattr(parent, "decomposition_reason", None) != TECHNICAL_STORY_ROOT_MARKER
+                and child.entry_state.strip() != parent.entry_state.strip()
+            ):
                 raise StoryPlanningInputError(
                     "The first child entry_state must copy the parent entry_state verbatim."
                 )
@@ -140,6 +200,8 @@ def validate_decomposition_output(
         story_bible: StoryBible,
         requested_child_count: int | None,
         max_episode_ready_span: int,
+        require_parent_events: bool = False,
+        require_parent_event_bindings: bool = False,
     ) -> None:
         if (
             requested_child_count is not None
@@ -153,6 +215,9 @@ def validate_decomposition_output(
             parent=parent,
             max_episode_ready_span=max_episode_ready_span,
         )
+        has_bindings = any(child.parent_event_bindings for child in output.children)
+        if require_parent_events or require_parent_event_bindings or has_bindings:
+            validate_inherited_parent_events(output, parent, require_bindings=require_parent_event_bindings)
 
         if (
             getattr(parent, "decomposition_reason", None)
@@ -163,6 +228,15 @@ def validate_decomposition_output(
                 for child in output.children
                 for turning_point in child.turning_points
             }
+            if has_bindings:
+                # A compound parent turning point may be unfolded into atomic
+                # events. Its binding must still select a child turning point;
+                # the semantic audit checks that the complete turn is enacted.
+                for child in output.children:
+                    selected = {point.strip() for point in child.turning_points}
+                    for binding in child.parent_event_bindings:
+                        if any(child.unit_story_beats[index - 1].strip() in selected for index in binding.child_event_indices):
+                            child_turning_points.add(parent.unit_story_beats[binding.parent_event_index - 1].strip())
             missing_turning_points = [
                 turning_point
                 for turning_point in parent.turning_points

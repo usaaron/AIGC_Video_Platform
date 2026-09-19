@@ -1,0 +1,75 @@
+{
+  "provenance": "Actual saved R166 parent v3 from the read-only plan-nodes response. Child responses in tests are synthetic reconstructions of the observed failure shape; raw provider responses were not persisted.",
+  "parent": {
+    "schema_version": "v1",
+    "node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+    "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+    "story_bible_id": "story_bible.56336cc7-e8d8-4515-a671-d144077e211c.main",
+    "story_bible_version": 3,
+    "version": 3,
+    "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.root",
+    "parent_node_version": 1,
+    "predecessor_node_id": null,
+    "predecessor_node_version": null,
+    "sequence_order": 1,
+    "title": "绝境碉堡与紫外破晓",
+    "narrative_purpose": "建立Lane在废弃碉堡的生存根基，完成紫外灭诡体系的首个可验证突破，并让Eira与Morton发生初步归心。",
+    "synopsis": "Lane被流放至废弃黑石碉堡，火种晶阵遭Cole破坏，接应军队又遭高阶梦魇诡潮击溃，被收买将领顺势放弃救援。他在绝境中激活系统，造出人工紫外灯与复合火种守堡；Eira斗气耗尽被畸变围困时，Lane放弃内侧安全区救她，使她放下偏见。Morton见新型火种商机而功利臣服。白昼Lane在荒野救下重伤的Eileen，她以随军牧师身份加入并说明边境崩盘实情。巨型紫外火种塔吸引流民溃兵，Lane平等庇护众人，建立钛合金军队并给予Eira独立兵权，Eileen倾心、Eira深爱，Morton转为忠诚。碉堡扩张引起高阶梦魇忌惮。",
+    "entry_state": "Lane Claude被Viola与Cole构陷，剥夺继承权并流放至边境废弃黑石碉堡；火种晶阵已被Cole破坏，接应军队遭高阶梦魇诡潮击溃，被收买将领顺势放弃救援，Lane与外界失联；Eira奉命伺机斩杀Lane，Morton轻视落魄少主，低阶游魂开始围堡。",
+    "central_conflict": "Lane必须在火种失效、接应溃败、内部Eira敌视与Morton观望的情况下，以人工紫外光守住碉堡；紫外灯续航和范围不足，中阶畸变继续进攻，他必须改造复合火种并以实际救援争取信任。",
+    "turning_points": [
+      "Lane利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线。",
+      "单灯续航和范围不足，Lane融合本土晶阵造出复合紫外火种，击溃中阶畸变；Eira斗气耗尽被围，Lane放弃内侧安全区救她，使她放下对贵族的偏见。",
+      "白昼Lane外出搜集物资，在荒野救下重伤昏迷的Eileen；她隐瞒公主身份，以随军牧师身份留在队伍。",
+      "Lane整合物资与魔晶建成巨型聚光紫外火种塔；Cole望见强光，确认Lane未死，封锁边境情报并拖延主城探查队伍。",
+      "Lane以溃兵上缴魔晶加固城墙与声光预警陷阱，用系统材料重塑和魔物幽能制造紫外附魔钛合金军械；他重用Eira并给予独立兵权和尊重，Eira彻底深爱。"
+    ],
+    "emotional_direction": "从被抛弃的愤怒与孤立，转向用创造和平等行动赢得信任；Eira先因获救放下偏见，再因独立兵权和尊重而深爱，Eileen因Lane善待流民而倾心，Morton由逐利转为忠诚。",
+    "exit_state": "Lane在废弃碉堡建成巨型紫外火种塔，新型复合火种、加固防线与紫外附魔钛合金军队成型；Eira因获救与受尊重而深爱追随，Eileen以牧师身份加入并因Lane善待流民而倾心，公主身份尚未公开；Morton已忠诚并规划火种外销。碉堡成为沦陷区安全信号，高阶梦魇忌惮并准备升级诡潮压力。",
+    "unit_story_beats": [
+      "Lane抵达废弃碉堡，得知火种晶阵被Cole破坏、接应失联；低阶游魂围堡时，穿越记忆复苏，想象造物系统激活。",
+      "Lane利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线。",
+      "单灯续航和范围不足，Lane融合本土晶阵造出复合紫外火种，击溃中阶畸变；Eira斗气耗尽被围，Lane放弃内侧安全区救她，使她放下对贵族的偏见。",
+      "Morton确认新型火种独一无二的商业价值与垄断利润，从轻视转为功利臣服，决定全力辅佐Lane。",
+      "白昼Lane外出搜集物资，在荒野救下重伤昏迷的Eileen；她隐瞒公主身份，以随军牧师身份留在队伍。",
+      "Eileen苏醒后说明高阶梦魇发动大规模诡潮，前线全线崩溃、通讯据点被毁，补全Lane对接应失联与边境危机的认知。",
+      "Lane整合物资与魔晶建成巨型聚光紫外火种塔；Cole望见强光，确认Lane未死，封锁边境情报并拖延主城探查队伍。",
+      "火种塔吸引溃兵与流民，Lane免费提供庇护、食物和圣光救治；Eileen目睹他善待普通人而彻底动心。",
+      "Lane以溃兵上缴魔晶加固城墙与声光预警陷阱，用系统材料重塑和魔物幽能制造紫外附魔钛合金军械；他重用Eira并给予独立兵权和尊重，Eira彻底深爱。",
+      "Morton看见人口、资源和领地安稳，放弃投机转为忠诚并规划火种外销；碉堡扩张引起高阶梦魇忌惮，蔽日魔阵与更大诡潮的压力逼近。"
+    ],
+    "episode_developments": [],
+    "unit_resolution": "人工紫外灯升级为复合火种与巨型火种塔，碉堡守住并接纳溃兵流民，钛合金军队成型；Eira获救并受重用，Eileen被救下后以牧师身份入队，Morton由逐利转为忠诚。",
+    "handoff_pressure": "碉堡扩张引起高阶梦魇忌惮，蔽日魔阵与全域诡潮将升级生存压力；Lane需要在守住新防线的同时探明魔域资源并应对敌方主力。",
+    "character_refs": [
+      "character.lane_claude",
+      "character.eira",
+      "character.morton",
+      "character.cole",
+      "character.eileen"
+    ],
+    "story_line_refs": [
+      "line.main_uv_rise",
+      "line.arc_eira",
+      "line.arc_morton",
+      "line.subplot_cole_betrayal",
+      "line.arc_eileen"
+    ],
+    "setup_refs": [
+      "Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。",
+      "Eileen以随军牧师身份加入，真实公主身份尚未公开。"
+    ],
+    "payoff_refs": [
+      "Lane依靠现代光学知识与想象造物系统开创人工紫外灭诡体系。"
+    ],
+    "estimated_episode_count": 24,
+    "estimated_script_body_characters": 18548,
+    "planned_start_episode": 1,
+    "planned_end_episode": 24,
+    "expansion_status": "expanded",
+    "decomposition_reason": "本阶段承担流放断援、人工紫外灯与复合火种验证、守堡救Eira、荒野救Eileen、火种塔收拢流民及军力与信任建立；在1–24集和18548字预算内展开既定因果，不以新增刺杀揭穿或联络方式替代原有救援转折。",
+    "status": "approved",
+    "created_at": "2026-09-19T04:43:11.162685Z",
+    "approved_at": "2026-09-19T05:58:29.575000Z"
+  }
+}

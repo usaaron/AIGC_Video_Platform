@@ -159,7 +159,7 @@ async function mockApis(page: Page, initialProject: ScriptProject) {
   const unexpectedRequests: string[] = [];
   const control = { rejectModification: false };
 
-  await page.route("**/api/**", async (route) => {
+  await page.route(/\/(api\/)?(story-projects|story-bibles|script-generation|ontology-nodes|generation-tasks)(\/|\?|$)/, async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname.replace(/^\/api/, "");
     const method = request.method();

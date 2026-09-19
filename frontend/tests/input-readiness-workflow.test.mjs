@@ -35,7 +35,7 @@ function analysis(detectedLevel, selectedPath = "recommended", overrides = {}) {
   };
 }
 
-test("premise and full-workflow selections do not apply import constraints", () => {
+test("premise remains the only input without import constraints", () => {
   assert.deepEqual(inputReadinessWorkflowIntent(analysis("premise")), {
     normalizeStoryBible: false,
     prepareCompletePlanning: false,
@@ -43,7 +43,7 @@ test("premise and full-workflow selections do not apply import constraints", () 
   assert.deepEqual(inputReadinessWorkflowIntent({
     inputReadiness: analysis("script", "full_workflow"),
   }), {
-    normalizeStoryBible: false,
+    normalizeStoryBible: true,
     prepareCompletePlanning: false,
   });
   assert.deepEqual(inputReadinessWorkflowIntent(undefined), {
@@ -52,7 +52,7 @@ test("premise and full-workflow selections do not apply import constraints", () 
   });
 });
 
-test("recommended Story Bible input applies only Story Bible import constraints", () => {
+test("existing Story Bible input applies only Story Bible import constraints", () => {
   const project = { inputReadiness: analysis("story_bible") };
 
   assert.equal(shouldApplyImportedStoryBibleConstraints(project), true);
@@ -63,11 +63,11 @@ test("recommended Story Bible input applies only Story Bible import constraints"
   });
 });
 
-test("measured complete episode plans and scripts request both materialization stages", () => {
+test("complete episode plans and scripts still wait for the planning stage", () => {
   for (const level of ["episode_plan", "script"]) {
     assert.deepEqual(inputReadinessWorkflowIntent(analysis(level, "recommended", { assessmentVersion: 2, structurallyComplete: true })), {
       normalizeStoryBible: true,
-      prepareCompletePlanning: true,
+      prepareCompletePlanning: false,
     });
   }
 });
@@ -105,7 +105,7 @@ test("episode plans still requiring planning do not prepare complete planning ar
   });
 });
 
-test("missing imported content blocks complete planning preparation even with a script recommendation", () => {
+test("imported planning sources keep source grounding without preparing planning artifacts", () => {
   for (const level of ["episode_plan", "script"]) {
     const project = {
       inputReadiness: analysis(level, "recommended", {
@@ -113,7 +113,7 @@ test("missing imported content blocks complete planning preparation even with a 
       }),
     };
     assert.equal(shouldApplyImportedStoryBibleConstraints(project), true);
-    assert.equal(shouldApplyImportedPlanningConstraints(project), false);
+    assert.equal(shouldApplyImportedPlanningConstraints(project), true);
     assert.deepEqual(inputReadinessWorkflowIntent(project), {
       normalizeStoryBible: true,
       prepareCompletePlanning: false,

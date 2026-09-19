@@ -4,6 +4,8 @@ import { storyPlanningInputSignature } from "@/lib/story-planning-signature";
 import type { StoryBible } from "@/lib/story-planning-client";
 import type { EpisodeWorkspace, GeneratedDraft, ScriptProject } from "./types";
 
+export const SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH = 4_000;
+
 export function authorConflictSourceLabel(sourceRef: string): string {
   if (/character|motivation|人物|动机/i.test(sourceRef)) return "人物设定";
   if (/episode[_-]?plan|roadmap|scene_execution_plan|单集规划/i.test(sourceRef)) return "单集规划";
@@ -27,6 +29,10 @@ export function authorConflictSourceSnapshot(
   // Pending decisions and view state must not invalidate their own source.
   const source = JSON.stringify({
     draft,
+    planningRevisionEpoch: project.planningRevisionEpoch ?? 0,
+    sourceAmendment: episode.sourceAmendment,
+    authorModificationInstructions: episode.authorModificationInstructions,
+    producedPlanAmendments: project.producedPlanAmendments,
     generationContext: episode.generationRun.episode_context,
     storyBibleVersion: project.storyBibleVersion,
     storyBibleAuthorInstruction: project.storyBibleAuthorInstruction,
@@ -53,8 +59,8 @@ export function customConflictInstruction(instruction: string, direction: string
   const custom = direction.trim();
   if (!custom) throw new Error("请填写希望采用的处理方向。");
   const combined = `${instruction.trim()}\n用户补充的处理方向：${custom}`;
-  if (combined.length > 500) {
-    throw new Error("原要求与补充方向合计不能超过 500 字，请精简补充方向后重试。");
+  if (combined.length > SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH) {
+    throw new Error("原要求与补充方向合计不能超过 4000 字，请精简补充方向后重试。");
   }
   return combined;
 }

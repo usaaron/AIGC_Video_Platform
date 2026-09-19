@@ -82,7 +82,7 @@ test("migrates old aliases and persists interleaved screenplay order in every dr
   ]) {
     assert.deepEqual(
       migratedDraft.characters.slice(0, 2).map((character) => character.name),
-      ["砝码", "剧团"],
+      ["Weight", "Troupe"],
     );
     assert.deepEqual(
       migratedDraft.scenes[0].dialogues.map((dialogue) => dialogue.character_name),
@@ -90,7 +90,7 @@ test("migrates old aliases and persists interleaved screenplay order in every dr
     );
     assert.deepEqual(
       migratedDraft.scenes[0].character_actions,
-      ["砝码 unfolds the ledger.", "剧团 blocks the door."],
+      ["Weight unfolds the ledger.", "Troupe blocks the door."],
     );
     assert.deepEqual(
       migratedDraft.scenes[0].body_order,

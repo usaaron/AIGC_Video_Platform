@@ -1461,6 +1461,39 @@ async def test_story_plan_node_api_persists_a_level_free_recursive_tree(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("total,resolution,pressure,expected", [
+    (8, "人物完成既定选择，主要冲突已经收束。", None, 200),
+    (8, None, None, 409),
+    (16, "人物取得当前阶段所需的证据。", None, 409),
+    (16, "人物取得当前阶段所需的证据。", "证据使下一段的责任追查成为必要。", 200),
+])
+async def test_final_story_leaf_can_close_without_inventing_future_pressure(
+    long_story_app, total, resolution, pressure, expected,
+) -> None:
+    app, _runtime = long_story_app
+    node = build_story_plan_node(
+        planned_start_episode=1, planned_end_episode=8, expansion_status="episode_ready",
+    ).model_copy(update={
+        "unit_story_beats": ["人物明确当前目标。", "行动遭遇实际阻力。", "人物选择并承担代价。", "结果得到当场确认。"],
+        "unit_resolution": resolution, "handoff_pressure": pressure,
+        "status": PlanningApprovalStatus.approved, "approved_at": NOW,
+    })
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        await client.put("/story-projects/story_project.api_demo", json=build_project().model_copy(
+            update={"planned_episode_count": total},
+        ).model_dump(mode="json"))
+        await client.put("/story-projects/story_project.api_demo/story-bibles/story_bible.api_demo/versions/1",
+                         json=build_story_bible().model_dump(mode="json"))
+        response = await client.put(
+            f"/story-projects/story_project.api_demo/plan-nodes/{node.node_id}/versions/{node.version}",
+            json=node.model_dump(mode="json"),
+        )
+    assert response.status_code == expected
+    if expected == 200:
+        assert response.json()["data"]["handoff_pressure"] == pressure
+
+
+@pytest.mark.anyio
 async def test_story_plan_node_approval_rebases_descendants_idempotently(
     long_story_app,
 ) -> None:
@@ -2370,12 +2403,16 @@ async def test_episode_roadmap_agent_preserves_provider_rate_limit_status(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["modify", "prepare"])
 async def test_episode_roadmap_modification_route_validates_path_and_returns_candidate(
-    long_story_app,
+    long_story_app, operation,
 ) -> None:
     app, _runtime = long_story_app
 
     class EpisodeModificationStub:
+        def prepare_episode_plan_item(self, payload):
+            return payload.current_plan.model_copy(update={"execution_ready": True})
+
         def modify_episode_plan_item(self, payload):
             return payload.current_plan.model_copy(
                 update={"episode_goal": "迫使中间人当场交出原始凭证。"}
@@ -2412,23 +2449,30 @@ async def test_episode_roadmap_modification_route_validates_path_and_returns_can
         "current_plan": current_plan,
     }
 
+    if operation == "prepare":
+        payload.pop("instruction")
+        payload.pop("revision_mode")
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
     ) as client:
         response = await client.post(
             "/story-projects/story_project.api_demo/plan-nodes/"
-            "story_plan.api_demo.root/episode-plans/1/modify",
+            f"story_plan.api_demo.root/episode-plans/1/{operation}",
             json=payload,
         )
         mismatch = await client.post(
             "/story-projects/story_project.api_demo/plan-nodes/"
-            "story_plan.api_demo.root/episode-plans/2/modify",
+            f"story_plan.api_demo.root/episode-plans/2/{operation}",
             json=payload,
         )
 
     assert response.status_code == 200, response.text
-    assert response.json()["data"]["episode_goal"] == "迫使中间人当场交出原始凭证。"
+    if operation == "prepare":
+        assert response.json()["data"]["episode_goal"] == current_plan["episode_goal"]
+        assert response.json()["data"]["execution_ready"] is True
+    else:
+        assert response.json()["data"]["episode_goal"] == "迫使中间人当场交出原始凭证。"
     assert mismatch.status_code == 409
 
 
@@ -2665,3 +2709,61 @@ async def test_generation_task_claim_is_leased_and_idempotent(long_story_app) ->
     assert released.json()["data"]["checkpoint"]["lease_id"] is None
     assert reclaimed.status_code == 200, reclaimed.text
     assert reclaimed.json()["data"]["checkpoint"]["lease_id"] == "worker.api.2"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("explicitly_deferred", [False, True])
+@pytest.mark.parametrize("proposal, confirmed", [
+    ("AI草案（待确认）：调查员通过原始航海日志查明船舶事故的真正原因。",
+     "调查员通过原始航海日志查明船舶事故的真正原因。"),
+    ("结局来源为AI草案（待确认）：两份记录未同步，调查员用原始档案核实真相。",
+     "结局来源：两份记录未同步，调查员用原始档案核实真相。"),
+    ("最终真相：AI草案(待确认): 两份记录未同步，调查员用原始档案核实真相。",
+     "最终真相：两份记录未同步，调查员用原始档案核实真相。"),
+])
+async def test_outline_confirmation_retires_proposal_labels_but_preserves_deferred_decisions(
+    long_story_app, explicitly_deferred, proposal, confirmed,
+):
+    from app.modules.script_engine.story_bible_approval import approved_story_bible_context
+
+    app, _runtime = long_story_app
+    base = "/story-projects/story_project.api_demo/story-bibles/story_bible.api_demo"
+    draft = build_story_bible().model_dump(mode="json")
+    draft["ending_direction"] = proposal
+    draft["major_setup_payoff_refs"] = [
+        "事故责任归属仍待定，须由作者另行决定。",
+        "文档原文写着“结局来源为AI草案（待确认）：等待核实”，该原文不得被修改。",
+    ]
+    draft["avoid_patterns"] = [
+        "不要把AI草案（待确认）标签写进人物对白。",
+        "不得把已批准事实重写为AI草案（待确认）：这一标签仅用于新提议。",
+    ]
+    draft["imported_source_document"] = proposal
+    if explicitly_deferred:
+        draft["creative_decisions"] = [{
+            "decision_key": "mystery.ending", "title": "暂缓结局决定",
+            "status": "unresolved", "source": "grill_answer", "owner": "user",
+            "ai_permission": "none", "required_before_stage": "script",
+        }]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        assert (await client.put("/story-projects/story_project.api_demo", json=build_project().model_dump(mode="json"))).status_code == 200
+        saved = await client.put(base + "/versions/1", json=draft)
+        assert saved.status_code == 200
+        reviewed = saved.json()["data"]
+        approval = {**reviewed, "version": 2, "status": "approved", "approved_at": NOW.isoformat()}
+        response = await client.put(base + "/versions/2", json=approval)
+        assert response.status_code == 200
+        approved = response.json()["data"]
+        expected = proposal if explicitly_deferred else confirmed
+        assert approved["ending_direction"] == expected
+        assert approved["imported_source_document"] == proposal
+        assert approved["major_setup_payoff_refs"] == draft["major_setup_payoff_refs"]
+        assert approved["avoid_patterns"] == draft["avoid_patterns"]
+        assert approved["creative_decisions"] == reviewed["creative_decisions"]
+        original = await client.get(base + "?version=1")
+        assert original.json()["data"]["ending_direction"] == proposal
+        # Legacy approved versions get the same execution interpretation without
+        # mutating their stored fields or the caller's object.
+        legacy = StoryBible.model_validate(approval)
+        assert approved_story_bible_context(legacy).ending_direction == expected
+        assert legacy.ending_direction == proposal

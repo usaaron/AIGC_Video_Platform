@@ -10,6 +10,7 @@ from typing import Iterator, NoReturn
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
+from app.api.generation_errors import _generation_failure_headers
 from app.dependencies import (
     get_bilingual_script_view_service,
     get_episode_script_agent,
@@ -83,19 +84,6 @@ logger = logging.getLogger(__name__)
 # introducing a new JSON event that existing stream consumers would need to
 # understand. SSE comment frames are ignored by EventSource-style parsers.
 SCRIPT_GENERATION_SSE_HEARTBEAT_SECONDS = 15.0
-
-
-def _generation_failure_headers(
-    *,
-    retryable: bool,
-    failure_class: str,
-    error_type: str,
-) -> dict[str, str]:
-    return {
-        "X-Generation-Retryable": "true" if retryable else "false",
-        "X-Generation-Failure-Class": failure_class,
-        "X-Generation-Error-Type": error_type,
-    }
 
 
 def _raise_llm_configuration_unavailable(
@@ -498,6 +486,13 @@ def stream_script_draft(
                         "status": 409,
                         "recoverable": False,
                     })
+                elif isinstance(exc, EpisodeExecutionNotReadyError):
+                    error_payload.update({
+                        "error_type": "episode_execution_not_ready",
+                        "message": str(exc),
+                        "status": 422,
+                        "recoverable": False,
+                    })
                 elif isinstance(exc, AgentRunPersistenceUnavailableError):
                     error_payload.update({
                         "error_type": "persistence_unavailable",
@@ -656,7 +651,7 @@ def modify_script_draft(
         LLMStructuredOutputError,
     ) as exc:
         _raise_script_output_incomplete(exc)
-    except InvalidKnowledgeBundleError as exc:
+    except (InvalidKnowledgeBundleError, EpisodeExecutionNotReadyError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),

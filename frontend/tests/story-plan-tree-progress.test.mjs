@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { summarizeStoryPlanTreeProgress } from "../lib/story-plan-tree-progress.ts";
+import { summarizeStoryPlanTreeProgress, storyPlanQualityFrontierNodes, episodeReadyStoryPlanLeaves } from "../lib/story-plan-tree-progress.ts";
 
 const root = node({
   node_id: "root",
@@ -46,6 +46,15 @@ test("a complete tree counts only approved roadmaps from the active leaf version
     plannedEpisodeCount: 16,
     generatedRoadmapCount: 1,
   });
+});
+
+test("draft frontier can be reviewed without becoming approved executable leaves", () => {
+  const draft={...firstLeaf,status:'draft',expansion_status:'unexpanded'};
+  const pending=[root,draft,secondLeaf];
+  assert.deepEqual(storyPlanQualityFrontierNodes(pending),[draft,secondLeaf]);
+  assert.deepEqual(episodeReadyStoryPlanLeaves(pending),[secondLeaf]);
+  assert.equal(summarizeStoryPlanTreeProgress(pending,[]).expansionComplete,false);
+  assert.equal(draft.status,'draft');
 });
 
 test("missing or unfinished branches keep the split action available", () => {

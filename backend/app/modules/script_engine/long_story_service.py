@@ -4,11 +4,19 @@ import hashlib
 import json
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from sqlalchemy.exc import IntegrityError
 
 from app.database import DatabaseRuntime
+from app.modules.script_engine.planning_revision import (
+    active_revision, require_request_epoch, revision_epoch, validate_workspace_transition,
+)
+from app.modules.script_engine.produced_plan_amendment import (
+    prepare_workspace_transition, is_idempotent_operation, pending_episode_numbers, draft_hash,
+    latest_resolution, body_hash, plan_hash,
+)
+from app.modules.script_engine.story_bible_approval import approved_story_bible_context
 from app.modules.content_spec.market_profile import (
     CN_MAINLAND_MARKET,
     OVERSEAS_TIKTOK_MARKET,
@@ -67,6 +75,11 @@ from app.script_delivery_contract import (
 
 
 ResultT = TypeVar("ResultT")
+if TYPE_CHECKING:
+    from app.modules.script_engine.story_bible_recovery import (
+        StoryBibleRecoveryCheckpoint, StoryBibleRecoveryRepository,
+    )
+
 PlanningVersionT = TypeVar(
     "PlanningVersionT",
     StoryPlanNode,
@@ -133,6 +146,17 @@ class LongStoryService:
     def __init__(self, database_runtime: DatabaseRuntime) -> None:
         self._database_runtime = database_runtime
 
+    def story_bible_recovery_repository(self) -> StoryBibleRecoveryRepository:
+        """Return isolated candidate storage; it never writes story/project versions."""
+        from app.modules.script_engine.story_bible_recovery import StoryBibleRecoveryRepository
+
+        return StoryBibleRecoveryRepository(self._database_runtime)
+
+    def planning_attempt_repository(self):
+        from app.modules.script_engine.planning_attempts import PlanningAttemptRepository
+
+        return PlanningAttemptRepository(self._database_runtime)
+
     @staticmethod
     def _story_bible_market_profile(project: StoryProject) -> str:
         """Resolve hidden planning-route metadata from the durable project path."""
@@ -144,6 +168,11 @@ class LongStoryService:
 
     def save_project(self, project: StoryProject) -> StoryProject:
         def operation(repository: LongStoryRepository) -> StoryProject:
+            current = repository.get_project_for_update(project.project_id)
+            if current and active_revision(self._workspace_payload(repository, project.project_id)):
+                protected = ("active_story_bible_id", "active_story_bible_version", "planned_episode_count", "content_spec_id", "output_language")
+                if any(getattr(current, field) != getattr(project, field) for field in protected):
+                    raise LongStoryPersistenceConflictError("Planning revision may only change future planning, not the project or its Story Bible.")
             if project.active_story_bible_id is not None:
                 story_bible = repository.get_story_bible(
                     project.active_story_bible_id,
@@ -253,8 +282,114 @@ class LongStoryService:
         def operation(
             repository: LongStoryRepository,
         ) -> StoryProjectWorkspaceSnapshot:
-            self._require_project(repository, payload.project_id, for_update=True)
-            return repository.save_workspace_snapshot(snapshot)
+            project = self._require_project(repository, payload.project_id, for_update=True)
+            current = repository.get_workspace_snapshot(payload.project_id)
+            previous = current.workspace_payload if current else {}
+            # Idempotent retries retain their original transition decision.
+            if current and current.revision == snapshot.revision and current.workspace_payload == snapshot.workspace_payload:
+                return current
+            if current and current.revision == snapshot.revision and is_idempotent_operation(
+                previous, payload.workspace_payload, revision=snapshot.revision,
+            ):
+                return current
+            if payload.revision != (current.revision + 1 if current else 1):
+                raise LongStoryPersistenceConflictError("Workspace snapshot revision is stale or skips a version.")
+            source_revision = current.revision if current else 0
+            command = payload.workspace_payload.get("producedPlanAmendmentRequest") or payload.workspace_payload.get("producedPlanAmendmentResolutionRequest")
+            opening = revision_epoch(payload.workspace_payload) != revision_epoch(previous)
+            closing = active_revision(previous) and not active_revision(payload.workspace_payload)
+            running = repository.has_running_project_work(payload.project_id) if opening or closing or command else False
+            candidate, produced_transition = prepare_workspace_transition(
+                previous, payload.workspace_payload, source_revision=source_revision,
+                has_running_work=running,
+                validate_plan_source=lambda row, original: self._require_amended_plan_source(repository, project, row),
+            )
+            saved_numbers = [item.get("episodeNumber", 0) for item in previous.get("episodes", []) if isinstance(item, dict)] if opening else []
+            if opening:
+                saved_numbers.append(repository.max_saved_episode_number(payload.project_id))
+            transition = validate_workspace_transition(
+                previous, candidate, source_revision=source_revision,
+                planned_episode_count=project.planned_episode_count,
+                saved_through_episode=max((n for n in saved_numbers if type(n) is int), default=0),
+                has_running_work=running, produced_plan_transition=produced_transition,
+            )
+            from app.modules.script_engine.future_leaf_rebuild import validate_rebuilt_workspace_rows
+            validate_rebuilt_workspace_rows(repository, project, previous, candidate)
+            if transition == "complete" or active_revision(candidate):
+                self._require_revision_roadmap_sources(repository, candidate)
+            if transition == "complete" and not repository.has_completed_quality_audit(
+                payload.project_id, candidate.get("storyTreeQualityAudit") or {},
+            ):
+                raise LongStoryPersistenceConflictError("Planning revision requires the exact completed server quality-audit result.")
+            encoded = json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            if len(encoded) > MAX_WORKSPACE_PAYLOAD_BYTES:
+                raise LongStoryPayloadTooLargeError("Workspace snapshot exceeds the 50 MB payload limit including amendment history.")
+            effective_snapshot = snapshot.model_copy(update={"workspace_payload":candidate,
+                "payload_checksum":hashlib.sha256(encoded).hexdigest(), "payload_size_bytes":len(encoded)})
+            saved = repository.save_workspace_snapshot(effective_snapshot)
+            if transition == "complete":
+                self._require_complete_planning_before_script(repository, project)
+            return saved
+
+        return self._run(operation)
+
+    @staticmethod
+    def _require_revision_roadmap_sources(repository: LongStoryRepository, workspace: dict) -> None:
+        marker = workspace["planningRevision"]
+        for row in workspace.get("episodeRoadmaps", []):
+            amended = any(e.get("episodeNumber") == row["episode_number"] and e.get("sourceAmendment", {}).get("status") == "revision_required" for e in workspace.get("episodes", []))
+            if (row["episode_number"] < marker["startEpisode"] and not amended) or row.get("status") != "approved":
+                continue
+            node = repository.get_story_plan_node(row.get("source_node_id", ""))
+            if node is None or node.story_project_id != workspace["id"] or node.version != row.get("source_node_version") or node.story_bible_version != row.get("story_bible_version"):
+                raise LongStoryPersistenceConflictError("Planning revision approval requires the current source node version.")
+            event = next((item for item in node.episode_developments if item.episode_number == row["episode_number"]), None)
+            if event is None or any(row.get(field) != getattr(event, field) for field in (
+                "entry_state", "exit_state", "source_turning_points", "source_unit_story_beats",
+            )):
+                raise LongStoryPersistenceConflictError("Planning revision approval requires exact reviewed source episode boundaries and events.")
+
+    @staticmethod
+    def _require_amended_plan_source(repository: LongStoryRepository, project: StoryProject, row: dict) -> None:
+        node = repository.get_story_plan_node(row.get("source_node_id", ""))
+        if (node is None or node.story_project_id != project.project_id
+                or node.version != row.get("source_node_version")
+                or node.story_bible_version != row.get("story_bible_version")
+                or node.status != PlanningApprovalStatus.approved):
+            raise LongStoryPersistenceConflictError("Produced amendment requires its current approved source node.")
+        event = next((item for item in node.episode_developments if item.episode_number == row["episode_number"]), None)
+        if event is None or any(row.get(field) != getattr(event, field) for field in (
+            "entry_state", "exit_state", "source_turning_points", "source_unit_story_beats",
+        )):
+            raise LongStoryPersistenceConflictError("Produced amendment must preserve the exact approved episode boundaries and events.")
+        bible = repository.get_story_bible(node.story_bible_id, version=node.story_bible_version)
+        if bible is None or bible.status != PlanningApprovalStatus.approved:
+            raise LongStoryPersistenceConflictError("Produced amendment requires an approved Story Bible.")
+        allowed_cast = set(node.character_refs) & set(bible.character_refs)
+        refs = set(row.get("character_refs", []))
+        if not refs or not refs.issubset(allowed_cast) or any(
+            not set(scene.get("character_refs", [])).issubset(refs) for scene in row.get("scene_execution_plan", [])
+        ):
+            raise LongStoryPersistenceConflictError("Amended scene cast must belong to this approved source node and Story Bible.")
+
+    @staticmethod
+    def _workspace_payload(repository: LongStoryRepository, project_id: str) -> dict:
+        snapshot = repository.get_workspace_snapshot(project_id)
+        return snapshot.workspace_payload if snapshot else {}
+
+    def validate_planning_request_epoch(self, project_id: str, epoch: int, *, episode_number: int | None = None) -> None:
+        def operation(repository: LongStoryRepository) -> None:
+            self._require_project(repository, project_id, for_update=True)
+            require_request_epoch(self._workspace_payload(repository, project_id), epoch, episode_number=episode_number)
+        self._run(operation)
+
+    def prepare_future_leaf_rebuild_context(self, payload: Any, node: StoryPlanNode) -> dict:
+        from app.modules.script_engine.future_leaf_rebuild import context_from_repository
+
+        def operation(repository: LongStoryRepository) -> dict:
+            project = self._require_project(repository, payload.story_project_id, for_update=True)
+            workspace = self._workspace_payload(repository, project.project_id)
+            return context_from_repository(repository, project, workspace, payload, node)
 
         return self._run(operation)
 
@@ -298,6 +433,10 @@ class LongStoryService:
                 payload.project_id,
                 for_update=True,
             )
+            workspace = self._workspace_payload(repository, payload.project_id)
+            require_request_epoch(workspace, payload.planning_revision_epoch)
+            if active_revision(workspace):
+                raise LongStoryPersistenceConflictError("Planning revision is active; preserve its confirmed planning session until the reviewed workspace revision is completed.")
             if session.phase.value == "script":
                 self._require_complete_planning_before_script(
                     repository,
@@ -535,6 +674,10 @@ class LongStoryService:
             )
             batch = task.batch
             checkpoint = task.checkpoint
+            require_request_epoch(self._workspace_payload(repository, story_project_id), batch.planning_revision_epoch, body=True)
+            existing_batch = repository.get_batch(batch.batch_id)
+            if existing_batch and existing_batch.planning_revision_epoch != batch.planning_revision_epoch:
+                raise LongStoryPersistenceConflictError("A saved generation task cannot be rebased onto a different planning revision epoch.")
             if batch.story_project_id != story_project_id:
                 raise LongStoryReferenceError(
                     "Generation batch must belong to the requested Story Project."
@@ -605,6 +748,7 @@ class LongStoryService:
                 raise LongStoryNotFoundError(
                     f"Generation Job '{job_id}' was not found."
                 )
+            require_request_epoch(self._workspace_payload(repository, story_project_id), batch.planning_revision_epoch, body=True)
             now = datetime.now(timezone.utc)
             if current.status == GenerationJobStatus.completed:
                 raise LongStoryPersistenceConflictError(
@@ -682,7 +826,12 @@ class LongStoryService:
             repository: LongStoryRepository,
         ) -> GenerationTaskCheckpoint | None:
             self._require_project(repository, story_project_id)
+            workspace = self._workspace_payload(repository, story_project_id)
+            if active_revision(workspace):
+                return None
             for batch in repository.list_batches(story_project_id):
+                if batch.planning_revision_epoch != revision_epoch(workspace):
+                    continue
                 checkpoint = repository.get_latest_job_checkpoint_for_batch(
                     batch.batch_id
                 )
@@ -728,6 +877,11 @@ class LongStoryService:
                 payload.story_project_id,
                 for_update=True,
             )
+            workspace = self._workspace_payload(repository, payload.story_project_id)
+            require_request_epoch(workspace, payload.planning_revision_epoch, body=True, episode_number=payload.episode_number)
+            resolution = latest_resolution(workspace, payload.episode_number)
+            if resolution and draft_hash(payload.content_payload) != resolution.get("acceptedBodyHash"):
+                raise LongStoryPersistenceConflictError("An amended episode artifact must match its explicitly accepted screenplay.")
             if payload.episode_number > project.planned_episode_count:
                 raise LongStoryReferenceError(
                     "Episode Artifact number exceeds the Story Project episode count."
@@ -883,7 +1037,26 @@ class LongStoryService:
             EpisodeArtifactKind.final: 3,
         }
         selected: dict[int, EpisodeArtifact] = {}
+        workspace = LongStoryService._workspace_payload(repository, story_project_id)
+        pending = pending_episode_numbers(workspace)
+        accepted = {row["episodeNumber"]: row for row in workspace.get("producedPlanAmendmentResolutions", [])}
+        episodes = {row["episodeNumber"]: row for row in (workspace.get("episodes") or []) if isinstance(row, dict) and "episodeNumber" in row}
+        plans = {row["episode_number"]: row for row in (workspace.get("episodeRoadmaps") or []) if isinstance(row, dict) and "episode_number" in row}
+        invalid_sources = []
+        for number, resolution in accepted.items():
+            episode, plan = episodes.get(number), plans.get(number)
+            predecessor = episodes.get(number - 1)
+            if (not episode or not plan or body_hash(episode) != resolution.get("acceptedBodyHash")
+                    or plan_hash(plan) != resolution.get("sourcePlanHash")
+                    or resolution.get("predecessorBodyHash") != (body_hash(predecessor) if predecessor else None)):
+                invalid_sources.append(number)
+        invalid_from = min([*pending, *invalid_sources], default=None)
         for candidate in repository.list_episode_artifacts(story_project_id):
+            if invalid_from is not None and candidate.episode_number >= invalid_from:
+                continue
+            resolution = accepted.get(candidate.episode_number)
+            if resolution and draft_hash(candidate.content_payload) != resolution.get("acceptedBodyHash"):
+                continue
             if (
                 candidate.effective_memory_layer != MemoryLayer.canonical
                 or (
@@ -933,7 +1106,53 @@ class LongStoryService:
             previous = projected
             rebuilt = projected
             next_version += 1
+        if rebuilt is None and existing is not None and LongStoryService._workspace_payload(
+            repository, existing.story_project_id,
+        ).get("producedPlanAmendments"):
+            return None
         return rebuilt or existing
+
+    @staticmethod
+    def _continuity_checkpoint_matches_current_sources(
+        repository: LongStoryRepository, project: StoryProject, ledger: ContinuityLedger,
+    ) -> bool:
+        """Read-only provenance check for workspaces with explicit source amendments.
+
+        A latest-artifact match alone misses stale predecessor state. Replay the
+        currently accepted prefix in memory and compare its actual state, while
+        preserving every old persisted checkpoint for historical inspection.
+        """
+        workspace = LongStoryService._workspace_payload(repository, project.project_id)
+        if not workspace.get("producedPlanAmendments"):
+            return True
+        pending = pending_episode_numbers(workspace)
+        if pending and ledger.through_episode_number >= pending[0]:
+            return False
+        artifacts = LongStoryService._latest_canonical_episode_artifacts(
+            repository, project.project_id, through_episode_number=ledger.through_episode_number,
+        )
+        if [item.episode_number for item in artifacts] != list(range(1, ledger.through_episode_number + 1)):
+            return False
+        if project.active_story_bible_id is None or project.active_story_bible_version is None:
+            return False
+        bible = repository.get_story_bible(project.active_story_bible_id, version=project.active_story_bible_version)
+        if bible is None:
+            return False
+        expected = None
+        for artifact in artifacts:
+            event_set = repository.get_narrative_event_set_for_artifact(artifact.artifact_id)
+            if event_set is None:
+                event_set, events = build_narrative_event_set(artifact)
+            else:
+                events = repository.list_narrative_events(project.project_id, event_set_id=event_set.event_set_id)
+            try:
+                expected = project_narrative_event_set_to_ledger(
+                    event_set=event_set, events=events, story_bible=bible, previous=expected,
+                )
+            except ValueError:
+                return False
+        ignored = {"ledger_id", "version", "updated_at", "restored_from_version"}
+        return expected is not None and expected.model_dump(exclude=ignored) == ledger.model_dump(exclude=ignored)
 
     @staticmethod
     def _save_artifact_continuity_checkpoint(
@@ -961,6 +1180,17 @@ class LongStoryService:
                 "Active Story Bible for continuity checkpoint was not found."
             )
         latest = repository.get_latest_continuity_ledger(project.project_id)
+        if LongStoryService._workspace_payload(repository, project.project_id).get("producedPlanAmendments"):
+            # Even appending a later artifact must rebuild from the valid prefix:
+            # the previous checkpoint can contain superseded character/fact state.
+            LongStoryService._replay_canonical_episode_artifacts(
+                repository,
+                LongStoryService._latest_canonical_episode_artifacts(
+                    repository, project.project_id,
+                    through_episode_number=max(artifact.episode_number, latest.through_episode_number if latest else 0),
+                ), story_bible, existing=latest,
+            )
+            return
         if latest is None:
             LongStoryService._replay_canonical_episode_artifacts(
                 repository,
@@ -1004,8 +1234,11 @@ class LongStoryService:
         story_project_id: str,
     ) -> ContinuityLedger | None:
         def operation(repository: LongStoryRepository) -> ContinuityLedger | None:
-            self._require_project(repository, story_project_id)
-            return repository.get_latest_continuity_ledger(story_project_id)
+            project = self._require_project(repository, story_project_id)
+            latest = repository.get_latest_continuity_ledger(story_project_id)
+            if latest is not None and not self._continuity_checkpoint_matches_current_sources(repository, project, latest):
+                return None
+            return latest
 
         return self._run(operation)
 
@@ -1089,6 +1322,8 @@ class LongStoryService:
                 raise LongStoryReferenceError(
                     "Rollback target belongs to an inactive Story Bible lineage."
                 )
+            if not self._continuity_checkpoint_matches_current_sources(repository, project, target):
+                raise LongStoryPersistenceConflictError("Rollback cannot restore a checkpoint derived from pending or superseded screenplay sources.")
             restored = target.model_copy(
                 update={
                     "version": latest.version + 1,
@@ -1141,27 +1376,9 @@ class LongStoryService:
                     conflicts=["Active Story Bible for ledger audit was not found."],
                 )
 
-            rank = {
-                EpisodeArtifactKind.draft: 1,
-                EpisodeArtifactKind.revised: 2,
-                EpisodeArtifactKind.final: 3,
-            }
-            selected: dict[int, EpisodeArtifact] = {}
-            for candidate in repository.list_episode_artifacts(story_project_id):
-                if (
-                    candidate.effective_memory_layer != MemoryLayer.canonical
-                    or candidate.episode_number > latest.through_episode_number
-                ):
-                    continue
-                current = selected.get(candidate.episode_number)
-                if current is None or (
-                    rank[candidate.artifact_kind],
-                    candidate.artifact_version,
-                ) > (
-                    rank[current.artifact_kind],
-                    current.artifact_version,
-                ):
-                    selected[candidate.episode_number] = candidate
+            selected = {item.episode_number: item for item in self._latest_canonical_episode_artifacts(
+                repository, story_project_id, through_episode_number=latest.through_episode_number,
+            )}
 
             conflicts: list[str] = []
             expected_episodes = set(range(1, latest.through_episode_number + 1))
@@ -1287,6 +1504,8 @@ class LongStoryService:
                 story_bible.story_project_id,
                 for_update=True,
             )
+            if active_revision(self._workspace_payload(repository, story_bible.story_project_id)):
+                raise LongStoryPersistenceConflictError("Planning revision preserves the confirmed Story Bible; only future nodes and roadmaps may change.")
             if story_bible.content_spec_id != project.content_spec_id:
                 raise LongStoryReferenceError(
                     "Story Bible content_spec_id must match its Story Project."
@@ -1343,6 +1562,9 @@ class LongStoryService:
                     raise LongStoryPersistenceConflictError(
                         "The requested Story Bible status transition is not allowed."
                     )
+            # Validate the exact reviewed draft first. Approval then retires only
+            # its draft display labels, never an explicit deferred decision.
+            normalized_story_bible = approved_story_bible_context(normalized_story_bible)
             saved = repository.save_story_bible(normalized_story_bible)
             if normalized_story_bible.status == PlanningApprovalStatus.approved:
                 activated_project = project.model_copy(
@@ -1362,8 +1584,17 @@ class LongStoryService:
 
         return self._run(operation)
 
-    def save_generated_story_bible_draft(self, candidate: StoryBible) -> StoryBible:
-        """Persist a regenerated draft and invalidate its prior generation lineage."""
+    def save_generated_story_bible_draft(
+        self,
+        candidate: StoryBible,
+        *,
+        recovery_checkpoint: StoryBibleRecoveryCheckpoint | None = None,
+    ) -> StoryBible:
+        """Save draft/lineage changes and optional recovery completion atomically.
+
+        The caller must pass all language/identity gates before invoking this
+        method. A checkpoint is provisional storage, never quality acceptance.
+        """
 
         if candidate.status != PlanningApprovalStatus.draft:
             raise LongStoryReferenceError(
@@ -1376,6 +1607,14 @@ class LongStoryService:
                 candidate.story_project_id,
                 for_update=True,
             )
+            recovery = self.story_bible_recovery_repository() if recovery_checkpoint is not None else None
+            if recovery is not None:
+                recovery.require_pending_in_session(
+                    repository._session, recovery_checkpoint,
+                    story_project_id=candidate.story_project_id,
+                )
+            if active_revision(self._workspace_payload(repository, candidate.story_project_id)):
+                raise LongStoryPersistenceConflictError("Planning revision cannot replace the confirmed Story Bible.")
             if project.status == StoryProjectStatus.archived:
                 raise LongStoryReferenceError(
                     "An archived Story Project cannot regenerate its Story Bible."
@@ -1429,6 +1668,10 @@ class LongStoryService:
                 project.project_id,
                 story_bible_version=saved.version,
             )
+            if recovery is not None:
+                recovery.mark_saved_in_session(
+                    repository._session, recovery_checkpoint, saved_story_bible=saved,
+                )
             return saved
 
         return self._run(operation)
@@ -1464,6 +1707,8 @@ class LongStoryService:
         node: StoryPlanNode,
         *,
         descendant_policy: str = "invalidate",
+        planning_revision_epoch: int = 0,
+        _validated_decomposition_parent: tuple[str, int] | None = None,
     ) -> StoryPlanNode:
         if descendant_policy not in {"invalidate", "rebase"}:
             raise LongStoryReferenceError(
@@ -1475,6 +1720,51 @@ class LongStoryService:
                 node.story_project_id,
                 for_update=True,
             )
+            workspace = self._workspace_payload(repository, node.story_project_id)
+            require_request_epoch(workspace, planning_revision_epoch, episode_number=node.planned_start_episode)
+            previous_node = repository.get_story_plan_node(node.node_id)
+            # Only the internal decomposition service may coordinate ownership
+            # after validating the complete sibling output. The HTTP node-save
+            # request does not expose this argument. A new parent version also
+            # defines a new event table, so its indices must be rebound anew.
+            same_parent_table = previous_node is not None and (
+                previous_node.parent_node_id, previous_node.parent_node_version
+            ) == (node.parent_node_id, node.parent_node_version)
+            coordinated_decomposition = _validated_decomposition_parent is not None and (
+                node.parent_node_id, node.parent_node_version
+            ) == _validated_decomposition_parent
+            if previous_node is not None and previous_node.parent_event_bindings and same_parent_table and not coordinated_decomposition:
+                previous_bindings = previous_node.parent_event_bindings
+                if {item.parent_event_index for item in node.parent_event_bindings} != {
+                    item.parent_event_index for item in previous_bindings
+                }:
+                    raise LongStoryReferenceError(
+                        "Editing a bound node must preserve its parent event ownership; "
+                        "coordinate ownership changes at the common parent."
+                    )
+                if node.unit_story_beats != previous_node.unit_story_beats and node.parent_event_bindings == previous_bindings:
+                    raise LongStoryReferenceError(
+                        "Changing bound unit_story_beats requires updated parent_event_bindings; "
+                        "the previous node and its event provenance are preserved."
+                    )
+            if previous_node is not None:
+                require_request_epoch(workspace, planning_revision_epoch, episode_number=previous_node.planned_start_episode)
+            if active_revision(workspace) and (previous_node is None or node.status == PlanningApprovalStatus.superseded):
+                raise LongStoryPersistenceConflictError("Planning revision preserves the existing node identities; creating or superseding nodes is not supported.")
+            if active_revision(workspace) and previous_node is not None:
+                identity = ("story_bible_id", "story_bible_version", "parent_node_id", "parent_node_version",
+                            "predecessor_node_id", "predecessor_node_version", "sequence_order",
+                            "planned_start_episode", "planned_end_episode")
+                if any(getattr(previous_node, field) != getattr(node, field) for field in identity):
+                    raise LongStoryPersistenceConflictError("Planning revision preserves each existing node's range and tree identity.")
+                if descendant_policy == "invalidate" and any(
+                    item.parent_node_id == previous_node.node_id and item.status != PlanningApprovalStatus.superseded
+                    for item in repository.list_story_plan_nodes(node.story_project_id,
+                        story_bible_id=node.story_bible_id, story_bible_version=node.story_bible_version)
+                ):
+                    raise LongStoryPersistenceConflictError("Planning revision must retain and rebase existing descendants; invalidation is not allowed.")
+            if active_revision(workspace) and node.planned_start_episode is None:
+                raise LongStoryPersistenceConflictError("Planning revision cannot replace an unbounded story node.")
             story_bible = repository.get_story_bible(
                 node.story_bible_id,
                 version=node.story_bible_version,
@@ -1515,7 +1805,10 @@ class LongStoryService:
                     and (
                         len(node.unit_story_beats) < 4
                         or not node.unit_resolution
-                        or not node.handoff_pressure
+                        or (
+                            node.planned_end_episode < project.planned_episode_count
+                            and not node.handoff_pressure
+                        )
                     )
                 ):
                     raise LongStoryReferenceError(
@@ -1542,6 +1835,8 @@ class LongStoryService:
                     raise LongStoryReferenceError(
                         "Story Plan Node parent must exist in the same project."
                     )
+                if any(binding.parent_event_index > len(parent.unit_story_beats) for binding in node.parent_event_bindings):
+                    raise LongStoryReferenceError("Parent event bindings must reference the saved parent version's event table.")
                 if (
                     parent.story_bible_id != node.story_bible_id
                     or parent.story_bible_version != node.story_bible_version

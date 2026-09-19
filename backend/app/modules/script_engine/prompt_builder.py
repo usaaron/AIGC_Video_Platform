@@ -12,6 +12,8 @@ from app.modules.script_engine.models import (
     PromptLibraryItem,
 )
 from app.script_delivery_contract import (
+    DRAFT_MODIFICATION_CONTRACT,
+    SCREENPLAY_FIRST_PASS_CONTRACT,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -23,11 +25,12 @@ from app.script_delivery_contract import (
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
     OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
+    SCREENPLAY_EXECUTION_ORDER_CONTRACT,
     PARTNER_SCREENPLAY_CONTENT_TEMPLATE_VERSION,
     PARTNER_SCREENPLAY_FORMAT_VERSION,
     SERIES_RUNTIME_MIN_MINUTES,
 )
-from app.modules.script_engine.script_body_length import script_body_length_guidance
+from app.modules.script_engine.script_body_length import script_body_length_guidance, script_body_scale_prompt
 
 
 class _SafeFormatDict(dict[str, str]):
@@ -133,7 +136,7 @@ class TemplatePromptBuilder(PromptBuilder):
             "优先让这种形态决定场景的进入、停顿、转折和结尾，不要再套用统一的节拍模板。"
             if episode_rhythm_profile
             else
-            "本集未指定固定节奏形态。请根据人物目标、阻力、关系和代价选择最自然的推进方式，"
+            "本集未指定固定节奏形态。请以快节奏短剧为基准，根据人物目标、阻力、关系和代价选择紧凑的推进方式，"
             "不要为了满足数量而套用统一的节拍模板。"
         )
         context_fields = [
@@ -294,11 +297,21 @@ class TemplatePromptBuilder(PromptBuilder):
             (
                 "SetupPayoffOutputContract",
                 "For each planned setup/payoff ref, use the exact approved ref and record its visible "
-                "action, ledger status, cause, evidence scenes and next step. Keep it separate from "
+                "action, ledger status, cause, evidence scenes and next step. For authored prose refs, "
+                "preserve the complete exact approved text in source_ref; setup_payoff_ref remains "
+                "a technical ID and is normalized deterministically. Keep it separate from "
+                "story-line IDs, scene/evidence labels and memory capsule IDs: none of these "
+                "creates a setup identity. Existing persisted_setup_payoff_identities may be "
+                "continued using their exact setup_payoff_id/source_ref pair even when the "
+                "compact checkpoint omitted them. Never replace source_ref with a scene label. "
+                "Keep setup records separate from "
                 "the ending hook. Claim partial_payoff/payoff only when the promised meaning is "
                 "visibly answered, never through narration or an unrelated surprise. If no approved "
                 "setup ref exists, leave setup_payoff_updates empty; a target payoff episode number "
-                "in continuation_hook never creates an approved setup ref.",
+                "in continuation_hook never creates an approved setup ref. When verified "
+                "memory_recall.same_episode_setup_payoffs identifies a ref, establish its premise "
+                "and visibly answer it in this episode, then record one payoff update with the "
+                "exact ref and evidence scenes; do not invent an earlier disclosure or setup.",
             ),
             (
                 "LedgerCompressionContract",
@@ -436,11 +449,12 @@ class TemplatePromptBuilder(PromptBuilder):
                     "dialogues中character_name是人物名，可在人物名后使用（O.S.）、（V.O.）、"
                     "（continued）或（pre-lap）；intent只写可表演的括号提示，如低声、停顿、"
                     "头也不抬或beat；text只写演员真正说出口的台词。对白采用短剧所需的短句、"
-                    "打断、反击和潜台词节奏：嘴上说A，实际目的为B；删掉不推进冲突、关系、"
+                    "打断、反击和潜台词节奏，允许情绪强烈和直接说出诉求，不强迫每句话都绕着说；删掉不推进冲突、关系、"
                     f"信息或选择的台词。每集所有场景的dialogues合计必须为{EPISODE_DIALOGUE_LINE_MIN}"
                     f"至{EPISODE_DIALOGUE_LINE_MAX}条，每个dialogues条目按一句演员实际说出的台词"
                     "计数；不得拆句、重复或添加解释性台词凑数。尽量少留空镜，增加可拍画面，"
                     "但不堆砌无效环境描写。"
+                    f"{SCREENPLAY_EXECUTION_ORDER_CONTRACT}"
                     "每场body_order必须保存正式正文的真实表演顺序。它是由action:0、dialogue:0"
                     "这类零基引用组成的数组，必须把本场每个character_actions和dialogues条目"
                     "各引用且只引用一次，不得缺失、重复或越界。顺序必须像合作方样本一样让"
@@ -475,7 +489,7 @@ class TemplatePromptBuilder(PromptBuilder):
                     "解释事实。"
                     "允许FADE IN、FADE OUT、SMASH CUT TO、DISSOLVE TO和MONTAGE语义，"
                     "但只在时空跳转确有必要时使用。每场必须承担明确的戏剧职能，并用可拍证据呈现"
-                    "信息、人物理解、情绪、期待或剧情状态上的有效推进。允许安静的余波、照料、等待和铺垫，"
+                    "信息、人物理解、情绪、期待或剧情状态上的有效推进。余波、照料、等待和铺垫须紧凑并服务下一步行动，"
                     "只要观众在当下有所获得，不要求每场都改变外部局势。按照"
                     "EndingModeContract处理结尾：连载集形成可承接的因果钩子，季终/剧终完成"
                     "批准的收束，不得为了补钩子制造无关悬念。完成后先自行检查时长和短剧节奏；若内容不足"
@@ -483,7 +497,7 @@ class TemplatePromptBuilder(PromptBuilder):
                     "不新增无关剧情。"
                     f"{rhythm_guidance}本集至少提供一项具体的观看价值：新信息、更深入的人物理解、"
                     "情绪推进或期待变化，并在动作、对白或状态证据中落地。不得强制反转、不可逆变化或"
-                    "统一的冲突升级循环，也不得为刺激观众篡改批准剧情。调查、等待和解释可以构成本集，"
+                    "统一的冲突升级循环，也不得为刺激观众篡改批准剧情。调查、等待和解释仍须包含具体阻力、回应或有效行动，"
                     "但不能只重复已知内容、把所有观看价值推迟到后集。整部作品的目标成片总时长不少于"
                     f"{SERIES_RUNTIME_MIN_MINUTES}分钟；按"
                     "EpisodeContext.total_episodes和TargetDurationSeconds执行。total_episodes是用户手动输入的"
@@ -515,17 +529,7 @@ class TemplatePromptBuilder(PromptBuilder):
                 duration_index + 1,
                 (
                     "ScriptBodyLengthContract",
-                    "TargetScriptBodyCharacters is a flexible reference midpoint, not a quota. A natural range is "
-                    f"{length_guidance.preferred_min_characters}-"
-                    f"{length_guidance.preferred_max_characters} effective characters across only "
-                    "character_actions and dialogues.text. Finish the assigned plot movement, exit state "
-                    "and hook/payoff naturally. Do not add or repeat content to reach the midpoint. Below "
-                    f"{length_guidance.truncation_floor_characters} indicates probable truncation. Never "
-                    "stop mid-scene or before the exit state. There is no per-scene character quota. "
-                    f"The {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS} second runtime "
-                    "is the production boundary; if total-series scale or "
-                    "this character midpoint conflicts with runtime, satisfy runtime and complete the "
-                    "episode's causal beat instead of padding or compressing unnaturally.",
+                    script_body_scale_prompt(length_guidance),
                 ),
             )
             context_fields.insert(
@@ -659,9 +663,10 @@ class TemplatePromptBuilder(PromptBuilder):
                     "CanonicalCharacterNameContract",
                     "EpisodeContext.canonical_character_names contains explicit Chinese-to-English "
                     "names copied from user-uploaded reference files. These names are immutable: "
-                    "copy the supplied English name exactly only for dialogues.character_name, "
-                    "write characters.name and every creator-visible identity field with its paired "
-                    "Chinese name, and use that Chinese name in actions and intent. Never transliterate, "
+                    "for overseas release, copy the supplied English name exactly in every identity field, "
+                    "including characters.name, dialogue speakers, actions, intent and Chinese translations. "
+                    "Keep legacy Chinese aliases only for identity matching. For mainland release use "
+                    "the Chinese identity. Never transliterate, "
                     "rename, decorate, or replace an explicit name. Only invent a natural English "
                     "name when no mapping exists for that character. canonical_character_name_sources "
                     "records the source declarations for audit and has the same authority.",
@@ -676,12 +681,13 @@ class TemplatePromptBuilder(PromptBuilder):
                     "Resolve every mention against the approved Story Bible, character cards, canonical "
                     "name map, and newest continuity checkpoint before creating a character. Reuse the "
                     "existing identity when the person is the same; keep separate people distinct even "
-                    "when they share a name or role. For the overseas path, every characters field is "
-                    "Simplified Chinese and characters.name is the stable Chinese identity name. Record "
+                    "when they share a name or role. For the overseas path, characters.name is the stable "
+                    "English identity name; descriptive prose remains Simplified Chinese and retains "
+                    "English character names. Record "
                     "alternate names and identities as facts in role/description or continuity state, "
-                    "never as duplicate character cards. If two distinct people truly share a Chinese "
-                    "name, preserve a stable Chinese-only disambiguator such as 李伟（医生） and "
-                    "李伟（记者） for all later episodes; never use English to disambiguate them. "
+                    "never as duplicate character cards. Distinct people sharing a name retain their approved "
+                    "identity refs and stable disambiguated names in the market language; overseas names "
+                    "remain English. "
                     "Output exactly one characters entry and one "
                     "character_state_updates entry per involved identity in the episode.",
                 ),
@@ -740,18 +746,7 @@ class TemplatePromptBuilder(PromptBuilder):
                 0,
                 (
                     "UserDirectedModificationContract",
-                    "Create one complete replacement candidate for the supplied source draft. "
-                    "The author's latest explicit goal takes precedence over system suggestions and "
-                    "stylistic templates. The request has passed author-impact review; apply it within "
-                    "the reviewed scope. Preserve story_bible_context, approved_story_node, "
-                    "approved_episode_plan and continuity facts that were not authorized to change. "
-                    "An approved bridging plan supplies missing causal expression, not permission to "
-                    "rewrite history or ignore the user's goal. Upstream story changes require a "
-                    "separately reviewed revision version. Preserve the series premise, character "
-                    "identity and locked facts, maintain valid Scene Goal/Conflict/Outcome "
-                    "causality, and keep the final scene aligned with EndingModeContract: a "
-                    "serial hook or an approved finale payoff. Do not "
-                    "return a patch, commentary, or alternative options.",
+                    DRAFT_MODIFICATION_CONTRACT,
                 ),
             )
             context_fields.insert(1, ("UserModificationInstruction", modification_instruction))
@@ -787,6 +782,8 @@ class TemplatePromptBuilder(PromptBuilder):
         for key, value in context_fields:
             normalized = self._normalize_context_value(value)
             lines.append(f"{key}: {normalized}")
+        if build_purpose == KnowledgeTargetStage.draft_generation:
+            lines.append(SCREENPLAY_FIRST_PASS_CONTRACT)
         return "\n".join(lines)
 
     def _is_mainland_chinese_draft(

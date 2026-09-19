@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   BookOpenText,
   ChevronDown,
@@ -21,6 +21,8 @@ import { BrandLogo } from "@/components/brand-logo";
 import { MenuIcon } from "@/components/icons";
 import { BackgroundGenerationStatus } from "@/components/background-generation-status";
 import { LanguageToggle } from "@/components/language-toggle";
+import { ProjectDeleteButton } from "@/components/project-delete-button";
+import { ProjectMenuLoadState } from "@/components/project-menu-load-state";
 import { ProjectSidebar } from "@/components/project-sidebar";
 import { currentWorkspaceHref } from "@/lib/workspace-stage";
 import { useLocale } from "@/providers/locale-provider";
@@ -28,7 +30,6 @@ import { useProjects } from "@/providers/project-provider";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState("");
@@ -42,11 +43,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     projects,
     isReady,
     storageError,
-    deleteProject,
+    serverPersistenceAvailable,
     resolveProjectSyncConflict,
   } = useProjects();
   const { t } = useLocale();
   const currentProject = projects.find(project => pathname.split("/")[2] === project.id);
+  const projectListLoaded = isReady && serverPersistenceAvailable === true && !storageError;
   const visibleProjects = projects.filter((project) => (
     project.title.toLowerCase().includes(projectSearch.trim().toLowerCase())
   ));
@@ -56,12 +58,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setProjectMenuOpen(false);
+    setSidebarOpen(false);
   }, [pathname]);
 
   useEffect(() => {
     if (!projectMenuOpen) return;
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setProjectMenuOpen(false);
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) setProjectMenuOpen(false);
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
@@ -136,10 +139,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 />
               </label>
               <nav className="topbar-project-list">
-                {!isReady ? (
-                  <div className="project-list-skeleton" aria-label={t("nav.loading")} />
-                ) : visibleProjects.length === 0 ? (
-                  <p className="topbar-project-empty">{projects.length ? t("nav.noMatches") : t("nav.empty")}</p>
+                <ProjectMenuLoadState />
+                {visibleProjects.length === 0 ? (
+                  projectListLoaded ? <p className="topbar-project-empty">{projects.length ? t("nav.noMatches") : t("nav.empty")}</p> : null
                 ) : visibleProjects.map((project) => {
                   const projectHref = currentWorkspaceHref(project);
                   const active = pathname.includes(project.id);
@@ -149,23 +151,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                         <span className="topbar-project-glyph"><BookOpenText aria-hidden="true" size={15} /></span>
                         <span>
                           <strong>{project.title}</strong>
-                          <small>{project.episodes.length} {t("workspace.episodes")}</small>
+                          <small>{t("library.progress")} · {project.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length} {t("workspace.episodes")}</small>
                         </span>
                         <i className={`status-dot status-${project.status}`} />
                       </Link>
-                      <button
-                        aria-label={`${t("nav.delete")} ${project.title}`}
-                        className="topbar-project-delete"
-                        onClick={async () => {
-                          if (!window.confirm(t("nav.deleteConfirm"))) return;
-                          const deleted = await deleteProject(project.id);
-                          if (deleted && active) router.push("/");
-                        }}
-                        title={t("nav.delete")}
-                        type="button"
-                      >
+                      <ProjectDeleteButton projectId={project.id} title={project.title}
+                        className="topbar-project-delete" onDeleted={() => setProjectMenuOpen(false)}>
                         <Trash2 aria-hidden="true" size={13} />
-                      </button>
+                      </ProjectDeleteButton>
                     </div>
                   );
                 })}

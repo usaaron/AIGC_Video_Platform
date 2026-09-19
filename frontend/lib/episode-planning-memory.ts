@@ -116,7 +116,11 @@ export function buildEpisodePlanningMemory(
   return {
     last_confirmed_episode: roadmaps.at(-1)?.episode_number ?? null,
     active_continuity_requirements: unique(
-      roadmaps.slice(-6).flatMap((item) => item.continuity_requirements),
+      // Keep the legacy wire key while retaining each requirement's scope.
+      // The planning prompt treats these as history, not permanent prohibitions.
+      roadmaps.slice(-6).flatMap((item) => item.continuity_requirements.map(
+        (requirement) => `第${item.episode_number}集的执行约束：${requirement}`,
+      )),
       50,
     ),
     unresolved_setup_refs: setupRefs.filter((ref) => !payoffRefs.includes(ref)),
@@ -126,10 +130,9 @@ export function buildEpisodePlanningMemory(
       50,
     ),
     open_hooks: roadmaps
-      .filter((item) => (
-        item.hook_payoff_target_episode === null
-        || item.hook_payoff_target_episode >= (node.planned_start_episode ?? 1)
-      ))
+      // A due date is not evidence of resolution. Keep historical promises for
+      // comparison with actual later outcomes instead of silently expiring them.
+      .filter((item) => Boolean(item.next_episode_obligation?.trim()))
       .slice(-20)
       .map((item) => ({
         source_episode: item.episode_number,
@@ -144,4 +147,32 @@ export function buildEpisodePlanningMemory(
       next_episode_obligation: item.next_episode_obligation,
     })),
   };
+}
+
+
+/** Draft continuity supports planning only; it never enters the confirmed ledger. */
+export function buildDraftPlanningHandoffs(
+  project: Pick<ScriptProject, "episodeRoadmaps">,
+  node: Pick<EpisodePlanningMemoryNode, "story_bible_version" | "planned_start_episode">,
+  activeNodes: EpisodePlanningMemoryNode[] = [],
+) {
+  return (project.episodeRoadmaps ?? []).filter(item => (
+    item.status === "draft"
+    && item.story_bible_version === node.story_bible_version
+    && item.episode_number < (node.planned_start_episode ?? 1)
+    && activeNodes.some(active => active.node_id === item.source_node_id
+      && active.version === item.source_node_version
+      && active.story_bible_version === item.story_bible_version
+      && active.status === "approved" && active.expansion_status === "episode_ready")
+  )).sort((a, b) => a.episode_number - b.episode_number).slice(-6).map(item => ({
+    source_node_id: item.source_node_id, source_node_version: item.source_node_version,
+    story_bible_version: item.story_bible_version, episode_number: item.episode_number,
+    synopsis: item.synopsis ?? "", exit_state: item.exit_state,
+    continuity_requirements: item.continuity_requirements ?? [],
+    scene_execution_facts: (item.scene_execution_plan ?? []).map(scene => ({
+      scene_number: scene.scene_number,
+      visible_action: scene.visible_action,
+      exit_state: scene.exit_state,
+    })),
+  }));
 }

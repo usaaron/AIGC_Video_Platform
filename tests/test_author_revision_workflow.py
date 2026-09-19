@@ -44,6 +44,7 @@ def workflow(revision_context):
     workspace = long_story.get_workspace_snapshot(PROJECT_ID)
     reviewer.output = {
         "user_goal": revision_request.instruction,
+        "rewrite_scope": "preserve_unaffected_text",
         "conflicts": [{
             "source_ref": "source_draft_master_script.synopsis",
             "established_fact": bible.ending_direction,
@@ -74,6 +75,7 @@ def workflow(revision_context):
         review_data = response.json()["data"]
         assert review_data["candidate_generation_run"] is None
         review = review_data["conflict_review"]
+        assert review["rewrite_scope"] == "preserve_unaffected_text"
         stored = AuthorConflictReviewRepository(lambda: runtime).get(review["review_id"])
         assert stored.source_project_id == PROJECT_ID
         assert stored.review.model_dump(mode="json") == review

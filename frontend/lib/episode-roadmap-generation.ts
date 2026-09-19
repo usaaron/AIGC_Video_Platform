@@ -3,6 +3,7 @@ import {
 } from "@/lib/episode-generation-planning";
 import {
   auditStoryPlanQuality,
+  canFinishUnreviewedRoadmapLeaf,
   generateEpisodePlanBatch,
   loadActiveStoryPlanNodes,
   storyPlanQualityAuditMatchesNodes,
@@ -18,8 +19,10 @@ import type {
   ScriptProject,
   StoryTreeQualityAudit,
 } from "@/lib/types";
+import { requireStoryPlanQuality } from "@/lib/story-quality-gate";
 
 export interface EpisodeRoadmapGenerationProgress {
+  phase?: "quality_review" | "roadmap";
   completedEpisodes: number;
   totalEpisodes: number;
   nodeTitle?: string;
@@ -47,7 +50,7 @@ export async function runFullEpisodeRoadmapGeneration(input: {
   );
   const episodeCount = project.generationSettings.episodeCount;
   let workingRoadmaps = project.episodeRoadmaps ?? [];
-  let progress = summarizeStoryPlanTreeProgress(
+  const progress = summarizeStoryPlanTreeProgress(
     activeNodes,
     workingRoadmaps,
     episodeCount,
@@ -57,31 +60,50 @@ export async function runFullEpisodeRoadmapGeneration(input: {
   }
 
   const readyLeaves = episodeReadyStoryPlanLeaves(activeNodes);
-  const shouldRunQualityAudit = !storyPlanQualityAuditMatchesNodes(
+  const completedEpisodeCount = () => new Set(workingRoadmaps.filter((item) => readyLeaves.some((node) => (
+    node.node_id === item.source_node_id && node.version === item.source_node_version
+    && node.story_bible_version === item.story_bible_version
+    && item.episode_number >= (node.planned_start_episode ?? 1)
+    && item.episode_number <= (node.planned_end_episode ?? 0)
+  ))).map((item) => item.episode_number)).size;
+  const shouldRunQualityAudit = !(storyPlanQualityAuditMatchesNodes(
     project.storyTreeQualityAudit,
     readyLeaves,
-  );
+    workingRoadmaps,
+    { project },
+  ) || canFinishUnreviewedRoadmapLeaf(project.storyTreeQualityAudit, readyLeaves, workingRoadmaps, { project }));
 
   await input.onProgress?.({
-    completedEpisodes: progress.generatedRoadmapCount,
+    completedEpisodes: completedEpisodeCount(),
     totalEpisodes: progress.plannedEpisodeCount,
+  });
+
+  await input.beforeStep?.();
+  if (shouldRunQualityAudit) {
+    await input.onProgress?.({
+      phase: "quality_review",
+      completedEpisodes: completedEpisodeCount(),
+      totalEpisodes: progress.plannedEpisodeCount,
+    });
+  }
+  let qualityAudit = await requireStoryPlanQuality({
+    cachedAudit: shouldRunQualityAudit ? undefined : project.storyTreeQualityAudit,
+    runAudit: () => auditStoryPlanQuality(project, storyBible, readyLeaves),
+    onCheckpoint: input.onQualityCheckpoint,
   });
 
   for (const node of readyLeaves) {
     await input.beforeStep?.();
+    const priorRoadmaps = workingRoadmaps;
     const generated = await generateEpisodePlanBatch(
-      { ...project, episodeRoadmaps: workingRoadmaps },
+      { ...project, storyTreeQualityAudit: qualityAudit, episodeRoadmaps: workingRoadmaps },
       node,
       async (checkpoint) => {
         workingRoadmaps = mergeEpisodeRoadmaps(workingRoadmaps, [checkpoint]);
         await input.onCheckpoint?.(checkpoint);
-        progress = summarizeStoryPlanTreeProgress(
-          activeNodes,
-          workingRoadmaps,
-          episodeCount,
-        );
         await input.onProgress?.({
-          completedEpisodes: progress.generatedRoadmapCount,
+          phase: "roadmap",
+          completedEpisodes: completedEpisodeCount(),
           totalEpisodes: progress.plannedEpisodeCount,
           nodeTitle: node.title,
           currentEpisode: checkpoint.episode_number,
@@ -91,17 +113,21 @@ export async function runFullEpisodeRoadmapGeneration(input: {
       { activeNodes },
     );
     workingRoadmaps = mergeEpisodeRoadmaps(workingRoadmaps, generated);
-  }
-
-  // Quality monitoring is advisory. Start it only after the resumable roadmap
-  // checkpoints are complete so a slow or empty audit response never delays the
-  // user's usable roadmap. The audit itself is one short, bounded request.
-  if (shouldRunQualityAudit) {
-    void auditStoryPlanQuality(project, storyBible, readyLeaves, {
-      timeoutMs: 12_000,
-    })
-      .then((audit) => input.onQualityCheckpoint?.(audit))
-      .catch(() => undefined);
+    // Review the realized movement while its causal neighbors are still drafts.
+    // A passing tree review cannot certify content that did not exist yet.
+    if (JSON.stringify(priorRoadmaps) !== JSON.stringify(workingRoadmaps)) {
+      await input.beforeStep?.();
+      await input.onProgress?.({
+        phase: "quality_review",
+        completedEpisodes: completedEpisodeCount(),
+        totalEpisodes: progress.plannedEpisodeCount,
+        nodeTitle: node.title,
+      });
+      qualityAudit = await requireStoryPlanQuality({
+        runAudit: () => auditStoryPlanQuality({ ...project, storyTreeQualityAudit: qualityAudit, episodeRoadmaps: workingRoadmaps }, storyBible, readyLeaves),
+        onCheckpoint: input.onQualityCheckpoint,
+      });
+    }
   }
 
   return { activeNodes, episodeRoadmaps: workingRoadmaps };

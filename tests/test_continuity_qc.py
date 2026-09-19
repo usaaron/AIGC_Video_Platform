@@ -14,6 +14,10 @@ from app.modules.script_engine.models import (
     ContinuityQCStatus,
     EpisodeGenerationContext,
     EpisodeGenerationMode,
+    MemoryCapsule,
+    MemoryCapsuleType,
+    MemoryRecall,
+    MemoryRecallStatus,
 )
 from tests.test_master_script_models import build_draft_payload
 
@@ -72,6 +76,58 @@ def test_dead_character_current_timeline_action_is_blocking() -> None:
     assert report.issues[0].issue_type.value == "dead_character_action"
     with pytest.raises(BlockingContinuityConflictError, match="硬冲突"):
         raise BlockingContinuityConflictError(report)
+
+
+def test_memory_recall_dead_character_is_checked_when_checkpoint_is_absent() -> None:
+    draft = build_draft(actions=["Mara opens the archive door."], speaker="Mara")
+    recall = MemoryRecall(
+        through_episode_number=2,
+        status=MemoryRecallStatus.sufficient,
+        capsules=[MemoryCapsule(
+            capsule_id="memory.mara.death",
+            memory_type=MemoryCapsuleType.character_state,
+            summary="Mara is dead.",
+            source_episode=2,
+            entity_refs=["Mara"],
+            life_status="dead",
+        )],
+    )
+    report = evaluate_episode_continuity(
+        draft,
+        EpisodeGenerationContext(
+            generation_mode=EpisodeGenerationMode.sequential,
+            episode_number=3,
+            total_episodes=20,
+            memory_recall=recall,
+        ),
+    )
+    assert report.status == ContinuityQCStatus.blocked
+    assert report.issues[0].issue_type == ContinuityQCIssueType.dead_character_action
+
+
+def test_summary_only_memory_recall_dead_character_is_checked() -> None:
+    draft = build_draft(actions=["Mara opens the archive door."], speaker="Mara")
+    recall = MemoryRecall(
+        through_episode_number=2,
+        status=MemoryRecallStatus.sufficient,
+        capsules=[MemoryCapsule(
+            capsule_id="memory.mara.death.summary",
+            memory_type=MemoryCapsuleType.character_state,
+            summary="Mara is dead.",
+            source_episode=2,
+            entity_refs=["Mara"],
+        )],
+    )
+    report = evaluate_episode_continuity(
+        draft,
+        EpisodeGenerationContext(
+            generation_mode=EpisodeGenerationMode.sequential,
+            episode_number=3,
+            total_episodes=20,
+            memory_recall=recall,
+        ),
+    )
+    assert report.status == ContinuityQCStatus.blocked
 
 
 def test_blocking_error_message_excludes_non_blocking_warnings() -> None:
@@ -432,6 +488,78 @@ def test_missing_checkpoint_is_not_applicable() -> None:
     report = evaluate_episode_continuity(draft, None)
 
     assert report.status == ContinuityQCStatus.not_applicable
+
+
+def test_storyline_mismatch_reports_expected_and_actual_scenes_for_local_repair():
+    from app.modules.script_engine.generation_service import ScriptGenerationService
+
+    draft = build_draft(actions=["Nina refuses to hand over the original receipt."], story_line_updates=[{
+        "story_line_id": "line.receipt", "status": "active",
+        "progress_summary": "Nina refuses the demand and retains the original receipt.",
+        "change_cause": "The archivist demands the receipt before releasing the records.",
+        "evidence_scene_numbers": [1],
+    }])
+    draft = draft.model_copy(update={"scenes": [draft.scenes[0], draft.scenes[0].model_copy(update={
+        "scene_number": 2, "character_actions": ["Nina seals the receipt in the archive room."],
+    })]})
+    generation_context = EpisodeGenerationContext(
+        generation_mode=EpisodeGenerationMode.sequential, episode_number=3, total_episodes=20,
+        storyline_duties=[{
+            "story_line_id": "line.receipt", "role": "main", "must_progress": True,
+            "objective": "Protect the receipt.", "required_progress": "Retain the original receipt.",
+            "assigned_scene_numbers": [2],
+        }],
+    )
+    report = evaluate_episode_continuity(draft, generation_context)
+    issue = next(issue for issue in report.issues if issue.issue_type.value == "storyline_duty_scene_mismatch")
+    assert issue.scene_numbers == [1, 2]
+    assert "已批准可用场次：[2]" in issue.current_evidence
+    assert "实际证据引用：[1]" in issue.current_evidence
+    packet = json.loads(ScriptGenerationService._build_continuity_repair_context(
+        output=draft.model_dump(mode="json"), report=report,
+    ))
+    assert {scene["scene_number"] for scene in packet["affected_scenes"]} == {1, 2}
+
+
+@pytest.mark.parametrize(("background", "evidence", "action"), [
+    ("陆绎在几度走访受阻以后提出新的核验办法", "折角页与回执编号同框保存",
+     "她把折角页与回执编号并排拍照，保存同框画面。"),
+    ("Repeated administrative delays force another investigation strategy across several departments",
+     "the receipt and folded page are photographed together",
+     "She puts the receipt beside the folded page and photographs both."),
+])
+@pytest.mark.parametrize("evidence_field", ["progress_summary", "change_cause"])
+def test_storyline_evidence_in_later_clauses_is_not_discarded(background, evidence, action, evidence_field):
+    generation_context = EpisodeGenerationContext(
+        generation_mode=EpisodeGenerationMode.sequential, episode_number=3, total_episodes=20,
+        storyline_duties=[{
+            "story_line_id": "line.receipt", "role": "main", "must_progress": True,
+            "objective": "Protect the receipt.", "required_progress": "Preserve the receipt and page together.",
+            "assigned_scene_numbers": [1],
+        }],
+    )
+    for statement in [f"{background}；{evidence}。", f"{evidence}；{background}。"]:
+        update = {
+            "story_line_id": "line.receipt", "status": "active", "evidence_scene_numbers": [1],
+            "progress_summary": "审查仍然受阻。", "change_cause": "申请等待批复。",
+            evidence_field: statement,
+        }
+        draft = build_draft(actions=[action], story_line_updates=[update])
+        before = draft.model_dump(mode="json")
+        report = evaluate_episode_continuity(draft, generation_context)
+        assert not any(issue.issue_type == ContinuityQCIssueType.storyline_duty_unsupported_evidence
+                       for issue in report.issues)
+        assert draft.model_dump(mode="json") == before
+
+        for actions in [[], ["She waits in the quiet room and turns off the lamp."]]:
+            unrelated = draft.model_copy(update={"scenes": [draft.scenes[0].model_copy(update={
+                "purpose": "Waiting", "beat_summary": "Nothing changes.", "turning_point": None,
+                "scene_causality": None, "character_actions": actions,
+            })]})
+            rejected = evaluate_episode_continuity(unrelated, generation_context)
+            issue = next(issue for issue in rejected.issues
+                         if issue.issue_type == ContinuityQCIssueType.storyline_duty_unsupported_evidence)
+            assert issue.severity == ContinuityQCIssueSeverity.blocking
 
 
 def _knowledge_conflict_draft(

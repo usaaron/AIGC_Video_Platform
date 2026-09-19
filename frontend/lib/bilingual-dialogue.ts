@@ -4,6 +4,7 @@ import { clientDialogueSpeaker } from "./client-screenplay-format.ts";
 export interface OverseasDialoguePresentation {
   direction: "english-to-chinese";
   translations: Map<string, string>;
+  characterNames: Map<string, string>;
 }
 
 export interface OverseasDialogueTextPair {
@@ -27,6 +28,13 @@ export function overseasDialoguePresentation(
     return {
       direction: "english-to-chinese",
       translations: new Map(view.items.map((item) => [item.path, item.translated_text])),
+      characterNames: new Map(view.items.flatMap(item => {
+        if (!item.path.endsWith(".character_name") && !/^characters\.\d+\.name$/.test(item.path)) return [];
+        const alias = clientDialogueSpeaker(item.translated_text, item.source_text).speaker;
+        const english = clientDialogueSpeaker(item.source_text, item.source_text).speaker;
+        return /[\u3400-\u9fff]/.test(alias) && /[A-Za-z]/.test(english) && !/[\u3400-\u9fff]/.test(english)
+          ? [[alias, english] as const] : [];
+      })),
     };
   }
   return undefined;
@@ -40,15 +48,15 @@ export function overseasDialogueTextPair(
   if (!presentation) return { english: source };
   const translated = presentation.translations.get(path);
   if (!translated) return { english: source };
-  return { english: source, chinese: translated };
+  return { english: source, chinese: applyEnglishCharacterNames(translated, presentation.characterNames) };
 }
 
 export function overseasNarrativeText(
-  _presentation: OverseasDialoguePresentation | undefined,
+  presentation: OverseasDialoguePresentation | undefined,
   _path: string,
   source: string,
 ): string {
-  return source;
+  return presentation ? applyEnglishCharacterNames(source, presentation.characterNames) : source;
 }
 
 export function mergeOverseasCharacterNames(
@@ -71,8 +79,8 @@ export function mergeOverseasCharacterNames(
       item.source_text,
     ).speaker;
     const chineseName = translatedName;
-    const englishName = sourceName.toLocaleUpperCase();
-    if (!chineseName || !englishName || chineseName.toLocaleLowerCase() === englishName.toLocaleLowerCase()) {
+    const englishName = sourceName;
+    if (!/[\u3400-\u9fff]/.test(chineseName) || !englishName || chineseName.toLocaleLowerCase() === englishName.toLocaleLowerCase()) {
       continue;
     }
     const existing = names.get(chineseName);
@@ -97,47 +105,35 @@ export function overseasDialogueSpeaker(
   const translatedSpeaker = translatedText
     ? clientDialogueSpeaker(translatedText, source)
     : undefined;
-  let chineseName = "";
-  let englishName = "";
-
-  if (presentation?.direction === "english-to-chinese" && translatedSpeaker) {
-    chineseName = translatedSpeaker.speaker;
-    englishName = sourceSpeaker.speaker;
-  } else {
-    const directEnglishName = names.get(sourceSpeaker.speaker);
-    const reverseMatch = [...names.entries()].find(([, candidate]) => (
-      candidate.toLocaleLowerCase() === sourceSpeaker.speaker.toLocaleLowerCase()
-    ));
-    if (directEnglishName) {
-      chineseName = sourceSpeaker.speaker;
-      englishName = directEnglishName;
-    } else if (reverseMatch) {
-      [chineseName, englishName] = reverseMatch;
-    }
-  }
-
+  const directEnglishName = names.get(sourceSpeaker.speaker);
+  const englishName = directEnglishName
+    ?? (/[A-Za-z]/.test(sourceSpeaker.speaker) && !/[\u3400-\u9fff]/.test(sourceSpeaker.speaker)
+      ? sourceSpeaker.speaker
+      : undefined);
   return {
-    speaker: chineseName && englishName
-      ? `${chineseName}（${englishName.toLocaleUpperCase()}）`
-      : sourceSpeaker.speaker,
-    marker: sourceSpeaker.marker ?? translatedSpeaker?.marker,
+    speaker: englishName ?? sourceSpeaker.speaker,
+    marker: sourceSpeaker.marker || translatedSpeaker?.marker || "",
   };
 }
 
-export function applyChineseCharacterNames(
+/** Display explicit legacy aliases in English without translating narrative prose. */
+export function applyEnglishCharacterNames(
   text: string,
   names: ReadonlyMap<string, string>,
 ): string {
   return [...names.entries()]
-    .filter(([chineseName, englishName]) => chineseName && englishName)
-    .sort(([, left], [, right]) => right.length - left.length)
-    .reduce(
-      (current, [chineseName, englishName]) => current.replace(
-        new RegExp(escapeRegExp(englishName), "gi"),
-        chineseName,
-      ),
-      text,
-    );
+    .filter(([alias, english]) => alias && english && /[\u3400-\u9fff]/.test(alias))
+    .sort(([left], [right]) => right.length - left.length)
+    .reduce((current, [alias, english]) => {
+      const paired = new RegExp(`${escapeRegExp(alias)}\\s*[（(]\\s*${escapeRegExp(english)}\\s*[）)]`, "gi");
+      const withoutPair = current.replace(paired, english);
+      // A one-character alias can also be part of an ordinary Chinese word.
+      // Legacy prose is not enough evidence to rewrite those substrings.
+      const boundary = alias.length === 1 ? "[A-Za-z\\u3400-\\u9fff]" : "[A-Za-z]";
+      return withoutPair.replace(
+        new RegExp(`(?<!${boundary})${escapeRegExp(alias)}(?!${boundary})`, "g"), english,
+      );
+    }, text);
 }
 
 function escapeRegExp(value: string): string {

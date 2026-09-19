@@ -254,31 +254,32 @@ export function targetScriptBodyCharacters(
   } = {},
 ): number {
   const totalEpisodes = Math.max(1, settings.episodeCount);
-  const durationBaseline = normalizeShortDramaDuration(
-    settings.preferredEpisodeDurationMinutes,
-  ) * ESTIMATED_CHARACTERS_PER_MINUTE[settings.storyDensity];
+  // Runtime limits speech and staging, not the number of effective characters
+  // needed to describe concurrent action. Do not dilute the author's series
+  // target through a density estimate; dramatic weighting is normalized later.
   const seriesBaseline = settings.targetTotalCharacters / totalEpisodes;
-  const plotScaleBaseline = Math.sqrt(durationBaseline * seriesBaseline);
   const generatedEpisodes = Math.max(0, progress.generatedEpisodeCount ?? 0);
   const generatedCharacters = Math.max(0, progress.generatedBodyCharacters ?? 0);
   if (generatedEpisodes < 3 || generatedCharacters <= 0) {
-    return clampInteger(Math.ceil(plotScaleBaseline), 600, 2_400);
+    return clampInteger(Math.ceil(seriesBaseline), 300, 10_000);
   }
 
   const observedAverage = generatedCharacters / generatedEpisodes;
   const remainingEpisodes = Math.max(0, totalEpisodes - generatedEpisodes);
   const projectedTotal = generatedCharacters + observedAverage * remainingEpisodes;
   if (projectedTotal <= 0) {
-    return clampInteger(Math.ceil(plotScaleBaseline), 600, 2_400);
+    return clampInteger(Math.ceil(seriesBaseline), 300, 10_000);
   }
 
-  // Keep the series near its intended scale without turning later episodes into
-  // exact-quota compensation. Correction is confidence-weighted and capped at 15%.
+  // The requested series scale is a delivery floor, not a spending allowance.
+  // Earlier fully developed episodes must not reduce later episode references.
+  // An observed shortfall may increase the baseline by at most 15%; approved
+  // episode duration and dramatic load still determine its natural variation.
   const rawCorrection = Math.sqrt(settings.targetTotalCharacters / projectedTotal);
-  const boundedCorrection = clampNumber(rawCorrection, 0.85, 1.15);
+  const boundedCorrection = clampNumber(rawCorrection, 1, 1.15);
   const confidence = Math.min(1, generatedEpisodes / 12);
   const appliedCorrection = 1 + (boundedCorrection - 1) * confidence;
-  return clampInteger(Math.ceil(plotScaleBaseline * appliedCorrection), 600, 2_400);
+  return clampInteger(Math.ceil(seriesBaseline * appliedCorrection), 300, 10_000);
 }
 
 export interface ScriptBodyLengthGuidance {
@@ -294,8 +295,8 @@ export function scriptBodyLengthGuidance(
   const reference = Math.max(1, Math.round(referenceCharacters));
   return {
     referenceCharacters: reference,
-    preferredMinCharacters: Math.max(1, Math.round(reference * 0.70)),
-    preferredMaxCharacters: Math.max(1, Math.round(reference * 1.40)),
+    preferredMinCharacters: Math.max(1, Math.round(reference * 0.80)),
+    preferredMaxCharacters: Math.max(1, Math.round(reference * 1.20)),
     truncationFloorCharacters: Math.max(1, Math.round(reference * 0.25)),
   };
 }

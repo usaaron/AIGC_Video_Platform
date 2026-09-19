@@ -116,7 +116,7 @@ test("approved empty script workspace waits for an explicit first generation aft
 });
 
 for (const status of ["running", "paused"] as const) {
-  test(`first-episode ${status} recovery preserves its saved intent on refresh`, async ({ page }) => {
+  test(`first-episode ${status} recovery waits for explicit resume after refresh and preserves its range`, async ({ page }) => {
     const health = monitorPageHealth(page);
     const project = projectFixture(true);
     project.activeGenerationTask = {
@@ -139,16 +139,23 @@ for (const status of ["running", "paused"] as const) {
     await page.clock.install();
     const generationRequests = await mockProject(page, project, planningRequests);
     await page.goto(`/projects/${project.id}/workspace`);
-    await expect(page.getByRole("button", { name: "生成下一部分" })).toBeVisible();
+    const resume = page.getByRole("button", { name: "生成下一部分", exact: true });
+    await expect(resume).toBeEnabled();
     await page.clock.runFor(1_000);
-    if (status === "running") {
-      await expect.poll(() => planningRequests.length).toBe(1);
-      await expect(page).toHaveURL(/generate=1&start=1&end=8$/);
-      await expect(page.getByText("请先确认覆盖本集的剧情部分并完成分集规划，再生成正式正文。", { exact: true })).toBeVisible();
-    } else {
-      expect(planningRequests).toEqual([]);
-      await expect(page).not.toHaveURL(/generate=1/);
-    }
+    expect(planningRequests).toEqual([]);
+    expect(generationRequests).toEqual([]);
+    await expect(page).not.toHaveURL(/generate=1/);
+    await page.reload();
+    await expect(resume).toBeEnabled();
+    await page.clock.runFor(1_000);
+    // A persisted checkpoint does not give a fresh browser ownership of the job.
+    expect(planningRequests).toEqual([]);
+    expect(generationRequests).toEqual([]);
+    await expect(page).not.toHaveURL(/generate=1/);
+    await resume.click();
+    await expect.poll(() => planningRequests.length).toBe(1);
+    await expect(page).toHaveURL(/generate=1&start=1&end=8$/);
+    await expect(page.getByText("请先确认覆盖本集的剧情部分并完成分集规划，再生成正式正文。", { exact: true })).toBeVisible();
     expect(generationRequests).toEqual([]);
     health.assertHealthy();
   });

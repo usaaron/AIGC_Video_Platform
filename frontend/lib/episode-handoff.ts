@@ -12,11 +12,22 @@ export function buildEpisodeHandoff(draft: GeneratedDraft): string {
     .filter((item) => item.status !== "paid_off")
     .slice(-6)
     .map((item) => `${item.setup_payoff_ref}：${item.next_required_step ?? item.progress_summary}`);
-  const body = finalScene ? orderedScreenplayBody(finalScene).map((item) => {
-    if (item.kind === "action") return `action:${item.index} ${item.action}`;
-    const dialogue = item.dialogue;
-    return `dialogue:${item.index} ${dialogue.character_name}${dialogue.chinese_character_name ? `（${dialogue.chinese_character_name}）` : ""}：${dialogue.text}${dialogue.chinese_translation ? `（${dialogue.chinese_translation}）` : ""}`;
-  }) : [];
+  // A saved correction can change an earlier scene without changing the ending
+  // or derived character summaries. Carry this one episode's ordered evidence,
+  // not just its final scene, so recovery sees the author's actual saved facts.
+  const body = draft.scenes.map((scene) => {
+    const lines = orderedScreenplayBody(scene).map((item) => {
+      if (item.kind === "action") return `action:${item.index} ${item.action}`;
+      const dialogue = item.dialogue;
+      return `dialogue:${item.index} ${dialogue.character_name}${dialogue.chinese_character_name ? `（${dialogue.chinese_character_name}）` : ""}：${dialogue.text}${dialogue.chinese_translation ? `（${dialogue.chinese_translation}）` : ""}`;
+    });
+    return `场次 ${scene.scene_number}，${scene.slug ?? ""}：\n${lines.join("\n")}`;
+  });
+  const continuity = (draft.continuity_state_updates ?? []).map((item) => (
+    `${item.entity_name}（${item.entity_key}/${item.state_domain}）：${item.current_state}`
+      + (item.future_constraint ? `；后续约束：${item.future_constraint}` : "")
+      + `；原因：${item.change_cause}；场次：${item.evidence_scene_numbers.join("、")}`
+  ));
   return [
     `上一集可见结果：${finalScene?.scene_causality?.outcome ?? draft.episode_goal}`,
     finalScene?.turning_point ? `结尾转折：${finalScene.turning_point}` : "",
@@ -27,6 +38,7 @@ export function buildEpisodeHandoff(draft: GeneratedDraft): string {
     openObligations.length ? `未完成义务：${openObligations.join("；")}` : "",
     endingMode === "serial_hook" && draft.next_episode_question?.trim()
       ? `下一集问题：${draft.next_episode_question}` : "",
-    body.length ? `上一集最后一场实际正文（场次 ${finalScene?.scene_number}，${finalScene?.slug ?? ""}；作为已发生事实承接，不要重新表演）：\n${body.join("\n")}` : "",
+    continuity.length ? `上一集已保存连续性事实与约束：\n${continuity.join("\n")}` : "",
+    body.length ? `上一集各场实际正文（仅上一集；作为已发生事实承接，不要重新表演）：\n${body.join("\n")}` : "",
   ].filter(Boolean).join("\n");
 }

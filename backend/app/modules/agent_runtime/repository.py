@@ -97,6 +97,10 @@ class AgentRunRepository:
             return AgentRunStart(record=record)
 
         current = self._from_table(existing)
+        if current.planning_revision_epoch != record.planning_revision_epoch:
+            raise AgentRunPersistenceConflictError(
+                "Agent request belongs to a previous planning revision epoch; use a new request after reloading."
+            )
         if current.agent_name != record.agent_name or current.subject_ref != record.subject_ref:
             raise AgentRunPersistenceConflictError(
                 "Agent request key does not match the original subject."
@@ -129,7 +133,7 @@ class AgentRunRepository:
             # immutable episode; a second caller should wait and replay it.
             raise AgentRunInProgressError(current.run_id)
         if current.input_fingerprint != record.input_fingerprint:
-            refresh_mode = self._input_refresh_mode(current, record)
+            refresh_mode = self._input_refresh_mode(current, record, replaced_process=replaced_process)
             if refresh_mode is None:
                 raise AgentRunPersistenceConflictError(
                     "Agent request key was reused with different input."
@@ -188,6 +192,8 @@ class AgentRunRepository:
         self,
         current: AgentRunRecord,
         requested: AgentRunRecord,
+        *,
+        replaced_process: bool = False,
     ) -> str | None:
         if (
             current.agent_name != requested.agent_name
@@ -198,6 +204,12 @@ class AgentRunRepository:
             return "validated_post_edit_checkpoint"
         if self._can_refresh_failed_empty_episode_script(current):
             return "failed_without_checkpoint"
+        if replaced_process and current.status == AgentRunStatus.running:
+            # A terminated worker cannot mark its run failed. Only a run with
+            # no validated result/checkpoint may accept the refreshed input.
+            abandoned = current.model_copy(update={"status": AgentRunStatus.failed})
+            if self._can_refresh_failed_empty_episode_script(abandoned):
+                return "replaced_process_without_checkpoint"
         return None
 
     def _can_refresh_post_edit_resume_input(

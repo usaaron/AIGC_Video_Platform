@@ -100,6 +100,15 @@ export function summarizeStoryPlanTreeProgress(
 export function episodeReadyStoryPlanLeaves(
   activeNodes: StoryPlanNode[],
 ): StoryPlanNode[] {
+  return storyPlanQualityFrontierNodes(activeNodes).filter((node) => {
+    const span = episodeSpan(node);
+    return node.status === "approved" && node.expansion_status === "episode_ready"
+      && span !== null && span >= MIN_EPISODE_READY_SPAN && span <= MAX_EPISODE_READY_SPAN;
+  });
+}
+
+/** The current draft frontier can be reviewed before approving or splitting it. */
+export function storyPlanQualityFrontierNodes(activeNodes: StoryPlanNode[]): StoryPlanNode[] {
   const activeNodeKeys = new Set(
     activeNodes.map((node) => nodeKey(node.node_id, node.version)),
   );
@@ -119,11 +128,7 @@ export function episodeReadyStoryPlanLeaves(
   return activeNodes
     .filter((node) => {
       const span = episodeSpan(node);
-      return node.status === "approved"
-        && node.expansion_status === "episode_ready"
-        && span !== null
-        && span >= MIN_EPISODE_READY_SPAN
-        && span <= MAX_EPISODE_READY_SPAN
+      return span !== null && span > 0
         && !activeParentKeys.has(nodeKey(node.node_id, node.version));
     })
     .sort((left, right) => (

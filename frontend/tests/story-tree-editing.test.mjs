@@ -117,7 +117,7 @@ test("confirmed outline enters planning and confirms only after a saved complete
   assert.match(panel, /syncProjectSnapshot\((?:project|requestProject)\)/);
   assert.match(panel, /savePlanningCheckpoint/);
   assert.match(panel, /storyPlanNode\.confirmPlanning/);
-  assert.match(panel, /router\.push\([^)]*workspace`/);
+  assert.match(panel, /router\.push\([^)]*workspace\?generate=1/);
   assert.doesNotMatch(panel, /storyPlanNode\.generateEpisodeScript/);
   assert.doesNotMatch(panel, /storyPlanNode\.roadmapPending/);
   assert.doesNotMatch(panel, /story-plan-episode-script-link/);
@@ -225,7 +225,7 @@ test("parent revisions require an explicit descendant policy", async () => {
   assert.match(panel, /onRoadmapCheckpoint: async/);
   assert.match(panel, /onTreeCheckpoint:/);
   assert.match(panel, /await persistProjectUpdate/);
-  assert.match(panel, /const episodeRoadmaps = current\.episodeRoadmaps \?\? \[\]/);
+  assert.match(panel, /const episodeRoadmaps = guided[\s\S]*\? mergeEpisodeRoadmaps\(current\.episodeRoadmaps \?\? \[\], result\.episodeRoadmaps\)[\s\S]*: current\.episodeRoadmaps \?\? \[\]/);
   assert.match(panel, /const branchLocked = operationLocked/);
   assert.match(panel, /const concurrentLeafAccess = treeBusy/);
   assert.match(panel, /treeUnlockedNodeIds/);
@@ -289,7 +289,7 @@ test("planning document text is directly editable without bypassing its locks", 
   assert.doesNotMatch(panel, /compactTopLevelSynopsis/);
   assert.match(
     panel,
-    /<PlanField\s+editing=\{false\}\s+label=\{t\("storyPlanNode\.nodeTitle"\)\}[\s\S]*?value=\{node\.title\}/,
+    /className="story-plan-node-title"[^>]*>\s*<InlinePlanningText\s+label=\{t\("storyPlanNode\.nodeTitle"\)\}\s+locked=\{nodeRevisionLocked\}[\s\S]*?onChange=\{\(value\) => updateNodeField\("title", value\)\}[\s\S]*?value=\{node\.title\}/,
   );
   assert.match(
     panel,
@@ -307,9 +307,9 @@ test("planning document text is directly editable without bypassing its locks", 
   assert.match(panel, /function InlinePlanningText[\s\S]*contentEditable=\{!locked\}/);
   assert.match(
     panel,
-    /const roadmapRevisionLocked = nodeRevisionLocked[\s\S]*treeInteractionLocked[\s\S]*busy !== "save"/,
+    /function roadmapItemLocked[\s\S]*planningLocked \|\| rebuildTaskActive \|\| treeInteractionLocked[\s\S]*busy !== "save"[\s\S]*planningRevisionEpisodeLocked[\s\S]*generatedRangeLocked/,
   );
-  assert.match(roadmapRevision, /if \(treeInteractionLocked \|\| generatedRangeLocked\) return;/);
+  assert.match(roadmapRevision, /if \(treeInteractionLocked \|\| roadmapItemLocked\(previousItem \?\? candidate\)\) return false;/);
 
   assert.match(roadmapRevision, /persistProjectUpdate\(onProjectUpdate, \(current\) =>/);
   assert.match(roadmapRevision, /const currentRoadmap = current\.episodeRoadmaps \?\? \[\]/);

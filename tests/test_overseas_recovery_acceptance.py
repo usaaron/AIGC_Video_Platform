@@ -168,5 +168,57 @@ def test_failed_second_episode_reuses_pre_edit_and_completed_first_episode_survi
     assert restored == {"result_digest": first_digest, "attempt_count": 1, "provider_requests": 0}
 
 
+def test_revised_planning_epoch_survives_final_review_and_pre_edit_recovery(monkeypatch, tmp_path):
+    from app.modules.script_engine.generation_service import EpisodeExecutionNotReadyError
+
+    model = CountingMockLLMAdapter()
+    service, content_spec_id = seed_dependencies(llm_adapter=model)
+    current = {"id": "story_project.revised_epoch", "planningRevisionEpoch": 3, "episodes": []}
+    service._episode_plan_workspace_loader = lambda _project: current
+    runtime = create_database_runtime(f"sqlite:///{tmp_path / 'epoch.db'}")
+    SQLModel.metadata.create_all(runtime.engine)
+    from sqlmodel import Session
+    from app.modules.script_engine.long_story_models import StoryProjectWorkspaceSnapshot
+    from app.modules.script_engine.long_story_repository import LongStoryRepository
+    from tests.test_long_story_api import build_project
+    with Session(runtime.engine) as session:
+        repository = LongStoryRepository(session)
+        repository.save_project(build_project().model_copy(update={"project_id": "story_project.revised_epoch"}))
+        repository.save_workspace_snapshot(StoryProjectWorkspaceSnapshot(
+            project_id="story_project.revised_epoch", revision=1, client_instance_id="epoch.test",
+            workspace_payload=dict(current), payload_checksum="0" * 64, payload_size_bytes=100,
+        ))
+        session.commit()
+    agent = EpisodeScriptAgent(generation_service=service, run_service=AgentRunService(runtime))
+    payload = ScriptGenerationDraftRequest(
+        planning_revision_epoch=3, story_project_id="story_project.revised_epoch",
+        agent_request_id="agent-request.revised-epoch", content_spec_id=content_spec_id,
+        generation_strategy_id="strategy.tiktok.service_generation.v1", output_language="en",
+        desired_scene_count=3,
+    )
+    original = service.review_draft
+    seen = []
+
+    def interrupted_review(request):
+        seen.append(request.planning_revision_epoch)
+        if len(seen) == 1:
+            raise RuntimeError("injected final review interruption")
+        return original(request)
+
+    monkeypatch.setattr(service, "review_draft", interrupted_review)
+    with pytest.raises(RuntimeError, match="injected"):
+        agent.run(payload)
+    calls = model.structured_call_count
+    result = agent.run(payload)
+    assert seen == [3, 3]
+    assert model.structured_call_count == calls
+    assert result.draft_run.draft_master_script.llm_metadata["agent_resumed_from_checkpoint"] is True
+    current["planningRevisionEpoch"] = 4
+    with pytest.raises(EpisodeExecutionNotReadyError, match="epoch"):
+        agent.run(payload)
+    assert model.structured_call_count == calls
+    runtime.engine.dispose()
+
+
 if __name__ == "__main__":
     _completed_replay_child(*sys.argv[1:])

@@ -70,7 +70,7 @@ export function BackgroundGenerationStatus() {
             elapsed={planningTaskElapsedSeconds(earliestPlanningTask(tasks), now)}
             href={`/projects/${projectId}/planning/structure`}
             key={projectId}
-            label={t(running ? "backgroundStatus.planning" : `generationPause.planning.${pauseState}`)}
+            label={t(running ? "backgroundStatus.planning" : `generationPause.planning.${pauseState}`).replace("{count}", String(tasks.length))}
             onAction={() => running ? requestPlanningPause(projectId) : resumePlanningTasks(projectId)}
             paused={!running}
           />

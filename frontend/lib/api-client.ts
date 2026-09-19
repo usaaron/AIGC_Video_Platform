@@ -48,7 +48,7 @@ export async function apiRequest<T>(
     const payload = parseErrorPayload(responseText);
     const metadata = responseFailureMetadata(response);
     throw new ApiError(
-      formatApiError(payload?.detail, response.status, responseText, metadata.failureClass),
+      formatApiError(payload?.detail, response.status, responseText, metadata.failureClass, metadata.errorType),
       response.status,
       metadata,
     );
@@ -76,7 +76,7 @@ export async function apiEventStream<TEvent>(
     const payload = parseErrorPayload(responseText);
     const metadata = responseFailureMetadata(response);
     throw new ApiError(
-      formatApiError(payload?.detail, response.status, responseText, metadata.failureClass),
+      formatApiError(payload?.detail, response.status, responseText, metadata.failureClass, metadata.errorType),
       response.status,
       metadata,
     );
@@ -177,9 +177,13 @@ function formatApiError(
   status: number,
   responseText: string,
   failureClass?: string,
+  errorType?: string,
 ): string {
+  if (errorType === "planning_call_budget_exhausted" || failureClass === "planning_call_budget_exhausted") {
+    return visibleApiError("", status, CURRENT_MARKET_PROFILE, failureClass, errorType);
+  }
   if (typeof detail === "string" && detail.trim()) {
-    return visibleApiError(detail, status, CURRENT_MARKET_PROFILE, failureClass);
+    return visibleApiError(detail, status, CURRENT_MARKET_PROFILE, failureClass, errorType);
   }
   if (Array.isArray(detail)) {
     const messages = detail.flatMap((item) => {
@@ -197,6 +201,7 @@ function formatApiError(
         status,
         CURRENT_MARKET_PROFILE,
         failureClass,
+        errorType,
       );
     }
   }
@@ -207,6 +212,7 @@ function formatApiError(
       status,
       CURRENT_MARKET_PROFILE,
       failureClass,
+      errorType,
     );
   }
   return CURRENT_MARKET_PROFILE === "cn_mainland"

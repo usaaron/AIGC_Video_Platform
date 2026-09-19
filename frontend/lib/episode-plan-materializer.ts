@@ -343,7 +343,7 @@ function validateDraftShape(input: EpisodePlanMaterializerInput): EpisodePlanMat
         || row.bodyText !== sourceDocument.slice(row.bodyStart, row.bodyEnd)) {
       blocks.push(block("row_span_invalid", "来源行 span 与当前原文不一致。", { rowOrdinal: row.ordinal, episodeNumber: row.episodeNumber }));
     }
-    for (const [field, span] of Object.entries(row.fieldSpans) as Array<[ImportedEpisodePlanFieldKey, EpisodePlanImportFieldSpan]>) {
+    for (const span of Object.values(row.fieldSpans)) {
       if (!span || span.start < row.bodyStart || span.end < span.start || span.end > row.bodyEnd) {
         blocks.push(block("row_span_invalid", "字段来源 span 越过所属分集范围。", { rowOrdinal: row.ordinal, episodeNumber: row.episodeNumber }));
         break;

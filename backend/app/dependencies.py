@@ -19,6 +19,7 @@ from app.llm_runtime import (
     build_market_routed_role_adapter_from_env,
     build_planning_llm_adapter_from_env,
     build_planning_editor_llm_adapter_from_env,
+    build_storyboard_llm_adapter_from_env,
     build_script_generation_adapter_from_env,
     build_script_editor_llm_adapter_from_env,
     build_script_repair_llm_adapter_from_env,
@@ -56,7 +57,7 @@ from app.modules.script_engine.llm_adapter import (
     FailingLLMAdapter,
     MissingLLMConfigurationError,
 )
-from app.modules.script_engine.long_story_service import LongStoryService
+from app.modules.script_engine.long_story_service import LongStoryService, LongStoryNotFoundError
 from app.modules.script_engine.story_planning_service import StoryPlanningService
 from app.modules.script_engine.bilingual_view import BilingualScriptViewService
 from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
@@ -157,7 +158,7 @@ def get_storyboard_service() -> StoryboardService:
         runtime = get_long_story_database_runtime()
     except DatabaseConfigurationError as exc:
         raise HTTPException(503, "分镜持久化服务尚未配置。") from exc
-    return StoryboardService(PreproductionRepository(runtime), build_planning_editor_llm_adapter_from_env)
+    return StoryboardService(PreproductionRepository(runtime), build_storyboard_llm_adapter_from_env)
 
 
 def get_story_planning_service() -> StoryPlanningService:
@@ -398,6 +399,23 @@ def get_script_generation_service() -> ScriptGenerationService:
     return _get_script_generation_service(_llm_service_cache_key())
 
 
+def _load_episode_planning_workspace(project_id: str) -> dict[str, object]:
+    try:
+        return get_long_story_service().get_workspace_snapshot(project_id).workspace_payload
+    except LongStoryNotFoundError:
+        return {}
+
+
+def _load_approved_episode_history(project_id: str) -> list[dict[str, object]]:
+    workspace = _load_episode_planning_workspace(project_id)
+    return [
+        item for item in workspace.get("episodeRoadmaps", [])
+        if isinstance(item, dict) and item.get("status") == "approved"
+        and (not workspace.get("storyBibleVersion") or not item.get("story_bible_version")
+             or item["story_bible_version"] == workspace["storyBibleVersion"])
+    ]
+
+
 def get_episode_script_agent(
     generation_service: ScriptGenerationService = Depends(get_script_generation_service),
     run_service: AgentRunService = Depends(get_agent_run_service),
@@ -496,6 +514,8 @@ def _get_script_generation_service(
         production_count_llm_adapter=script_editor_llm_adapter,
         initial_fallback_llm_adapter=primary_repair_llm_adapter,
         initial_generation_timeout_seconds=_initial_generation_timeout_seconds(),
+        episode_plan_history_loader=_load_approved_episode_history,
+        episode_plan_workspace_loader=_load_episode_planning_workspace,
         contract_fallback_llm_adapter=primary_repair_llm_adapter,
         continuity_llm_adapter=continuity_llm_adapter,
         script_editor_llm_adapter=script_editor_llm_adapter,

@@ -39,10 +39,13 @@ test("missing or invalid body order recovers without dropping content", () => {
     normalizeScreenplayBodyOrder(scene(undefined)),
     ["action:0", "dialogue:0", "action:1", "dialogue:1"],
   );
-  assert.deepEqual(
-    normalizeScreenplayBodyOrder(
-      scene(["action:0", "action:1", "dialogue:0", "dialogue:1"]),
-    ),
-    ["action:0", "dialogue:0", "action:1", "dialogue:1"],
-  );
+});
+
+test("complete alternate references and silent sequences retain their exact performance order", () => {
+  for (const order of [
+    ["action:0", "action:1", "dialogue:0", "dialogue:1"],
+    ["action_1", "action_2", "dialogue_1", "dialogue_2"],
+  ]) {
+    assert.deepEqual(normalizeScreenplayBodyOrder(scene(order)), ["action:0", "action:1", "dialogue:0", "dialogue:1"]);
+  }
 });

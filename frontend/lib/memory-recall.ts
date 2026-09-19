@@ -8,6 +8,10 @@ import type {
   ScriptProject,
 } from "./types";
 import { isApprovedEpisodeRoadmap } from "./planning-coverage";
+import { characterReferenceAliases } from "./character-reference";
+import { synchronizeContinuity } from "./continuity";
+import { parseGeneratedDraft } from "./generated-draft-parser";
+import { sameEpisodeSetupPayoffSources, type SameEpisodeSetupPayoffSource } from "./setup-payoff-provenance";
 
 export type MemoryRecallStatus = "sufficient" | "insufficient" | "not_applicable";
 export type MemoryRecallTask = "episode_generation" | "episode_modification";
@@ -33,6 +37,14 @@ export interface MemoryCapsule {
   priority: number;
   mandatory: boolean;
   conflict_note?: string | null;
+  life_status?: "alive" | "dead" | "missing" | "unknown";
+  physical_state?: string;
+  location?: string;
+  health_conditions?: string[];
+  action_capabilities?: string[];
+  lasting_marks?: string[];
+  belief_or_attitude?: string;
+  personality_development?: string;
   knowledge_states?: Array<{
     knowledge_key: string;
     statement: string;
@@ -53,6 +65,7 @@ export interface MemoryRecall {
   missing_requirements: string[];
   capsules: MemoryCapsule[];
   omitted_records: string[];
+  same_episode_setup_payoffs?: SameEpisodeSetupPayoffSource[];
 }
 
 export interface EpisodeMemoryRecallFocus {
@@ -74,19 +87,21 @@ const MAX_CAPSULES = 50;
  * retrieval can be added behind the same contract later.
  */
 export function buildEpisodeMemoryRecall(
-  project: Pick<ScriptProject, "characters" | "storyLines" | "characterRelationships" | "continuationHooks" | "setupPayoffs" | "continuityStates" | "episodeRoadmaps">,
+  project: Pick<ScriptProject, "characters" | "storyLines" | "characterRelationships" | "continuationHooks" | "setupPayoffs" | "continuityStates" | "episodeRoadmaps"> & Partial<Pick<ScriptProject, "episodes">>,
   focus: EpisodeMemoryRecallFocus,
 ): MemoryRecall {
   const relevantCharacterRefs = unique(focus.relevantCharacterRefs ?? []);
   const plannedStoryLineRefs = unique(focus.plannedStoryLineRefs ?? []);
-  const plannedSetupRefs = unique([
-    ...(focus.plannedSetupRefs ?? []),
-    ...(focus.plannedPayoffRefs ?? []),
-  ]);
+  const plannedSetupRefs = unique(focus.plannedSetupRefs ?? []);
+  const plannedPayoffRefs = unique(focus.plannedPayoffRefs ?? []);
+  const sameEpisodeSources = sameEpisodeSetupPayoffSources(project, focus.episodeNumber, focus.storyBibleVersion)
+    .filter(source => plannedSetupRefs.includes(source.setup_payoff_ref) && plannedPayoffRefs.includes(source.setup_payoff_ref));
+  const sameEpisodeRefs = new Set(sameEpisodeSources.map(source => source.setup_payoff_ref));
   const focusedRefs = new Set([
     ...relevantCharacterRefs,
     ...plannedStoryLineRefs,
     ...plannedSetupRefs,
+    ...plannedPayoffRefs,
   ].map(normalize));
   const candidates: MemoryCapsule[] = [
     ...characterCapsules(project.characters, focusedRefs),
@@ -100,12 +115,24 @@ export function buildEpisodeMemoryRecall(
     capsule.source_episode == null || capsule.source_episode < focus.episodeNumber
   ));
 
-  const knownRequiredRefs = [
+  // A setup may first be planted in this episode. Its planned reference is
+  // still sent to writing/QC, but it cannot require nonexistent prior memory.
+  // Reinforcing a recorded setup and paying one off both need its old state.
+  const existingSetupRefs = plannedSetupRefs.filter((ref) => (
+    (project.setupPayoffs ?? []).some((record) => (
+      normalize(record.ref) === normalize(ref)
+      && [record.setupEpisode, record.lastUpdatedEpisode, ...record.history.map((item) => item.episodeNumber)]
+        .some((episode) => episode != null && episode < focus.episodeNumber)
+    ))
+    || candidates.some((candidate) => matchesRef(candidate, ref))
+  ));
+  const knownRequiredRefs = unique([
     ...relevantCharacterRefs,
     ...plannedStoryLineRefs,
-    ...plannedSetupRefs,
-  ];
-  const selected = selectCapsules(candidates, focusedRefs);
+    ...existingSetupRefs,
+    ...plannedPayoffRefs.filter(ref => !sameEpisodeRefs.has(ref)),
+  ]);
+  const selected = selectCapsules(candidates);
   const missingRequirements = unique(
     knownRequiredRefs.filter((ref) => !selected.some((capsule) => matchesRef(capsule, ref))),
   );
@@ -136,6 +163,7 @@ export function buildEpisodeMemoryRecall(
     missing_requirements: missingRequirements,
     capsules: selected,
     omitted_records: omittedRecords,
+    ...(sameEpisodeSources.length ? { same_episode_setup_payoffs: sameEpisodeSources } : {}),
   };
   return compactRecall(recall);
 }
@@ -149,6 +177,7 @@ export function buildEpisodeModificationMemoryRecall(
   project: Parameters<typeof buildEpisodeMemoryRecall>[0],
   sourceRecall: unknown,
   focus: Omit<EpisodeMemoryRecallFocus, "task">,
+  replacedSourceEpisodes: ReadonlySet<number> = new Set(),
 ): MemoryRecall {
   const refreshed = buildEpisodeMemoryRecall(project, {
     ...focus,
@@ -159,15 +188,14 @@ export function buildEpisodeModificationMemoryRecall(
 
   const sourceCapsules = source.capsules.filter((capsule) => (
     capsule.source_episode == null || capsule.source_episode < focus.episodeNumber
-  ));
+  ) && !replacedSourceEpisodes.has(capsule.source_episode ?? 0));
   const capsulesById = new Map(
     sourceCapsules.map((capsule) => [capsule.capsule_id, capsule]),
   );
   for (const capsule of refreshed.capsules) {
     capsulesById.set(capsule.capsule_id, capsule);
   }
-  const focusedRefs = new Set(refreshed.required_refs.map(normalize));
-  const capsules = selectCapsules([...capsulesById.values()], focusedRefs);
+  const capsules = selectCapsules([...capsulesById.values()]);
   const missingRequirements = refreshed.required_refs.filter((ref) => (
     !capsules.some((capsule) => matchesRef(capsule, ref))
   ));
@@ -187,6 +215,54 @@ export function buildEpisodeModificationMemoryRecall(
   });
 }
 
+/** Rebuild an edit's prior state from the current saved bodies, never future projections. */
+export function projectBeforeEpisodeModification(project: ScriptProject, episodeNumber: number): ScriptProject {
+  const boundary = Math.min(episodeNumber, ...project.episodes.filter(episode => episode.sourceAmendment).map(episode => episode.episodeNumber));
+  const episodes = project.episodes.filter((episode) => episode.episodeNumber < boundary);
+  const priorNames = new Set(episodes.flatMap((episode) => {
+    const draft = episode.finalizationResult?.master_script
+      ?? parseGeneratedDraft(episode.workingDraftJson)
+      ?? parseGeneratedDraft(episode.confirmedDraftJson)
+      ?? episode.generationRun.draft_master_script;
+    return draft.characters.map((character) => character.name);
+  }));
+  const characters = project.characters.filter((character) => (
+    character.source !== "generated" || character.id.startsWith("story-bible-")
+    || priorNames.has(character.name)
+    || !character.lastUpdatedEpisode || character.lastUpdatedEpisode < boundary
+  ));
+  const storyLines = project.storyLines.map((line) => (
+    (line.lastProgressedEpisode ?? 0) < boundary ? line : {
+      ...line, status: "setup" as const, currentState: undefined, lastProgressedEpisode: undefined,
+      nextRequiredStep: undefined, episodeBeats: [], warnings: [], health: "on_track" as const,
+    }
+  ));
+  const relationships = project.characterRelationships.flatMap((relationship) => {
+    if ((relationship.lastUpdatedEpisode ?? 0) < boundary) return [relationship];
+    const history = relationship.episodeChanges.filter((item) => item.episodeNumber < boundary);
+    const latest = history.at(-1);
+    if (!latest?.currentState) return [];
+    const sameDirection = latest.sourceCharacterId === relationship.sourceCharacterId;
+    return [{ ...relationship, currentState: latest.currentState,
+      relationshipType: latest.relationshipType ?? relationship.relationshipType,
+      sourceToTarget: sameDirection ? latest.sourceToTarget : latest.targetToSource,
+      targetToSource: sameDirection ? latest.targetToSource : latest.sourceToTarget,
+      lastUpdatedEpisode: latest.episodeNumber, episodeChanges: history,
+    }];
+  });
+  const states = (project.continuityStates ?? []).flatMap((state) => {
+    const history = state.history.filter((change) => change.episodeNumber < boundary);
+    const latest = history.at(-1);
+    if (!latest) return state.lastUpdatedEpisode < boundary ? [state] : [];
+    return [{ ...state, currentState: latest.currentState, persistence: latest.persistence,
+      futureConstraint: latest.futureConstraint, lastUpdatedEpisode: latest.episodeNumber, history,
+    }];
+  });
+  return { ...project, episodes, ...synchronizeContinuity(
+    project.creativePrompt, characters, episodes, storyLines, relationships, states,
+  ) };
+}
+
 function memoryRecallFromUnknown(value: unknown): MemoryRecall | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const recall = value as Partial<MemoryRecall>;
@@ -203,7 +279,7 @@ function characterCapsules(
   focusedRefs: Set<string>,
 ): MemoryCapsule[] {
   return characters.map((character) => {
-    const ref = `character.${character.id}`;
+    const refs = characterReferenceAliases(character.id);
     const state = character.dynamicState;
     const latestHistory = character.stateHistory?.at(-1);
     const sourceEpisode = state?.lastUpdatedEpisode ?? character.lastUpdatedEpisode ?? latestHistory?.episodeNumber ?? 0;
@@ -218,13 +294,19 @@ function characterCapsules(
       `角色${character.name}`,
       state?.currentGoal ? `目标：${state.currentGoal}` : "",
       state?.emotionalState ? `情绪：${state.emotionalState}` : "",
+      state?.beliefOrAttitude ? `信念或态度：${state.beliefOrAttitude}` : "",
       state?.lifeStatus ? `生存：${state.lifeStatus}` : "",
+      state?.physicalState ? `身体状态：${state.physicalState}` : "",
+      state?.healthConditions?.length ? `伤病状态：${state.healthConditions.join("、")}` : "",
+      state?.actionCapabilities?.length ? `行动能力：${state.actionCapabilities.join("、")}` : "",
+      state?.lastingMarks?.length ? `永久标记：${state.lastingMarks.join("、")}` : "",
       state?.location ? `位置：${state.location}` : "",
       state?.activeConstraints?.length ? `限制：${state.activeConstraints.join("、")}` : "",
+      state?.personalityDevelopment ? `性格变化：${state.personalityDevelopment}` : "",
       state?.latestChangeSummary ? `最新变化：${state.latestChangeSummary}` : "",
       state?.latestChangeCause ? `变化原因：${state.latestChangeCause}` : "",
     ].filter(Boolean).join("；"));
-    const focused = focusedRefs.has(normalize(ref)) || focusedRefs.has(normalize(character.id));
+    const focused = refs.some((ref) => focusedRefs.has(normalize(ref)));
     return capsule({
       capsule_id: `memory.character.${safeId(character.id)}`,
       memory_type: "character_state",
@@ -233,9 +315,17 @@ function characterCapsules(
       active_constraints: [...(state?.activeConstraints ?? [])],
       source_episode: sourceEpisode,
       source_scene_numbers: latestHistory?.evidenceSceneNumbers ?? [],
-      entity_refs: [ref],
+      entity_refs: refs,
       evidence_refs: evidenceRefs(sourceEpisode, latestHistory?.evidenceSceneNumbers),
       authority: latestHistory?.status === "confirmed" ? "canonical" : "derived",
+      life_status: state?.lifeStatus,
+      physical_state: state?.physicalState,
+      location: state?.location,
+      health_conditions: state?.healthConditions ?? [],
+      action_capabilities: state?.actionCapabilities ?? [],
+      lasting_marks: state?.lastingMarks ?? [],
+      belief_or_attitude: state?.beliefOrAttitude,
+      personality_development: state?.personalityDevelopment,
       priority: focused ? 95 : 58,
       mandatory: focused,
     });
@@ -304,9 +394,11 @@ function relationshipCapsules(
   focusedRefs: Set<string>,
 ): MemoryCapsule[] {
   return relationships.map((relationship) => {
-    const sourceRef = `character.${relationship.sourceCharacterId}`;
-    const targetRef = `character.${relationship.targetCharacterId}`;
-    const focused = focusedRefs.has(normalize(sourceRef)) || focusedRefs.has(normalize(targetRef));
+    const sourceRefs = characterReferenceAliases(relationship.sourceCharacterId);
+    const targetRefs = characterReferenceAliases(relationship.targetCharacterId);
+    const sourceRef = sourceRefs[0];
+    const targetRef = targetRefs[0];
+    const focused = [...sourceRefs, ...targetRefs].some((ref) => focusedRefs.has(normalize(ref)));
     const latest = relationship.episodeChanges.at(-1);
     const sourceEpisode = relationship.lastUpdatedEpisode ?? latest?.episodeNumber ?? 0;
     return capsule({
@@ -319,7 +411,7 @@ function relationshipCapsules(
       ),
       source_episode: sourceEpisode,
       source_scene_numbers: latest?.evidenceSceneNumbers ?? [],
-      entity_refs: [relationship.id, sourceRef, targetRef],
+      entity_refs: [relationship.id, ...sourceRefs, ...targetRefs],
       evidence_refs: evidenceRefs(sourceEpisode, latest?.evidenceSceneNumbers),
       authority: latest ? "derived" : "canonical",
       priority: focused ? 90 : 48,
@@ -333,7 +425,7 @@ function setupPayoffCapsules(
   focusedRefs: Set<string>,
 ): MemoryCapsule[] {
   return records
-    .filter((record) => record.status !== "paid_off")
+    .filter((record) => record.status !== "paid_off" || focusedRefs.has(normalize(record.ref)))
     .map((record) => {
       const focused = focusedRefs.has(normalize(record.ref));
       return capsule({
@@ -423,7 +515,7 @@ function roadmapCapsules(
     }));
 }
 
-function selectCapsules(candidates: MemoryCapsule[], focusedRefs: Set<string>): MemoryCapsule[] {
+function selectCapsules(candidates: MemoryCapsule[]): MemoryCapsule[] {
   const deduped = new Map<string, MemoryCapsule>();
   for (const candidate of candidates) {
     const existing = deduped.get(candidate.capsule_id);
@@ -500,7 +592,16 @@ function uniqueNumbers(values: number[]): number[] {
 }
 
 function safeId(value: string): string {
-  return value.trim().replace(/[^a-zA-Z0-9_.-]+/g, "-").slice(0, 120) || "unknown";
+  const raw = value.trim();
+  const readable = raw.replace(/[^a-zA-Z0-9_.-]+/g, "-").slice(0, 100);
+  if (readable === raw) return readable || "unknown";
+  // Distinct non-ASCII references must not collapse to the same capsule id
+  // and silently replace each other during recall deduplication.
+  let hash = 2166136261;
+  for (let index = 0; index < raw.length; index += 1) {
+    hash = Math.imul(hash ^ raw.charCodeAt(index), 16777619);
+  }
+  return `${readable || "ref"}.${(hash >>> 0).toString(16)}`;
 }
 
 function compactText(value: string): string {

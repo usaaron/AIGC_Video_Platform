@@ -62,7 +62,7 @@ test("creative-input edits survive immediate planning navigation and reload", as
   const editedTitle = "Latest creative brief survives navigation";
   await page.getByLabel("剧本名称").fill(editedTitle);
   await page.getByRole("button", { name: "继续故事规划" }).click({ force: true });
-  await expect(page).toHaveURL(/\/planning$/);
+  await expect(page).toHaveURL(/\/synopsis$/);
   await page.goto(`/projects/${project.id}`);
   await expect(page.getByLabel("剧本名称")).toHaveValue(editedTitle);
   await expect(page.locator(".autosave-state")).toHaveAttribute("data-save-state", "saved");

@@ -7,6 +7,7 @@ import { migrateProjectScreenplayFormat } from "../lib/canonical-character-names
 import { visibleApiError } from "../lib/api-error.ts";
 import { storyPlanningInputSignature } from "../lib/story-planning-signature.ts";
 import { DEFAULT_GENERATION_SETTINGS } from "../lib/types.ts";
+import { synchronizeContinuity } from "../lib/continuity.ts";
 
 function fixture() {
   const draft = { id: "draft.author", title: "待修改正文", language: "zh", characters: [], scenes: [] };
@@ -32,12 +33,19 @@ test("conflict source excludes saved decision and navigation metadata while dete
   assert.notEqual(authorConflictSourceSnapshot({ ...project, storyBibleVersion: 3 }, episode, draft), snapshot);
   assert.notEqual(authorConflictSourceSnapshot({ ...project, episodeRoadmaps: [{ episode_number: 1, exit_state: "公开秘密" }] }, episode, draft), snapshot);
   assert.notEqual(authorConflictSourceSnapshot(project, episode, { ...draft, title: "作者的新稿" }), snapshot);
+  const withHistory = { ...episode, authorModificationInstructions: [{ id: "requirement.1", instruction: "保留原定速度", createdAt: "now" }] };
+  const reviewedHistory = authorConflictSourceSnapshot(project, withHistory, draft);
+  assert.notEqual(reviewedHistory, snapshot);
+  assert.notEqual(authorConflictSourceSnapshot(project, { ...withHistory,
+    authorModificationInstructions: [{ ...withHistory.authorModificationInstructions[0], withdrawnAt: "later" }],
+  }, draft), reviewedHistory);
 });
 
 test("custom conflict direction preserves the original request and rejects truncation", () => {
   assert.equal(customConflictInstruction("保留新结局", "补足人物转变原因"), "保留新结局\n用户补充的处理方向：补足人物转变原因");
   assert.throws(() => customConflictInstruction("保留新结局", "  "), /填写/);
-  assert.throws(() => customConflictInstruction("原".repeat(490), "必须完整保留的补充方向"), /500/);
+  assert.equal(customConflictInstruction("原".repeat(1500), "逐句修改同时保留剧情边界").includes("原".repeat(1500)), true);
+  assert.throws(() => customConflictInstruction("原".repeat(3990), "必须完整保留的补充方向"), /4000/);
 });
 
 test("conflict sources identify readable story locations instead of exposing schema paths", () => {
@@ -59,17 +67,82 @@ test("modification transports author resolution, source project and bible versio
   const { project, episode, draft } = fixture();
   const review = { review_id: "review.1", source_fingerprint: "fingerprint", instruction: "保留新要求", user_goal: "保留新要求", conflicts: [], options: [], source_story_bible_version: 2 };
   const requests = [];
-  t.mock.method(globalThis, "fetch", async (_url, init) => {
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    if (!init?.body) {
+      assert.equal(url, "/api/story-projects/project.author/story-bibles/story_bible.project.author.main?version=2");
+      return Response.json({ data: {
+        story_bible_id: "story_bible.project.author.main", version: 2, status: "approved",
+        core_premise: "完整总纲", series_goal: "保护证人", theme: "承担责任", central_conflict: "取得证据", ending_direction: "公开证据",
+        locked_facts: ["不得编出新的付款日期"], world_rules: ["已封存材料仍由原保管人持有"],
+        avoid_patterns: ["禁止事项末尾".repeat(120)],
+        character_registry: [], character_arc_targets: [], relationships: [], story_lines: [], major_setup_payoff_refs: [],
+      } });
+    }
     requests.push(JSON.parse(init.body));
     return Response.json({ data: { source_draft_master_script_id: draft.id, instruction: review.instruction, conflict_review: review, candidate_generation_run: null } });
   });
   const result = await modifyEpisodeDraft(episode.generationRun, draft, review.instruction, undefined, null, project, { review, option_id: "bridge.1" });
   assert.equal(requests[0].source_generation_run.story_project_id, project.id);
   assert.equal(requests[0].source_story_bible_version, 2);
+  assert.ok(requests[0].source_generation_run.episode_context.story_bible_context.includes("禁止事项末尾".repeat(120)));
+  assert.match(requests[0].source_generation_run.episode_context.story_bible_context, /不得编出新的付款日期/);
   assert.deepEqual(requests[0].resolution, { review, option_id: "bridge.1" });
   assert.equal(result.candidate_generation_run, null);
   assert.deepEqual(result.conflict_review, review);
   assert.equal(episode.generationRun.story_project_id, undefined);
+});
+
+test("editing an earlier episode inherits revised prior bodies without resurrecting old or future facts", async (t) => {
+  const { project, episode, draft } = fixture();
+  Object.assign(draft, { synopsis: "当前集等待核验", episode_goal: "等待核验", hook: "下一步", next_episode_question: "何时核验？" });
+  episode.workingDraftJson = JSON.stringify(draft);
+  const priorDraft = {
+    ...draft, id: "draft.prior", title: "新的前集", synopsis: "证人把原件保留在柜中。",
+    hook: "核验尚未完成。", episode_goal: "保护原件", next_episode_question: "何时共同开柜？",
+    characters: [{ name: "知微", role: "律师", description: "坚持核实", motivation: "保护证人" }],
+    character_state_updates: [{ character_name: "知微", current_goal: "保护原件", emotional_state: "克制",
+      knowledge_changes: [], knowledge_states: [{ knowledge_key: "paper.location", statement: "原件仍在柜中", status: "known" }],
+      active_constraints: [], change_summary: "等待开柜", change_cause: "证人保留原件", evidence_scene_numbers: [1] }],
+    continuity_state_updates: [{ entity_key: "item.paper", entity_type: "item", entity_name: "原件",
+      state_domain: "possession", current_state: "原件仍在柜中", transition: "established", persistence: "ongoing",
+      change_cause: "证人保留原件", evidence_scene_numbers: [1] }],
+    scenes: [{ scene_number: 1, slug: "档案室", character_actions: ["证人锁好柜门。"], dialogues: [], body_order: ["action:0"] }],
+  };
+  const futureDraft = { ...priorDraft, id: "draft.future", synopsis: "原件在未来被毁。",
+    character_state_updates: [{ ...priorDraft.character_state_updates[0], current_goal: "追查纵火",
+      knowledge_states: [{ knowledge_key: "paper.location", statement: "未来原件被毁", status: "known" }] }],
+    continuity_state_updates: [{ ...priorDraft.continuity_state_updates[0], current_state: "未来原件被毁" }],
+  };
+  const makeEpisode = (number, body) => ({ episodeNumber: number,
+    generationRun: { draft_master_script: body }, workingDraftJson: JSON.stringify(body) });
+  episode.episodeNumber = 2;
+  episode.generationRun.episode_context = { episode_number: 2, relevant_character_refs: ["character.lead"],
+    previous_episode_handoff: "旧稿错误：原件已交走。", previous_episode_question: "旧稿问题",
+    provisional_continuity_checkpoint: "旧稿错误：原件已交走。",
+    memory_recall: { schema_version: "memory_recall.v1", memory_layer: "provisional", task: "episode_generation",
+      through_episode_number: 1, status: "sufficient", required_refs: [], missing_requirements: [], omitted_records: [],
+      capsules: [{ capsule_id: "memory.removed-invention", memory_type: "hard_fact", summary: "旧稿发明的付款日期",
+        source_episode: 1, source_scene_numbers: [1], entity_refs: ["invented.date"], evidence_refs: [],
+        authority: "provisional", priority: 95, mandatory: true }] },
+  };
+  project.characters = [{ id: "lead", name: "知微", age: "", gender: "", role: "律师", background: "", appearance: "", description: "坚持核实" }];
+  project.episodes = [makeEpisode(1, priorDraft), episode, makeEpisode(3, futureDraft)];
+  Object.assign(project, synchronizeContinuity(project.creativePrompt, project.characters, project.episodes));
+  const before = structuredClone(project);
+  let sent;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    if (!init?.body) return Response.json({ detail: "Missing legacy bible" }, { status: 404 });
+    sent = JSON.parse(init.body);
+    return Response.json({ data: {} });
+  });
+  await modifyEpisodeDraft(episode.generationRun, draft, "重写本集", undefined, null, project);
+  const context = sent.source_generation_run.episode_context;
+  assert.match(context.previous_episode_handoff, /证人锁好柜门/);
+  assert.equal(context.previous_episode_question, "何时共同开柜？");
+  assert.match(context.provisional_continuity_checkpoint, /原件仍在柜中/);
+  assert.match(JSON.stringify(context.memory_recall), /原件仍在柜中/);
+  assert.doesNotMatch(JSON.stringify(context), /未来原件被毁|追查纵火|旧稿错误|旧稿问题|旧稿发明/);
+  assert.deepEqual(project, before);
 });
 
 test("upstream revision sends the exact acknowledged plan and workspace revision", async (t) => {

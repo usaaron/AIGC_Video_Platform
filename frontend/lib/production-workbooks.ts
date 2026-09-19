@@ -1,6 +1,7 @@
+import { applyEnglishCharacterNames } from "./bilingual-dialogue.ts";
+import { ACTING_PROFILE_FIELDS, ACTING_PROFILE_LABELS } from "./character-acting-profile.ts";
 import {
   formatEpisodeRanges,
-  frequencySummary,
   type ProductionIndex,
 } from "./production-index.ts";
 
@@ -53,6 +54,13 @@ export async function createProductionWorkbookAttachments(
     workbook.title = factory.filename.replace(/\.xlsx$/i, "");
     workbook.company = "序幕TV";
     factory.build(workbook);
+    if (index.characterNameLanguage === "en") {
+      const aliases = new Map(index.characters.filter(character => character.chineseName && character.englishName)
+        .map(character => [character.chineseName, character.englishName]));
+      workbook.eachSheet(sheet => sheet.eachRow(row => row.eachCell(cell => {
+        if (typeof cell.value === "string") cell.value = applyEnglishCharacterNames(cell.value, aliases);
+      })));
+    }
     const buffer = await workbook.xlsx.writeBuffer();
     attachments.push({
       filename: factory.filename,
@@ -71,8 +79,9 @@ function buildCharacterWorkbook(
     views: [{ state: "frozen", ySplit: 1 }],
     pageSetup: landscapePageSetup(),
   });
+  const englishNames = index.characterNameLanguage === "en";
   const headers = [
-    "角色", "编号", "角色名", "中文名", "类型", "身份", "核心特征", "关键关联",
+    "角色", "编号", "角色名", ...(englishNames ? [] : ["中文名"]), "类型", "身份", "核心特征", "关键关联",
     "出现次数", "设计要点", "性格特色", "人物特点",
   ];
   sheet.addRow(headers);
@@ -81,7 +90,7 @@ function buildCharacterWorkbook(
       character.englishName || character.chineseName || character.name,
       character.code,
       character.englishName || character.name,
-      character.chineseName || character.name,
+      ...(englishNames ? [] : [character.chineseName || character.name]),
       character.role,
       character.identity,
       character.coreTraits,
@@ -92,9 +101,24 @@ function buildCharacterWorkbook(
       character.description,
     ]);
   }
-  finalizeTable(sheet, headers.length, [18, 9, 18, 18, 14, 24, 28, 24, 12, 28, 24, 38], {
+  finalizeTable(sheet, headers.length, [18, 9, 18, ...(englishNames ? [] : [18]), 14, 24, 28, 24, 12, 28, 24, 38], {
     projectTitle,
     rowHeight: 58,
+  });
+  const actingSheet = workbook.addWorksheet("角色表演档案", {
+    views: [{ state: "frozen", xSplit: 1, ySplit: 1 }],
+    pageSetup: landscapePageSetup(),
+  });
+  const actingHeaders = ["角色", "表演项目", "表演指导"];
+  actingSheet.addRow(actingHeaders);
+  for (const character of index.characters) {
+    for (const field of ACTING_PROFILE_FIELDS) {
+      actingSheet.addRow([englishNames ? character.englishName || character.name : character.chineseName || character.name,
+        ACTING_PROFILE_LABELS[field], character.actingProfile?.[field] || null]);
+    }
+  }
+  finalizeTable(actingSheet, actingHeaders.length, [18, 22, 96], {
+    projectTitle, rowHeight: 40,
   });
 }
 
@@ -155,22 +179,50 @@ function buildFrequencyWorkbook(
     views: [{ state: "frozen", ySplit: 2 }],
     pageSetup: landscapePageSetup(),
   });
-  sheet.mergeCells("A1:E1");
+  sheet.mergeCells("A1:F1");
   sheet.getCell("A1").value = `${projectTitle} · 快速统计摘要（完整版）`;
   sheet.getCell("A1").font = { bold: true, size: 16, color: { argb: COLORS.ink } };
   sheet.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
   sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.lime } };
   sheet.getRow(1).height = 32;
-  const headers = ["类型", "总数", "高频（出现≥10次）", "中频（5–9次）", "低频（1–4次）"];
+  const headers = ["类型", "总数", "高频（出现≥10次）", "中频（5–9次）", "低频（1–4次）", "未出场（0次）"];
   sheet.addRow(headers);
-  for (const row of frequencySummary(index)) {
-    sheet.addRow([row.type, row.total, row.high || "—", row.medium || "—", row.low || "—"]);
+  const groups = [
+    { type: "人物", items: index.characters },
+    { type: "场景", items: index.scenes },
+    { type: "道具", items: index.props },
+  ];
+  for (const { type, items } of groups) {
+    sheet.addRow([type, items.length,
+      items.filter(item => item.appearanceCount >= 10).length,
+      items.filter(item => item.appearanceCount >= 5 && item.appearanceCount < 10).length,
+      items.filter(item => item.appearanceCount > 0 && item.appearanceCount < 5).length,
+      items.filter(item => item.appearanceCount === 0).length]);
   }
-  finalizeTable(sheet, headers.length, [16, 12, 40, 40, 54], {
+  finalizeTable(sheet, headers.length, [16, 12, 26, 24, 24, 22], {
     projectTitle,
     headerRow: 2,
-    rowHeight: 92,
+    rowHeight: 40,
   });
+  const note = sheet.addRow(["人物按出场集数统计；场景和道具按出现场次统计。完整名称、次数及集数见“频次明细”。"]);
+  sheet.mergeCells(note.number, 1, note.number, headers.length);
+  note.height = 40;
+  note.getCell(1).font = { size: 10.5, color: { argb: COLORS.muted } };
+  note.getCell(1).alignment = { wrapText: true, vertical: "middle" };
+
+  const detail = workbook.addWorksheet("频次明细", {
+    views: [{ state: "frozen", ySplit: 1 }], pageSetup: landscapePageSetup(),
+  });
+  detail.addRow(["类型", "名称", "出现次数", "频次档位", "出现集数"]);
+  for (const { type, items } of groups) {
+    for (const item of items) {
+      const count = item.appearanceCount;
+      detail.addRow([type, type === "人物" && index.characterNameLanguage === "en" ? item.englishName || item.name : item.chineseName || item.name, count,
+        count >= 10 ? "高频" : count >= 5 ? "中频" : count > 0 ? "低频" : "未出场",
+        formatEpisodeRanges(item.episodeNumbers ?? []) || "—"]);
+    }
+  }
+  finalizeTable(detail, 5, [14, 46, 14, 16, 34], { projectTitle, rowHeight: 36 });
 }
 
 function buildCharacterPropWorkbook(
@@ -192,18 +244,15 @@ function buildCharacterPropWorkbook(
       || prop.relatedCharacters.includes(character.name)
     ));
     if (!props.length) continue;
-    sheet.addRow([
-      character.chineseName || character.englishName || character.name,
-      props.map((prop) => {
-        const label = prop.chineseName || prop.englishName || prop.name;
-        if (prop.owners.includes(character.name)) return `${label}（持有/归属）`;
-        if (prop.directUsers.includes(character.name)) return `${label}（使用/直接接触）`;
-        return `${label}（同场接触）`;
-      }).join("、"),
-      props.filter((prop) => prop.owners.includes(character.name))
-        .map((prop) => prop.chineseName || prop.englishName || prop.name)
-        .join("、") || "正文未明确归属",
-    ]);
+    for (const prop of props) {
+      const label = prop.chineseName || prop.englishName || prop.name;
+      const relationship = prop.owners.includes(character.name) ? "持有/归属"
+        : prop.directUsers.includes(character.name) ? "使用/直接接触" : "同场出现，未确认接触";
+      sheet.addRow([
+        index.characterNameLanguage === "en" ? character.englishName || character.name : character.chineseName || character.name,
+        `${label}（${relationship}）`, prop.owners.join("、") || "正文未明确归属",
+      ]);
+    }
   }
 
   const spacerRow = sheet.addRow([]);
@@ -213,7 +262,7 @@ function buildCharacterPropWorkbook(
   sectionRow.getCell(1).font = { bold: true, size: 13, color: { argb: COLORS.ink } };
   sectionRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.lime } };
   sectionRow.getCell(1).alignment = { horizontal: "left", vertical: "middle" };
-  const secondaryHeaderRow = sheet.addRow(["道具", "主要使用/持有者", "次要使用/接触者"]);
+  const secondaryHeaderRow = sheet.addRow(["道具", "主要使用/持有者", "同场人物（未确认接触）"]);
   styleHeaderRow(secondaryHeaderRow, 3);
   for (const prop of index.props.filter((item) => item.appearanceCount >= 5).slice(0, 30)) {
     sheet.addRow([
@@ -223,6 +272,9 @@ function buildCharacterPropWorkbook(
     ]);
   }
   finalizeTable(sheet, 3, [24, 64, 46], { projectTitle, rowHeight: 50 });
+  styleHeaderRow(secondaryHeaderRow, 3);
+  sectionRow.getCell(1).font = { bold: true, size: 13, color: { argb: COLORS.ink } };
+  sectionRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.lime } };
 }
 
 function finalizeTable(
@@ -240,10 +292,14 @@ function finalizeTable(
   widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   for (let rowNumber = headerRowNumber + 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
-    if (!row.height) row.height = options.rowHeight;
+    let requiredHeight = options.rowHeight;
     for (let column = 1; column <= columnCount; column += 1) {
       const cell = row.getCell(column);
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      // Empty strings have no business value and some XLSX readers display
+      // their shared-string index. Emit a genuinely empty cell instead.
+      if (cell.value === "") cell.value = null;
+      requiredHeight = Math.max(requiredHeight, wrappedTextHeight(cell.text, widths[column - 1]));
+      cell.alignment = { horizontal: typeof cell.value === "number" ? "right" : "left", vertical: "middle", wrapText: true };
       cell.font = { size: 10.5, color: { argb: COLORS.ink } };
       cell.fill = {
         type: "pattern",
@@ -252,10 +308,20 @@ function finalizeTable(
       };
       cell.border = thinBorder();
     }
+    if (!row.height) row.height = Math.min(409, requiredHeight);
   }
   sheet.headerFooter.oddHeader = `&L序幕TV · 剧本大师&C${options.projectTitle}&R制作资料`;
   sheet.headerFooter.oddFooter = "&L最终正文自动整理&C第 &P / &N 页&R&A";
   sheet.properties.defaultRowHeight = 22;
+}
+
+function wrappedTextHeight(text: string, width: number): number {
+  const capacity = Math.max(1, width - 2);
+  const lines = text.split(/\r?\n/).reduce((sum, line) => {
+    const units = [...line].reduce((count, character) => count + (/[^\u0000-\u00ff]/.test(character) ? 2 : 1), 0);
+    return sum + Math.max(1, Math.ceil(units / capacity));
+  }, 0);
+  return lines * 15 + 12;
 }
 
 function styleHeaderRow(row: RowLike, columnCount: number): void {

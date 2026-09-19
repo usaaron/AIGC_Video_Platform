@@ -16,11 +16,11 @@ export function normalizeEpisodeLifecycle(episode: EpisodeWorkspace): EpisodeWor
       ? "final" : "confirmed";
     if (episode.status === lockedStatus && episode.lockedAt === lockedAt
       && episode.confirmedDraftJson === confirmedDraftJson
-      && !episode.hasLocalDraftEdits && !episode.modificationCandidate) return episode;
+      && !episode.hasLocalDraftEdits && (!episode.modificationCandidate || episode.sourceAmendment)) return episode;
     return {
       ...episode, status: lockedStatus, confirmedDraftJson,
       confirmedAt: episode.confirmedAt ?? lockedAt, lockedAt,
-      hasLocalDraftEdits: false, modificationCandidate: undefined,
+      hasLocalDraftEdits: false, modificationCandidate: episode.sourceAmendment ? episode.modificationCandidate : undefined,
     };
   }
   const status = episode.hasLocalDraftEdits || episode.modificationCandidate ? "editing" : "saved";

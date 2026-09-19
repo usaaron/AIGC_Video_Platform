@@ -1,0 +1,1112 @@
+{
+  "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+  "records": [
+    {
+      "id": "2e19c0bc-de2c-40b1-a82d-8f70ab514038",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "adapter raw JSON model=deepseek-v4-pro",
+      "candidate": "{\n  \"children\": [\n    {\n  \"title\": \"绝境激活与首道紫外防线\",\n  \"narrative_purpose\": \"在火种晶阵被毁、接应失联、低阶游魂围堡的绝境中，让Lane激活系统并造出人工紫外灯，守住第一道防线。\",\n  \"synopsis\": \"Lane抵达废弃黑石碉堡后立刻确认火种晶阵全毁、接应军队失联，黄昏未落低阶游魂已开始围堡。Eira奉命伺机斩杀，以讥讽逼他暴露软弱；Morton只盘算如何减少损失。Lane在绝境中穿越记忆复苏，系统激活，他命令众人收集废铁、碎玻璃和魔晶碎片，顶着Eira的质疑与Morton的阻挠，用现代光学知识拼装出大陆第一台人工紫外灯。低阶游魂触光消融，第一道防线守住，但单灯续航和照射范围不足，新的中阶畸变正在逼近。\",\n  \"entry_state\": \"Lane Claude被Viola与Cole构陷，剥夺继承权并流放至边境废弃黑石碉堡；火种晶阵已被Cole破坏，接应军队遭高阶梦魇诡潮击溃，被收买将领顺势放弃救援，Lane与外界失联；Eira奉命伺机斩杀Lane，Morton轻视落魄少主，低阶游魂开始围堡。\",\n  \"central_conflict\": \"Lane必须在火种失效、接应溃败、内部Eira敌视与Morton观望的情况下，以人工紫外光守住碉堡；Eira的杀心与Morton的逐利退缩随时会破坏防御。\",\n  \"emotional_direction\": \"从被抛弃的窒息感与内部敌意，到Lane以知识强行撕开生路，Eira由轻蔑转为惊疑，Morton由轻视转为重新估算。\",\n  \"exit_state\": \"Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。\",\n  \"unit_story_beats\": [\n    \"Lane抵达废弃碉堡，确认火种晶阵被Cole破坏、接应军队失联；Eira以奉命监视之名讥讽他必死，Morton只计算弃堡损失。\",\n    \"低阶游魂趁黄昏围堡，Lane在绝境刺激下穿越记忆复苏，想象造物系统激活，并命令收集废铁、碎玻璃和魔晶碎片。\",\n    \"Lane利用现代光学知识拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费物资。\",\n    \"Lane点亮人工紫外灯，低阶游魂触光消融，守住第一道防线；Eira惊疑收剑，Morton开始重新评估Lane。\",\n    \"Lane测试后发现单灯续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会。\"\n  ],\n  \"parent_event_bindings\": [\n    {\n  \"parent_event_index\": 1,\n  \"child_event_indices\": [\n    1,\n    2\n  ]\n}\n  ],\n  \"episode_developments\": [\n    {\n  \"episode_number\": 1,\n  \"synopsis\": \"Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。\",\n  \"exit_state\": \"Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。\",\n  \"source_event_indices\": [\n    1\n  ]\n},\n    {\n  \"episode_number\": 2,\n  \"synopsis\": \"低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。\",\n  \"exit_state\": \"Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。\",\n  \"source_event_indices\": [\n    2\n  ]\n},\n    {\n  \"episode_number\": 3,\n  \"synopsis\": \"Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。\",\n  \"exit_state\": \"人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。\",\n  \"source_event_indices\": [\n    3\n  ]\n},\n    {\n  \"episode_number\": 4,\n  \"synopsis\": \"Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。\",\n  \"exit_state\": \"人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。\",\n  \"source_event_indices\": [\n    4\n  ]\n},\n    {\n  \"episode_number\": 5,\n  \"synopsis\": \"Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。\",\n  \"exit_state\": \"单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。\",\n  \"source_event_indices\": [\n    5\n  ]\n},\n    {\n  \"episode_number\": 6,\n  \"synopsis\": \"Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。\",\n  \"exit_state\": \"多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。\",\n  \"source_event_indices\": []\n},\n    {\n  \"episode_number\": 7,\n  \"synopsis\": \"Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。\",\n  \"exit_state\": \"Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。\",\n  \"source_event_indices\": []\n},\n    {\n  \"episode_number\": 8,\n  \"synopsis\": \"Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。\",\n  \"exit_state\": \"Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。\",\n  \"source_event_indices\": []\n}\n  ],\n  \"unit_resolution\": \"Lane在绝境中激活系统，以人工紫外灯击退低阶游魂，守住第一道防线，并暴露单灯续航与范围不足的升级压力。\",\n  \"handoff_pressure\": \"中阶畸变魔群开始冲锋，单灯无法覆盖碉堡，Lane必须立刻验证复合紫外火种；Eira的敌视与Morton的观望将在这场攻防中被真正考验。\",\n  \"character_refs\": [\n    \"character.lane_claude\",\n    \"character.eira\",\n    \"character.morton\",\n    \"character.cole\"\n  ],\n  \"story_line_refs\": [\n    \"line.main_uv_rise\",\n    \"line.subplot_cole_betrayal\",\n    \"line.arc_eira\",\n    \"line.arc_morton\"\n  ],\n  \"setup_refs\": [\n    \"Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。\"\n  ],\n  \"payoff_refs\": [],\n  \"estimated_episode_count\": 8,\n  \"estimated_script_body_characters\": 5600,\n  \"planned_start_episode\": 1,\n  \"planned_end_episode\": 8,\n  \"decomposition_reason\": \"第1–8集承担系统激活、人工紫外灯验证与单灯局限暴露，事件密度足以支撑8集；首集即进入围堡与内部敌意，不写纯抵达。\",\n  \"recommended_next_step\": \"episode_ready\",\n  \"turning_point_indices\": [\n    2,\n    4\n  ]\n},\n    {\n  \"title\": \"复合火种破围与Eira归心\",\n  \"narrative_purpose\": \"让Lane完成复合紫外火种验证，击溃中阶畸变，并在救援Eira后使她从敌视转为初步归心，同时让Morton功利臣服。\",\n  \"synopsis\": \"中阶畸变魔群冲锋碉堡，Lane将本土魔法晶阵与紫外光学结构融合，完成复合紫外火种。新型火种铺开禁诡领域，击溃魔群。混战中Eira斗气耗尽，被数只畸变包围濒死，Lane放弃内侧安全区主动救援，没有像她见过的贵族那样抛弃底层护卫。Eira由此放下偏见，内心萌生好感。Morton亲眼确认新型火种独一无二的商业价值，算出垄断全境火种贸易的巨额利润，从轻视转为功利性臣服，决定全力辅佐Lane。\",\n  \"entry_state\": \"Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。\",\n  \"central_conflict\": \"Lane必须在魔群冲锋的极限时间内验证复合火种，并在Eira濒死时作出是否冒险救援的选择；这一选择将决定Eira的敌视能否转化为信任。\",\n  \"emotional_direction\": \"从技术验证的紧张与Eira的濒死危机，到Lane主动救援带来的关系破冰，再到Morton从逐利盘算中确认臣服。\",\n  \"exit_state\": \"Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。\",\n  \"unit_story_beats\": [\n    \"中阶畸变魔群冲锋碉堡，Lane将本土魔法晶阵与紫外光学结构融合，完成复合紫外火种。\",\n    \"Lane铺开复合火种禁诡领域，击溃中阶畸变魔群，但混战中Eira斗气耗尽被数只畸变包围。\",\n    \"Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线。\",\n    \"Eira因Lane没有像贵族那样抛弃底层护卫而放下偏见，内心萌生好感，并主动承担外围警戒。\",\n    \"Morton亲眼确认新型火种独一无二的商业价值，算出垄断全境火种贸易的巨额利润，从轻视转为功利性臣服。\",\n    \"Morton决定全力辅佐Lane，开始清点碉堡物资并规划后续生产与贸易。\"\n  ],\n  \"parent_event_bindings\": [\n    {\n  \"parent_event_index\": 3,\n  \"child_event_indices\": [\n    1,\n    2,\n    3,\n    4\n  ]\n},\n    {\n  \"parent_event_index\": 4,\n  \"child_event_indices\": [\n    5,\n    6\n  ]\n}\n  ],\n  \"episode_developments\": [\n    {\n  \"episode_number\": 9,\n  \"synopsis\": \"中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。\",\n  \"exit_state\": \"复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。\",\n  \"source_event_indices\": [\n    1,\n    2\n  ]\n},\n    {\n  \"episode_number\": 10,\n  \"synopsis\": \"Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。\",\n  \"exit_state\": \"Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。\",\n  \"source_event_indices\": [\n    3\n  ]\n},\n    {\n  \"episode_number\": 11,\n  \"synopsis\": \"Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。\",\n  \"exit_state\": \"Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。\",\n  \"source_event_indices\": [\n    4\n  ]\n},\n    {\n  \"episode_number\": 12,\n  \"synopsis\": \"Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。\",\n  \"exit_state\": \"Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。\",\n  \"source_event_indices\": [\n    5\n  ]\n},\n    {\n  \"episode_number\": 13,\n  \"synopsis\": \"Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。\",\n  \"exit_state\": \"Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。\",\n  \"source_event_indices\": [\n    6\n  ]\n},\n    {\n  \"episode_number\": 14,\n  \"synopsis\": \"Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。\",\n  \"exit_state\": \"碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。\",\n  \"source_event_indices\": []\n},\n    {\n  \"episode_number\": 15,\n  \"synopsis\": \"Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。\",\n  \"exit_state\": \"Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。\",\n  \"source_event_indices\": []\n},\n    {\n  \"episode_number\": 16,\n  \"synopsis\": \"Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。\",\n  \"exit_state\": \"Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。\",\n  \"source_event_indices\": []\n}\n  ],\n  \"unit_resolution\": \"复合紫外火种成功击溃中阶畸变，Lane以主动救援赢得Eira初步归心，Morton因商业价值确认而功利臣服。\",\n  \"handoff_pressure\": \"白昼外出搜集物资将引出荒野救援Eileen与边境崩盘真相；碉堡物资缺口和Eira、Morton的新关系将在后续扩张中继续演化。\",\n  \"character_refs\": [\n    \"character.lane_claude\",\n    \"character.eira\",\n    \"character.morton\"\n  ],\n  \"story_line_refs\": [\n    \"line.main_uv_rise\",\n    \"line.arc_eira\",\n    \"line.arc_morton\"\n  ],\n  \"setup_refs\": [],\n  \"payoff_refs\": [\n    \"Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。\"\n  ],\n  \"estimated_episode_count\": 8,\n  \"estimated_script_body_characters\": 6200,\n  \"planned_start_episode\": 9,\n  \"planned_end_episode\": 16,\n  \"decomposition_reason\": \"第9–16集承担复合火种验证、Eira救援归心与Morton功利臣服，事件密度足以支撑8集；第16集为外出搜集物资作交接。\",\n  \"recommended_next_step\": \"episode_ready\",\n  \"turning_point_indices\": [\n    1,\n    3,\n    5\n  ]\n},\n    {\n  \"title\": \"荒野救Eileen与火种塔聚势\",\n  \"narrative_purpose\": \"让Lane在荒野救下Eileen并获知边境崩盘真相，建成巨型紫外火种塔，吸引溃兵流民，建立钛合金军队并让Eira、Eileen、Morton完成情感与忠诚升级。\",\n  \"synopsis\": \"白昼Lane外出搜集物资，在荒野救下重伤昏迷、孤身逃亡的Eileen。她伪装成随军牧师，实为私自离京调查百年诡异灾变的皇朝公主，随行皇家护卫已在诡潮中全军覆没。Eileen苏醒后说明边境崩盘并非军队故意抛弃，而是高阶梦魇统领大规模诡潮，前线防线全线崩溃，通讯据点被毁。Lane整合碉堡物资和击杀魔物掉落的魔晶，系统批量加工搭建巨型聚光紫外火种塔，夜晚光芒照亮数公里，成为沦陷灰域中唯一安全信号。主城里的Cole望见冲天强光，知道Lane非但没死，还掌握了克制诡异的核心技术，内心不安，暗中封锁边境情报，拖延主城探查队伍出发。持续不灭的巨型火种塔吸引溃散士兵和逃难流民不断投奔。Lane敞开大门，免费提供庇护、食物和圣光救治，从不苛待底层。Eileen目睹他善待普通人，对比皇城与边境骄横贵族，彻底动心。Lane利用溃兵上缴的魔晶加固防诡城墙和声光预警陷阱，又借助系统材料重塑能力，融合魔物幽能，把铁质刀枪弓箭升级为自带紫外附魔的钛合金军械。训练中他不分出身，重用战功卓著的Eira，给予独立兵权与尊重，Eira彻底深爱Lane。Morton清点日益壮大的人口、魔晶收益和独家火种技术，放弃投机心态，彻底忠心臣服，开始规划火种外销。\",\n  \"entry_state\": \"Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。\",\n  \"central_conflict\": \"Lane必须在物资紧缺与边境崩盘真相不明的情况下，救下Eileen并整合资源建成火种塔；火种塔吸引流民溃兵后，他要在平等庇护与军事扩张之间维持秩序，同时面对Cole的情报封锁。\",\n  \"emotional_direction\": \"从荒野救援的紧张与Eileen的脆弱，到火种塔点亮后的希望感，再到Eileen、Eira、Morton三人因Lane的平等与担当而情感升级。\",\n  \"exit_state\": \"Lane在废弃碉堡建成巨型紫外火种塔，新型复合火种、加固防线与紫外附魔钛合金军队成型；Eira因获救与受尊重而深爱追随，Eileen以牧师身份加入并因Lane善待流民而倾心，公主身份尚未公开；Morton已忠诚并规划火种外销。碉堡成为沦陷区安全信号，高阶梦魇忌惮并准备升级诡潮压力。\",\n  \"unit_story_beats\": [\n    \"白昼Lane与Eira外出搜集物资，在荒野救下重伤昏迷、孤身逃亡的Eileen；她伪装成随军牧师，实为私自离京调查灾变的皇朝公主。\",\n    \"Eileen苏醒后说明高阶梦魇统领大规模诡潮，前线全线崩溃、通讯据点被毁，补全Lane对接应失联与边境危机的认知。\",\n    \"Lane整合碉堡物资和击杀魔物掉落的魔晶，系统批量加工搭建巨型聚光紫外火种塔，夜晚光芒照亮数公里。\",\n    \"主城里的Cole望见冲天强光，确认Lane未死且掌握克制诡异的核心技术，暗中封锁边境情报并拖延主城探查队伍出发。\",\n    \"巨型火种塔吸引溃散士兵和逃难流民投奔，Lane免费提供庇护、食物和圣光救治；Eileen目睹他善待普通人而彻底动心。\",\n    \"Lane利用溃兵上缴魔晶加固防诡城墙和声光预警陷阱，并借助系统材料重塑能力融合魔物幽能，制造紫外附魔钛合金军械。\",\n    \"Lane在训练中不分出身，重用战功卓著的Eira并给予独立兵权与尊重，Eira彻底深爱Lane。\",\n    \"Morton清点人口、魔晶收益和独家火种技术，放弃投机心态彻底忠心臣服，开始规划火种外销。\",\n    \"碉堡扩张引起高阶梦魇忌惮，魔物准备升级诡潮压力。\"\n  ],\n  \"parent_event_bindings\": [\n    {\n  \"parent_event_index\": 5,\n  \"child_event_indices\": [\n    1\n  ]\n},\n    {\n  \"parent_event_index\": 6,\n  \"child_event_indices\": [\n    2\n  ]\n},\n    {\n  \"parent_event_index\": 7,\n  \"child_event_indices\": [\n    3,\n    4\n  ]\n},\n    {\n  \"parent_event_index\": 8,\n  \"child_event_indices\": [\n    5\n  ]\n},\n    {\n  \"parent_event_index\": 9,\n  \"child_event_indices\": [\n    6,\n    7\n  ]\n},\n    {\n  \"parent_event_index\": 10,\n  \"child_event_indices\": [\n    8,\n    9\n  ]\n}\n  ],\n  \"episode_developments\": [\n    {\n  \"episode_number\": 17,\n  \"synopsis\": \"Lane与Eira在荒野发现重伤昏迷的Eileen，将其救回碉堡；Eileen以随军牧师身份请求留下，Eira对其身份保持警惕。\",\n  \"exit_state\": \"Eileen被救回碉堡并苏醒，以随军牧师身份留下；Eira对其身份保持警惕，Lane暂时接纳她。\",\n  \"source_event_indices\": [\n    1\n  ]\n},\n    {\n  \"episode_number\": 18,\n  \"synopsis\": \"Eileen向Lane说明高阶梦魇发动大规模诡潮、前线全线崩溃、通讯据点被毁，Lane确认接应失联并非单纯被收买将领放弃。\",\n  \"exit_state\": \"Lane获知边境崩盘真相，Eileen以牧师身份参与碉堡事务；Eira仍对其身份存疑。\",\n  \"source_event_indices\": [\n    2\n  ]\n},\n    {\n  \"episode_number\": 19,\n  \"synopsis\": \"Lane整合碉堡物资和魔晶，系统批量加工搭建巨型聚光紫外火种塔；夜晚光芒照亮数公里，成为沦陷灰域唯一安全信号。\",\n  \"exit_state\": \"巨型紫外火种塔建成并点亮，碉堡成为沦陷区安全信号；Lane的势力开始引起外界注意。\",\n  \"source_event_indices\": [\n    3\n  ]\n},\n    {\n  \"episode_number\": 20,\n  \"synopsis\": \"主城里的Cole望见冲天强光，确认Lane未死且掌握克制诡异的核心技术，暗中封锁边境情报并拖延主城探查队伍出发。\",\n  \"exit_state\": \"Cole确认Lane未死并掌握核心技术，开始封锁边境情报；主城探查队伍被拖延。\",\n  \"source_event_indices\": [\n    4\n  ]\n},\n    {\n  \"episode_number\": 21,\n  \"synopsis\": \"火种塔吸引溃散士兵和逃难流民投奔，Lane敞开大门免费提供庇护、食物和圣光救治；Eileen目睹他善待普通人而彻底动心。\",\n  \"exit_state\": \"碉堡人口开始增长，Lane的平等庇护赢得流民信任；Eileen彻底动心，Eira对Lane的感情进一步加深。\",\n  \"source_event_indices\": [\n    5\n  ]\n},\n    {\n  \"episode_number\": 22,\n  \"synopsis\": \"Lane利用溃兵上缴魔晶加固防诡城墙和声光预警陷阱，并借助系统材料重塑能力融合魔物幽能，制造紫外附魔钛合金军械。\",\n  \"exit_state\": \"碉堡防线加固，声光预警陷阱和钛合金军械开始列装；Lane的军事实力初步成型。\",\n  \"source_event_indices\": [\n    6\n  ]\n},\n    {\n  \"episode_number\": 23,\n  \"synopsis\": \"Lane在训练中不分出身，重用战功卓著的Eira并给予独立兵权与尊重；Eira彻底深爱Lane，Morton开始规划火种外销。\",\n  \"exit_state\": \"Eira获得独立兵权并彻底深爱Lane；Morton放弃投机心态，彻底忠心臣服并规划火种外销。\",\n  \"source_event_indices\": [\n    7,\n    8\n  ]\n},\n    {\n  \"episode_number\": 24,\n  \"synopsis\": \"碉堡扩张引起高阶梦魇忌惮，魔物开始准备升级诡潮压力；Lane、Eira、Eileen和Morton共同面对新的威胁。\",\n  \"exit_state\": \"Lane在废弃碉堡建成巨型紫外火种塔，新型复合火种、加固防线与紫外附魔钛合金军队成型；Eira因获救与受尊重而深爱追随，Eileen以牧师身份加入并因Lane善待流民而倾心，公主身份尚未公开；Morton已忠诚并规划火种外销。碉堡成为沦陷区安全信号，高阶梦魇忌惮并准备升级诡潮压力。\",\n  \"source_event_indices\": [\n    9\n  ]\n}\n  ],\n  \"unit_resolution\": \"Lane救下Eileen并获知边境崩盘真相，建成巨型紫外火种塔，吸引流民溃兵，建立钛合金军队；Eira、Eileen、Morton完成情感与忠诚升级。\",\n  \"handoff_pressure\": \"碉堡扩张引起高阶梦魇忌惮，蔽日魔阵与全域诡潮将升级生存压力；Lane需要在守住新防线的同时探明魔域资源并应对敌方主力。\",\n  \"character_refs\": [\n    \"character.lane_claude\",\n    \"character.eira\",\n    \"character.eileen\",\n    \"character.morton\",\n    \"character.cole\"\n  ],\n  \"story_line_refs\": [\n    \"line.main_uv_rise\",\n    \"line.subplot_cole_betrayal\",\n    \"line.arc_eira\",\n    \"line.arc_eileen\",\n    \"line.arc_morton\"\n  ],\n  \"setup_refs\": [\n    \"Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。\"\n  ],\n  \"payoff_refs\": [],\n  \"estimated_episode_count\": 8,\n  \"estimated_script_body_characters\": 6800,\n  \"planned_start_episode\": 17,\n  \"planned_end_episode\": 24,\n  \"decomposition_reason\": \"第17–24集承担荒野救Eileen、火种塔建成、Cole情报封锁、流民收容、钛合金军械与三人情感升级，事件密度足以支撑8集；末集为高阶梦魇升级压力作交接。\",\n  \"recommended_next_step\": \"episode_ready\",\n  \"turning_point_indices\": [\n    1,\n    3,\n    5,\n    7\n  ]\n}\n  ]\n}",
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:37:50.046072Z"
+    },
+    {
+      "id": "68f131e7-2785-4725-8cd1-b6bdb56a0637",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "Story Plan Node decomposition fixed ranges node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+      "candidate": {
+        "children": [
+          {
+            "title": "绝境激活与首道紫外防线",
+            "narrative_purpose": "在火种晶阵被毁、接应失联、低阶游魂围堡的绝境中，让Lane激活系统并造出人工紫外灯，守住第一道防线。",
+            "synopsis": "Lane抵达废弃黑石碉堡后立刻确认火种晶阵全毁、接应军队失联，黄昏未落低阶游魂已开始围堡。Eira奉命伺机斩杀，以讥讽逼他暴露软弱；Morton只盘算如何减少损失。Lane在绝境中穿越记忆复苏，系统激活，他命令众人收集废铁、碎玻璃和魔晶碎片，顶着Eira的质疑与Morton的阻挠，用现代光学知识拼装出大陆第一台人工紫外灯。低阶游魂触光消融，第一道防线守住，但单灯续航和照射范围不足，新的中阶畸变正在逼近。",
+            "entry_state": "Lane Claude被Viola与Cole构陷，剥夺继承权并流放至边境废弃黑石碉堡；火种晶阵已被Cole破坏，接应军队遭高阶梦魇诡潮击溃，被收买将领顺势放弃救援，Lane与外界失联；Eira奉命伺机斩杀Lane，Morton轻视落魄少主，低阶游魂开始围堡。",
+            "central_conflict": "Lane必须在火种失效、接应溃败、内部Eira敌视与Morton观望的情况下，以人工紫外光守住碉堡；Eira的杀心与Morton的逐利退缩随时会破坏防御。",
+            "emotional_direction": "从被抛弃的窒息感与内部敌意，到Lane以知识强行撕开生路，Eira由轻蔑转为惊疑，Morton由轻视转为重新估算。",
+            "exit_state": "Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。",
+            "unit_story_beats": [
+              "Lane抵达废弃碉堡，确认火种晶阵被Cole破坏、接应军队失联；Eira以奉命监视之名讥讽他必死，Morton只计算弃堡损失。",
+              "低阶游魂趁黄昏围堡，Lane在绝境刺激下穿越记忆复苏，想象造物系统激活，并命令收集废铁、碎玻璃和魔晶碎片。",
+              "Lane利用现代光学知识拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费物资。",
+              "Lane点亮人工紫外灯，低阶游魂触光消融，守住第一道防线；Eira惊疑收剑，Morton开始重新评估Lane。",
+              "Lane测试后发现单灯续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会。"
+            ],
+            "parent_event_bindings": [
+              {
+                "parent_event_index": 1,
+                "child_event_indices": [
+                  1,
+                  2
+                ]
+              }
+            ],
+            "episode_developments": [
+              {
+                "episode_number": 1,
+                "synopsis": "Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。",
+                "exit_state": "Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。",
+                "source_event_indices": [
+                  1
+                ]
+              },
+              {
+                "episode_number": 2,
+                "synopsis": "低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。",
+                "exit_state": "Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。",
+                "source_event_indices": [
+                  2
+                ]
+              },
+              {
+                "episode_number": 3,
+                "synopsis": "Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。",
+                "exit_state": "人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。",
+                "source_event_indices": [
+                  3
+                ]
+              },
+              {
+                "episode_number": 4,
+                "synopsis": "Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。",
+                "exit_state": "人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。",
+                "source_event_indices": [
+                  4
+                ]
+              },
+              {
+                "episode_number": 5,
+                "synopsis": "Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。",
+                "exit_state": "单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。",
+                "source_event_indices": [
+                  5
+                ]
+              },
+              {
+                "episode_number": 6,
+                "synopsis": "Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。",
+                "exit_state": "多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。",
+                "source_event_indices": []
+              },
+              {
+                "episode_number": 7,
+                "synopsis": "Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。",
+                "exit_state": "Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。",
+                "source_event_indices": []
+              },
+              {
+                "episode_number": 8,
+                "synopsis": "Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。",
+                "exit_state": "Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。",
+                "source_event_indices": []
+              }
+            ],
+            "unit_resolution": "Lane在绝境中激活系统，以人工紫外灯击退低阶游魂，守住第一道防线，并暴露单灯续航与范围不足的升级压力。",
+            "handoff_pressure": "中阶畸变魔群开始冲锋，单灯无法覆盖碉堡，Lane必须立刻验证复合紫外火种；Eira的敌视与Morton的观望将在这场攻防中被真正考验。",
+            "character_refs": [
+              "character.lane_claude",
+              "character.eira",
+              "character.morton",
+              "character.cole"
+            ],
+            "story_line_refs": [
+              "line.main_uv_rise",
+              "line.subplot_cole_betrayal",
+              "line.arc_eira",
+              "line.arc_morton"
+            ],
+            "setup_refs": [
+              "Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。"
+            ],
+            "payoff_refs": [],
+            "estimated_episode_count": 8,
+            "estimated_script_body_characters": 5600,
+            "planned_start_episode": 1,
+            "planned_end_episode": 8,
+            "decomposition_reason": "第1–8集承担系统激活、人工紫外灯验证与单灯局限暴露，事件密度足以支撑8集；首集即进入围堡与内部敌意，不写纯抵达。",
+            "recommended_next_step": "episode_ready",
+            "turning_point_indices": [
+              2,
+              4
+            ]
+          },
+          {
+            "title": "复合火种破围与Eira归心",
+            "narrative_purpose": "让Lane完成复合紫外火种验证，击溃中阶畸变，并在救援Eira后使她从敌视转为初步归心，同时让Morton功利臣服。",
+            "synopsis": "中阶畸变魔群冲锋碉堡，Lane将本土魔法晶阵与紫外光学结构融合，完成复合紫外火种。新型火种铺开禁诡领域，击溃魔群。混战中Eira斗气耗尽，被数只畸变包围濒死，Lane放弃内侧安全区主动救援，没有像她见过的贵族那样抛弃底层护卫。Eira由此放下偏见，内心萌生好感。Morton亲眼确认新型火种独一无二的商业价值，算出垄断全境火种贸易的巨额利润，从轻视转为功利性臣服，决定全力辅佐Lane。",
+            "entry_state": "Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。",
+            "central_conflict": "Lane必须在魔群冲锋的极限时间内验证复合火种，并在Eira濒死时作出是否冒险救援的选择；这一选择将决定Eira的敌视能否转化为信任。",
+            "emotional_direction": "从技术验证的紧张与Eira的濒死危机，到Lane主动救援带来的关系破冰，再到Morton从逐利盘算中确认臣服。",
+            "exit_state": "Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。",
+            "unit_story_beats": [
+              "中阶畸变魔群冲锋碉堡，Lane将本土魔法晶阵与紫外光学结构融合，完成复合紫外火种。",
+              "Lane铺开复合火种禁诡领域，击溃中阶畸变魔群，但混战中Eira斗气耗尽被数只畸变包围。",
+              "Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线。",
+              "Eira因Lane没有像贵族那样抛弃底层护卫而放下偏见，内心萌生好感，并主动承担外围警戒。",
+              "Morton亲眼确认新型火种独一无二的商业价值，算出垄断全境火种贸易的巨额利润，从轻视转为功利性臣服。",
+              "Morton决定全力辅佐Lane，开始清点碉堡物资并规划后续生产与贸易。"
+            ],
+            "parent_event_bindings": [
+              {
+                "parent_event_index": 3,
+                "child_event_indices": [
+                  1,
+                  2,
+                  3,
+                  4
+                ]
+              },
+              {
+                "parent_event_index": 4,
+                "child_event_indices": [
+                  5,
+                  6
+                ]
+              }
+            ],
+            "episode_developments": [
+              {
+                "episode_number": 9,
+                "synopsis": "中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。",
+                "exit_state": "复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。",
+                "source_event_indices": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "episode_number": 10,
+                "synopsis": "Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。",
+                "exit_state": "Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。",
+                "source_event_indices": [
+                  3
+                ]
+              },
+              {
+                "episode_number": 11,
+                "synopsis": "Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。",
+                "exit_state": "Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。",
+                "source_event_indices": [
+                  4
+                ]
+              },
+              {
+                "episode_number": 12,
+                "synopsis": "Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。",
+                "exit_state": "Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。",
+                "source_event_indices": [
+                  5
+                ]
+              },
+              {
+                "episode_number": 13,
+                "synopsis": "Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。",
+                "exit_state": "Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。",
+                "source_event_indices": [
+                  6
+                ]
+              },
+              {
+                "episode_number": 14,
+                "synopsis": "Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。",
+                "exit_state": "碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。",
+                "source_event_indices": []
+              },
+              {
+                "episode_number": 15,
+                "synopsis": "Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。",
+                "exit_state": "Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。",
+                "source_event_indices": []
+              },
+              {
+                "episode_number": 16,
+                "synopsis": "Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。",
+                "exit_state": "Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。",
+                "source_event_indices": []
+              }
+            ],
+            "unit_resolution": "复合紫外火种成功击溃中阶畸变，Lane以主动救援赢得Eira初步归心，Morton因商业价值确认而功利臣服。",
+            "handoff_pressure": "白昼外出搜集物资将引出荒野救援Eileen与边境崩盘真相；碉堡物资缺口和Eira、Morton的新关系将在后续扩张中继续演化。",
+            "character_refs": [
+              "character.lane_claude",
+              "character.eira",
+              "character.morton"
+            ],
+            "story_line_refs": [
+              "line.main_uv_rise",
+              "line.arc_eira",
+              "line.arc_morton"
+            ],
+            "setup_refs": [],
+            "payoff_refs": [
+              "Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。"
+            ],
+            "estimated_episode_count": 8,
+            "estimated_script_body_characters": 6200,
+            "planned_start_episode": 9,
+            "planned_end_episode": 16,
+            "decomposition_reason": "第9–16集承担复合火种验证、Eira救援归心与Morton功利臣服，事件密度足以支撑8集；第16集为外出搜集物资作交接。",
+            "recommended_next_step": "episode_ready",
+            "turning_point_indices": [
+              1,
+              3,
+              5
+            ]
+          },
+          {
+            "title": "荒野救Eileen与火种塔聚势",
+            "narrative_purpose": "让Lane在荒野救下Eileen并获知边境崩盘真相，建成巨型紫外火种塔，吸引溃兵流民，建立钛合金军队并让Eira、Eileen、Morton完成情感与忠诚升级。",
+            "synopsis": "白昼Lane外出搜集物资，在荒野救下重伤昏迷、孤身逃亡的Eileen。她伪装成随军牧师，实为私自离京调查百年诡异灾变的皇朝公主，随行皇家护卫已在诡潮中全军覆没。Eileen苏醒后说明边境崩盘并非军队故意抛弃，而是高阶梦魇统领大规模诡潮，前线防线全线崩溃，通讯据点被毁。Lane整合碉堡物资和击杀魔物掉落的魔晶，系统批量加工搭建巨型聚光紫外火种塔，夜晚光芒照亮数公里，成为沦陷灰域中唯一安全信号。主城里的Cole望见冲天强光，知道Lane非但没死，还掌握了克制诡异的核心技术，内心不安，暗中封锁边境情报，拖延主城探查队伍出发。持续不灭的巨型火种塔吸引溃散士兵和逃难流民不断投奔。Lane敞开大门，免费提供庇护、食物和圣光救治，从不苛待底层。Eileen目睹他善待普通人，对比皇城与边境骄横贵族，彻底动心。Lane利用溃兵上缴的魔晶加固防诡城墙和声光预警陷阱，又借助系统材料重塑能力，融合魔物幽能，把铁质刀枪弓箭升级为自带紫外附魔的钛合金军械。训练中他不分出身，重用战功卓著的Eira，给予独立兵权与尊重，Eira彻底深爱Lane。Morton清点日益壮大的人口、魔晶收益和独家火种技术，放弃投机心态，彻底忠心臣服，开始规划火种外销。",
+            "entry_state": "Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。",
+            "central_conflict": "Lane必须在物资紧缺与边境崩盘真相不明的情况下，救下Eileen并整合资源建成火种塔；火种塔吸引流民溃兵后，他要在平等庇护与军事扩张之间维持秩序，同时面对Cole的情报封锁。",
+            "emotional_direction": "从荒野救援的紧张与Eileen的脆弱，到火种塔点亮后的希望感，再到Eileen、Eira、Morton三人因Lane的平等与担当而情感升级。",
+            "exit_state": "Lane在废弃碉堡建成巨型紫外火种塔，新型复合火种、加固防线与紫外附魔钛合金军队成型；Eira因获救与受尊重而深爱追随，Eileen以牧师身份加入并因Lane善待流民而倾心，公主身份尚未公开；Morton已忠诚并规划火种外销。碉堡成为沦陷区安全信号，高阶梦魇忌惮并准备升级诡潮压力。",
+            "unit_story_beats": [
+              "白昼Lane与Eira外出搜集物资，在荒野救下重伤昏迷、孤身逃亡的Eileen；她伪装成随军牧师，实为私自离京调查灾变的皇朝公主。",
+              "Eileen苏醒后说明高阶梦魇统领大规模诡潮，前线全线崩溃、通讯据点被毁，补全Lane对接应失联与边境危机的认知。",
+              "Lane整合碉堡物资和击杀魔物掉落的魔晶，系统批量加工搭建巨型聚光紫外火种塔，夜晚光芒照亮数公里。",
+              "主城里的Cole望见冲天强光，确认Lane未死且掌握克制诡异的核心技术，暗中封锁边境情报并拖延主城探查队伍出发。",
+              "巨型火种塔吸引溃散士兵和逃难流民投奔，Lane免费提供庇护、食物和圣光救治；Eileen目睹他善待普通人而彻底动心。",
+              "Lane利用溃兵上缴魔晶加固防诡城墙和声光预警陷阱，并借助系统材料重塑能力融合魔物幽能，制造紫外附魔钛合金军械。",
+              "Lane在训练中不分出身，重用战功卓著的Eira并给予独立兵权与尊重，Eira彻底深爱Lane。",
+              "Morton清点人口、魔晶收益和独家火种技术，放弃投机心态彻底忠心臣服，开始规划火种外销。",
+              "碉堡扩张引起高阶梦魇忌惮，魔物准备升级诡潮压力。"
+            ],
+            "parent_event_bindings": [
+              {
+                "parent_event_index": 5,
+                "child_event_indices": [
+                  1
+                ]
+              },
+              {
+                "parent_event_index": 6,
+                "child_event_indices": [
+                  2
+                ]
+              },
+              {
+                "parent_event_index": 7,
+                "child_event_indices": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "parent_event_index": 8,
+                "child_event_indices": [
+                  5
+                ]
+              },
+              {
+                "parent_event_index": 9,
+                "child_event_indices": [
+                  6,
+                  7
+                ]
+              },
+              {
+                "parent_event_index": 10,
+                "child_event_indices": [
+                  8,
+                  9
+                ]
+              }
+            ],
+            "episode_developments": [
+              {
+                "episode_number": 17,
+                "synopsis": "Lane与Eira在荒野发现重伤昏迷的Eileen，将其救回碉堡；Eileen以随军牧师身份请求留下，Eira对其身份保持警惕。",
+                "exit_state": "Eileen被救回碉堡并苏醒，以随军牧师身份留下；Eira对其身份保持警惕，Lane暂时接纳她。",
+                "source_event_indices": [
+                  1
+                ]
+              },
+              {
+                "episode_number": 18,
+                "synopsis": "Eileen向Lane说明高阶梦魇发动大规模诡潮、前线全线崩溃、通讯据点被毁，Lane确认接应失联并非单纯被收买将领放弃。",
+                "exit_state": "Lane获知边境崩盘真相，Eileen以牧师身份参与碉堡事务；Eira仍对其身份存疑。",
+                "source_event_indices": [
+                  2
+                ]
+              },
+              {
+                "episode_number": 19,
+                "synopsis": "Lane整合碉堡物资和魔晶，系统批量加工搭建巨型聚光紫外火种塔；夜晚光芒照亮数公里，成为沦陷灰域唯一安全信号。",
+                "exit_state": "巨型紫外火种塔建成并点亮，碉堡成为沦陷区安全信号；Lane的势力开始引起外界注意。",
+                "source_event_indices": [
+                  3
+                ]
+              },
+              {
+                "episode_number": 20,
+                "synopsis": "主城里的Cole望见冲天强光，确认Lane未死且掌握克制诡异的核心技术，暗中封锁边境情报并拖延主城探查队伍出发。",
+                "exit_state": "Cole确认Lane未死并掌握核心技术，开始封锁边境情报；主城探查队伍被拖延。",
+                "source_event_indices": [
+                  4
+                ]
+              },
+              {
+                "episode_number": 21,
+                "synopsis": "火种塔吸引溃散士兵和逃难流民投奔，Lane敞开大门免费提供庇护、食物和圣光救治；Eileen目睹他善待普通人而彻底动心。",
+                "exit_state": "碉堡人口开始增长，Lane的平等庇护赢得流民信任；Eileen彻底动心，Eira对Lane的感情进一步加深。",
+                "source_event_indices": [
+                  5
+                ]
+              },
+              {
+                "episode_number": 22,
+                "synopsis": "Lane利用溃兵上缴魔晶加固防诡城墙和声光预警陷阱，并借助系统材料重塑能力融合魔物幽能，制造紫外附魔钛合金军械。",
+                "exit_state": "碉堡防线加固，声光预警陷阱和钛合金军械开始列装；Lane的军事实力初步成型。",
+                "source_event_indices": [
+                  6
+                ]
+              },
+              {
+                "episode_number": 23,
+                "synopsis": "Lane在训练中不分出身，重用战功卓著的Eira并给予独立兵权与尊重；Eira彻底深爱Lane，Morton开始规划火种外销。",
+                "exit_state": "Eira获得独立兵权并彻底深爱Lane；Morton放弃投机心态，彻底忠心臣服并规划火种外销。",
+                "source_event_indices": [
+                  7,
+                  8
+                ]
+              },
+              {
+                "episode_number": 24,
+                "synopsis": "碉堡扩张引起高阶梦魇忌惮，魔物开始准备升级诡潮压力；Lane、Eira、Eileen和Morton共同面对新的威胁。",
+                "exit_state": "Lane在废弃碉堡建成巨型紫外火种塔，新型复合火种、加固防线与紫外附魔钛合金军队成型；Eira因获救与受尊重而深爱追随，Eileen以牧师身份加入并因Lane善待流民而倾心，公主身份尚未公开；Morton已忠诚并规划火种外销。碉堡成为沦陷区安全信号，高阶梦魇忌惮并准备升级诡潮压力。",
+                "source_event_indices": [
+                  9
+                ]
+              }
+            ],
+            "unit_resolution": "Lane救下Eileen并获知边境崩盘真相，建成巨型紫外火种塔，吸引流民溃兵，建立钛合金军队；Eira、Eileen、Morton完成情感与忠诚升级。",
+            "handoff_pressure": "碉堡扩张引起高阶梦魇忌惮，蔽日魔阵与全域诡潮将升级生存压力；Lane需要在守住新防线的同时探明魔域资源并应对敌方主力。",
+            "character_refs": [
+              "character.lane_claude",
+              "character.eira",
+              "character.eileen",
+              "character.morton",
+              "character.cole"
+            ],
+            "story_line_refs": [
+              "line.main_uv_rise",
+              "line.subplot_cole_betrayal",
+              "line.arc_eira",
+              "line.arc_eileen",
+              "line.arc_morton"
+            ],
+            "setup_refs": [
+              "Lane穿越记忆与想象造物系统激活，后续发展为紫外灭诡体系。"
+            ],
+            "payoff_refs": [],
+            "estimated_episode_count": 8,
+            "estimated_script_body_characters": 6800,
+            "planned_start_episode": 17,
+            "planned_end_episode": 24,
+            "decomposition_reason": "第17–24集承担荒野救Eileen、火种塔建成、Cole情报封锁、流民收容、钛合金军械与三人情感升级，事件密度足以支撑8集；末集为高阶梦魇升级压力作交接。",
+            "recommended_next_step": "episode_ready",
+            "turning_point_indices": [
+              1,
+              3,
+              5,
+              7
+            ]
+          }
+        ],
+        "_meta": {
+          "provider": "openai_compatible",
+          "model_name": "deepseek-v4-pro",
+          "strategy_id": "strategy.tiktok.real_validation.frontend_mvp.v1",
+          "streamed": true,
+          "adapter_model_pass_count": 1,
+          "thinking_mode": "disabled",
+          "usage": {
+            "completion_tokens": 6498,
+            "prompt_tokens": 26805,
+            "total_tokens": 33303,
+            "prompt_tokens_details": {
+              "cached_tokens": 20480
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "response_id": "02178980697770627ce9617f6c3913264d7d32061afe9344ffd53",
+          "stream_termination": "completed",
+          "market_path": "overseas_tiktok",
+          "market_route_provider": "openai_compatible",
+          "market_route_model": "deepseek-v4-pro"
+        }
+      },
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:37:50.073621Z"
+    },
+    {
+      "id": "1f5ad81d-f720-4ff3-a12e-061463842341",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "error",
+      "artifact": "Story Plan Node decomposition fixed ranges node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1 validation",
+      "candidate": null,
+      "error_type": "ValidationError",
+      "error": "1 validation error for _NodeEventReferences\n  Value error, The terminal event must belong to the final episode. [type=value_error, input_value={'title': '绝境激活..._point_indices': [2, 4]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "created_at": "2026-09-19T08:37:50.094229Z"
+    },
+    {
+      "id": "c9c2fb91-26e4-4678-a72c-fb25a92d175b",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "adapter raw JSON model=deepseek-v4-pro",
+      "candidate": "{\n  \"child_1\": {\n    \"episode_developments\": [\n    {\n    \"episode_number\": 1,\n    \"synopsis\": \"Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。\",\n    \"exit_state\": \"Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。\",\n    \"source_event_indices\": [1]\n    },\n    {\n    \"episode_number\": 2,\n    \"synopsis\": \"低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。\",\n    \"exit_state\": \"Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。\",\n    \"source_event_indices\": [2]\n    },\n    {\n    \"episode_number\": 3,\n    \"synopsis\": \"Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。\",\n    \"exit_state\": \"人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。\",\n    \"source_event_indices\": [3]\n    },\n    {\n    \"episode_number\": 4,\n    \"synopsis\": \"Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。\",\n    \"exit_state\": \"人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。\",\n    \"source_event_indices\": [4]\n    },\n    {\n    \"episode_number\": 5,\n    \"synopsis\": \"Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。\",\n    \"exit_state\": \"单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。\",\n    \"source_event_indices\": [5]\n    },\n    {\n    \"episode_number\": 6,\n    \"synopsis\": \"Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。\",\n    \"exit_state\": \"多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 7,\n    \"synopsis\": \"Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。\",\n    \"exit_state\": \"Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 8,\n    \"synopsis\": \"Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。\",\n    \"exit_state\": \"Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。\",\n    \"source_event_indices\": []\n    }\n    ]\n  },\n  \"child_2\": {\n    \"episode_developments\": [\n    {\n    \"episode_number\": 9,\n    \"synopsis\": \"中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。\",\n    \"exit_state\": \"复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。\",\n    \"source_event_indices\": [1, 2]\n    },\n    {\n    \"episode_number\": 10,\n    \"synopsis\": \"Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。\",\n    \"exit_state\": \"Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。\",\n    \"source_event_indices\": [3]\n    },\n    {\n    \"episode_number\": 11,\n    \"synopsis\": \"Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。\",\n    \"exit_state\": \"Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。\",\n    \"source_event_indices\": [4]\n    },\n    {\n    \"episode_number\": 12,\n    \"synopsis\": \"Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。\",\n    \"exit_state\": \"Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。\",\n    \"source_event_indices\": [5]\n    },\n    {\n    \"episode_number\": 13,\n    \"synopsis\": \"Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。\",\n    \"exit_state\": \"Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。\",\n    \"source_event_indices\": [6]\n    },\n    {\n    \"episode_number\": 14,\n    \"synopsis\": \"Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。\",\n    \"exit_state\": \"碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 15,\n    \"synopsis\": \"Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。\",\n    \"exit_state\": \"Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 16,\n    \"synopsis\": \"Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。\",\n    \"exit_state\": \"Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。\",\n    \"source_event_indices\": []\n    }\n    ]\n  }\n}",
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:38:14.811242Z"
+    },
+    {
+      "id": "cf314daa-19af-43d1-a005-376381e6da2b",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "Story Plan Node decomposition episode completion node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+      "candidate": {
+        "child_1": {
+          "episode_developments": [
+            {
+              "episode_number": 1,
+              "synopsis": "Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。",
+              "exit_state": "Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。",
+              "source_event_indices": [
+                1
+              ]
+            },
+            {
+              "episode_number": 2,
+              "synopsis": "低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。",
+              "exit_state": "Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。",
+              "source_event_indices": [
+                2
+              ]
+            },
+            {
+              "episode_number": 3,
+              "synopsis": "Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。",
+              "exit_state": "人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。",
+              "source_event_indices": [
+                3
+              ]
+            },
+            {
+              "episode_number": 4,
+              "synopsis": "Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。",
+              "exit_state": "人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。",
+              "source_event_indices": [
+                4
+              ]
+            },
+            {
+              "episode_number": 5,
+              "synopsis": "Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。",
+              "exit_state": "单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。",
+              "source_event_indices": [
+                5
+              ]
+            },
+            {
+              "episode_number": 6,
+              "synopsis": "Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。",
+              "exit_state": "多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 7,
+              "synopsis": "Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。",
+              "exit_state": "Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 8,
+              "synopsis": "Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。",
+              "exit_state": "Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。",
+              "source_event_indices": []
+            }
+          ]
+        },
+        "child_2": {
+          "episode_developments": [
+            {
+              "episode_number": 9,
+              "synopsis": "中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。",
+              "exit_state": "复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。",
+              "source_event_indices": [
+                1,
+                2
+              ]
+            },
+            {
+              "episode_number": 10,
+              "synopsis": "Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。",
+              "exit_state": "Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。",
+              "source_event_indices": [
+                3
+              ]
+            },
+            {
+              "episode_number": 11,
+              "synopsis": "Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。",
+              "exit_state": "Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。",
+              "source_event_indices": [
+                4
+              ]
+            },
+            {
+              "episode_number": 12,
+              "synopsis": "Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。",
+              "exit_state": "Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。",
+              "source_event_indices": [
+                5
+              ]
+            },
+            {
+              "episode_number": 13,
+              "synopsis": "Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。",
+              "exit_state": "Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。",
+              "source_event_indices": [
+                6
+              ]
+            },
+            {
+              "episode_number": 14,
+              "synopsis": "Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。",
+              "exit_state": "碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 15,
+              "synopsis": "Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。",
+              "exit_state": "Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 16,
+              "synopsis": "Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。",
+              "exit_state": "Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。",
+              "source_event_indices": []
+            }
+          ]
+        },
+        "_meta": {
+          "provider": "openai_compatible",
+          "model_name": "deepseek-v4-pro",
+          "strategy_id": "strategy.tiktok.real_validation.frontend_mvp.v1",
+          "streamed": true,
+          "adapter_model_pass_count": 1,
+          "thinking_mode": "disabled",
+          "usage": {
+            "completion_tokens": 1812,
+            "prompt_tokens": 33392,
+            "total_tokens": 35204,
+            "prompt_tokens_details": {
+              "cached_tokens": 22528
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "response_id": "02178980707208027ce9617f6c3913264d7d32061afe93476247b",
+          "stream_termination": "completed",
+          "market_path": "overseas_tiktok",
+          "market_route_provider": "openai_compatible",
+          "market_route_model": "deepseek-v4-pro"
+        }
+      },
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:38:14.822364Z"
+    },
+    {
+      "id": "93e9f5e2-7513-4a59-9182-0ff8c7a3d09b",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "error",
+      "artifact": "Story Plan Node decomposition episode completion node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1 validation",
+      "candidate": null,
+      "error_type": "ValidationError",
+      "error": "1 validation error for _NodeEventReferences\n  Value error, The terminal event must belong to the final episode. [type=value_error, input_value={'title': '绝境激活..._point_indices': [2, 4]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "created_at": "2026-09-19T08:38:14.828934Z"
+    },
+    {
+      "id": "e5c8ee39-ddb6-4626-aa45-b9adbb3f7b84",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "adapter raw JSON model=deepseek-v4-pro",
+      "candidate": "{\n  \"child_1\": {\n    \"episode_developments\": [\n    {\n    \"episode_number\": 1,\n    \"synopsis\": \"Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。\",\n    \"exit_state\": \"Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。\",\n    \"source_event_indices\": [1]\n    },\n    {\n    \"episode_number\": 2,\n    \"synopsis\": \"低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。\",\n    \"exit_state\": \"Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。\",\n    \"source_event_indices\": [2]\n    },\n    {\n    \"episode_number\": 3,\n    \"synopsis\": \"Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。\",\n    \"exit_state\": \"人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。\",\n    \"source_event_indices\": [3]\n    },\n    {\n    \"episode_number\": 4,\n    \"synopsis\": \"Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。\",\n    \"exit_state\": \"人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。\",\n    \"source_event_indices\": [4]\n    },\n    {\n    \"episode_number\": 5,\n    \"synopsis\": \"Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。\",\n    \"exit_state\": \"单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。\",\n    \"source_event_indices\": [5]\n    },\n    {\n    \"episode_number\": 6,\n    \"synopsis\": \"Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。\",\n    \"exit_state\": \"多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 7,\n    \"synopsis\": \"Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。\",\n    \"exit_state\": \"Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 8,\n    \"synopsis\": \"Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。\",\n    \"exit_state\": \"Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。\",\n    \"source_event_indices\": []\n    }\n    ]\n  },\n  \"child_2\": {\n    \"episode_developments\": [\n    {\n    \"episode_number\": 9,\n    \"synopsis\": \"中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。\",\n    \"exit_state\": \"复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。\",\n    \"source_event_indices\": [1, 2]\n    },\n    {\n    \"episode_number\": 10,\n    \"synopsis\": \"Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。\",\n    \"exit_state\": \"Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。\",\n    \"source_event_indices\": [3]\n    },\n    {\n    \"episode_number\": 11,\n    \"synopsis\": \"Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。\",\n    \"exit_state\": \"Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。\",\n    \"source_event_indices\": [4]\n    },\n    {\n    \"episode_number\": 12,\n    \"synopsis\": \"Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。\",\n    \"exit_state\": \"Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。\",\n    \"source_event_indices\": [5]\n    },\n    {\n    \"episode_number\": 13,\n    \"synopsis\": \"Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。\",\n    \"exit_state\": \"Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。\",\n    \"source_event_indices\": [6]\n    },\n    {\n    \"episode_number\": 14,\n    \"synopsis\": \"Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。\",\n    \"exit_state\": \"碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 15,\n    \"synopsis\": \"Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。\",\n    \"exit_state\": \"Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 16,\n    \"synopsis\": \"Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。\",\n    \"exit_state\": \"Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。\",\n    \"source_event_indices\": []\n    }\n    ]\n  }\n}",
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:38:36.947747Z"
+    },
+    {
+      "id": "ae1277e0-7bd0-4744-95c5-1907e6ad2ae2",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "Story Plan Node decomposition episode completion node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+      "candidate": {
+        "child_1": {
+          "episode_developments": [
+            {
+              "episode_number": 1,
+              "synopsis": "Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。",
+              "exit_state": "Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。",
+              "source_event_indices": [
+                1
+              ]
+            },
+            {
+              "episode_number": 2,
+              "synopsis": "低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。",
+              "exit_state": "Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。",
+              "source_event_indices": [
+                2
+              ]
+            },
+            {
+              "episode_number": 3,
+              "synopsis": "Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。",
+              "exit_state": "人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。",
+              "source_event_indices": [
+                3
+              ]
+            },
+            {
+              "episode_number": 4,
+              "synopsis": "Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。",
+              "exit_state": "人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。",
+              "source_event_indices": [
+                4
+              ]
+            },
+            {
+              "episode_number": 5,
+              "synopsis": "Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。",
+              "exit_state": "单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。",
+              "source_event_indices": [
+                5
+              ]
+            },
+            {
+              "episode_number": 6,
+              "synopsis": "Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。",
+              "exit_state": "多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 7,
+              "synopsis": "Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。",
+              "exit_state": "Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 8,
+              "synopsis": "Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。",
+              "exit_state": "Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。",
+              "source_event_indices": []
+            }
+          ]
+        },
+        "child_2": {
+          "episode_developments": [
+            {
+              "episode_number": 9,
+              "synopsis": "中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。",
+              "exit_state": "复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。",
+              "source_event_indices": [
+                1,
+                2
+              ]
+            },
+            {
+              "episode_number": 10,
+              "synopsis": "Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。",
+              "exit_state": "Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。",
+              "source_event_indices": [
+                3
+              ]
+            },
+            {
+              "episode_number": 11,
+              "synopsis": "Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。",
+              "exit_state": "Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。",
+              "source_event_indices": [
+                4
+              ]
+            },
+            {
+              "episode_number": 12,
+              "synopsis": "Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。",
+              "exit_state": "Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。",
+              "source_event_indices": [
+                5
+              ]
+            },
+            {
+              "episode_number": 13,
+              "synopsis": "Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。",
+              "exit_state": "Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。",
+              "source_event_indices": [
+                6
+              ]
+            },
+            {
+              "episode_number": 14,
+              "synopsis": "Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。",
+              "exit_state": "碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 15,
+              "synopsis": "Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。",
+              "exit_state": "Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 16,
+              "synopsis": "Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。",
+              "exit_state": "Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。",
+              "source_event_indices": []
+            }
+          ]
+        },
+        "_meta": {
+          "provider": "openai_compatible",
+          "model_name": "deepseek-v4-pro",
+          "strategy_id": "strategy.tiktok.real_validation.frontend_mvp.v1",
+          "streamed": true,
+          "adapter_model_pass_count": 1,
+          "thinking_mode": "disabled",
+          "usage": {
+            "completion_tokens": 1812,
+            "prompt_tokens": 33392,
+            "total_tokens": 35204,
+            "prompt_tokens_details": {
+              "cached_tokens": 32768
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "response_id": "0217898070971553694b53d1b7644bc84f9058822e8eff21444a6",
+          "stream_termination": "completed",
+          "market_path": "overseas_tiktok",
+          "market_route_provider": "openai_compatible",
+          "market_route_model": "deepseek-v4-pro"
+        }
+      },
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:38:36.959445Z"
+    },
+    {
+      "id": "1e2dd934-048d-4885-96c5-bf6239451495",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "error",
+      "artifact": "Story Plan Node decomposition episode completion node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1 validation",
+      "candidate": null,
+      "error_type": "ValidationError",
+      "error": "1 validation error for _NodeEventReferences\n  Value error, The terminal event must belong to the final episode. [type=value_error, input_value={'title': '绝境激活..._point_indices': [2, 4]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "created_at": "2026-09-19T08:38:36.964482Z"
+    },
+    {
+      "id": "b7e33bbe-8d39-4442-a0e9-d20830b22431",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "adapter raw JSON model=deepseek-v4-pro",
+      "candidate": "{\n  \"child_1\": {\n    \"episode_developments\": [\n    {\n    \"episode_number\": 1,\n    \"synopsis\": \"Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。\",\n    \"exit_state\": \"Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。\",\n    \"source_event_indices\": [1]\n    },\n    {\n    \"episode_number\": 2,\n    \"synopsis\": \"低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。\",\n    \"exit_state\": \"Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。\",\n    \"source_event_indices\": [2]\n    },\n    {\n    \"episode_number\": 3,\n    \"synopsis\": \"Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。\",\n    \"exit_state\": \"人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。\",\n    \"source_event_indices\": [3]\n    },\n    {\n    \"episode_number\": 4,\n    \"synopsis\": \"Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。\",\n    \"exit_state\": \"人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。\",\n    \"source_event_indices\": [4]\n    },\n    {\n    \"episode_number\": 5,\n    \"synopsis\": \"Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。\",\n    \"exit_state\": \"单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。\",\n    \"source_event_indices\": [5]\n    },\n    {\n    \"episode_number\": 6,\n    \"synopsis\": \"Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。\",\n    \"exit_state\": \"多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 7,\n    \"synopsis\": \"Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。\",\n    \"exit_state\": \"Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 8,\n    \"synopsis\": \"Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。\",\n    \"exit_state\": \"Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。\",\n    \"source_event_indices\": []\n    }\n    ]\n  },\n  \"child_2\": {\n    \"episode_developments\": [\n    {\n    \"episode_number\": 9,\n    \"synopsis\": \"中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。\",\n    \"exit_state\": \"复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。\",\n    \"source_event_indices\": [1, 2]\n    },\n    {\n    \"episode_number\": 10,\n    \"synopsis\": \"Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。\",\n    \"exit_state\": \"Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。\",\n    \"source_event_indices\": [3]\n    },\n    {\n    \"episode_number\": 11,\n    \"synopsis\": \"Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。\",\n    \"exit_state\": \"Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。\",\n    \"source_event_indices\": [4]\n    },\n    {\n    \"episode_number\": 12,\n    \"synopsis\": \"Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。\",\n    \"exit_state\": \"Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。\",\n    \"source_event_indices\": [5]\n    },\n    {\n    \"episode_number\": 13,\n    \"synopsis\": \"Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。\",\n    \"exit_state\": \"Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。\",\n    \"source_event_indices\": [6]\n    },\n    {\n    \"episode_number\": 14,\n    \"synopsis\": \"Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。\",\n    \"exit_state\": \"碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 15,\n    \"synopsis\": \"Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。\",\n    \"exit_state\": \"Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。\",\n    \"source_event_indices\": []\n    },\n    {\n    \"episode_number\": 16,\n    \"synopsis\": \"Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。\",\n    \"exit_state\": \"Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。\",\n    \"source_event_indices\": []\n    }\n    ]\n  }\n}",
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:39:01.838440Z"
+    },
+    {
+      "id": "420c1d64-bb68-4b02-8f27-74d5c70924cc",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "candidate",
+      "artifact": "Story Plan Node decomposition episode completion node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+      "candidate": {
+        "child_1": {
+          "episode_developments": [
+            {
+              "episode_number": 1,
+              "synopsis": "Lane抵达废弃碉堡，发现火种晶阵全毁、接应失联；Eira奉命监视并以讥讽逼他认命，Morton只算弃堡损失。黄昏时低阶游魂开始围堡。",
+              "exit_state": "Lane确认火种晶阵被Cole破坏、接应失联；Eira奉命伺机斩杀Lane并保持敌视，Morton轻视少主；低阶游魂围堡，碉堡无有效光源。",
+              "source_event_indices": [
+                1
+              ]
+            },
+            {
+              "episode_number": 2,
+              "synopsis": "低阶游魂逼近，Lane在绝境中穿越记忆复苏，系统激活；他命令收集废铁、碎玻璃和魔晶碎片，Eira讥讽他异想天开。",
+              "exit_state": "Lane系统已激活，掌握人工紫外光源的制造思路；物资收集命令已下达，但Eira与Morton均不配合，低阶游魂仍在逼近。",
+              "source_event_indices": [
+                2
+              ]
+            },
+            {
+              "episode_number": 3,
+              "synopsis": "Lane强行组织收集物资并开始拼装人工紫外灯，Eira质疑其徒劳，Morton试图阻止浪费；Lane以明确分工和短促命令压住二人。",
+              "exit_state": "人工紫外灯完成主体拼装，Eira暂时收剑旁观，Morton不再阻挠；低阶游魂已贴近外墙，防御窗口所剩无几。",
+              "source_event_indices": [
+                3
+              ]
+            },
+            {
+              "episode_number": 4,
+              "synopsis": "Lane点亮人工紫外灯，低阶游魂触光消融，第一道防线守住；Eira惊疑收剑，Morton开始重新估算Lane的利用价值。",
+              "exit_state": "人工紫外灯成功击退低阶游魂，碉堡守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane。",
+              "source_event_indices": [
+                4
+              ]
+            },
+            {
+              "episode_number": 5,
+              "synopsis": "Lane检查紫外灯后发现续航和范围不足，无法覆盖整座碉堡；Eira指出下一波中阶畸变不会给第二次机会，逼他拿出更强方案。",
+              "exit_state": "单灯续航和范围不足的问题暴露，Lane必须升级光源；Eira以实战压力逼问下一步，Morton开始关注技术价值。",
+              "source_event_indices": [
+                5
+              ]
+            },
+            {
+              "episode_number": 6,
+              "synopsis": "Lane尝试用多灯串联扩大范围，但魔晶碎片供能不稳，紫外光出现间歇性熄灭；Eira与Morton被迫参与抢修。",
+              "exit_state": "多灯串联方案失败，紫外光间歇性熄灭；Eira与Morton在抢修中被迫承认Lane的技术判断，但防线仍不稳定。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 7,
+              "synopsis": "Lane决定放弃单纯堆灯，转向融合本土魔法晶阵与紫外光学结构；他要求Morton交出库存晶阵残片，Eira负责外围警戒。",
+              "exit_state": "Lane确定复合火种改造方向，Morton交出库存晶阵残片，Eira开始执行警戒；中阶畸变已出现在视野边缘。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 8,
+              "synopsis": "Lane完成复合紫外火种初步设计，但尚未验证；Eira报告中阶畸变魔群已开始冲锋，Morton催促立刻投入使用。",
+              "exit_state": "Lane激活想象造物系统，利用废铁、碎玻璃和魔晶碎片造出人工紫外灯，击退低阶游魂，守住第一道防线；Eira暂时压下杀意但未放下敌视，Morton开始重新评估Lane的利用价值。单灯续航和范围不足，中阶畸变正在逼近。",
+              "source_event_indices": []
+            }
+          ]
+        },
+        "child_2": {
+          "episode_developments": [
+            {
+              "episode_number": 9,
+              "synopsis": "中阶畸变魔群冲锋，Lane在极限时间内完成复合紫外火种，并首次铺开禁诡领域，击溃魔群前锋。",
+              "exit_state": "复合紫外火种验证成功，魔群前锋被击溃；但Eira在混战中斗气耗尽，被数只畸变包围，防线出现缺口。",
+              "source_event_indices": [
+                1,
+                2
+              ]
+            },
+            {
+              "episode_number": 10,
+              "synopsis": "Lane放弃内侧安全区主动救援Eira，以紫外附魔武器清开包围，将濒死的她带回防线；Eira在震惊中首次没有反抗他的命令。",
+              "exit_state": "Eira获救并脱离濒死状态，Lane主动救援的事实打破她对贵族的固有判断；Eira内心开始动摇。",
+              "source_event_indices": [
+                3
+              ]
+            },
+            {
+              "episode_number": 11,
+              "synopsis": "Eira在疗伤后主动承担外围警戒，并第一次以平等口吻向Lane报告魔群残迹；Lane没有追究她此前的杀意。",
+              "exit_state": "Eira放下偏见，内心萌生好感，开始以护卫身份配合Lane；两人关系从敌视转为初步信任。",
+              "source_event_indices": [
+                4
+              ]
+            },
+            {
+              "episode_number": 12,
+              "synopsis": "Morton清点战场后发现复合火种无需传统附魔即可量产，算出垄断全境火种贸易的巨额利润，主动向Lane提出经营方案。",
+              "exit_state": "Morton确认新型火种独一无二的商业价值，从轻视转为功利性臣服，开始主动接触Lane。",
+              "source_event_indices": [
+                5
+              ]
+            },
+            {
+              "episode_number": 13,
+              "synopsis": "Morton以管家身份重新整理碉堡物资，并向Lane承诺全力辅佐；Lane要求他先解决食物和魔晶库存。",
+              "exit_state": "Morton决定全力辅佐Lane，开始清点碉堡物资并规划生产；碉堡内部形成初步分工。",
+              "source_event_indices": [
+                6
+              ]
+            },
+            {
+              "episode_number": 14,
+              "synopsis": "Lane与Eira、Morton共同清理战场，回收魔晶和可用金属；Eira在行动中主动保护Lane，Morton则计算回收收益。",
+              "exit_state": "碉堡获得一批魔晶和金属资源，Eira与Morton均开始主动配合Lane；防线暂时稳固。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 15,
+              "synopsis": "Lane决定趁白昼外出搜集物资，Eira要求同行，Morton留守清点库存；三人就外出风险发生短暂争执。",
+              "exit_state": "Lane确定白昼外出搜集物资的计划，Eira争取到同行资格，Morton留守；碉堡物资缺口仍然存在。",
+              "source_event_indices": []
+            },
+            {
+              "episode_number": 16,
+              "synopsis": "Lane与Eira准备出发，Morton交出最后一批魔晶作为应急能源；Eira在出发前首次以战友口吻提醒Lane注意安全。",
+              "exit_state": "Lane完成复合紫外火种，击溃中阶畸变魔群；Eira因被Lane放弃安全区救援而放下偏见、萌生好感，Morton确认火种商业价值后转为功利性臣服并决定全力辅佐Lane。碉堡防线暂时稳固，但物资与人力仍然紧缺。",
+              "source_event_indices": []
+            }
+          ]
+        },
+        "_meta": {
+          "provider": "openai_compatible",
+          "model_name": "deepseek-v4-pro",
+          "strategy_id": "strategy.tiktok.real_validation.frontend_mvp.v1",
+          "streamed": true,
+          "adapter_model_pass_count": 1,
+          "thinking_mode": "disabled",
+          "usage": {
+            "completion_tokens": 1812,
+            "prompt_tokens": 33392,
+            "total_tokens": 35204,
+            "prompt_tokens_details": {
+              "cached_tokens": 32768
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "response_id": "02178980711903727ce9617f6c3913264d7d32061afe934caec1b",
+          "stream_termination": "completed",
+          "market_path": "overseas_tiktok",
+          "market_route_provider": "openai_compatible",
+          "market_route_model": "deepseek-v4-pro"
+        }
+      },
+      "error_type": null,
+      "error": null,
+      "created_at": "2026-09-19T08:39:01.847537Z"
+    },
+    {
+      "id": "747fe0b2-ae43-4d7e-a1a4-12f8d600d5e7",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "error",
+      "artifact": "Story Plan Node decomposition episode completion node=story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1 validation",
+      "candidate": null,
+      "error_type": "ValidationError",
+      "error": "1 validation error for _NodeEventReferences\n  Value error, The terminal event must belong to the final episode. [type=value_error, input_value={'title': '绝境激活..._point_indices': [2, 4]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "created_at": "2026-09-19T08:39:01.850717Z"
+    },
+    {
+      "id": "854748f7-0ca4-4f92-9a82-c07fda9809b1",
+      "attempt_id": "36d170b1-3dbf-49be-9264-1897b7601cf1",
+      "binding": {
+        "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+        "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+        "parent_node_version": 3,
+        "request_fingerprint": "6ec88fe45fc59bb21849a859e60033c3262eb42311c71782400fe6db8ab6f171",
+        "source_fingerprint": "79db7cb948b0e25d97e3868d6adb17e9867c818518aa3f8275b168f50915d936",
+        "operation_id": "agent-request.story-decompose-v1.180fea72ff0b415f26213b85abdba795ee4cfe1aeb7fa3ba43c15f7bea7c2c31"
+      },
+      "kind": "failed",
+      "artifact": "decomposition",
+      "candidate": null,
+      "error_type": "StoryPlanningInputError",
+      "error": "这一部分在有限补全后仍未满足固定集数与剧情合同，候选已保留，本轮未保存不完整规划。",
+      "created_at": "2026-09-19T08:39:01.852600Z"
+    }
+  ]
+}

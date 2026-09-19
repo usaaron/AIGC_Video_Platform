@@ -1,10 +1,11 @@
 import type { PlanningPhase, ScriptProject } from "./types";
 
-export type WorkspaceSectionId = "story-bible" | "planning" | "script" | "storyboard";
+export type WorkspaceSectionId = "story-synopsis" | "story-bible" | "planning" | "script" | "storyboard";
 
 export interface WorkspaceSectionAccess {
   phase: PlanningPhase;
-  storyBible: true;
+  storyBible: boolean;
+  storySynopsis: boolean;
   planning: boolean;
   script: boolean;
   storyboard: boolean;
@@ -12,10 +13,12 @@ export interface WorkspaceSectionAccess {
 
 type WorkspaceStageProject = Pick<ScriptProject,
   | "id"
+  | "storySynopsis"
   | "planningSession"
   | "storyBibleStatus"
   | "episodePlansReadyThrough"
   | "generationSettings"
+  | "productionOutputMode"
   | "episodes"
 >;
 
@@ -55,10 +58,13 @@ export function workspaceSectionAccess(
     || (phase === "episode_roadmap" && session?.status === "approved");
   return {
     phase,
-    storyBible: true,
+    storyBible: project.storySynopsis?.status === "confirmed"
+      || phase !== "creative_intent",
+    storySynopsis: true,
     planning,
     script,
-    storyboard: script,
+    // Projects created before the choice existed keep the historical behavior.
+    storyboard: script && project.productionOutputMode !== "script_only",
   };
 }
 
@@ -66,6 +72,7 @@ export function workspaceSectionHref(
   project: WorkspaceStageProject,
   section: WorkspaceSectionId,
 ): string {
+  if (section === "story-synopsis") return `/projects/${project.id}/synopsis`;
   if (section === "story-bible") return `/projects/${project.id}/planning`;
   if (section === "planning") return `/projects/${project.id}/planning/structure`;
   if (section === "storyboard") return `/projects/${project.id}/storyboard`;
@@ -80,5 +87,5 @@ export function currentWorkspaceHref(project: WorkspaceStageProject): string {
   const access = workspaceSectionAccess(project);
   if (access.script) return workspaceSectionHref(project, "script");
   if (access.planning) return workspaceSectionHref(project, "planning");
-  return workspaceSectionHref(project, "story-bible");
+  return workspaceSectionHref(project, project.storySynopsis?.status === "confirmed" ? "story-bible" : "story-synopsis");
 }

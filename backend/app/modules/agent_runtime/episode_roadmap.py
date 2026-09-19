@@ -15,7 +15,10 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
     PlanningRevisionMode,
+    FutureRoadmapRebuildReceipt,
 )
+from app.modules.script_engine.future_leaf_rebuild import prepare_future_leaf_rebuild, build_rebuild_receipt
+from app.modules.script_engine.long_story_repository import LongStoryPersistenceConflictError
 from app.modules.script_engine.story_planning_service import StoryPlanningService
 from app.modules.script_engine.episode_readiness import episode_execution_readiness_issues
 from app.script_delivery_contract import ending_mode_requires_hook
@@ -61,6 +64,7 @@ class EpisodeRoadmapAgentResult:
 class EpisodeRoadmapChunkAgentResult:
     items: list[EpisodePlanGenerationItem]
     run: AgentRunRecord
+    rebuild_receipt: FutureRoadmapRebuildReceipt | None = None
 
 
 class EpisodeRoadmapAgent:
@@ -79,6 +83,8 @@ class EpisodeRoadmapAgent:
         self,
         payload: EpisodePlanItemDraftRequest,
     ) -> EpisodeRoadmapAgentResult:
+        if payload.future_rebuild:
+            raise LongStoryPersistenceConflictError("Future roadmap rebuild must use the resumable chunk endpoint.")
         subject_ref = (
             f"{payload.story_project_id}:{payload.source_node_id}:"
             f"episode-{payload.episode_number}"
@@ -92,11 +98,12 @@ class EpisodeRoadmapAgent:
                 request_key=payload.agent_request_id,
                 input_fingerprint=fingerprint_input(
                     {
-                        **payload.model_dump(mode="json"),
+                        **payload.model_dump(mode="json", exclude={"future_rebuild"}),
                         "agent_request_id": None,
                     }
                 ),
                 project_id=payload.story_project_id,
+                planning_revision_epoch=payload.planning_revision_epoch,
                 episode_number=payload.episode_number,
             )
             if start.session is None:
@@ -185,6 +192,18 @@ class EpisodeRoadmapAgent:
     ) -> EpisodeRoadmapChunkAgentResult:
         """Generate or replay one idempotent transport-sized roadmap chunk."""
 
+        rebuild_context = None
+        if payload.future_rebuild:
+            if self._run_service is None or not self._run_service.available:
+                raise LongStoryPersistenceConflictError("Future roadmap rebuild requires durable agent persistence.")
+            source_node = self._planning_service._episode_plan_source_node(payload)
+            rebuild_context = prepare_future_leaf_rebuild(self._planning_service._long_story_service, payload, source_node)
+        fingerprint_payload = {**payload.model_dump(mode="json"), "agent_request_id": None}
+        if rebuild_context is None:
+            fingerprint_payload.pop("future_rebuild", None)  # Preserve legacy replay keys.
+        else:
+            fingerprint_payload["future_rebuild_evidence"] = rebuild_context["evidence_signature"]
+
         subject_ref = (
             f"{payload.story_project_id}:{payload.source_node_id}:"
             f"episode-{payload.episode_number}-chunk"
@@ -196,19 +215,20 @@ class EpisodeRoadmapAgent:
                 subject_ref=subject_ref,
                 policy=ROADMAP_CHUNK_AGENT_POLICY,
                 request_key=payload.agent_request_id,
-                input_fingerprint=fingerprint_input(
-                    {
-                        **payload.model_dump(mode="json"),
-                        "agent_request_id": None,
-                    }
-                ),
+                input_fingerprint=fingerprint_input(fingerprint_payload),
                 project_id=payload.story_project_id,
+                planning_revision_epoch=payload.planning_revision_epoch,
                 episode_number=payload.episode_number,
             )
             if start.session is None:
+                items = _roadmap_chunk_items(start.result_payload or {})
+                receipt = self._rebuild_receipt(payload, rebuild_context, items, start.record)
+                if receipt is not None and (start.result_payload or {}).get("rebuild_receipt") != receipt.model_dump(mode="json"):
+                    raise LongStoryPersistenceConflictError("Future roadmap rebuild cached receipt does not match current server evidence.")
                 return EpisodeRoadmapChunkAgentResult(
-                    items=_roadmap_chunk_items(start.result_payload or {}),
+                    items=items,
                     run=start.record,
+                    rebuild_receipt=receipt,
                 )
             session = start.session
         else:
@@ -236,17 +256,29 @@ class EpisodeRoadmapAgent:
                 checkpoint_loader=_roadmap_chunk_items,
                 expected_checkpoint_type="episode_roadmap_chunk.v1",
             )
+            receipt = self._rebuild_receipt(payload, rebuild_context, items, session.record)
         except Exception as error:
             session.fail(error)
             raise
         result_payload = {
             "items": [item.model_dump(mode="json") for item in items]
         }
+        if receipt is not None:
+            result_payload["rebuild_receipt"] = receipt.model_dump(mode="json")
         run = session.complete(
             result_type="episode_roadmap_chunk.v1",
             result_payload=result_payload,
         )
-        return EpisodeRoadmapChunkAgentResult(items=items, run=run)
+        return EpisodeRoadmapChunkAgentResult(items=items, run=run, rebuild_receipt=receipt)
+
+    def _rebuild_receipt(self, payload, original_context, items, record):
+        if original_context is None:
+            return None
+        node = self._planning_service._episode_plan_source_node(payload)
+        current = prepare_future_leaf_rebuild(self._planning_service._long_story_service, payload, node)
+        if current["evidence_signature"] != original_context["evidence_signature"] or len(items) != 1:
+            raise LongStoryPersistenceConflictError("Future roadmap rebuild source changed, or output is not one episode.")
+        return FutureRoadmapRebuildReceipt.model_validate(build_rebuild_receipt(current, items[0], record))
 
 
 def _roadmap_chunk_items(

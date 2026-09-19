@@ -174,14 +174,14 @@ try {
       { delay: testCase ? 2 : 15 },
     );
     await page.getByRole("spinbutton", { name: /^剧集数量/ }).fill("8");
-    await expect(button("检查输入并继续")).toBeDisabled();
+    await expect(button("开始整理故事")).toBeDisabled();
     await page.getByLabel("发行地区").selectOption(values.market);
     await page.getByRole("checkbox", { name: "悬疑", exact: true }).check();
-    await button("检查输入并继续").click();
-    await expect(button("确认资料并继续")).toBeEnabled();
+    await button("开始整理故事").click();
+    await expect(button("继续确认故事方向")).toBeEnabled();
   });
   await step("02-source-confirmation", async () => {
-    await button("确认资料并继续").click();
+    await button("继续确认故事方向").click();
     await page.waitForURL(/\/planning$/);
     report.projectId = new URL(page.url()).pathname.split("/")[2];
     await button("直接检查设定").click();
@@ -208,16 +208,19 @@ try {
       assert.equal(source.storyBibleStatus, "approved", "Story Bible is neither awaiting review nor approved");
     }
     await page.waitForURL(/\/planning\/structure$/);
+    await button("规划选项").click();
+    await page.getByRole("checkbox", { name: "逐层规划，每层停下来检查" }).check();
+    await button("规划选项").click();
     await expect(button("开始生成剧情规划")).toBeEnabled();
   });
   await step("05-plot-decomposition", async () => {
     await button("开始生成剧情规划").click();
-    await expect(button("保存规划")).toBeEnabled({ timeout });
+    await expect(button("保存规划草稿")).toBeEnabled({ timeout });
     for (let layer = 0; layer < 8; layer++) {
-      await page.getByRole("button", { name: /^(保存规划|再次保存)$/ }).click();
+      await button("保存规划草稿").click();
       if (await button("生成单集路线图").count()) break;
       await button("继续生成后续部分").click();
-      await expect(page.getByRole("button", { name: /^(保存规划|再次保存)$/ })).toBeEnabled({ timeout });
+      await expect(button("保存规划草稿")).toBeEnabled({ timeout });
     }
     await expect(button("生成单集路线图")).toBeEnabled();
   });
@@ -230,9 +233,8 @@ try {
       await button("批准本集路线图").first().click();
       await expect(button("批准本集路线图")).toHaveCount(remaining - 1);
     }
-    await page.getByRole("button", { name: /^(保存规划|再次保存)$/ }).click();
-    await expect(button("确认剧情规划")).toBeEnabled();
-    await button("确认剧情规划").click();
+    await expect(button("保存并进入正文")).toBeEnabled();
+    await button("保存并进入正文").click();
     await page.waitForURL(/\/workspace$/);
     await expect(button("生成下一部分")).toBeEnabled();
     await page.reload();

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  applyChineseCharacterNames,
+  applyEnglishCharacterNames,
   mergeOverseasCharacterNames,
   overseasDialoguePresentation,
   overseasDialogueSpeaker,
@@ -110,7 +110,7 @@ test("legacy full-episode translation views cannot drive screenplay text", () =>
   ), { english: "Lena enters the lab." });
 });
 
-test("English-source overseas view restores Chinese action names and uses dual speaker cues", () => {
+test("overseas view retains English names in action and speaker cues", () => {
   const bilingualView = {
     view_version: "bilingual_script_view.v3",
     target_language: "zh-CN-short-drama",
@@ -124,8 +124,8 @@ test("English-source overseas view restores Chinese action names and uses dual s
   const names = mergeOverseasCharacterNames(new Map(), bilingualView);
 
   assert.equal(
-    applyChineseCharacterNames("MARCUS VALE在泥地划出编号。", names),
-    "砝码在泥地划出编号。",
+    applyEnglishCharacterNames("MARCUS VALE在泥地划出编号。", names),
+    "MARCUS VALE在泥地划出编号。",
   );
   assert.deepEqual(
     overseasDialogueSpeaker(
@@ -134,6 +134,6 @@ test("English-source overseas view restores Chinese action names and uses dual s
       "MARCUS VALE",
       names,
     ),
-    { speaker: "砝码（MARCUS VALE）", marker: "" },
+    { speaker: "MARCUS VALE", marker: "" },
   );
 });

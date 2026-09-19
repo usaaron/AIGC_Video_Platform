@@ -8,15 +8,20 @@ export interface ContinuityCheckpointFocus {
   characterRefs?: string[];
   storyLineRefs?: string[];
   setupPayoffRefs?: string[];
+  /** Episode whose prior state is being requested. State from this episode and later is excluded. */
+  episodeNumber?: number;
 }
 
 export function buildProvisionalContinuityCheckpoint(
   project: ScriptProject,
   focus: ContinuityCheckpointFocus = {},
 ): string | null {
+  const asOfEpisode = focus.episodeNumber == null
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, Math.floor(focus.episodeNumber) - 1);
   const characterStates = project.characters.flatMap((character) => {
     const state = character.dynamicState;
-    if (!state) return [];
+    if (!state || state.lastUpdatedEpisode > asOfEpisode) return [];
     return [{
       character_ref: `character.${character.id.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       aliases: [character.name],
@@ -42,23 +47,28 @@ export function buildProvisionalContinuityCheckpoint(
       last_updated_episode: state.lastUpdatedEpisode,
     }];
   });
-  const worldStates = (project.continuityStates ?? []).map((state) => {
-    const latest = state.history.at(-1);
+  const worldStates = (project.continuityStates ?? []).flatMap((state) => {
+    const latest = state.history
+      .filter((change) => change.episodeNumber <= asOfEpisode)
+      .at(-1);
+    if (!latest && state.lastUpdatedEpisode > asOfEpisode) return [];
     return {
       entity_key: state.entityKey,
       entity_type: state.entityType,
       entity_name: state.entityName,
       state_domain: state.stateDomain,
-      current_state: state.currentState,
-      persistence: state.persistence,
-      future_constraint: state.futureConstraint,
+      current_state: latest?.currentState ?? state.currentState,
+      persistence: latest?.persistence ?? state.persistence,
+      future_constraint: latest?.futureConstraint ?? state.futureConstraint,
       last_transition: latest?.transition ?? "established",
       change_cause: latest?.cause ?? "当前批次结构化状态",
-      evidence_episode_number: state.lastUpdatedEpisode,
+      evidence_episode_number: latest?.episodeNumber ?? state.lastUpdatedEpisode,
       evidence_scene_numbers: latest?.evidenceSceneNumbers ?? [],
     };
   });
-  const storyLineStates = (project.storyLines ?? []).map((line) => ({
+  const storyLineStates = (project.storyLines ?? []).filter((line) => (
+    (line.lastProgressedEpisode ?? 0) <= asOfEpisode
+  )).map((line) => ({
     story_line_id: line.id,
     status: line.status,
     current_state: line.currentState || line.summary,
@@ -68,7 +78,9 @@ export function buildProvisionalContinuityCheckpoint(
     health: line.health,
     warnings: line.warnings ?? [],
   }));
-  const relationshipStates = (project.characterRelationships ?? []).map((relationship) => ({
+  const relationshipStates = (project.characterRelationships ?? []).filter((relationship) => (
+    (relationship.lastUpdatedEpisode ?? 0) <= asOfEpisode
+  )).map((relationship) => ({
     relationship_id: relationship.id,
     source_character_ref: `character.${relationship.sourceCharacterId.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
     target_character_ref: `character.${relationship.targetCharacterId.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
@@ -83,11 +95,14 @@ export function buildProvisionalContinuityCheckpoint(
     description: `${hook.summary}；后续义务：${hook.nextEpisodeObligation}`,
     hook_type: hook.hookType,
     next_episode_obligation: hook.nextEpisodeObligation,
-    status: hook.status === "fulfilled" ? "paid_off" : "setup",
+    status: hook.status === "fulfilled" && (hook.fulfilledEpisode == null || hook.fulfilledEpisode <= asOfEpisode)
+      ? "paid_off" : "setup",
     setup_episode: hook.episodeNumber,
     target_payoff_episode: hook.targetPayoffEpisode,
-    payoff_episode: hook.fulfilledEpisode,
-    response_summary: hook.responseSummary,
+    payoff_episode: hook.fulfilledEpisode != null && hook.fulfilledEpisode <= asOfEpisode
+      ? hook.fulfilledEpisode : undefined,
+    response_summary: hook.fulfilledEpisode != null && hook.fulfilledEpisode <= asOfEpisode
+      ? hook.responseSummary : undefined,
     response_evidence_scene_numbers: hook.evidenceSceneNumbers,
   }));
   const setupPayoffs = [
@@ -95,15 +110,24 @@ export function buildProvisionalContinuityCheckpoint(
       setup_payoff_id: record.ref,
       description: record.description,
       next_episode_obligation: record.nextRequiredStep,
-      status: record.status === "paid_off" ? "paid_off" : "setup",
+      status: record.status === "paid_off"
+        && (record.payoffEpisode == null || record.payoffEpisode <= asOfEpisode)
+        ? "paid_off" : "setup",
       setup_episode: record.setupEpisode,
       target_payoff_episode: record.targetPayoffEpisode,
-      payoff_episode: record.payoffEpisode,
-      response_summary: record.status === "paid_off" ? record.description : undefined,
-      response_evidence_scene_numbers: record.history.at(-1)?.evidenceSceneNumbers ?? [],
+      payoff_episode: record.payoffEpisode != null && record.payoffEpisode <= asOfEpisode
+        ? record.payoffEpisode : undefined,
+      response_summary: record.status === "paid_off"
+        && (record.payoffEpisode == null || record.payoffEpisode <= asOfEpisode)
+        ? record.description : undefined,
+      response_evidence_scene_numbers: record.history
+        .filter((change) => change.episodeNumber <= asOfEpisode)
+        .at(-1)?.evidenceSceneNumbers ?? [],
     })),
     ...hookPayoffs,
-  ];
+  ].filter((record) => (
+    record.setup_episode == null || record.setup_episode <= asOfEpisode
+  ));
   const characterFocus = new Set(focus.characterRefs ?? []);
   const storyLineFocus = new Set(focus.storyLineRefs ?? []);
   const setupPayoffFocus = new Set(focus.setupPayoffRefs ?? []);

@@ -112,6 +112,7 @@ interface ContinuityLedgerResponse {
 interface GenerationTaskCheckpointResponse {
   data: {
     batch: {
+      planning_revision_epoch?: number;
       batch_id: string;
       revision: number;
       batch_number: number;
@@ -169,10 +170,11 @@ let unavailableUntil = 0;
 
 export function queueProjectServerSync(
   project: ScriptProject,
+  options: { bypassCooldown?: boolean } = {},
 ): Promise<ProjectServerSyncState> {
   return queueProjectSync(project, {
     forceWorkspaceOverwrite: false,
-    bypassCooldown: false,
+    bypassCooldown: options.bypassCooldown === true,
   });
 }
 
@@ -188,6 +190,7 @@ export async function savePlanningSessionOnServer(
         schema_version: "v1",
         project_id: project.id,
         client_instance_id: getClientInstanceId(),
+        planning_revision_epoch: project.planningRevisionEpoch ?? 0,
         session: {
           schema_version: session.schemaVersion,
           session_id: session.sessionId,
@@ -217,6 +220,33 @@ export async function savePlanningSessionOnServer(
     },
   );
   return planningSessionFromRemote(response.data);
+}
+
+/** Revision boundaries use one compare-and-save; never rebase an old candidate. */
+export async function savePlanningRevisionSnapshot(
+  source: ScriptProject,
+  candidate: ScriptProject,
+): Promise<ScriptProject> {
+  if (source.id !== candidate.id) throw new Error("修订项目不一致，请重新加载。");
+  while (syncQueues.has(source.id)) await syncQueues.get(source.id);
+  const current = await loadRemoteWorkspace(source.id);
+  const expected = source.serverSync?.workspaceRevision;
+  if (!current || !expected || current.data.revision !== expected
+    || (current.data.workspace_payload.planningRevisionEpoch ?? 0) !== (source.planningRevisionEpoch ?? 0)) {
+    throw new ApiError("规划保存版本已变化，请重新加载后再开始或完成修订。", 409);
+  }
+  const response = await saveWorkspaceSnapshot(candidate, expected + 1);
+  if (!isScriptProject(response.data.workspace_payload)) throw new Error("服务端未返回完整修订记录。");
+  const saved = response.data.workspace_payload;
+  workspaceRevisions.set(source.id, response.data.revision);
+  lastSyncedProjectUpdates.set(source.id, saved.updatedAt);
+  return {
+    ...saved,
+    serverSync: {
+      status: "synced", projectRevision: source.serverSync?.projectRevision ?? 0,
+      workspaceRevision: response.data.revision, lastSyncedAt: response.data.updated_at,
+    },
+  };
 }
 
 export function forceWorkspaceOverwrite(
@@ -320,7 +350,10 @@ export function recordProjectServerRevisions(
   if (workspaceRevision != null) workspaceRevisions.set(projectId, workspaceRevision);
 }
 
-export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
+export async function loadServerProjects(options: {
+  preferredProjectId?: string;
+  onProject?: (project: ScriptProject) => void;
+} = {}): Promise<ServerProjectLoadResult> {
   if (Date.now() < unavailableUntil) {
     return { available: false, projects: [], error: "Server persistence is unavailable." };
   }
@@ -331,8 +364,17 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
       const response = await apiRequest<StoryProjectListResponse>(
         `/story-projects?limit=${PROJECT_LOAD_PAGE_SIZE}&offset=${offset}`,
       );
-      // Finish one page's workspace recovery before loading the next page.
-      const loadedProjects = await Promise.all(response.data.map(loadServerProject));
+      // Publish each complete workspace as soon as it is ready. A large or slow
+      // sibling must not keep the current story hidden behind the whole page.
+      const ordered = [...response.data].sort((left, right) =>
+        Number(right.project_id === options.preferredProjectId) - Number(left.project_id === options.preferredProjectId));
+      const loads = new Map(ordered.map(remote => [remote.project_id, loadServerProject(remote, {
+        onWorkspace: options.onProject,
+      }).then(project => {
+        if (project) options.onProject?.(project);
+        return project;
+      })]));
+      const loadedProjects = await Promise.all(response.data.map(remote => loads.get(remote.project_id)!));
       projects.push(...loadedProjects.flatMap((project) => project ? [project] : []));
       offset += response.data.length;
       if (offset >= response.total) break;
@@ -358,7 +400,10 @@ export async function loadServerProjects(): Promise<ServerProjectLoadResult> {
   }
 }
 
-async function loadServerProject(remoteProject: StoryProjectData): Promise<ScriptProject | null> {
+async function loadServerProject(
+  remoteProject: StoryProjectData,
+  options: { onWorkspace?: (project: ScriptProject) => void } = {},
+): Promise<ScriptProject | null> {
   projectRevisions.set(remoteProject.project_id, remoteProject.revision);
   try {
     const workspace = await apiRequest<WorkspaceResponse>(
@@ -367,39 +412,15 @@ async function loadServerProject(remoteProject: StoryProjectData): Promise<Scrip
     workspaceRevisions.set(remoteProject.project_id, workspace.data.revision);
     const payload = workspace.data.workspace_payload;
     if (!isScriptProject(payload)) return null;
-    let planningSession: PlanningSession | undefined;
-    try {
-      const planning = await apiRequest<PlanningSessionResponse>(
-        `/story-projects/${remoteProject.project_id}/planning-session`,
-      );
-      planningSession = planningSessionFromRemote(planning.data);
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 404)) throw error;
-    }
     lastSyncedProjectUpdates.set(remoteProject.project_id, payload.updatedAt);
     const marketProfile = payload.marketProfile ?? inferProjectMarketProfile(payload);
-    let activeGenerationTask = payload.activeGenerationTask;
-    try {
-      const recovery = await apiRequest<GenerationTaskCheckpointResponse>(
-        `/story-projects/${remoteProject.project_id}/generation-tasks/recoverable`,
-      );
-      if (recovery.data) activeGenerationTask = fromGenerationTaskPayload(recovery.data);
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 404)) throw error;
-    }
     const episodeRoadmaps = normalizeEpisodeRoadmaps(payload.episodeRoadmaps ?? []);
     const recoveredPlanningCoverage = payload.episodeRoadmapRequired === true
       ? episodeRoadmapCoverageThrough(episodeRoadmaps)
       : payload.episodePlansReadyThrough ?? 0;
     const restored: ScriptProject = {
       ...payload,
-      ...(planningSession ? {
-        planningSession,
-        storyBibleAuthorInstruction: planningSession.storyBibleAuthorInstruction
-          || payload.storyBibleAuthorInstruction,
-      } : {}),
       referenceMaterials: payload.referenceMaterials ?? [],
-      ...(activeGenerationTask ? { activeGenerationTask } : {}),
       ...(remoteProject.active_story_bible_version != null ? {
         storyBibleVersion: remoteProject.active_story_bible_version,
         storyBibleStatus: "approved" as const,
@@ -419,7 +440,41 @@ async function loadServerProject(remoteProject: StoryProjectData): Promise<Scrip
         lastSyncedAt: workspace.data.updated_at,
       },
     };
-    return migrateProjectScreenplayFormat(restored);
+    const migrated = migrateProjectScreenplayFormat(restored);
+    // Name/format migration changes content without changing updatedAt. The
+    // next explicit preflight must persist it before freezing this body prefix.
+    if (JSON.stringify(migrated.episodes) !== JSON.stringify(payload.episodes)) {
+      lastSyncedProjectUpdates.delete(remoteProject.project_id);
+    }
+    // The durable workspace is usable before ancillary recovery metadata.
+    options.onWorkspace?.(migrated);
+    let planningSession: PlanningSession | undefined;
+    try {
+      const planning = await apiRequest<PlanningSessionResponse>(
+        `/story-projects/${remoteProject.project_id}/planning-session`,
+      );
+      planningSession = planningSessionFromRemote(planning.data);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
+    let activeGenerationTask = payload.activeGenerationTask;
+    try {
+      const recovery = await apiRequest<GenerationTaskCheckpointResponse>(
+        `/story-projects/${remoteProject.project_id}/generation-tasks/recoverable`,
+      );
+      if (recovery.data) activeGenerationTask = fromGenerationTaskPayload(recovery.data);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
+    return {
+      ...migrated,
+      ...(planningSession ? {
+        planningSession,
+        storyBibleAuthorInstruction: planningSession.storyBibleAuthorInstruction
+          || migrated.storyBibleAuthorInstruction,
+      } : {}),
+      ...(activeGenerationTask ? { activeGenerationTask } : {}),
+    };
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
@@ -476,6 +531,7 @@ async function saveGenerationTaskWithReconciliation(
 ): Promise<GenerationRecoveryTask> {
   if (Date.now() < unavailableUntil) return { ...task, serverBacked: false };
   let requested = task;
+  let lastConflict: ApiError | null = null;
   for (let attempt = 0; attempt < MAX_SYNC_RECONCILIATION_ATTEMPTS; attempt += 1) {
     try {
       const response = await apiRequest<GenerationTaskCheckpointResponse>(
@@ -488,32 +544,32 @@ async function saveGenerationTaskWithReconciliation(
       return response.data ? fromGenerationTaskPayload(response.data) : requested;
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
+        lastConflict = error;
         let current: GenerationRecoveryTask | null;
         try {
           current = await loadGenerationTask(projectId, task.jobId);
-        } catch (reloadError) {
-          if (shouldStartPersistenceCooldown(
-            reloadError instanceof ApiError ? reloadError.status : undefined,
-          )) {
-            unavailableUntil = Date.now() + 30_000;
-            return { ...requested, serverBacked: false };
-          }
-          throw reloadError;
+        } catch {
+          // A rejected checkpoint remains rejected even if reloading it fails.
+          // Offline persistence must not turn a known conflict into success.
+          throw error;
         }
-        if (!current) return { ...requested, serverBacked: false };
+        if (!current) throw error;
+        if ((current.planningRevisionEpoch ?? 0) !== (requested.planningRevisionEpoch ?? 0)) throw error;
         requested = reconcileGenerationRecoveryTask(current, requested);
         continue;
       }
       if (shouldStartPersistenceCooldown(
         error instanceof ApiError ? error.status : undefined,
       )) {
+        if (lastConflict) throw lastConflict;
         unavailableUntil = Date.now() + 30_000;
         return { ...requested, serverBacked: false };
       }
       throw error;
     }
   }
-  return { ...requested, serverBacked: false };
+  if (lastConflict) throw lastConflict;
+  throw new Error("Generation checkpoint could not be saved.");
 }
 
 async function loadGenerationTask(
@@ -548,6 +604,7 @@ function toGenerationTaskPayload(
   return {
     batch: {
       schema_version: "v1",
+      planning_revision_epoch: task.planningRevisionEpoch ?? 0,
       batch_id: task.batchId,
       revision: task.serverBacked === false ? 1 : task.batchRevision,
       story_project_id: projectId,
@@ -585,6 +642,7 @@ function fromGenerationTaskPayload(
   payload: NonNullable<GenerationTaskCheckpointResponse["data"]>,
 ): GenerationRecoveryTask {
   return {
+    planningRevisionEpoch: payload.batch.planning_revision_epoch ?? 0,
     batchId: payload.batch.batch_id,
     batchRevision: payload.batch.revision,
     jobId: payload.checkpoint.job_id,
@@ -751,6 +809,8 @@ async function saveWorkspaceWithReconciliation(
     }
 
     workspaceRevisions.set(project.id, latestWorkspace.data.revision);
+    const remoteEpoch = latestWorkspace.data.workspace_payload.planningRevisionEpoch ?? 0;
+    if (remoteEpoch !== (project.planningRevisionEpoch ?? 0)) throw lastConflict;
     const remoteUpdatedAt = workspacePayloadUpdatedAt(
       latestWorkspace.data.workspace_payload,
     );
@@ -930,6 +990,7 @@ export async function saveEpisodeArtifactOnServer(args: {
         method: "POST",
         body: JSON.stringify({
           schema_version: "v1",
+          planning_revision_epoch: args.project.planningRevisionEpoch ?? 0,
           artifact_id: artifactId,
           story_project_id: args.project.id,
           episode_number: args.episodeNumber,

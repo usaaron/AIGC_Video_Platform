@@ -101,7 +101,7 @@ test("Story Bible revisions remain local until saved while planning nodes persis
   assert.doesNotMatch(storyBible, /saveStoryBibleDraft\(candidateOverride\)/);
   assert.match(
     storyNode,
-    /const saved = await saveStoryPlanNodeDraft\(candidate, descendantPolicy\);[\s\S]*setNode\(saved\);/,
+    /const saved = await saveStoryPlanNodeDraft\(candidate, descendantPolicy, project\);[\s\S]*setNode\(saved\);/,
   );
   assert.match(storyBible, /setUndoHistory\(\(history\) => \[\.\.\.history, sourceOverride\]/);
   assert.match(storyNode, /setUndoHistory\(\(history\) => \[\.\.\.history, \{ kind: "node"/);

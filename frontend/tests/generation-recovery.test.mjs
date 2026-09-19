@@ -43,9 +43,10 @@ test("recovery always resumes from the first episode missing from the workspace"
   assert.equal(firstMissingRecoveryEpisode(staleCheckpoint, [11, 12, 13]), null);
 });
 
-test("recovery resumes orphaned work and only bounded transient failures", () => {
-  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined), true);
-  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined, "approved"), true);
+test("recovery only retries browser-owned work and bounded transient failures", () => {
+  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined), false);
+  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined, "approved"), false);
+  assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], "failed", "approved"), true);
   assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], undefined, "awaiting_review"), false);
   assert.equal(shouldAutoResumeGenerationRecovery(baseTask, [11], "running"), false);
   assert.equal(shouldAutoResumeGenerationRecovery(
@@ -119,9 +120,11 @@ test("completed planning continues ready script parts but respects every stop st
     nextReadyEpisode: 11,
     generationIntent: false,
     busy: false,
+    browserTaskStatus: "completed",
   };
 
   assert.equal(shouldAutomaticallyContinueScriptGeneration(ready), true);
+  assert.equal(shouldAutomaticallyContinueScriptGeneration({ ...ready, browserTaskStatus: undefined }), false);
   assert.equal(shouldAutomaticallyContinueScriptGeneration({
     ...ready,
     browserTaskStatus: "completed",
@@ -156,6 +159,7 @@ test("automatic script continuation keeps legacy callers without planning status
     nextReadyEpisode: 2,
     generationIntent: false,
     busy: false,
+    browserTaskStatus: "completed",
   }), true);
 });
 

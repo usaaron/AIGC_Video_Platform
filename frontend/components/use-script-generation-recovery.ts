@@ -62,6 +62,7 @@ export function useScriptGenerationRecovery({
       episodeNumbers, project.episodePlansReadyThrough ?? 0, project.generationSettings.episodeCount,
     );
     if (!shouldAutomaticallyContinueScriptGeneration({
+      productionOutputMode: project.productionOutputMode,
       planningPhase: project.planningSession?.phase,
       planningStatus: project.planningSession?.status,
       existingEpisodeCount: episodeNumbers.length,
@@ -82,7 +83,7 @@ export function useScriptGenerationRecovery({
     project?.activeGenerationTask?.jobId, project?.activeGenerationTask?.status,
     project?.episodePlansReadyThrough, project?.generationSettings.episodeCount,
     project?.id, project?.planningSession?.phase, project?.planningSession?.status,
-    project?.storyBibleVersion, scriptAccessible,
+    project?.storyBibleVersion, project?.productionOutputMode, scriptAccessible,
   ]);
 
   useEffect(() => {

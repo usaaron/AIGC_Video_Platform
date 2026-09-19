@@ -35,7 +35,7 @@ test("a durable script route never adds the generation intent", () => {
   assert.doesNotMatch(currentWorkspaceHref(approved), /[?&]generate=1/);
 });
 
-test("readiness analysis remains advisory until the user selects the recommended path", () => {
+test("readiness analysis remains descriptive and never skips a workflow stage", () => {
   const complete = {
     schemaVersion: "input_readiness.v1",
     assessmentVersion: 2,
@@ -50,10 +50,10 @@ test("readiness analysis remains advisory until the user selects the recommended
 
   assert.deepEqual(inputReadinessWorkflowIntent(complete), {
     normalizeStoryBible: true,
-    prepareCompletePlanning: true,
+    prepareCompletePlanning: false,
   });
   assert.deepEqual(inputReadinessWorkflowIntent(fullWorkflow), {
-    normalizeStoryBible: false,
+    normalizeStoryBible: true,
     prepareCompletePlanning: false,
   });
   assert.deepEqual(inputReadinessWorkflowIntent(partial), {
@@ -74,6 +74,7 @@ test("automatic script continuation is opt-in to a completed planning phase and 
     nextReadyEpisode: 2,
     generationIntent: false,
     busy: false,
+    browserTaskStatus: "completed",
   };
 
   assert.equal(shouldAutomaticallyContinueScriptGeneration(ready), true);
@@ -127,7 +128,8 @@ test("recovery never restarts a paused/completed task or an already covered rang
     checkpointedAt: "2026-09-01T00:00:00.000Z",
   };
 
-  assert.equal(shouldAutoResumeGenerationRecovery(task, [1], undefined, "approved"), true);
+  assert.equal(shouldAutoResumeGenerationRecovery(task, [1], undefined, "approved"), false);
+  assert.equal(shouldAutoResumeGenerationRecovery(task, [1], "failed", "approved"), true);
   assert.equal(shouldAutoResumeGenerationRecovery({ ...task, status: "paused" }, [1]), false);
   assert.equal(shouldAutoResumeGenerationRecovery({ ...task, status: "completed" }, [1]), false);
   assert.equal(shouldAutoResumeGenerationRecovery(task, [1, 2, 3]), false);

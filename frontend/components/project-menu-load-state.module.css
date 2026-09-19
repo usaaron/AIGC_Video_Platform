@@ -1,0 +1,35 @@
+.notice {
+  margin: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--paper-bright);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.notice > p {
+  margin: 0 0 8px;
+}
+
+.retry {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.loading {
+  margin: 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.7;
+}

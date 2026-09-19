@@ -7,6 +7,7 @@ import ts from "typescript";
 
 import { authorConflictSourceSnapshot } from "../lib/author-conflict.ts";
 import * as state from "../lib/script-draft-state.ts";
+import { updateContinuityText, updateSceneProps } from "../lib/script-derived-editing.ts";
 
 const compiled = ts.transpileModule(readFileSync(new URL("../components/use-script-draft-editing.ts", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -83,6 +84,31 @@ function harness(project = fixture()) {
 function edit(controller, text = "Edited") {
   controller.updateDraft(1, (draft) => ({ ...draft, synopsis: text }));
 }
+
+test("props and continuity text use the ordinary review and save path without changing body or evidence identity", async () => {
+  const project = fixture();
+  const source = project.episodes[0].generationRun.draft_master_script;
+  source.scenes = [{ scene_number: 3, character_actions: ["保留正文动作。"], dialogues: [{ text: "保留对白。" }], content_manifest: { props: ["日志"] } }];
+  const record = { entity_key: "evidence", entity_type: "item", entity_name: "材料", state_domain: "possession", current_state: "仍由知微持有。", change_cause: "保留原件。", evidence_scene_numbers: [3] };
+  source.continuity_state_updates = [record];
+  project.episodes[0].workingDraftJson = JSON.stringify(source);
+  const run = harness(project), controller = run.render();
+  controller.updateDraft(1, (draft) => updateSceneProps(draft, 0, 3, "日志照片打印件"));
+  controller.updateDraft(1, (draft) => updateContinuityText(draft, 0, record, "current_state", "照片打印件仍由知微持有。"));
+  assert.equal(run.calls.reviews.length, 0);
+  assert.equal(run.calls.continuity.length, 0);
+  await controller.saveDraft(1);
+  assert.equal(run.calls.reviews.length, 1);
+  assert.equal(run.calls.artifacts.length, 1);
+  assert.ok(run.calls.continuity.length > 0);
+  const reviewed = run.calls.reviews[0][1];
+  assert.equal(reviewed.scenes[0].content_manifest.props[0], "日志照片打印件");
+  assert.equal(reviewed.continuity_state_updates[0].current_state, "照片打印件仍由知微持有。");
+  assert.equal(reviewed.continuity_state_updates[0].entity_key, record.entity_key);
+  assert.deepEqual(reviewed.continuity_state_updates[0].evidence_scene_numbers, [3]);
+  assert.deepEqual(reviewed.scenes[0].character_actions, source.scenes[0].character_actions);
+  assert.deepEqual(reviewed.scenes[0].dialogues, source.scenes[0].dialogues);
+});
 
 test("successive inline edits persist immediately, compose, and do not rebuild continuity", () => {
   const run = harness();
@@ -300,4 +326,21 @@ test("legacy lock precedence and candidate delivery gates remain unchanged", () 
   assert.equal(state.episodeHasSavedDraft({ ...episode, hasLocalDraftEdits: true }), false);
   assert.equal(state.episodeHasSavedDraft({ ...episode, modificationCandidate: {} }), false);
   assert.equal(state.resolveSavedDraft({ ...episode, deepeningRun: { candidate_draft_master_script: confirmed } }), null);
+});
+
+test("changing durable author requirements blocks adoption of an earlier candidate before artifact saving", async () => {
+  const run = harness();
+  const source = run.project;
+  const episode = source.episodes[0];
+  const reviewed = authorConflictSourceSnapshot(source, episode, episode.generationRun.draft_master_script);
+  const candidate = { ...episode.generationRun, draft_master_script: { ...episode.generationRun.draft_master_script, synopsis: "Candidate" } };
+  run.project = { ...source, episodes: [{ ...episode,
+    authorModificationInstructions: [{ id: "requirement", instruction: "不新增量值", createdAt: "now" }],
+  }] };
+  await assert.rejects(run.render().persistReviewedDraft(source, episode, candidate, reviewed), /已变化/);
+  assert.equal(run.calls.artifacts.length, 0);
+  const current = run.project;
+  const history = current.episodes[0].authorModificationInstructions;
+  await run.render().persistReviewedDraft(current, current.episodes[0], candidate);
+  assert.equal(run.project.episodes[0].authorModificationInstructions, history);
 });

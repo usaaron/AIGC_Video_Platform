@@ -193,8 +193,8 @@ test("shared directory exposes generation states and the global status links bac
   assert.match(globalStatus, /href={`\/projects\/\$\{task\.projectId\}\/workspace`}/);
 });
 
-test("shared directory keeps Story Bible flat and toggles planning or script children", () => {
-  assert.match(directory, /const isExpandable = section\.id !== "story-bible"/);
+test("shared directory expands available document chapters and stage entries", () => {
+  assert.match(directory, /const isExpandable = currentEntries\.length > 0/);
   assert.match(directory, /const isExpanded = isExpandable && isActive && expandedSection === section\.id/);
   assert.match(directory, /current === section\.id \? null : section\.id/);
   assert.match(directory, /aria-expanded=\{isExpanded\}/);

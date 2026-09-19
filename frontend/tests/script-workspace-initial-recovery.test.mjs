@@ -7,6 +7,7 @@ import ts from "typescript";
 
 import * as recovery from "../lib/generation-recovery.ts";
 import { workspaceSectionAccess } from "../lib/workspace-stage.ts";
+import { storyboardHandoffHref } from "../lib/production-handoff.ts";
 
 const source = fs.readFileSync(new URL("../components/script-workspace.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("script-workspace.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -64,8 +65,12 @@ function workspaceHarness(project) {
     require: () => ({ jsx: (type, props) => ({ type, props }) }),
     ...recovery,
     workspaceSectionAccess,
+    storyboardHandoffHref,
     useParams: () => ({ projectId: project.id }),
-    useRouter: () => ({ replace: (path) => { url = new URL(path, url); } }),
+    useRouter: () => ({
+      replace: (path) => { url = new URL(path, url); },
+      push: (path) => { url = new URL(path, url); },
+    }),
     useSearchParams: () => url.searchParams,
     useProjects: () => ({ getProject: () => project, isReady: true, updateProject: async () => true }),
     useLocale: () => ({ locale: "zh", t: (key) => key }),
@@ -109,15 +114,16 @@ function workspaceHarness(project) {
   };
 }
 
-test("refresh before the first saved episode reaches the initial launcher with the original recovery range", async () => {
+test("a fresh window waits for an explicit resume and preserves the original recovery range", async () => {
   const project = projectFixture();
   const harness = workspaceHarness(project);
-  assert.equal(harness.render().type.name, "PendingScriptWorkspace");
+  const pending = harness.render();
+  assert.equal(pending.type.name, "PendingScriptWorkspace");
 
   harness.runRecoveryEffect();
-  assert.equal(harness.timers.length, 1);
-  assert.equal(harness.timers[0].delay, 500);
-  harness.timers[0].callback();
+  assert.equal(harness.timers.length, 0);
+  assert.equal(harness.batchRequests.length, 0);
+  pending.props.onRetryEpisode(1);
 
   assert.equal(harness.url.searchParams.get("generate"), "1");
   const launcher = harness.render();
@@ -133,6 +139,26 @@ test("refresh before the first saved episode reaches the initial launcher with t
   assert.equal(harness.batchRequests[0].endEpisode, 8);
   assert.equal(harness.requestedRanges[0].endEpisode, 8);
 });
+
+for (const mode of ["script_only", "script_and_storyboard"]) {
+  test(`initial recovery honors saved ${mode} delivery without a transient URL flag`, () => {
+    const project = { ...projectFixture(), productionOutputMode: mode };
+    const harness = workspaceHarness(project);
+    harness.render().props.onRetryEpisode(1);
+    assert.equal(harness.url.searchParams.has("autoStoryboard"), false);
+    const launcher = harness.render();
+    launcher.props.onComplete();
+    if (mode === "script_and_storyboard") {
+      assert.equal(harness.url.pathname, `/projects/${project.id}/storyboard`);
+      assert.equal(harness.url.searchParams.get("episode"), "1");
+      assert.equal(harness.url.searchParams.get("end"), "8");
+      assert.equal(harness.url.searchParams.get("autostart"), "1");
+    } else {
+      assert.equal(harness.url.pathname, `/projects/${project.id}/workspace`);
+      assert.equal(harness.url.search, "");
+    }
+  });
+}
 
 for (const blockedState of ["new", "paused", "completed", "awaiting_review"]) {
   test(`empty ${blockedState} workspace does not create generation intent on refresh`, () => {

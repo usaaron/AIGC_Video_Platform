@@ -9,6 +9,26 @@ import {
   synchronizeContinuity,
 } from "../lib/continuity.ts";
 
+test("restarting before episode one clears derived future knowledge while preserving authored initial state", () => {
+  const characters = [
+    { id: "lead", name: "知微", role: "律师", background: "调查哥哥的旧案", lastUpdatedEpisode: 53,
+      dynamicState: { lastUpdatedEpisode: 53, currentKnowledge: ["完整证据链已取得"], currentGoal: "提交听证" },
+      stateHistory: [{ episodeNumber: 53, summary: "证据已经完整" }] },
+    { id: "mother", name: "母亲", role: "母亲", dynamicState: { lastUpdatedEpisode: 0, currentKnowledge: ["初始人工设定"], activeConstraints: [] } },
+  ].map((character) => ({ age: "", gender: "", appearance: "", background: "", description: "", ...character }));
+  const before = structuredClone(characters);
+  const replay = synchronizeContinuity("调查旧案", characters, []);
+  assert.equal(replay.characters[0].dynamicState, undefined);
+  assert.equal(replay.characters[0].stateHistory, undefined);
+  assert.equal(replay.characters[0].lastUpdatedEpisode, undefined);
+  assert.equal(replay.characters[0].background, characters[0].background);
+  assert.deepEqual(replay.characters[1].dynamicState, characters[1].dynamicState);
+  assert.deepEqual(characters, before);
+  const summary = buildContinuityGenerationSummary([], [], replay.characters);
+  assert.doesNotMatch(summary, /完整证据链已取得|提交听证|证据已经完整/);
+  assert.match(summary, /初始人工设定/);
+});
+
 test("approved Story Bible seeds concrete relationships before episode generation", () => {
   const storyBible = {
     character_registry: [
@@ -55,6 +75,44 @@ function episode(number, characters, scenes, characterStateUpdates = [], relatio
     workingDraftJson: JSON.stringify(draft),
   };
 }
+
+test("approved bible reseeding retains relationships established in episodes and explicit author edits", () => {
+  const bible = {
+    character_registry: [
+      { character_ref: "character.lin", name: "林夏", role: "主角" },
+      { character_ref: "character.su", name: "苏岚", role: "母亲" },
+      { character_ref: "character.chen", name: "陈叔", role: "证人" },
+    ],
+    character_arc_targets: [],
+    relationships: [{ source_character_ref: "character.lin", target_character_ref: "character.su",
+      relationship_type: "母女", initial_state: "彼此疏远" }],
+  };
+  const characters = storyBibleProjectCharacters(bible, []);
+  const [canonical] = storyBibleProjectRelationships(bible, characters);
+  const extra = (id, patch) => ({
+    id, sourceCharacterId: characters[0].id, targetCharacterId: characters[2].id,
+    relationshipType: "证人与调查者", currentState: "已共同签字确认交付来源",
+    episodeChanges: [], userEdited: false, ...patch,
+  });
+  const relationships = [
+    { ...canonical, relationshipType: "和解后的母女", currentState: "共同面对指控",
+      lastUpdatedEpisode: 28, episodeChanges: [{ episodeNumber: 28, summary: "共同签字" }] },
+    extra("relationship.from-body", { episodeChanges: [{ episodeNumber: 28, summary: "证人确认交付" }] }),
+    extra("relationship.legacy-body", { lastUpdatedEpisode: 17 }),
+    extra("relationship.author", { userEdited: true, currentState: "作者确认的新关系" }),
+    extra("relationship.unconfirmed-scaffold", {}),
+  ];
+  const before = structuredClone({ bible, characters, relationships });
+  const reseeded = storyBibleProjectRelationships(bible, characters, relationships);
+
+  assert.deepEqual(reseeded.map((item) => item.id), relationships.slice(0, 4).map((item) => item.id));
+  assert.equal(reseeded[0].currentState, relationships[0].currentState);
+  assert.equal(reseeded[0].relationshipType, relationships[0].relationshipType);
+  assert.deepEqual(reseeded.slice(1), relationships.slice(1, 4));
+  assert.deepEqual({ bible, characters, relationships }, before);
+  const authorEdited = [{ ...relationships[0], userEdited: true, relationshipType: "作者确认类型" }];
+  assert.equal(storyBibleProjectRelationships(bible, characters, authorEdited)[0].relationshipType, "作者确认类型");
+});
 
 test("long series retains early keyed knowledge and replaces revised facts", () => {
   const drafts = Array.from({ length: 121 }, (_, index) => episode(index + 1, [{
@@ -375,6 +433,23 @@ test("generation continuity summary feeds fixed facts and latest causal state fo
   assert.match(summary, /当前目标=进入地下层/);
   assert.match(summary, /地下层仍在供电/);
   assert.match(summary, /原因：电缆走向提供了可见证据/);
+});
+
+test("an explicit empty active constraint list clears the prior constraint", () => {
+  const result = synchronizeContinuity("约束清除", [], [
+    episode(1, [{ name: "林夏", role: "主角", description: "谨慎", motivation: "求生" }], [], [{
+      character_name: "林夏", current_goal: "求生", emotional_state: "紧张",
+      knowledge_changes: [], active_constraints: ["腿伤，不能奔跑"],
+      change_summary: "受伤", change_cause: "坍塌", evidence_scene_numbers: [],
+    }]),
+    episode(2, [{ name: "林夏", role: "主角", description: "谨慎", motivation: "求生" }], [], [{
+      character_name: "林夏", current_goal: "求生", emotional_state: "平静",
+      knowledge_changes: [], active_constraints: [],
+      change_summary: "伤势恢复", change_cause: "治疗", evidence_scene_numbers: [],
+    }]),
+  ]);
+
+  assert.deepEqual(result.characters[0].dynamicState.activeConstraints, []);
 });
 
 test("approved Story Bible lines become the only canonical runtime story lines", () => {

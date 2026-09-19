@@ -144,7 +144,7 @@ for (const conflict of ["roadmap", "body", "node_version", "bible_version", "sou
 
     assert.equal(JSON.stringify(harness.current), snapshot);
     assert.equal(harness.updaterThrew, false);
-    assert.match(harness.message, /\u5df2\u53d8\u5316/);
+    assert.match(harness.message, /发生变化/);
   });
 }
 

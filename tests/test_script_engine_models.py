@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -813,6 +815,28 @@ def test_memory_recall_rejects_future_knowledge_inside_an_older_capsule() -> Non
             knowledge_states=[{"knowledge_key": "future.identity", "statement": "The future reveal.",
                                "status": "known", "source_episode_number": 3}],
         )])
+
+
+def test_episode_context_rejects_recall_at_or_after_current_episode() -> None:
+    with pytest.raises(ValidationError, match="before episode_number"):
+        EpisodeGenerationContext(
+            generation_mode=EpisodeGenerationMode.sequential,
+            episode_number=3,
+            total_episodes=10,
+            memory_recall=MemoryRecall(through_episode_number=3),
+        )
+
+
+def test_episode_context_rejects_future_continuity_checkpoint() -> None:
+    with pytest.raises(ValidationError, match="checkpoint.*before episode_number"):
+        EpisodeGenerationContext(
+            generation_mode=EpisodeGenerationMode.sequential,
+            episode_number=3,
+            total_episodes=10,
+            provisional_continuity_checkpoint=json.dumps({
+                "through_episode_number": 4,
+            }),
+        )
 
 
 def test_memory_recall_deduplicates_legacy_reference_lists() -> None:

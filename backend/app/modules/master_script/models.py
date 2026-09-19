@@ -5,11 +5,12 @@ from difflib import SequenceMatcher
 from enum import Enum
 import math
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.character_identity import CharacterName
 from app.script_delivery_contract import (
     DEFAULT_ENDING_MODE,
     EndingMode,
@@ -28,6 +29,7 @@ _EPISODE_TITLE_PREFIX = re.compile(
 )
 
 _SCREENPLAY_BODY_REFERENCE = re.compile(r"^(?:action|dialogue):(?:0|[1-9]\d*)$")
+ScreenplayBodyReference = Annotated[str, Field(pattern=_SCREENPLAY_BODY_REFERENCE.pattern)]
 _SCREENPLAY_BODY_ORDER_MAX_ITEMS = 59
 _CHARACTER_PARENTHETICAL_ALIAS = re.compile(r"[（(]([^）)]+)[）)]")
 
@@ -102,8 +104,9 @@ def normalize_screenplay_body_order(
     *,
     action_count: int,
     dialogue_count: int,
+    allow_legacy_fallback: bool = True,
 ) -> list[str]:
-    """Accept a complete authored order or recover locally without another LLM call."""
+    """Preserve authored order; convert only a complete, unambiguous encoding."""
 
     expected = {
         *(f"action:{index}" for index in range(max(0, action_count))),
@@ -111,28 +114,37 @@ def normalize_screenplay_body_order(
     }
     if isinstance(value, list):
         normalized = [item.strip() for item in value if isinstance(item, str)]
-        kinds = [item.partition(":")[0] for item in normalized]
-        grouped_by_kind = kinds in (
-            ["action"] * action_count + ["dialogue"] * dialogue_count,
-            ["dialogue"] * dialogue_count + ["action"] * action_count,
-        )
+        # Some gateways emit one-based action_1/dialogue_1 references. A full
+        # bijection proves their meaning; changing syntax must never reschedule
+        # an entrance, handover, or line. Mixed/incomplete encodings are ambiguous.
+        one_based = {*(f"action_{i + 1}" for i in range(action_count)),
+                     *(f"dialogue_{i + 1}" for i in range(dialogue_count))}
+        if len(normalized) == len(expected) and set(normalized) == one_based:
+            normalized = [f"{item.rsplit('_', 1)[0]}:{int(item.rsplit('_', 1)[1]) - 1}" for item in normalized]
         if (
             len(normalized) == len(expected)
             and len(set(normalized)) == len(normalized)
             and all(_SCREENPLAY_BODY_REFERENCE.fullmatch(item) for item in normalized)
             and set(normalized) == expected
-            and not (action_count > 1 and dialogue_count > 1 and grouped_by_kind)
         ):
             return normalized
+    if not allow_legacy_fallback:
+        raise ValueError("body_order must reference every action and dialogue exactly once in authored performance order; ambiguous references cannot be rearranged.")
     return build_screenplay_body_order(action_count, dialogue_count)
 
 
 def _supply_missing_screenplay_body_order(value: Any) -> Any:
-    if not isinstance(value, dict) or value.get("body_order"):
+    if not isinstance(value, dict):
         return value
     normalized = dict(value)
     actions = normalized.get("character_actions")
     dialogues = normalized.get("dialogues")
+    if value.get("body_order"):
+        normalized["body_order"] = normalize_screenplay_body_order(value["body_order"],
+            action_count=len(actions) if isinstance(actions, list) else 0,
+            dialogue_count=len(dialogues) if isinstance(dialogues, list) else 0,
+            allow_legacy_fallback=False)
+        return normalized
     normalized["body_order"] = build_screenplay_body_order(
         len(actions) if isinstance(actions, list) else 0,
         len(dialogues) if isinstance(dialogues, list) else 0,
@@ -182,19 +194,43 @@ class ScriptTone(str, Enum):
 class DialogueLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    character_name: str = Field(min_length=2, max_length=80)
-    chinese_character_name: str | None = Field(min_length=1, max_length=40)
-    intent: str = Field(min_length=3, max_length=120)
+    character_name: CharacterName
+    chinese_character_name: str | None = Field(
+        min_length=1, max_length=40,
+        description="Legacy Chinese identity alias, readable for historical drafts. For new output use null; overseas characters keep their stable English names in every field.",
+    )
+    intent: str = Field(
+        min_length=3, max_length=120,
+        description="简短可表演的语气或动作提示，不写编导目的、程序说明或对潜台词的解释。",
+    )
     # Two-character Chinese lines (for example "住手") and the standard
     # screenplay silence beat "……" are complete performable units. Counting
     # Unicode code points as if they were English letters previously sent
     # otherwise valid episodes through a multi-minute model repair.
-    text: str = Field(min_length=2, max_length=280)
+    text: str = Field(
+        min_length=2, max_length=280,
+        description=(
+            "The original spoken line in the requested dialogue language. For English, write "
+            "idiomatic spoken English directly, responding to the other person's immediate move "
+            "in this character's established voice. Prefer familiar verbs and contractions over "
+            "translated planning terminology. Enact the scene's dialogue objective without "
+            "reciting it. Preserve the approved facts; do not invent amounts, dates or conditions."
+        ),
+    )
     # Overseas scripts keep the performable English line in ``text`` and its
     # display-only Chinese counterpart beside it. The field is required by the
     # LLM JSON schema, while the pre-validator keeps persisted legacy drafts
     # readable so they can use the bounded dialogue-only fallback.
-    chinese_translation: str | None = Field(min_length=2, max_length=280)
+    chinese_translation: str | None = Field(
+        min_length=2, max_length=280,
+        description=(
+            "For overseas English dialogue, translate the final text line into natural Simplified "
+            "Chinese with exactly the same facts, time reference, negation, degree, condition and "
+            "speaker intent. Keep established English character names unchanged inside the Chinese translation. "
+            "Do not add information from the scene or explain subtext. Write text "
+            "first, then this translation. For Chinese dialogue, use null."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -216,10 +252,14 @@ class DialogueLine(BaseModel):
 class CharacterProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=2, max_length=80)
+    name: CharacterName
     role: str = Field(min_length=2, max_length=80)
     description: str = Field(min_length=10, max_length=300)
     motivation: str = Field(min_length=5, max_length=200)
+    # Frontend-generated long-term acting profile. It is optional for legacy
+    # drafts, but preserved so storyboard compilation can read the same
+    # profile that script generation and the memory layer already use.
+    acting_profile: dict[str, str] | None = None
 
 
 class CharacterKnowledgeState(BaseModel):
@@ -229,7 +269,7 @@ class CharacterKnowledgeState(BaseModel):
 
     knowledge_key: str = Field(min_length=3, max_length=120, pattern=r"^[a-z0-9_.:-]+$")
     statement: str = Field(min_length=2, max_length=300)
-    status: str = Field(pattern=r"^(known|believed|suspected|disproved|forgotten)$")
+    status: Literal["known", "believed", "suspected", "disproved", "forgotten"]
 
 
 class CharacterStateUpdate(BaseModel):
@@ -237,7 +277,7 @@ class CharacterStateUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    character_name: str = Field(min_length=2, max_length=80)
+    character_name: CharacterName
     current_goal: str = Field(min_length=3, max_length=240)
     emotional_state: str = Field(min_length=2, max_length=160)
     belief_or_attitude: str | None = Field(default=None, min_length=3, max_length=240)
@@ -294,8 +334,8 @@ class RelationshipStateUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_character_name: str = Field(min_length=2, max_length=80)
-    target_character_name: str = Field(min_length=2, max_length=80)
+    source_character_name: CharacterName
+    target_character_name: CharacterName
     relationship_type: str = Field(min_length=2, max_length=120)
     source_to_target: str = Field(min_length=2, max_length=240)
     target_to_source: str = Field(min_length=2, max_length=240)
@@ -401,6 +441,7 @@ class SetupPayoffStateUpdate(BaseModel):
         max_length=120,
         pattern=r"^[a-zA-Z0-9_.:-]+$",
     )
+    source_ref: str | None = Field(default=None, min_length=1, max_length=1_200)
     action: str = Field(
         pattern=r"^(setup|reinforce|partial_payoff|payoff|defer)$",
     )
@@ -581,7 +622,7 @@ class SceneCard(BaseModel):
     turning_point: str | None = Field(default=None, min_length=3, max_length=240)
     scene_causality: SceneCausality | None = None
     cliffhanger: bool = False
-    dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+    dialogues: list[DialogueLine] = Field(min_length=0, max_length=35)
     content_manifest: SceneContentManifest | None = None
 
     @model_validator(mode="before")
@@ -598,6 +639,8 @@ class SceneCard(BaseModel):
 
     @model_validator(mode="after")
     def ensure_complete_body_order(self) -> "SceneCard":
+        if not self.character_actions and not self.dialogues:
+            raise ValueError("Scene must contain at least one action or dialogue.")
         self.body_order = normalize_screenplay_body_order(
             self.body_order,
             action_count=len(self.character_actions),
@@ -933,11 +976,11 @@ class LLMGeneratedSceneCard(BaseModel):
     emotional_objective: str = Field(min_length=3, max_length=160)
     character_refs: list[str] = Field(min_length=1, max_length=20)
     character_actions: list[str] = Field(min_length=1, max_length=24)
-    body_order: list[str] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
+    body_order: list[ScreenplayBodyReference] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
     turning_point: str = Field(min_length=3, max_length=240)
     scene_causality: SceneCausality
     cliffhanger: bool = False
-    dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+    dialogues: list[DialogueLine] = Field(min_length=0, max_length=35)
     content_manifest: SceneContentManifest
 
     @model_validator(mode="before")
@@ -995,8 +1038,8 @@ class LLMGeneratedSceneBodyPatch(BaseModel):
 
     scene_number: int = Field(ge=1, le=50)
     character_actions: list[str] = Field(min_length=1, max_length=24)
-    body_order: list[str] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
-    dialogues: list[DialogueLine] = Field(min_length=1, max_length=35)
+    body_order: list[ScreenplayBodyReference] = Field(min_length=1, max_length=_SCREENPLAY_BODY_ORDER_MAX_ITEMS)
+    dialogues: list[DialogueLine] = Field(min_length=0, max_length=35)
 
     @model_validator(mode="before")
     @classmethod
@@ -1279,7 +1322,7 @@ class LLMGeneratedDraftMasterScript(BaseModel):
                 "Continuity-state updates must use unique entity/domain pairs per episode."
             )
         setup_payoff_refs = [
-            update.setup_payoff_ref.casefold() for update in self.setup_payoff_updates
+            (update.source_ref or update.setup_payoff_ref).casefold() for update in self.setup_payoff_updates
         ]
         if len(set(setup_payoff_refs)) != len(setup_payoff_refs):
             raise ValueError("Setup/payoff updates must reference unique planned refs.")

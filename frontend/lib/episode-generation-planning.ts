@@ -11,24 +11,30 @@ import type {
   StorylineDuty,
   StorylineDutyRole,
   EndingMode,
+  GenerationRecoveryTask,
+  GenerationSettings,
 } from "@/lib/types";
 import type { EpisodeThreeLayerContract } from "@/lib/types";
 import type { MemoryRecall } from "@/lib/memory-recall";
 import {
   normalizeEpisodeDialogueLines,
   normalizeEpisodeDurationSeconds,
+  targetScriptBodyCharacters,
 } from "./generation-planning.ts";
+import { actingProfileForCharacter, actingProfilePrompt } from "./character-acting-profile";
+import { productionDetailInstruction } from "./production-detail-rules";
+import { characterMatchesReference } from "./character-reference";
 
 export {
   episodeRoadmapCoverageThrough,
   approveEpisodeRoadmapItem,
   draftEpisodeRoadmapItem,
   isApprovedEpisodeRoadmap,
+  episodeRoadmapReadinessIssues,
   normalizeEpisodeRoadmapItem,
   normalizeEpisodeRoadmaps,
 } from "./planning-coverage.ts";
 import {
-  approveEpisodeRoadmapItem,
   draftEpisodeRoadmapItem,
   isApprovedEpisodeRoadmap,
   normalizeEpisodeRoadmapItem,
@@ -121,6 +127,51 @@ export function episodeGenerationCharacterRefs(
   )];
 }
 
+/**
+ * A compact acting brief derived from the approved episode route and durable
+ * character state. It stays inside the generation instruction so the model
+ * can use it without adding another author-facing form.
+ */
+export function episodeActingDirection(
+  project: Pick<ScriptProject, "characters">,
+  constraint: EpisodeGenerationConstraint | undefined,
+): string | undefined {
+  const refs = episodeGenerationCharacterRefs(constraint);
+  const characters = project.characters.filter((character) => (
+    !refs.length || refs.some((reference) => characterMatchesReference(character, reference))
+  ));
+  const characterRules = characters.map((character) => {
+    const state = character.dynamicState;
+    const performance = actingProfilePrompt(actingProfileForCharacter(character));
+    const details = [
+      character.motivation ? `动机：${character.motivation}` : "",
+      state?.currentGoal ? `当前目标：${state.currentGoal}` : "",
+      state?.physicalState ? `身体状态：${state.physicalState}` : "",
+      state?.actionCapabilities?.length ? `行动边界：${state.actionCapabilities.join("、")}` : "",
+      state?.activeConstraints?.length ? `当前限制：${state.activeConstraints.join("、")}` : "",
+      performance ? `长期表演：${performance}` : "",
+    ].filter(Boolean).join("；");
+    return details ? `${character.name}（${details}）` : "";
+  }).filter(Boolean);
+  const executionPlan = episodeGenerationExecutionPlan(constraint);
+  const sceneRules = executionPlan?.scene_execution_plan.map((scene) => [
+    `场${scene.scene_number}目标：${scene.scene_objective}`,
+    scene.opposition ? `阻力：${scene.opposition}` : "",
+    scene.visible_action ? `可见行动：${scene.visible_action}` : "",
+    scene.dialogue_objective ? `对白目的：${scene.dialogue_objective}` : "",
+    scene.turn_or_reveal ? `变化：${scene.turn_or_reveal}` : "",
+  ].filter(Boolean).join("；")) ?? [];
+  const rules = [
+    productionDetailInstruction(),
+    "表演指导：人物通过目标驱动的可见行动推进场面，抽象情绪要转成动作、停顿、视线、呼吸、重心或身体任务。",
+    "按本场冲突安排有因果的策略变化；安静场景可以只完成一次关键选择，不为凑节拍重复手势。没有台词的人用符合其目标的倾听和反应参与，不抢台词。",
+    characterRules.length ? `角色表演档案：${characterRules.join("；")}` : "",
+    sceneRules.length ? `场次表演任务：${sceneRules.join("；")}` : "",
+    "尊重人物已经确认的知识、身体状态、行动能力和作者明确指令，不擅自替人物改变立场或做决定。",
+  ].filter(Boolean).join(" ");
+  return rules.slice(0, 3000) || undefined;
+}
+
 export function episodeGenerationExecutionPlan(
   constraint: EpisodeGenerationConstraint | undefined,
 ): EpisodeExecutionPlan | undefined {
@@ -137,6 +188,14 @@ export function episodeGenerationExecutionPlan(
     && Array.isArray(plan.scene_execution_plan)
     ? rebalanceSceneDialogueTargets(plan.scene_execution_plan, plannedDialogueLineCount)
     : [];
+  if (sceneExecutionPlan.length
+    && sceneExecutionPlan.reduce((total, scene) => total + scene.dialogue_line_target, 0)
+      !== plannedDialogueLineCount) {
+    throw new Error(
+      `第${plan.episode_number}集分集规划的全部场景均未安排对白，`
+      + `与整集${plannedDialogueLineCount}句对白预算冲突。请先调整分集规划中的对白安排，再生成正文。`,
+    );
+  }
   return {
     episode_number: plan.episode_number,
     ...(endingMode ? { ending_mode: endingMode } : {}),
@@ -180,6 +239,7 @@ export function episodeGenerationExecutionPlan(
       ? plan.hook_payoff_target_episode
       : null,
     scene_execution_plan: sceneExecutionPlan,
+    execution_ready: "execution_ready" in plan && plan.execution_ready === true,
     ...("layer_contracts" in plan && plan.layer_contracts
       ? { layer_contracts: plan.layer_contracts }
       : {}),
@@ -197,11 +257,21 @@ function rebalanceSceneDialogueTargets(
   target: number,
 ): EpisodeSceneExecutionBeat[] {
   if (!scenes.length) return [];
-  const counts = scenes.map((scene) => Math.max(0, Math.round(scene.dialogue_line_target)));
+  const counts = scenes.map((scene) => Number.isFinite(scene.dialogue_line_target)
+    ? Math.max(0, Math.round(scene.dialogue_line_target))
+    : 0);
+  // Preserve authored silent scenes when upgrading an old episode budget.
+  // Undeclared legacy targets are eligible only when no speaking scene exists.
+  let speakingIndices = counts.flatMap((count, index) => count > 0 ? [index] : []);
+  if (!speakingIndices.length) {
+    speakingIndices = scenes.flatMap((scene, index) => (
+      scene.dialogue_line_target == null ? [index] : []
+    ));
+  }
   let total = counts.reduce((sum, count) => sum + count, 0);
   let cursor = 0;
-  while (total < target) {
-    counts[cursor % counts.length] += 1;
+  while (total < target && speakingIndices.length) {
+    counts[speakingIndices[cursor % speakingIndices.length]] += 1;
     total += 1;
     cursor += 1;
   }
@@ -319,6 +389,23 @@ export function plannedEpisodeBodyReference(
   return Math.max(300, Math.round(referenceCharacters * productionScale));
 }
 
+/** Keep dramatic weighting without losing the series target to repeated scaling. */
+export function allocateSeriesBodyReferences(
+  settings: GenerationSettings,
+  constraints: EpisodeGenerationConstraint[],
+): Map<number, number> {
+  const baseline = targetScriptBodyCharacters(settings);
+  const byNumber = new Map(constraints.map((item) => [item.episodeNumber, item]));
+  const weights = Array.from({ length: settings.episodeCount }, (_, index) => {
+    const constraint = byNumber.get(index + 1);
+    return plannedEpisodeBodyReference(constraint, storySegmentBodyReference(constraint, baseline));
+  });
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+  return new Map(weights.map((weight, index) => [index + 1,
+    Math.max(300, Math.min(10_000, Math.ceil(settings.targetTotalCharacters * weight / totalWeight))),
+  ]));
+}
+
 export const DEFAULT_EXECUTION_BATCH_EPISODES = 10;
 export const MIN_EPISODE_READY_SPAN = 8;
 export const MAX_EPISODE_READY_SPAN = 12;
@@ -379,7 +466,28 @@ export function mergeEpisodeRoadmaps(
 export function replaceEpisodeRoadmapItem(
   current: EpisodeRoadmapItem[],
   replacement: EpisodeRoadmapItem,
+  options: { retainDependentDrafts?: boolean } = {},
 ): EpisodeRoadmapItem[] {
+  const matches = current.filter((item) => item.episode_number === replacement.episode_number
+    && item.story_bible_version === replacement.story_bible_version);
+  const previous = matches.length === 1 ? matches[0] : undefined;
+  const boundaryFields = ["source_node_id", "source_node_version", "story_bible_version",
+    "episode_number", "entry_state", "exit_state", "source_turning_points", "source_unit_story_beats",
+    "character_refs", "story_line_refs", "setup_refs", "payoff_refs"] as const;
+  const retainDrafts = options.retainDependentDrafts && previous
+    && Boolean(previous.entry_state?.trim()) && Boolean(previous.exit_state?.trim())
+    && Array.isArray(previous.source_turning_points) && Array.isArray(previous.source_unit_story_beats)
+    && boundaryFields.every(field => JSON.stringify(previous[field]) === JSON.stringify(replacement[field]));
+  if (retainDrafts) {
+    // Execution detail can be repaired without deleting later writing. This
+    // preserves content only: every dependent approval is withdrawn, and the
+    // changed scene evidence requires a fresh complete continuity review.
+    return mergeEpisodeRoadmaps(current.filter(item => !(item.story_bible_version === replacement.story_bible_version
+      && item.episode_number === replacement.episode_number)).map(item => (
+      item.story_bible_version === replacement.story_bible_version && item.episode_number > replacement.episode_number
+        ? draftEpisodeRoadmapItem(item) : item
+    )), [draftEpisodeRoadmapItem(replacement)]);
+  }
   const retained = current.filter((item) => !(
     item.story_bible_version === replacement.story_bible_version
     && item.episode_number >= replacement.episode_number
@@ -504,6 +612,7 @@ export function nextApprovedScriptLeafRange(
   generatedEpisodeNumbers: number[],
   requestedRange: { startEpisode: number; endEpisode: number },
   roadmapRequired = false,
+  recovery?: { task?: GenerationRecoveryTask; planningRevisionEpoch: number },
 ): ApprovedScriptLeafDecision {
   const nextEpisode = contiguousEpisodeCoverageThrough(generatedEpisodeNumbers) + 1;
   if (nextEpisode > requestedRange.endEpisode) return { status: "complete" };
@@ -515,6 +624,25 @@ export function nextApprovedScriptLeafRange(
   ).find((range) => (
     range.startEpisode <= nextEpisode && range.endEpisode >= nextEpisode
   ));
+  // A persisted continuation job may cover only the unfinished suffix of a
+  // leaf. Authorize that exact job against the entire current approved leaf;
+  // arbitrary URL subranges still use the strict original range gate below.
+  const task = recovery?.task;
+  const recoveredLeaf = task?.serverBacked === true
+    && Boolean(task.jobId && task.batchId)
+    && task.status !== "completed"
+    && (task.planningRevisionEpoch ?? 0) === recovery?.planningRevisionEpoch
+    && task.startEpisode === requestedRange.startEpisode
+    && task.endEpisode === requestedRange.endEpisode
+    && task.startEpisode <= nextEpisode && nextEpisode <= task.endEpisode
+    && task.completedEpisodeNumbers.every((number) => generatedEpisodeNumbers.includes(number))
+    ? approvedScriptLeafRanges(storyPlanNodes, episodeRoadmaps, true).find((range) => (
+      range.startEpisode <= task.startEpisode
+      && range.endEpisode === task.endEpisode
+      && range.startEpisode <= nextEpisode
+    ))
+    : undefined;
+  if (recoveredLeaf) return { status: "ready", range: recoveredLeaf };
   if (
     !containingLeaf
     || containingLeaf.startEpisode < requestedRange.startEpisode
@@ -694,7 +822,7 @@ export function episodeGenerationLedgerPlan(
   const plan = planningContract(constraint);
   const node = constraint?.storyPlanNode;
   const planStoryLineRefs = plan && "story_line_refs" in plan
-    ? plan.story_line_refs
+    ? plan.story_line_refs ?? []
     : [];
   const plannedStoryLineRefs = planStoryLineRefs.length
     ? planStoryLineRefs
@@ -740,7 +868,11 @@ export function buildStorylineDuties(
   plannedStoryLineRefs: string[] = [],
   sceneCount = 3,
   memoryRecall?: Pick<MemoryRecall, "capsules"> | null,
+  approvedSceneNumbers?: readonly number[],
 ): StorylineDuty[] {
+  const safeSceneCount = Math.max(1, Math.min(50, Math.round(sceneCount) || 1));
+  const approvedScenes = [...new Set(approvedSceneNumbers ?? [])]
+    .filter(number => Number.isInteger(number) && number > 0 && number <= safeSceneCount);
   const recalledProgress = new Map<string, number>();
   for (const capsule of memoryRecall?.capsules ?? []) {
     if (capsule.memory_type !== "story_line" || capsule.source_episode == null) continue;
@@ -790,13 +922,23 @@ export function buildStorylineDuties(
       const mustProgress = isPlanned;
       const needsReview = !isPlanned && silenceEpisodes >= STORYLINE_SILENCE_THRESHOLD;
       const nextRequiredStep = line.nextRequiredStep?.trim() || null;
-      const objective = isPlanned && nextRequiredStep
-        ? `完成${line.title}的本集局部目标：${nextRequiredStep}`
-        : `推进${line.title}：${line.currentState?.trim() || line.summary.trim()}`;
-      const requiredProgress = nextRequiredStep
-        ? `通过可见事件让${line.title}完成：${nextRequiredStep}`
-        : `通过可见事件改变${line.title}当前状态，并留下可验证结果。`;
-      const canDefer = !isMain;
+      // Generated next-step notes are prior expectations, not a second approved
+      // roadmap. Promoting them to mandatory work can repeat a completed action
+      // or override the timing of the current scene blueprint.
+      const followsApprovedScenes = isPlanned && approvedScenes.length > 0;
+      const objective = followsApprovedScenes
+        ? `完成${line.title}在本集已批准场景蓝图中的局部目标。`
+        : isPlanned && nextRequiredStep
+          ? `完成${line.title}的本集局部目标：${nextRequiredStep}`
+          : `推进${line.title}：${line.currentState?.trim() || line.summary.trim()}`;
+      const requiredProgress = followsApprovedScenes
+        ? `按本集已批准场景蓝图推进${line.title}，承接既有状态并留下可见结果。next_required_step 是此前待办参考；若其时机或行动与批准蓝图不同，以批准蓝图为准，不重演已完成事件。`
+        : nextRequiredStep
+          ? `通过可见事件让${line.title}完成：${nextRequiredStep}`
+          : `通过可见事件改变${line.title}当前状态，并留下可验证结果。`;
+      // A main line can sit out an episode when the approved roadmap does not
+      // assign it. Its series-wide role must not contradict this episode's duty.
+      const canDefer = !mustProgress || !isMain;
       return {
         story_line_id: line.id,
         role,
@@ -828,11 +970,15 @@ export function buildStorylineDuties(
     ))
     .slice(0, STORYLINE_DUTY_LIMIT);
 
-  const safeSceneCount = Math.max(1, Math.min(50, Math.round(sceneCount) || 1));
   const sceneNumbers = Array.from({ length: safeSceneCount }, (_, index) => index + 1);
   let nextSupportScene = 1;
   return candidates.map((duty) => {
     if (!duty.must_progress) return duty;
+    // Approved scenes already determine where events happen. A round-robin
+    // allocation here must not move those events to a different scene. There
+    // is no approved per-line mapping yet, so allow evidence from any approved
+    // scene and let the writer cite the scenes that actually carry the change.
+    if (approvedScenes.length) return { ...duty, assigned_scene_numbers: approvedScenes };
     const isMain = duty.role === "main";
     const assigned = isMain
       ? [sceneNumbers[0]]
@@ -870,16 +1016,17 @@ function directScriptEndingHook(
 export function storyBibleEpisodeContext(
   storyBible: StoryBible,
   constraint: EpisodeGenerationConstraint | undefined,
+  executionRefs?: Pick<Partial<EpisodeExecutionPlan>, "character_refs" | "story_line_refs" | "setup_refs" | "payoff_refs">,
 ): string {
   const node = constraint?.storyPlanNode;
-  const plan = planningContract(constraint);
+  const plan = executionRefs ?? planningContract(constraint);
   const characterRefs = new Set(
     plan?.character_refs?.length
       ? plan.character_refs
       : node?.character_refs ?? [],
   );
   const planStoryLineRefs = plan && "story_line_refs" in plan
-    ? plan.story_line_refs
+    ? plan.story_line_refs ?? []
     : [];
   const storyLineRefs = new Set(
     planStoryLineRefs.length ? planStoryLineRefs : node?.story_line_refs ?? [],
@@ -910,10 +1057,14 @@ export function storyBibleEpisodeContext(
     `主题：${compact(storyBible.theme, 100)}`,
     `中心冲突：${compact(storyBible.central_conflict, 260)}`,
     `结局方向：${compact(storyBible.ending_direction, 260)}`,
-    listLine("锁定事实", storyBible.locked_facts, 8, 420),
-    listLine("世界规则", storyBible.world_rules, 6, 300),
-    listLine("避免方向", storyBible.avoid_patterns, 6, 240),
-  ].filter(Boolean).join("\n").slice(0, 980);
+  ].filter(Boolean).join("\n");
+  // These are approved constraints, not prose to summarize. A character/count
+  // cap can otherwise cut a prohibition in half or silently omit later rules.
+  const fixedRules = [
+    storyBible.locked_facts.length ? `锁定事实：${storyBible.locked_facts.join("；")}` : "",
+    storyBible.world_rules.length ? `世界规则：${storyBible.world_rules.join("；")}` : "",
+    storyBible.avoid_patterns.length ? `避免方向：${storyBible.avoid_patterns.join("；")}` : "",
+  ].filter(Boolean).join("\n");
   const routeAnchor = [
     relevantCharacters.length
       ? `本模块角色：${relevantCharacters.slice(0, 8).map((item) => `${item.character_ref}=${item.name}（${item.role}）`).join("；")}`
@@ -949,9 +1100,10 @@ export function storyBibleEpisodeContext(
   ].filter(Boolean).join("\n").slice(0, 1_000);
   return [
     globalAnchor,
+    fixedRules,
     routeAnchor,
     "总纲只负责全剧不变方向；本模块剧情由已批准剧情部分负责，本集事件由分集规划负责，最新人物与世界变化以连续性记忆为准。",
-  ].filter(Boolean).join("\n").slice(0, 2_180);
+  ].filter(Boolean).join("\n");
 }
 
 export function longRangeStoryAnchor(storyBible: StoryBible): string {

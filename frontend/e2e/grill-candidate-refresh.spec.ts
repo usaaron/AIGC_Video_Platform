@@ -1,9 +1,9 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { DEFAULT_GENERATION_SETTINGS, type ScriptProject } from "../lib/types";
 import { normalizeGenerationSettings } from "../lib/generation-planning";
 import { storyPlanningInputSignature } from "../lib/story-planning-signature";
-import { assertPageFitsViewport, monitorPageHealth } from "./support/page-health";
+import { assertPageFitsViewport } from "./support/page-health";
 
 const timestamp = "2026-09-11T00:00:00.000Z";
 const projectId = "project.e2e-grill-refresh";
@@ -104,136 +104,72 @@ function questions(choices: string[], includeTone = false) {
   }];
 }
 
-async function mockApis(page: Page, project: ScriptProject) {
-  let refreshCount = 0;
-  const requests: Array<{ candidateDecisionKey?: string; messages: unknown[] }> = [];
-  await page.route("**/api/**", async (route) => {
-    await route.fulfill({ status: 404, json: { detail: "Unexpected test API" } });
-  });
-  await page.route("**/story-projects**", async (route) => {
-    const url = new URL(route.request().url());
-    const pathname = url.pathname.replace(/^\/api/, "");
-    if (pathname === "/story-projects") {
-      await route.fulfill({ json: { data: [{
-        project_id: project.id, revision: 1, content_spec_id: project.contentSpecId,
-        active_story_bible_version: null,
-      }], total: 1, limit: 100, offset: 0 } });
-    } else if (pathname.endsWith("/workspace")) {
-      await route.fulfill({ json: { data: { revision: 1, updated_at: project.updatedAt, workspace_payload: project } } });
-    } else if (pathname.endsWith("/planning-session") && route.request().method() === "GET") {
-      await route.fulfill({ status: 404, json: { detail: "No remote session" } });
-    } else if (pathname.endsWith("/planning-session") && route.request().method() === "PUT") {
-      const body = route.request().postDataJSON();
-      const session = body.session;
-      await route.fulfill({ json: { data: {
-        ...session,
-        schema_version: session.schema_version ?? "v1",
-        session_id: session.session_id ?? "session.e2e-grill-refresh",
-        story_project_id: project.id,
-        active_node_id: session.active_node_id ?? null,
-        reviewed_node_ids: session.reviewed_node_ids ?? [],
-        turns: session.turns ?? [],
-        started_at: session.started_at ?? null,
-        client_instance_id: "e2e",
-        payload_checksum: "e2e",
-        payload_size_bytes: 0,
-      } } });
-    } else if (pathname.endsWith("/story-bibles") || pathname.includes("/story-bibles/")) {
-      await route.fulfill({ status: 404, json: { detail: "No story bible fixture" } });
-    } else {
-      await route.fulfill({ status: 404, json: { detail: `Unexpected ${pathname}` } });
+async function mockApis(page: Page, initial: ScriptProject) {
+  let project = initial;
+  const requests: Record<string, any>[] = [];
+  const state = { fail: false, requests };
+  await page.route(/\/(api\/)?(story-projects|ontology-nodes|platform-profiles|generation-strategies)(\/|\?|$)/, async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace(/^\/api/, "");
+    const payload = request.method() === "GET" ? null : request.postDataJSON();
+    const data = (value: unknown) => route.fulfill({ json: { data: value } });
+    if (path === "/story-projects") return route.fulfill({ json: { data: [{ project_id: projectId, revision: 1, content_spec_id: project.contentSpecId }], total: 1, limit: 100, offset: 0 } });
+    if (path.endsWith("/workspace")) {
+      if (payload) project = payload.workspace_payload;
+      return data({ revision: payload?.revision ?? 1, workspace_payload: project, updated_at: project.updatedAt });
     }
+    if (path === `/story-projects/${projectId}`) return data(payload ?? { project_id: projectId, revision: 1 });
+    if (path.endsWith("/inspiration-chat")) {
+      requests.push(payload);
+      if (state.fail) return route.fulfill({ status: 400, json: { detail: "暂时未能完成这轮讨论，请重试。" } });
+      return data({ assistant_message: requests.length > 1 ? "也可以让证人主动公开完整录音。" : "先确定这一阶段的结局期待。",
+        questions: questions(["留下证人消失的疑问", "让调查员先取得一段录音", "让两人暂时达成协议"], true),
+        brief: brief(), ready_to_generate: false });
+    }
+    if (path.endsWith("/generation-tasks/recoverable")) return data(null);
+    if (path === "/platform-profiles") return data([{ id: "platform.e2e", platform_name: "短剧平台", metadata: { runtime_status: "active", market_profile: "cn_mainland" } }]);
+    if (path === "/generation-strategies") return data([{ id: "strategy.e2e", status: "active", target_platform: "短剧平台", applicable_tags: [] }]);
+    if (path.endsWith("/planning-session") || path.includes("/story-bibles/")) return route.fulfill({ status: 404, json: { detail: "No saved resource" } });
+    return data([]);
   });
-  await page.route("**/story-bibles/inspiration-chat", async (route) => {
-    const body = route.request().postDataJSON();
-    const candidateDecisionKey = body.candidate_decision_key as string | undefined;
-    requests.push({ candidateDecisionKey, messages: body.messages ?? [] });
-    const choices = candidateDecisionKey
-      ? ["证人主动揭开封存", "调查员发现一份旧录音", "封存原因暂不揭示"]
-      : ["留下证人消失的疑问", "让调查员先取得一段录音", "让两人暂时达成协议"];
-    if (candidateDecisionKey) refreshCount += 1;
-    await route.fulfill({ json: {
-      data: {
-        assistant_message: candidateDecisionKey ? "换一批有实质差异的方案。" : "先确定这一阶段的结局期待。",
-        questions: questions(choices, !candidateDecisionKey),
-        brief: brief(),
-        ready_to_generate: false,
-      },
-    } });
-  });
-  return { requests, get refreshCount() { return refreshCount; } };
+  return state;
 }
 
-async function openGrill(page: Page, project: ScriptProject) {
-  const health = monitorPageHealth(page);
-  const api = await mockApis(page, project);
-  await page.goto(`/projects/${project.id}/planning`);
-  await page.getByRole("button", { name: "下一步", exact: true }).click();
-  await expect(page.getByRole("region", { name: "确认方向" })).toBeVisible();
-  await expect(page.getByRole("radiogroup", { name: "情绪与节奏" })).toBeVisible();
-  return { api, health };
-}
-
-function candidateChoices(page: Page) {
-  return page.locator(".story-inspiration-question-choices > button");
-}
-
-test("Grill candidates start neutral, refresh without preselecting, and preserve answers", async ({ page }, testInfo) => {
+async function openInspiration(page: Page) {
   const project = projectFixture();
-  const { api, health } = await openGrill(page, project);
-  const choices = candidateChoices(page);
-  await expect(choices).toHaveCount(3);
-  for (let index = 0; index < 3; index += 1) {
-    await expect(choices.nth(index)).toHaveAttribute("aria-checked", "false");
-  }
+  project.storyBibleVersion = undefined;
+  project.storyBibleStatus = undefined;
+  const state = await mockApis(page, project);
+  await page.goto(`/projects/${projectId}/synopsis`);
+  await page.getByRole("button", { name: "寻找灵感", exact: true }).click();
+  await expect(page.getByText(/先确定这一阶段的结局期待/)).toBeVisible();
+  return state;
+}
 
-  await choices.nth(0).click();
-  await expect(choices.nth(0)).toHaveAttribute("aria-checked", "true");
-  await page.getByRole("button", { name: "补充条件", exact: true }).click();
-  await page.getByLabel("补充说明 可选").fill("保留人物克制的表达。");
-  await page.getByRole("button", { name: "确认并继续" }).click();
-  await expect(page.getByRole("radiogroup", { name: "结局方向" })).toBeVisible();
-  await choices.nth(0).click();
-  await page.getByRole("button", { name: "刷新候选方案" }).click();
-  await expect(page.getByRole("radio").filter({ hasText: "证人主动揭开封存" })).toBeVisible();
-  for (let index = 0; index < 3; index += 1) {
-    await expect(choices.nth(index)).toHaveAttribute("aria-checked", "false");
-  }
-  await expect(page.getByText("调查员发现一份旧录音", { exact: true })).toBeVisible();
-  expect(api.refreshCount).toBe(1);
-  expect(api.requests.at(-1)?.candidateDecisionKey).toBe(decisionKey);
-  const refreshPayload = api.requests.at(-1)?.messages.at(-1) as {
-    questions?: Array<{ decision_key: string; choices: string[] }>;
-  } | undefined;
-  expect(refreshPayload?.questions?.find((question) => question.decision_key === decisionKey)?.choices)
-    .toContain("留下证人消失的疑问");
-  await page.getByRole("button", { name: "上一题" }).click();
-  await expect(page.getByRole("radio", { name: "克制的情感积累", exact: true })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByLabel("补充说明 可选")).toHaveValue("保留人物克制的表达。");
-
-  await testInfo.attach("grill-candidate-refresh-desktop.png", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+test("synopsis inspiration leaves the author's choice open and retains earlier answers", async ({ page }, testInfo) => {
+  const state = await openInspiration(page);
+  await expect(page.getByRole("radio")).toHaveCount(0);
+  const composer = page.getByRole("textbox", { name: "回复剧本大师", exact: true });
+  await expect(composer).toHaveValue("");
+  await composer.fill("保留人物克制的表达，结局暂不决定，请换一个方向。");
+  await page.getByRole("button", { name: "发送修改指令" }).click();
+  await expect(page.getByText(/也可以让证人主动公开完整录音/)).toBeVisible();
+  expect(state.requests[1].messages.some((message: { content: string }) => message.content.includes("保留人物克制"))).toBe(true);
+  await page.reload();
+  await expect(page.getByText("保留人物克制的表达，结局暂不决定，请换一个方向。", { exact: true })).toBeVisible();
   await assertPageFitsViewport(page, testInfo);
-  health.assertHealthy();
 });
 
-test("Grill refresh error keeps the previous candidate set", async ({ page }, testInfo) => {
-  const project = projectFixture();
-  const { health } = await openGrill(page, project);
-  await page.getByRole("combobox", { name: "切换问题" }).selectOption("1");
-  await page.route("**/story-bibles/inspiration-chat", async (route) => {
-    if (route.request().postDataJSON().candidate_decision_key) {
-      await route.fulfill({ status: 503, json: { detail: "fixture refresh failed" } });
-      return;
-    }
-    await route.fallback();
-  });
-  await expect(page.getByText("留下证人消失的疑问", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "刷新候选方案" }).click();
-  await expect(page.getByText("生成服务暂时未完成请求，系统已保留此前成功保存的内容，请稍后重试。", { exact: true })).toBeVisible();
-  await expect(page.getByText("留下证人消失的疑问", { exact: true })).toBeVisible();
-  await testInfo.attach("grill-candidate-refresh-mobile.png", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
-  await assertPageFitsViewport(page, testInfo);
-  health.assertHealthy({ expectedServerErrors: [
-    `503 POST ${new URL(`/api/story-projects/${project.id}/story-bibles/inspiration-chat`, page.url())}`,
-  ] });
+test("failed synopsis inspiration preserves the previous discussion and supports retry", async ({ page }) => {
+  const state = await openInspiration(page);
+  state.fail = true;
+  const composer = page.getByRole("textbox", { name: "回复剧本大师", exact: true });
+  await composer.fill("请再给出一个结局方向。");
+  await page.getByRole("button", { name: "发送修改指令" }).click();
+  await expect(page.locator(".story-synopsis-panel > .inline-notice").first()).toContainText("请稍后重试");
+  await expect(page.getByText(/先确定这一阶段的结局期待/)).toBeVisible();
+  state.fail = false;
+  await composer.fill("请再给出一个结局方向。");
+  await page.getByRole("button", { name: "发送修改指令" }).click();
+  await expect(page.getByText(/也可以让证人主动公开完整录音/)).toBeVisible();
 });

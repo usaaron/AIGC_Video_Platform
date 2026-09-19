@@ -12,6 +12,7 @@ from app.modules.script_engine.long_story_models import (
     StoryPlanNode,
 )
 from app.modules.script_engine.planning_errors import StoryPlanningInputError
+from app.modules.script_engine.episode_presence import episode_scene_presence_issues
 from app.script_delivery_contract import EndingMode, ending_mode_requires_hook
 
 
@@ -31,7 +32,7 @@ def episode_title_quality_issues(value: str | None) -> list[str]:
     parts = [part.strip() for part in title.split("｜")]
     if len(parts) == 2:
         english, chinese = parts
-        if not 2 <= len(english) <= 80 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 &'’\-]*", english):
+        if not 2 <= len(english) <= 80 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 &'’.,:;!?\-]*", english):
             issues.append("english_format")
         title = re.sub(r"\s+", "", chinese)
     elif len(parts) == 1:
@@ -106,6 +107,22 @@ def _validate_approved_event_distribution(
         )
 
 
+def validate_episode_setup_payoff_references(
+    plans: list[EpisodePlanGenerationItem], *, node: StoryPlanNode, story_bible: StoryBible,
+) -> None:
+    """New episode refs reuse approved identities; scene outcomes are not new IDs."""
+    allowed = set(node.setup_refs) | set(node.payoff_refs) | set(story_bible.major_setup_payoff_refs)
+    for item in plans:
+        for field in ("setup_refs", "payoff_refs"):
+            unknown = [ref for ref in getattr(item, field) if ref not in allowed]
+            if unknown:
+                raise StoryPlanningInputError(
+                    f"Episode {item.episode_number} {field} must copy approved setup/payoff references "
+                    f"verbatim; do not paraphrase, split clauses, or use current actions as reference IDs: {unknown!r}. "
+                    "Keep current actions in episode_payoff or scene_execution_plan; use [] when no approved reference applies."
+                )
+
+
 def validate_episode_plan_prefix(
     plans: list[EpisodePlanGenerationItem],
     *,
@@ -130,6 +147,19 @@ def validate_episode_plan_prefix(
     if not plans:
         return
 
+    if getattr(node, "episode_developments", []):
+        from app.modules.script_engine.episode_development_contract import validate_episode_developments
+        validate_episode_developments(node)
+        ownership = {entry.episode_number: entry for entry in node.episode_developments}
+        for item in plans:
+            expected = ownership[item.episode_number]
+            for field in ("entry_state", "exit_state", "source_turning_points", "source_unit_story_beats"):
+                if getattr(item, field) != getattr(expected, field):
+                    raise StoryPlanningInputError(
+                        f"Episode {item.episode_number} must preserve its approved episode_developments.{field}; "
+                        "revise the actual scene events to fit the assigned episode, not just its references."
+                    )
+
     # Prefixes must enforce the same finale boundary as complete roadmaps.
     # LongStoryService separately verifies the global project-ending boundary.
     misplaced_finales = [
@@ -148,6 +178,15 @@ def validate_episode_plan_prefix(
         raise StoryPlanningInputError(
             "Episode Plan character_refs must exist in the Story Bible."
         )
+    character_names = {entry.character_ref: entry.name for entry in story_bible.character_registry}
+    for item in plans:
+        presence_issues = episode_scene_presence_issues(item, character_names=character_names)
+        if presence_issues:
+            raise StoryPlanningInputError(
+                f"Episode {item.episode_number} 当前出场限制与场景人物冲突；"
+                "请核对场内人物和已批准边界，保留历史与调查对象引用："
+                + ", ".join(presence_issues)
+            )
     allowed_story_lines = {item.story_line_id for item in story_bible.story_lines}
     if any(
         not item.story_line_refs
@@ -157,6 +196,21 @@ def validate_episode_plan_prefix(
         raise StoryPlanningInputError(
             "Every Episode roadmap item must reference at least one approved Story line."
         )
+    # The ordered terminal event defines this leaf's settlement boundary.
+    # Claiming it in an earlier transport chunk exhausts the approved story and
+    # forces later chunks to repeat it or trespass into the next leaf.
+    terminal_beat = node.unit_story_beats[-1] if node.unit_story_beats else None
+    if terminal_beat and any(
+        terminal_beat in item.source_unit_story_beats
+        and item.episode_number != node.planned_end_episode
+        for item in plans
+    ):
+        raise StoryPlanningInputError(
+            f"The terminal unit-story beat must be enacted and assigned in Episode {node.planned_end_episode}, "
+            "not at an earlier transport-chunk boundary. Revise the actual event chain, "
+            "not just its source references."
+        )
+
     for field, approved, label in (
         ("source_turning_points", node.turning_points, "segment turning point"),
         ("source_unit_story_beats", node.unit_story_beats, "unit-story beat"),
@@ -218,84 +272,3 @@ def episode_plan_diversity_issues(
     }:
         issues.append("episode_payoff")
     return issues
-
-
-def episode_event_assignments(
-    values: list[str],
-    *,
-    start_episode: int,
-    end_episode: int,
-) -> dict[int, list[str]]:
-    episode_count = end_episode - start_episode + 1
-    assignments = {
-        episode_number: []
-        for episode_number in range(start_episode, end_episode + 1)
-    }
-    if not values:
-        return assignments
-    for index, value in enumerate(values):
-        target_offset = min(
-            episode_count - 1,
-            index * episode_count // len(values),
-        )
-        assignments[start_episode + target_offset].append(value)
-    return assignments
-
-
-def episode_item_event_assignment(
-    values: list[str],
-    *,
-    accepted_plans: list[EpisodePlanGenerationItem],
-    field_name: str,
-    start_episode: int,
-    end_episode: int,
-    episode_number: int,
-) -> list[str]:
-    compiled = episode_event_assignments(
-        values,
-        start_episode=start_episode,
-        end_episode=end_episode,
-    )
-    prefix_matches_compiled = all(
-        getattr(item, field_name) == compiled[item.episode_number]
-        for item in accepted_plans
-    )
-    if prefix_matches_compiled:
-        return compiled[episode_number]
-
-    used = {
-        value
-        for item in accepted_plans
-        for value in getattr(item, field_name)
-    }
-    remaining = [value for value in values if value not in used]
-    remaining_assignments = episode_event_assignments(
-        remaining,
-        start_episode=episode_number,
-        end_episode=end_episode,
-    )
-    return remaining_assignments[episode_number]
-
-
-def episode_source_assignments(
-    node: StoryPlanNode,
-    *,
-    accepted_plans: list[EpisodePlanGenerationItem],
-    episode_number: int,
-) -> dict[str, list[str]]:
-    assert node.planned_start_episode is not None
-    assert node.planned_end_episode is not None
-    return {
-        field: episode_item_event_assignment(
-            values,
-            accepted_plans=accepted_plans,
-            field_name=field,
-            start_episode=node.planned_start_episode,
-            end_episode=node.planned_end_episode,
-            episode_number=episode_number,
-        )
-        for field, values in (
-            ("source_turning_points", node.turning_points),
-            ("source_unit_story_beats", node.unit_story_beats),
-        )
-    }

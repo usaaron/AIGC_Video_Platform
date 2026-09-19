@@ -21,14 +21,24 @@ test("project library and switcher both expose confirmed delete controls", async
   const home = await source("components/home-dashboard.tsx");
   const shell = await source("components/app-shell.tsx");
   const sidebar = await source("components/project-sidebar.tsx");
+  const deleteButton = await source("components/project-delete-button.tsx");
   const locale = await source("providers/locale-provider.tsx");
 
-  for (const component of [home, shell, sidebar]) {
-    assert.match(component, /t\("nav\.deleteConfirm"\)/);
-    assert.match(component, /deleteProject\((?:project|pendingProject)\.id\)|handleDelete\(project\.id\)/);
+  for (const component of [shell, sidebar]) {
+    assert.match(component, /<ProjectDeleteButton\s+projectId=\{project\.id\}\s+title=\{project\.title\}/);
   }
+  for (const component of [home, deleteButton]) {
+    assert.match(component, /t\("nav\.deleteConfirm"\)/);
+  }
+  assert.match(home, /await deleteProject\(pendingProject\.id\)/);
   assert.match(home, /<ConfirmationDialog[\s\S]*onConfirm=\{\(\) => void handleDelete\(\)\}/);
   assert.match(home, /if \(!pendingProject \|\| deleting\) return/);
+  assert.match(deleteButton, /onClick=\{\(\) => \{ setError\(""\); setOpen\(true\); \}\}/);
+  assert.match(deleteButton, /<ConfirmationDialog[\s\S]*busy=\{busy\}[\s\S]*onConfirm=\{\(\) => void remove\(\)\}/);
+  assert.match(deleteButton, /if \(inFlight\.current\) return/);
+  assert.match(deleteButton, /await deleteProject\(projectId\)/);
+  assert.match(deleteButton, /setError\(t\("library\.deleteFailed"\)\)/);
+  assert.match(deleteButton, /role="alert"[^>]*>\{error\}/);
   assert.match(locale, /总纲、剧情树、分集路线图、正文和连续性数据/);
   assert.match(locale, /Permanently delete this script project/);
 });

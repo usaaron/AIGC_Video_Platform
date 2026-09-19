@@ -126,3 +126,13 @@ test("results outside the recovery range are rejected", async () => {
   await assert.rejects(run.committer.commitEpisode(episode(3)), { failureClass: "conflict" });
   assert.equal(run.calls.length, 0);
 });
+
+
+for (const changed of [{planningRevisionEpoch:1}, {planningRevision:{status:'active'}}]) {
+  test(`an in-flight body cannot commit after planning revision ${JSON.stringify(changed)}`, async()=>{
+    const run=harness();
+    run.behavior.beforeWrite=()=>{run.project={...run.project,...changed};};
+    await assert.rejects(run.committer.commitEpisode(episode(1)),{failureClass:'conflict'});
+    assert.equal(run.calls.length,0);
+  });
+}

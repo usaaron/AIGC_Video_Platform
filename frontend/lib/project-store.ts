@@ -215,7 +215,9 @@ export function saveStoredProject(project: ScriptProject): Promise<void> {
       activeProjectSaveFlushes.delete(project.id);
     }
     const latest = pendingProjectSaves.get(project.id);
-    if (latest) void saveStoredProject(latest);
+    // Callers already receive this failed batch's rejection. A trailing
+    // best-effort save must not also produce an unhandled browser rejection.
+    if (latest) void saveStoredProject(latest).catch(() => undefined);
   });
 }
 

@@ -52,8 +52,9 @@ test("complete JSON preview includes only screenplay body fields", () => {
 test("episode stream keeps the readable draft while internal repair runs", () => {
   let batch = createEpisodeStreamBatch(1, 2, 1797);
   batch = startEpisodeStream(batch, 1, 1797);
-  assert.equal(batch[0].preferredMinCharacters, 1258);
-  assert.equal(batch[0].preferredMaxCharacters, 2516);
+  // The current body-length contract is 80–120% of the episode reference.
+  assert.equal(batch[0].preferredMinCharacters, 1438);
+  assert.equal(batch[0].preferredMaxCharacters, 2156);
   batch = applyEpisodeStreamEvent(batch, 1, {
     type: "draft_delta",
     timestamp: "2026-08-08T00:00:00Z",

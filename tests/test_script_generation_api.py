@@ -574,6 +574,29 @@ async def test_episode_context_review_and_user_modification_api() -> None:
             },
         )
 
+        missing_memory_run = deepcopy(reviewed_run)
+        missing_memory_run["episode_context"]["memory_recall"] = {
+            "schema_version": "memory_recall.v1",
+            "memory_layer": "provisional",
+            "task": "episode_modification",
+            "through_episode_number": 1,
+            "status": "insufficient",
+            "required_refs": ["setup.missing"],
+            "missing_requirements": ["setup.missing"],
+            "capsules": [],
+            "omitted_records": [],
+        }
+        rejected = await client.post(
+            "/script-generation/modify-draft",
+            json={
+                "source_generation_run": missing_memory_run,
+                "source_draft_master_script": edited_draft,
+                "instruction": "Revise the episode without inventing prior evidence.",
+            },
+        )
+        assert rejected.status_code == 422
+        assert "Memory recall is insufficient" in rejected.json()["detail"]
+
     assert source_run["episode_context"]["episode_number"] == 2
     assert source_run["episode_context"]["batch_context"]["batch_number"] == 2
     assert source_run["prompt_build_result"]["prompt_text"] == "Prompt omitted from product result."

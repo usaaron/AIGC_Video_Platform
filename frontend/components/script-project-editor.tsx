@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Download, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +9,7 @@ import { ArrowIcon, ScriptIcon, TrashIcon, UploadIcon } from "@/components/icons
 import { SectionHelp } from "@/components/section-help";
 import { userFacingError } from "@/lib/api-error";
 import { safeFilename } from "@/lib/filename";
+import { downloadBlob } from "@/lib/download";
 import { TagSelector } from "@/components/tag-selector";
 import { apiRequest } from "@/lib/api-client";
 import {
@@ -35,6 +37,7 @@ import {
 import { currentWorkspaceHref, workspaceSectionAccess } from "@/lib/workspace-stage";
 import {
   availableCreatorTags,
+  projectTagLabel,
   resolveLegacyTagId,
   type OntologyTagSource,
 } from "@/lib/tag-catalog";
@@ -51,6 +54,7 @@ import {
 } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
+import styles from "./script-project-editor.module.css";
 
 interface ScriptProjectEditorProps {
   project?: ScriptProject;
@@ -68,6 +72,8 @@ const EMPTY_DRAFT: ProjectDraft = {
   generationSettings: DEFAULT_GENERATION_SETTINGS,
 };
 
+const NEW_INPUT_SESSION_KEY = "script-master.new-input.v1";
+
 export function ScriptProjectEditor(props: ScriptProjectEditorProps) {
   return <ScriptProjectEditorForm key={`${props.mode}:${props.project?.id ?? "new"}`} {...props} />;
 }
@@ -83,7 +89,14 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   const [releaseRegionInput, setReleaseRegionInput] = useState<ReleaseRegion | "">(() => (
     project ? draft.generationSettings.releaseRegion : ""
   ));
-  const [saveState, setSaveState] = useState<ProjectDraftSaveState>("idle");
+  const [saveState, setSaveState] = useState<ProjectDraftSaveState>(mode === "edit" ? "saved" : "idle");
+  const lastAutosavedDraftRef = useRef(draft);
+  const [sessionRestored, setSessionRestored] = useState(mode !== "create");
+  const [sessionSaveFailed, setSessionSaveFailed] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const copiedProjectRef = useRef<ScriptProject | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
   const updateProjectRef = useRef(updateProject);
   updateProjectRef.current = updateProject;
   const [draftAutosave] = useState(() => createProjectDraftAutosave(
@@ -103,11 +116,64 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     project ? String(project.generationSettings.episodeCount) : ""
   ));
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const inputReadinessRequestRef = useRef(0);
   const inputReadinessAbortRef = useRef<AbortController | null>(null);
   const projectCreationInFlightRef = useRef(false);
   const episodeCountManuallyEditedRef = useRef(mode === "edit" || Boolean(project));
   const episodeCountAutoDetectedRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const title = titleInputRef.current;
+    if (!title) return;
+    let active = true;
+    const resize = () => {
+      if (!active) return;
+      title.style.height = "auto";
+      title.style.height = `${title.scrollHeight + title.offsetHeight - title.clientHeight}px`;
+    };
+    resize();
+    let width = title.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (title.clientWidth === width) return;
+      width = title.clientWidth;
+      resize();
+    });
+    observer.observe(title);
+    void document.fonts.ready.then(resize);
+    return () => { active = false; observer.disconnect(); };
+  }, [draft.title]);
+
+  useEffect(() => {
+    if (mode !== "create") return;
+    try {
+      const stored = sessionStorage.getItem(NEW_INPUT_SESSION_KEY);
+      if (stored) {
+        const saved = JSON.parse(stored);
+        if (saved.draft && typeof saved.draft.creativePrompt === "string"
+          && Array.isArray(saved.draft.referenceMaterials) && saved.draft.generationSettings
+          && typeof saved.episodeCountInput === "string") {
+          setDraft({ ...EMPTY_DRAFT, ...saved.draft });
+          setEpisodeCountInput(saved.episodeCountInput);
+          setReleaseRegionInput(saved.releaseRegionInput === "overseas" || saved.releaseRegionInput === "cn_mainland"
+            ? saved.releaseRegionInput : "");
+          episodeCountManuallyEditedRef.current = Boolean(saved.episodeCountManuallyEdited);
+        }
+      }
+    } catch { setSessionSaveFailed(true); }
+    setSessionRestored(true);
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "create" || !sessionRestored || saveState === "saved") return;
+    try {
+      sessionStorage.setItem(NEW_INPUT_SESSION_KEY, JSON.stringify({
+        draft, episodeCountInput, releaseRegionInput,
+        episodeCountManuallyEdited: episodeCountManuallyEditedRef.current,
+      }));
+      setSessionSaveFailed(false);
+    } catch { setSessionSaveFailed(true); }
+  }, [draft, episodeCountInput, releaseRegionInput, mode, sessionRestored, saveState]);
 
   useEffect(() => {
     if (mode !== "create" || isReadOnly || episodeCountManuallyEditedRef.current) return;
@@ -162,13 +228,15 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
         if (response.data.length > 0) {
           const backendTagIds = new Set(response.data.filter((node) => node.is_active).map((node) => node.id));
           setOntologyNodes(response.data);
-          setDraft((current) => ({
-            ...current,
-            selectedTagIds: Array.from(new Set(current.selectedTagIds.map((tagId) => {
+          setDraft((current) => {
+            const selectedTagIds = Array.from(new Set(current.selectedTagIds.map((tagId) => {
               const resolvedTagId = resolveLegacyTagId(tagId);
               return backendTagIds.has(resolvedTagId) ? resolvedTagId : tagId;
-            }))),
-          }));
+            })));
+            return selectedTagIds.every((id, index) => id === current.selectedTagIds[index])
+              && selectedTagIds.length === current.selectedTagIds.length
+              ? current : { ...current, selectedTagIds };
+          });
         }
       })
       .catch(() => undefined);
@@ -190,6 +258,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
 
   useEffect(() => {
     if (mode !== "edit" || !project || isReadOnly) return;
+    if (lastAutosavedDraftRef.current === draft) return;
+    lastAutosavedDraftRef.current = draft;
     // The provider already coalesces IndexedDB writes. Enqueue immediately so
     // changing routes cannot discard a draft waiting in a component timer.
     void draftAutosave.save(project.id, draft);
@@ -197,15 +267,38 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   }, [draft, draftAutosave, isReadOnly, mode, project?.id]);
 
   useEffect(() => {
-    if (mode !== "edit" || isReadOnly) return;
+    if (isReadOnly) return;
     const protectPendingSave = (event: BeforeUnloadEvent) => {
-      if (draftAutosave.state !== "saving" && draftAutosave.state !== "error") return;
+      const unsafe = mode === "create" ? sessionSaveFailed
+        : draftAutosave.state === "saving" || draftAutosave.state === "error";
+      if (!unsafe) return;
       event.preventDefault();
       event.returnValue = "";
     };
+    const protectNavigation = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+      if (!link || link.hasAttribute("download") || link.target === "_blank"
+        || (link.pathname === window.location.pathname && link.search === window.location.search)) return;
+      if (mode === "create") {
+        if (!sessionSaveFailed || window.confirm(locale === "zh"
+          ? "输入尚未暂存。离开会丢失当前输入，仍要离开吗？"
+          : "Your input could not be saved. Leave and discard it?")) return;
+        event.preventDefault();
+        event.stopPropagation();
+      } else if (draftAutosave.state === "saving" || draftAutosave.state === "error") {
+        event.preventDefault();
+        event.stopPropagation();
+        void continueTo(link.href);
+      }
+    };
     window.addEventListener("beforeunload", protectPendingSave);
-    return () => window.removeEventListener("beforeunload", protectPendingSave);
-  }, [draftAutosave, isReadOnly, mode]);
+    document.addEventListener("click", protectNavigation, true);
+    return () => {
+      window.removeEventListener("beforeunload", protectPendingSave);
+      document.removeEventListener("click", protectNavigation, true);
+    };
+  }, [draftAutosave, isReadOnly, mode, sessionSaveFailed, draft, locale]);
 
   const hasRequiredCreativeInput = hasUsableCreativeSource(
     draft.creativePrompt,
@@ -217,6 +310,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     && parsedEpisodeCount >= 8
     && parsedEpisodeCount <= 2000;
   const hasExistingEpisodes = Boolean(project?.episodes.length);
+  const scriptEpisodeCount = project?.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length ?? 0;
   const storyBibleReady = Boolean(
     project
     && project.storyBibleStatus === "approved"
@@ -228,7 +322,9 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   const isSaving = !localSaveFailed && (
     (!isReadOnly && saveState === "saving") || syncStatus === "syncing"
   );
-  const saveLabel = mode === "create" || localSaveFailed
+  const saveLabel = mode === "create" && sessionRestored && !sessionSaveFailed
+    ? (locale === "zh" ? "输入暂存于当前标签页 · 尚未创建项目" : "Input kept in this tab · project not created")
+    : mode === "create" || localSaveFailed
     ? t("editor.notSaved")
     : isSaving
       ? t("editor.saving")
@@ -259,7 +355,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   }
 
   async function addReferenceFiles(files: FileList | null) {
-    if (isReadOnly || !files?.length) return;
+    if (isReadOnly || isReadingReferences || !files?.length) return;
     invalidateInputReadiness();
     const remainingSlots = MAX_REFERENCE_FILES - draft.referenceMaterials.length;
     if (remainingSlots <= 0) {
@@ -286,7 +382,9 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
         ...current,
         referenceMaterials: [...current.referenceMaterials, ...added],
       }));
-      setReferenceNotice(t("reference.added").replace("{count}", String(added.length)));
+      const omitted = files.length - added.length;
+      setReferenceNotice(t("reference.added").replace("{count}", String(added.length))
+        + (omitted > 0 ? (locale === "zh" ? ` 已达到文件数量上限，另外 ${omitted} 个文件未添加。` : ` File limit reached; ${omitted} additional files were not added.`) : ""));
     } catch (error) {
       setReferenceNotice(error instanceof ReferenceMaterialError
         ? error.message : userFacingError(error, t("reference.readFailed")));
@@ -377,7 +475,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
         titleSource: draft.title.trim() ? "user" : "derived",
       });
       setSaveState("saved");
-      router.push(`/projects/${created.id}/planning`);
+      try { sessionStorage.removeItem(NEW_INPUT_SESSION_KEY); } catch { /* Navigation may still proceed after the project was saved. */ }
+      router.push(`/projects/${created.id}/synopsis`);
     } catch (error) {
       setSaveState("error");
       setReadinessNotice(userFacingError(error, t("inputReadiness.createFailed")));
@@ -433,37 +532,56 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   }
 
   function exportBrief() {
-    const payload = JSON.stringify({
-      title: draft.title,
-      creative_prompt: draft.creativePrompt,
-      reference_materials: draft.referenceMaterials,
-      selected_tag_ids: draft.selectedTagIds,
-      custom_tags: draft.customTags,
-      characters: draft.characters,
-      generation_settings: draft.generationSettings,
-    }, null, 2);
-    const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${safeFilename(draft.title)}.json`;
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.setTimeout(() => {
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    }, 1000);
+    const payload = [
+      `# ${draft.title || t("editor.untitled")}`,
+      `## ${t("editor.creativeInput")}\n\n${draft.creativePrompt}`,
+      `## ${t("generation.kicker")}`,
+      `${t("generation.episodes")}: ${episodeCountInput}`,
+      `${t("generation.releaseRegion")}: ${t(draft.generationSettings.releaseRegion === "overseas" ? "generation.releaseRegion.overseas" : "generation.releaseRegion.cnMainland")}`,
+      `${t("generation.targetCharacters")}: ${t(`generation.targetCharacters.${targetBodyScaleBand(draft.generationSettings.targetTotalCharacters).id}`)}`,
+      `## ${t("editor.storySignals")}\n\n${draft.selectedTagIds.map(id => projectTagLabel(draft, id, locale) ?? id).join(" / ")}`,
+      ...draft.characters.map(character => [
+        `## ${character.name}`,
+        [character.age, character.gender, character.role].filter(Boolean).join(" · "),
+        character.background, character.appearance, character.description, character.motivation,
+      ].filter(Boolean).join("\n\n")),
+      ...draft.referenceMaterials.map(material => `## ${material.fileName}\n\n${material.extractedText}`),
+    ].join("\n\n");
+    downloadBlob(new Blob([payload], { type: "text/markdown;charset=utf-8" }), `${safeFilename(draft.title)}.md`);
   }
 
   async function duplicateAsNewVersion() {
-    if (!project) return;
-    const created = await createProject({
-      ...draft,
-      title: `${draft.title.trim() || t("editor.untitled")} - ${t("generation.versionSuffix")}`,
-      titleSource: "user",
-    });
-    updateProject(created.id, { sourceProjectId: project.id });
-    router.push(`/projects/${created.id}`);
+    if (!project || projectCreationInFlightRef.current) return;
+    projectCreationInFlightRef.current = true;
+    setIsDuplicating(true);
+    setActionError(null);
+    try {
+      const created = copiedProjectRef.current ?? await createProject({
+        ...draft,
+        title: `${draft.title.trim() || t("editor.untitled")} - ${t("generation.versionSuffix")}`,
+        titleSource: "user",
+      });
+      copiedProjectRef.current = created;
+      if (!await updateProject(created.id, { sourceProjectId: project.id })) {
+        throw new Error(locale === "zh" ? "新版本已创建，但来源信息尚未保存。请重试，系统会继续保存这个版本。" : "The new version was created, but its source could not be saved. Retry to finish saving this version.");
+      }
+      router.push(`/projects/${created.id}`);
+    } catch (error) {
+      setActionError(userFacingError(error, t("inputReadiness.createFailed")));
+    } finally {
+      projectCreationInFlightRef.current = false;
+      setIsDuplicating(false);
+    }
+  }
+
+  async function continueTo(href: string) {
+    if (!project || isNavigating) return;
+    setIsNavigating(true);
+    try {
+      if (!isReadOnly && (draftAutosave.state === "saving" || draftAutosave.state === "error")
+        && !await draftAutosave.save(project.id, draft)) return;
+      router.push(href);
+    } finally { setIsNavigating(false); }
   }
 
   function invalidateInputReadiness() {
@@ -479,11 +597,11 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
       : current);
   }
 
-  function createWithReadinessPath(path: "recommended" | "full_workflow") {
+  function createWithReadinessPath() {
     if (!inputReadiness) return;
     void saveNewProject({
       ...inputReadiness,
-      selectedPath: path,
+      selectedPath: "full_workflow",
       selectedAt: new Date().toISOString(),
     });
   }
@@ -492,7 +610,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     <main className={"creator-page" + (mode === "create" ? " is-creating" : "")}>
       <div className="creator-document page-reveal">
         <header className="creator-header">
-          <div className="creator-breadcrumb"><span>{t("nav.myScripts")}</span><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></div>
+          <div className={`creator-breadcrumb ${styles.breadcrumb}`}><Link href="/">{t("nav.myScripts")}</Link><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></div>
           <div className="autosave-state" data-save-state={saveState} role="status">
             <span className={isSaving ? "is-saving" : ""} />
             {saveLabel}
@@ -500,17 +618,25 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
         </header>
 
         <section className="creator-title-block">
-          <span className="document-number">{t("editor.project")} / {project?.id.slice(0, 6).toUpperCase() ?? t("editor.new")}</span>
-          <input
+          <span className="document-number">{mode === "create" ? t("editor.newScript") : t("editor.creativeInput")}</span>
+          <textarea
             aria-label={t("editor.titleLabel")}
-            className="project-title-input"
+            className={`project-title-input ${styles.title}`}
             maxLength={120}
-            onChange={(event) => updateTitle(event.target.value)}
+            onChange={(event) => updateTitle(event.target.value.replace(/[\r\n]+/g, " "))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault();
+            }}
             placeholder={t("editor.titlePlaceholder")}
             readOnly={isReadOnly}
+            ref={titleInputRef}
+            rows={1}
             value={draft.title}
           />
           <p>{t("editor.intro")}</p>
+          {isReadOnly && !hasExistingEpisodes && <p className="inline-notice" role="status">
+            {locale === "zh" ? "故事总纲已确认，原始资料已锁定。请在创作工作区继续修改故事。" : "The story outline is confirmed. Source materials are locked; continue editing your story in the workspace."}
+          </p>}
         </section>
 
         <section className="creator-section" id="creative-input">
@@ -533,7 +659,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                 onChange={(event) => updatePrompt(event.target.value)}
                 placeholder={t("editor.ideaPlaceholder")}
                 readOnly={isReadOnly}
-                rows={7}
+                rows={mode === "create" ? 4 : 7}
                 value={draft.creativePrompt}
               />
               <div className="prompt-editor-footer">
@@ -676,8 +802,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
             <TagSelector
               availableTags={availableTags}
               customTags={draft.customTags}
-              onChange={(selectedTagIds) => setDraft((current) => ({ ...current, selectedTagIds }))}
-              onCustomTagsChange={(customTags) => setDraft((current) => ({ ...current, customTags }))}
+              onChange={(selectedTagIds) => { invalidateInputReadiness(); setDraft((current) => ({ ...current, selectedTagIds })); }}
+              onCustomTagsChange={(customTags) => { invalidateInputReadiness(); setDraft((current) => ({ ...current, customTags })); }}
               marketProfile={marketProfile}
               readOnly={isReadOnly}
               selectedTagIds={draft.selectedTagIds}
@@ -686,19 +812,21 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
         </section>}
 
         {mode === "create" && <footer className="creator-submit">
-          {inputReadiness && <InputReadinessReview analysis={inputReadiness} />}
+          {sessionSaveFailed && <p className="inline-notice is-error" role="alert">
+            {locale === "zh" ? "当前浏览器无法暂存输入。请保留此页，完成创建后再离开。" : "This browser could not keep your input. Keep this page open until the project is created."}
+          </p>}
+          {inputReadiness && <InputReadinessReview analysis={inputReadiness} compact />}
           {readinessNotice && <div className="inline-notice is-error" role="alert">{readinessNotice}</div>}
+          {(!hasRequiredCreativeInput || !releaseRegionInput || (episodeCountInput.length > 0 && !episodeCountIsValid) || (inputReadiness && !episodeCountIsValid)) && <p className="readiness-hint" role="status">
+            {!hasRequiredCreativeInput ? t("editor.required") : !releaseRegionInput ? t("generation.releaseRegion.placeholder") : t("inputReadiness.episodeCountRequired")}
+          </p>}
           <div className="creator-submit-actions">
             {inputReadiness ? <>
-              {inputReadiness.detectedLevel !== "premise" && <button className="outline-action" disabled={isAnalyzingInput || saveState === "saving" || !episodeCountIsValid || !releaseRegionInput}
-                onClick={() => createWithReadinessPath("full_workflow")} type="button">
-                {t("inputReadiness.createFull")}
-              </button>}
               {inputReadiness.analysisNotice && <button className="outline-action" disabled={isAnalyzingInput || saveState === "saving"}
                 onClick={() => void beginProjectCreation()} type="button">{t("inputReadiness.retry")}</button>}
               <button className="primary-action" disabled={isAnalyzingInput || saveState === "saving" || !episodeCountIsValid || !releaseRegionInput}
-                onClick={() => createWithReadinessPath("recommended")} type="button">
-                {t("inputReadiness.createRecommended")} <ArrowRight size={16} />
+                onClick={() => createWithReadinessPath()} type="button">
+                {saveState === "saving" ? <><LoaderCircle className="ui-spinner" size={16} />{t("editor.saving")}</> : <>{t("inputReadiness.createRecommended")} <ArrowRight size={16} /></>}
               </button>
             </> : <>
             {readinessFailed && <button className="outline-action" disabled={!episodeCountIsValid || !releaseRegionInput || isAnalyzingInput || saveState === "saving"}
@@ -741,21 +869,29 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
               </div>
               <div>
                 <dt>{t("editor.scriptProgress")}</dt>
-                <dd className={hasExistingEpisodes ? "is-complete" : "is-pending"}>
+                <dd className={scriptEpisodeCount > 0 ? "is-complete" : "is-pending"}>
                   {t("editor.scriptEpisodeProgress")
-                    .replace("{current}", String(project?.episodes.length ?? 0))
+                    .replace("{current}", String(scriptEpisodeCount))
                     .replace("{total}", String(draft.generationSettings.episodeCount))}
                 </dd>
               </div>
             </dl>
           {hasExistingEpisodes ? <div className="inline-notice">{t("generation.existingProtected")}</div> : null}
+          {localSaveFailed && <div className="inline-notice is-error" role="alert">
+            <p>{locale === "zh" ? "本次修改尚未保存，请重试后再继续。" : "Your changes have not been saved. Retry before continuing."}</p>
+            <button className="outline-action" type="button" onClick={() => project && void draftAutosave.save(project.id, draft)}>
+              {locale === "zh" ? "重试保存" : "Retry saving"}
+            </button>
+          </div>}
+          {actionError && <p className="inline-notice is-error" role="alert">{actionError}</p>}
           <div className="inspector-actions">
             {hasExistingEpisodes ? (
                 <>
                 <button className="primary-action full-width" onClick={() => project && router.push(currentWorkspaceHref(project))} type="button">
                   {t("generation.openWorkspace")} <ArrowIcon />
                 </button>
-                <button className="outline-action full-width" onClick={() => void duplicateAsNewVersion()} type="button">
+                <button className="outline-action full-width" disabled={isDuplicating} onClick={() => void duplicateAsNewVersion()} type="button">
+                  {isDuplicating && <LoaderCircle className="ui-spinner" size={16} />}
                   {t("generation.createVersion")}
                 </button>
                 <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>
@@ -764,15 +900,15 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                 {workspaceAccess?.script ? (
                   <button
                     className="primary-action full-width"
-                    disabled={!episodeCountIsValid || saveState === "saving"}
-                    onClick={() => project && router.push(currentWorkspaceHref(project))}
+                    disabled={!episodeCountIsValid || isNavigating}
+                    onClick={() => project && void continueTo(currentWorkspaceHref(project))}
                     type="button"
                   >
                     {t("storyPlanNode.nextToScript")}
                     <ArrowIcon />
                   </button>
                 ) : (
-                  <button className="primary-action full-width" disabled={!episodeCountIsValid} onClick={() => project && router.push(currentWorkspaceHref(project))} type="button">
+                  <button className="primary-action full-width" disabled={!episodeCountIsValid || isNavigating} onClick={() => project && void continueTo(currentWorkspaceHref(project))} type="button">
                     {t("planningWorkspace.continuePlanning")}
                     <ArrowIcon />
                   </button>

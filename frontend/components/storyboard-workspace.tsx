@@ -1,35 +1,48 @@
 "use client";
 
+import { WorkspaceMissingProject } from "@/components/workspace-missing-project";
+
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowLeft, ArrowUp, Check, CheckCheck, ChevronDown, CircleAlert, Clapperboard, Clock3, Copy, Download, Eye, FileText, GitMerge, History, List, LoaderCircle, Lock, Pause, Pencil, Save, Scissors, Sparkles, TriangleAlert, Undo2, Unlock, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import type { DocumentOutlineEntry } from "@/components/document-outline";
 import { ConfirmationDialog, ToolButton } from "@/components/workspace-controls";
-import { loadStoryboard, mergeStoryboardShot, moveStoryboardShot, sameStoryboardSource, splitStoryboardShot, storyboardEditError, storyboardMarkdown, writeStoryboard, type Storyboard, type StoryboardScene, type StoryboardShot } from "@/lib/storyboard";
+import { loadStoryboard, mergeStoryboardShot, moveStoryboardShot, readableStoryboardText, sameStoryboardSource, splitStoryboardShot, storyboardEditError, storyboardMarkdown, writeStoryboard, type Storyboard, type StoryboardScene, type StoryboardShot } from "@/lib/storyboard";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
+import { characterReferenceNames } from "@/lib/character-reference";
 import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
+import { downloadBlob } from "@/lib/download";
 import type { ScriptProject } from "@/lib/types";
+import { workspaceSectionAccess } from "@/lib/workspace-stage";
 import { useProjects } from "@/providers/project-provider";
 
 export function StoryboardWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
+  const searchParams = useSearchParams();
   const { getProject, isReady, updateProject } = useProjects();
   const project = getProject(projectId);
-  const [selection, setSelection] = useState<number | null>(null);
+  const requestedEpisode = Number(searchParams.get("episode"));
+  const requestedEndEpisode = Number(searchParams.get("end"));
+  const autoStart = searchParams.get("autostart") === "1";
+  const router = useRouter();
   if (!isReady) return <main className="centered-state" role="status"><LoaderCircle className="ui-spinner" size={20} />正在加载分镜...</main>;
-  if (!project) return <main className="centered-state"><h1>项目不存在</h1><Link href="/">返回项目</Link></main>;
-  const preferred = selection ?? project.activeEpisodeNumber;
+  if (!project) return <WorkspaceMissingProject />;
+  if (!workspaceSectionAccess(project).storyboard) return <main className="centered-state"><h1>当前项目只生成剧本</h1><p>如需分镜，请回到剧本工作区重新选择生成方式。</p><Link className="outline-action" href={`/projects/${project.id}/workspace`}>返回剧本</Link></main>;
+  const preferred = Number.isInteger(requestedEpisode) && requestedEpisode > 0
+    ? requestedEpisode : project.activeEpisodeNumber;
   const episode = project.episodes.some(item => item.episodeNumber === preferred)
     ? preferred! : project.episodes[0]?.episodeNumber ?? 1;
-  return <StoryboardEpisode key={projectId + ":" + episode} project={project} episode={episode} onEpisode={async value => {
+  return <StoryboardEpisode key={projectId + ":" + episode} autoEndEpisode={Number.isInteger(requestedEndEpisode) && requestedEndEpisode > 0 ? requestedEndEpisode : null} autoStart={autoStart && episode === requestedEpisode} project={project} episode={episode} onEpisode={async value => {
     if (!await updateProject(projectId, { activeEpisodeNumber: value })) throw new Error("集数位置未保存，请重试切换。");
-    setSelection(value);
+    router.replace(`/projects/${projectId}/storyboard?episode=${value}`);
   }} />;
 }
 
-function StoryboardEpisode({ project, episode, onEpisode }: {
+function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, episode, onEpisode }: {
+  autoEndEpisode?: number | null;
+  autoStart?: boolean;
   project: ScriptProject; episode: number; onEpisode: (value: number) => Promise<void>;
 }) {
   const router = useRouter();
@@ -52,12 +65,15 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
   const [elapsed, setElapsed] = useState(0);
   const active = useRef(true);
   const inFlight = useRef(false);
+  const autoStartConsumed = useRef(false);
   const pause = useRef(false);
   const exportMenu = useRef<HTMLDetailsElement>(null);
   const sceneHeading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const dirty = useMemo(() => !!plan && !!saved && JSON.stringify(plan) !== JSON.stringify(saved), [plan, saved]);
   const item = project.episodes.find(value => value.episodeNumber === episode);
+  const sourcePending = !!item && (item.hasLocalDraftEdits
+    || !!item.sourceAmendment || !!item.modificationCandidate || !!item.deepeningRun?.candidate_draft_master_script);
   const source = useMemo(() => parseGeneratedDraft(item?.workingDraftJson, {
     requireNonEmptyScenes: true, requireCompleteScenes: true, requireTitle: true,
   }), [item?.workingDraftJson]);
@@ -77,11 +93,12 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
   const currentScene = display?.scenes.find(value => value.scene_number === sceneNumber);
   const scene = showingCandidate ? candidate : currentScene;
   const original = displaySource?.scenes.find(value => value.scene_number === sceneNumber);
+  const read = (value: string | null | undefined) => readableStoryboardText(value, display, sceneNumber);
   const sceneManifest = original?.content_manifest;
   const sceneCausality = original?.scene_causality;
-  const sceneCharacters = [...new Set(sceneManifest?.character_refs?.length ? sceneManifest.character_refs
+  const sceneCharacters = characterReferenceNames(sceneManifest?.character_refs?.length ? sceneManifest.character_refs
     : original?.character_refs?.length ? original.character_refs
-      : original?.dialogues.map(dialogue => dialogue.chinese_character_name || dialogue.character_name) ?? [])];
+      : original?.dialogues.map(dialogue => dialogue.character_name) ?? [], project.characters);
   const sceneProps = [...new Set(sceneManifest?.props ?? [])];
   const stale = !!display?.stale_scene_numbers.includes(sceneNumber ?? 0);
   const readOnly = !!busy || !!historical || showingCandidate || stale;
@@ -130,6 +147,13 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; active.current = false; pause.current = true; };
   }, [project.id, episode]);
+
+  useEffect(() => {
+    if (!autoStart || autoStartConsumed.current || loading || loadFailed || !source
+      || sourcePending || sourceChanged || plan?.candidate || dirty || historical || inFlight.current) return;
+    autoStartConsumed.current = true;
+    void arrangeAll();
+  }, [autoStart, loading, loadFailed, plan, source, sourcePending, sourceChanged, dirty, historical]);
 
   useEffect(() => {
     if (!generationMode) return;
@@ -193,7 +217,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
   }
 
   async function arrangeAll() {
-    if (!source || dirty || historical) return;
+    if (!source || sourcePending || dirty || historical) return;
     await run("准备分镜", async () => {
       let next = await writeStoryboard(project.id, episode, "POST", { source_draft: source, expected_revision: plan?.revision ?? 0 });
       receive(next);
@@ -205,12 +229,15 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
           "/scenes/" + original.scene_number + "/generate");
         receive(next);
       }
+      if (!pause.current && !next.candidate && autoStart && autoEndEpisode && episode < autoEndEpisode) {
+        router.push(`/projects/${project.id}/storyboard?episode=${episode + 1}&end=${autoEndEpisode}&autostart=1`);
+      }
       if (pause.current && active.current) setNotice({ kind: "success", text: "本场已保存，编排已暂停。" });
     }, "episode");
   }
 
   async function generateScene() {
-    if (!plan || sceneNumber === null || dirty || sourceChanged) return;
+    if (!plan || sceneNumber === null || sourcePending || dirty || sourceChanged) return;
     await run("正在编排场 " + sceneNumber, async () => {
       setGeneratingScene(sceneNumber);
       const next = await writeStoryboard(project.id, episode, "POST", { expected_revision: plan.revision, instruction },
@@ -236,11 +263,9 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
   function download(format: "md" | "json") {
     const snapshot = historical ?? saved;
     if (!snapshot) return;
-    const url = URL.createObjectURL(new Blob([format === "md" ? storyboardMarkdown(snapshot) : JSON.stringify(snapshot, null, 2)],
-      { type: format === "md" ? "text/markdown;charset=utf-8" : "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = url; anchor.download = "episode-" + episode + "-storyboard-v" + snapshot.revision + "." + format;
-    anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(new Blob([format === "md" ? storyboardMarkdown(snapshot) : JSON.stringify(snapshot, null, 2)],
+      { type: format === "md" ? "text/markdown;charset=utf-8" : "application/json" }),
+    "episode-" + episode + "-storyboard-v" + snapshot.revision + "." + format);
     if (exportMenu.current) exportMenu.current.open = false;
   }
 
@@ -259,7 +284,21 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
     });
   }
 
-  const generationDisabled = !!busy || dirty || !!candidate || sourceChanged || hasLocks || !original;
+  const generationDisabled = !!busy || sourcePending || dirty || !!candidate || sourceChanged || hasLocks || !original;
+  const generationBlocker = sourcePending ? "本集正文有未保存或待确认的修改，请返回正文处理并保存后再编排分镜。"
+    : dirty ? "分镜有未保存的修改，请先保存，再切换集数、生成候选或导出。"
+      : candidate ? `场 ${candidate.scene_number} 的候选尚未处理，请先比较并采用或放弃。`
+        : sourceChanged ? "请先更新正文来源，再检查受影响的场次。"
+          : hasLocks ? "本场含已锁定镜头，解锁后才能生成候选。" : null;
+  const exportBlocker = dirty ? "请先保存修改，再导出分镜。"
+    : !historical && sourceChanged ? "正文已更新，请先更新来源并检查分镜。" : null;
+  function saveEdits() {
+    if (!plan || !dirty) return;
+    return run("保存修订", async () => {
+      receive(await persist(plan));
+      setNotice({ kind: "success", text: "分镜修改已保存。" });
+    });
+  }
   return <main className="storyboard-page">
     <ConfirmationDialog open={pendingNavigation !== null} title="离开分镜？" confirmLabel="放弃修改并离开" cancelLabel="继续编辑"
       onClose={() => setPendingNavigation(null)} onConfirm={() => {
@@ -287,7 +326,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
         }} />
       <section className="storyboard-content" aria-label="分镜工作区">
         <header className="storyboard-header">
-          <div className="storyboard-title"><span className="library-kicker">{project.title}</span><h1>分镜</h1></div>
+          <div className="storyboard-title"><span className="library-kicker">{project.title} · 第 {episode} 集</span><h1>分镜</h1></div>
           <div className="storyboard-header-actions">
             <Link className="storyboard-back-link" href={"/projects/" + project.id + "/workspace"}><ArrowLeft size={14} />正文</Link>
             <details ref={exportMenu} className="storyboard-export" onBlur={event => {
@@ -295,6 +334,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
             }} onKeyDown={event => { if (event.key === "Escape") event.currentTarget.open = false; }}>
               <summary className="outline-action"><Download size={15} />导出<ChevronDown size={13} /></summary>
               <div className="storyboard-export-options">
+                {exportBlocker && <p role="status">{exportBlocker}</p>}
                 <button disabled={!saved || dirty || !!busy || (!historical && sourceChanged)} onClick={() => download("md")}><FileText size={15} />Markdown 草稿</button>
                 <button disabled={!saved || dirty || !!busy || (!historical && sourceChanged)} onClick={() => download("json")}><Download size={15} />JSON 草稿</button>
               </div>
@@ -303,12 +343,18 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
         </header>
         {notice && <div ref={feedback} role={notice.kind === "error" ? "alert" : "status"} className={"workspace-feedback is-" + notice.kind}>
           {notice.kind === "error" ? <CircleAlert size={17} /> : <Check size={17} />}<span>{notice.text}</span>
-          {notice.kind === "error" && <button className="text-button" disabled={!!busy || dirty}
+          {notice.kind === "error" && dirty && <button className="text-button" disabled={!!busy}
+            onClick={() => void saveEdits()}>重试保存</button>}
+          {notice.kind === "error" && !dirty && <button className="text-button" disabled={!!busy}
             onClick={() => void run("重新加载", async () => {
               const latest = await loadStoryboard(project.id, episode);
               setPlan(latest); setSaved(latest); setHistorical(null); setLoadFailed(false);
             })}>重新加载</button>}
           {!loadFailed && <ToolButton label="关闭提示" onClick={() => setNotice(null)}><X size={15} /></ToolButton>}
+        </div>}
+        {!loading && !loadFailed && generationBlocker && !historical && <div className="workspace-feedback is-warning" role="status">
+          <TriangleAlert size={17} /><span>{generationBlocker}</span>
+          {sourcePending && <Link className="outline-action" href={`/projects/${project.id}/workspace`}>返回正文保存</Link>}
         </div>}
         {loading ? <div className="storyboard-loading" role="status"><LoaderCircle className="ui-spinner" size={20} /><span>正在加载分镜...</span></div>
           : loadFailed ? <div className="storyboard-empty"><CircleAlert size={32} /><h2>分镜暂未加载</h2></div>
@@ -316,7 +362,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
             <Link className="outline-action" href={"/projects/" + project.id + "/workspace"}><ArrowLeft size={15} />返回正文</Link>
           </div> : !plan ? <div className="storyboard-empty"><Clapperboard size={34} /><h2>{source.title}</h2>
             <p>第 {episode} 集 · {source.scenes.length} 场 · 待编排</p>
-            <button className="primary-action" disabled={!!busy} onClick={() => void arrangeAll()}><Sparkles size={16} />编排本集分镜</button>
+            <button className="primary-action" disabled={!!busy || sourcePending} onClick={() => void arrangeAll()}><Sparkles size={16} />编排本集分镜</button>
           </div> : <>
           <div className="storyboard-toolbar">
             <div className="storyboard-view-control" role="group" aria-label="分镜视图">
@@ -336,7 +382,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
                 </select>
               </label>
               <ToolButton label="撤销未保存修改" disabled={!dirty || !!busy} onClick={() => setPlan(saved)}><Undo2 size={16} /></ToolButton>
-              <button className="primary-action" disabled={!dirty || !!busy || !!historical} onClick={() => void run("保存修订", async () => receive(await persist(plan)))}>
+              <button className="primary-action" disabled={!dirty || !!busy || !!historical} onClick={() => void saveEdits()}>
                 <Save size={15} />保存
               </button>
             </div>
@@ -344,7 +390,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
           <div className="storyboard-overview">
             <span><Clapperboard size={16} /><strong>{display?.scenes.length}</strong> / {displaySource?.scenes.length ?? 0} 场</span>
             <span><strong>{shots.length}</strong> 镜</span><span><Clock3 size={15} />{formatDuration(duration)}</span>
-            {!!remaining.length && !historical && <button className="outline-action" disabled={!!busy || dirty || !!candidate || sourceChanged}
+            {!!remaining.length && !historical && <button className="outline-action" disabled={!!busy || sourcePending || dirty || !!candidate || sourceChanged}
               onClick={() => void arrangeAll()}><Sparkles size={14} />继续编排 · {remaining.length} 场</button>}
           </div>
           {generationMode && <div className="storyboard-generation">
@@ -357,7 +403,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
           </div>}
           {sourceChanged && !historical && <div role="status" className="workspace-feedback is-warning"><TriangleAlert size={17} />
             <span>正文已更新，分镜仍绑定旧稿。</span>
-            <button className="outline-action" disabled={!!busy || dirty} onClick={() => void run("更新正文来源", async () =>
+            <button className="outline-action" disabled={!!busy || sourcePending || dirty} onClick={() => void run("更新正文来源", async () =>
               receive(await writeStoryboard(project.id, episode, "POST", { source_draft: source, expected_revision: plan.revision })))}>
               更新来源
             </button>
@@ -407,7 +453,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
                 <button className="primary-action" disabled={generationDisabled} onClick={() => void generateScene()}><Sparkles size={15} />生成候选</button></div>
             </div>}
             {scene && <>
-              <p className="storyboard-purpose">{scene.design.purpose}</p>
+              <p className="storyboard-purpose">{read(scene.design.purpose)}</p>
               <details className="storyboard-scene-brief">
                 <summary><List size={15} />执行摘要<span>正文事实与制作输入</span></summary>
                 <div className="storyboard-scene-brief-grid">
@@ -428,16 +474,20 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
                   {(["spatial_layout", "reveal_order", "action_rhythm", "transition"] as const).map((key, i) => mode === "edit" && !readOnly
                     ? <Field key={key} label={["空间布局", "信息揭示", "动作节拍", "转场"][i]} value={scene.design[key]}
                       onChange={value => editScene(current => ({ ...current, design: { ...current.design, [key]: value } }))} />
-                    : <div key={key}><span>{["空间布局", "信息揭示", "动作节拍", "转场"][i]}</span><p>{scene.design[key]}</p></div>)}
+                    : <div key={key}><span>{["空间布局", "信息揭示", "动作节拍", "转场"][i]}</span><p>{read(scene.design[key])}</p></div>)}
+                  {(["audience_effect", "status_change"] as const).map((key, i) => mode === "edit" && !readOnly
+                    ? <Field key={key} label={["观众此刻应感受到", "本场局面变化"][i]} value={scene.design[key] ?? ""}
+                      onChange={value => editScene(current => ({ ...current, design: { ...current.design, [key]: value } }))} />
+                    : <div key={key}><span>{["观众此刻应感受到", "本场局面变化"][i]}</span><p>{read(scene.design[key]) || "正文未明确"}</p></div>)}
                 </div>
                 {mode === "edit" && !readOnly && <Field label="待确认事项" value={scene.unresolved_questions.join("\n")}
                   onChange={value => editScene(current => ({ ...current, unresolved_questions: value.split("\n").filter(Boolean) }))} />}
               </details>
               {!!scene.unresolved_questions.length && <div className="storyboard-scene-questions" role="note" aria-label="本场待确认事项">
                 <span className="storyboard-field-label"><TriangleAlert size={14} />本场待确认事项</span>
-                <ul>{scene.unresolved_questions.map((question, index) => <li key={index}>{question}</li>)}</ul>
+                <ul>{scene.unresolved_questions.map((question, index) => <li key={index}>{read(question)}</li>)}</ul>
               </div>}
-              <div className="storyboard-shot-list">{scene.shots.map((shot, index) => <ShotCard key={shot.shot_id} scene={scene} index={index}
+              <div className="storyboard-shot-list">{scene.shots.map((shot, index) => <ShotCard key={shot.shot_id} scene={scene} index={index} read={read}
                 editing={mode === "edit" && !showingCandidate && !historical} readOnly={readOnly}
                 lockDisabled={!!busy || dirty || !!historical || showingCandidate} dirty={dirty}
                 onLock={() => void toggleLock(shot.shot_id)} onTransform={editScene}
@@ -456,7 +506,7 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
             {!display?.findings.length && <p><CheckCheck size={15} />正文引用检查通过，创作内容待审阅。</p>}
             <ul>{display?.findings.map((finding, index) => <li key={index} className={"finding-" + finding.severity}>
               {finding.scene_number && <button onClick={() => { setSelected(finding.scene_number!); setViewCandidate(false); }}>场 {finding.scene_number}</button>}
-              <span>{finding.message}</span>
+              <span>{readableStoryboardText(finding.message, display, finding.scene_number)}</span>
             </li>)}</ul>
           </details>
         </>}
@@ -465,8 +515,8 @@ function StoryboardEpisode({ project, episode, onEpisode }: {
   </main>;
 }
 
-function ShotCard({ scene, index, editing, readOnly, lockDisabled, dirty, onLock, onTransform, onEdit, onCopy }: {
-  scene: StoryboardScene; index: number; editing: boolean; readOnly: boolean; lockDisabled: boolean; dirty: boolean;
+function ShotCard({ scene, index, read, editing, readOnly, lockDisabled, dirty, onLock, onTransform, onEdit, onCopy }: {
+  scene: StoryboardScene; index: number; read: (value: string | null | undefined) => string; editing: boolean; readOnly: boolean; lockDisabled: boolean; dirty: boolean;
   onLock: () => void; onTransform: (transform: (scene: StoryboardScene) => StoryboardScene) => void;
   onEdit: (patch: Partial<StoryboardShot>) => void; onCopy: () => void;
 }) {
@@ -478,7 +528,7 @@ function ShotCard({ scene, index, editing, readOnly, lockDisabled, dirty, onLock
   return <article className={"storyboard-shot" + (shot.locked ? " is-locked" : "")} aria-label={"镜 " + scene.scene_number + "-" + (index + 1)}>
     <header>
       <span className="storyboard-shot-number">{String(index + 1).padStart(2, "0")}</span>
-      <div className="storyboard-shot-heading"><strong>{shot.purpose}</strong><span>{shot.framing}</span></div>
+      <div className="storyboard-shot-heading"><strong>{read(shot.purpose)}</strong><span>{read(shot.framing)}</span></div>
       <span className="storyboard-shot-duration"><Clock3 size={13} />{formatDuration(shot.duration_seconds)}</span>
       {shot.locked && <span className="storyboard-lock-label"><Lock size={12} />已锁定</span>}
     </header>
@@ -500,8 +550,28 @@ function ShotCard({ scene, index, editing, readOnly, lockDisabled, dirty, onLock
     <div className="storyboard-shot-body">
       {editing ? <Field label="画面动作" value={shot.action_sequence.join("\n")} disabled={disabled}
         onChange={value => onEdit({ action_sequence: value.split("\n") })} />
-        : <div className="storyboard-action-copy"><span className="storyboard-field-label">画面</span><ol>{shot.action_sequence.map((action, i) => <li key={i}>{action}</li>)}</ol></div>}
+        : <div className="storyboard-action-copy"><span className="storyboard-field-label">画面</span><ol>{shot.action_sequence.map((action, i) => <li key={i}>{read(action)}</li>)}</ol></div>}
       {!!shot.dialogue.length && <div className="storyboard-dialogue"><span className="storyboard-field-label">对白</span>{shot.dialogue.map((text, i) => <p key={i}>{text}</p>)}</div>}
+      {hasActingDirection(shot.acting_direction) && <details className="storyboard-performance">
+        <summary><Sparkles size={14} />表演重点<span>从人物目标和场面压力提炼</span></summary>
+        <div className="storyboard-performance-grid">
+          <BriefField label="人物目标" value={read(shot.acting_direction?.objective)} />
+          <BriefField label="现场阻力" value={read(shot.acting_direction?.obstacle)} />
+          <BriefField label="失败代价" value={read(shot.acting_direction?.stakes)} />
+          <BriefField label="行动策略" value={read(shot.acting_direction?.tactic)} />
+          <BriefField label="身体任务" value={read(shot.acting_direction?.business)} />
+          <BriefField label="倾听与反应" value={read(shot.acting_direction?.listening_reaction)} />
+          <BriefField label="身体状态" value={read(shot.acting_direction?.physical_state)} />
+          <BriefField label="台词表达" value={read(shot.acting_direction?.line_delivery)} />
+          <BriefField label="重音与停顿" value={read(shot.acting_direction?.emphasis_and_pause)} />
+          <BriefField label="本镜变化" value={read(shot.acting_direction?.status_change)} />
+          <BriefField label="潜台词处理" value={read(shot.acting_direction?.subtext)} />
+          {!!shot.acting_direction?.beat_changes?.length && <div className="storyboard-performance-beats">
+            <span>节拍变化</span>
+            <ol>{shot.acting_direction.beat_changes.map((beat, beatIndex) => <li key={beatIndex}>{read(beat)}</li>)}</ol>
+          </div>}
+        </div>
+      </details>}
       <details className="storyboard-shot-details"><summary><ChevronDown size={14} />摄影与连续性</summary>
         <div className="storyboard-shot-fields">
           {editing ? <>
@@ -514,7 +584,7 @@ function ShotCard({ scene, index, editing, readOnly, lockDisabled, dirty, onLock
               label={["镜头作用", "机位与运镜", "声音", "起始状态", "结束状态"][i]} value={shot[key]} disabled={disabled}
               onChange={value => onEdit({ [key]: value })} />)}
           </> : (["camera", "sound", "continuity_in", "continuity_out"] as const).map((key, i) => <div key={key}>
-            <span className="storyboard-field-label">{["机位与运镜", "声音", "起始状态", "结束状态"][i]}</span><p>{shot[key] || "未设定"}</p>
+            <span className="storyboard-field-label">{["机位与运镜", "声音", "起始状态", "结束状态"][i]}</span><p>{read(shot[key]) || "未设定"}</p>
           </div>)}
         </div>
         <p className="storyboard-source-id">{shot.shot_id} · 正文快照 v{scene.source_revision} · {shot.source_refs.join(", ")}</p>
@@ -535,6 +605,14 @@ function Field({ label, value, disabled, onChange }: {
 
 function BriefField({ label, value }: { label: string; value?: string | null }) {
   return <div><span>{label}</span><p>{value || "正文未明确"}</p></div>;
+}
+
+function hasActingDirection(value: StoryboardShot["acting_direction"] | undefined): boolean {
+  if (!value) return false;
+  return [value.objective, value.obstacle, value.stakes, value.tactic, value.subtext,
+    value.business, value.listening_reaction, value.physical_state, value.line_delivery,
+    value.emphasis_and_pause, value.status_change].some(Boolean)
+    || (value.beat_changes?.length ?? 0) > 0;
 }
 
 function formatDuration(seconds: number): string {
