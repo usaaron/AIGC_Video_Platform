@@ -1029,3 +1029,32 @@ def test_old_failed_request_cannot_resume_over_a_new_episode_owner() -> None:
 
     assert caught.value.run_id == second.record.run_id
     assert caught.value.same_request is False
+
+
+@pytest.mark.parametrize("has_checkpoint", [False, True])
+def test_restarted_script_worker_refreshes_only_an_empty_abandoned_run(has_checkpoint):
+    runtime = create_database_runtime("sqlite://")
+    SQLModel.metadata.create_all(runtime.engine)
+    policy = AgentRunPolicy(max_steps=2, max_model_tool_calls=1, allowed_tools={"draft"})
+    request = dict(agent_name="episode_script", subject_ref="project.1:episode-2",
+                   policy=policy, request_key="agent-request.restart.episode-2",
+                   project_id="project.1", episode_number=2)
+    first = AgentRunService(runtime, instance_id="old-process").start_session(
+        **request, input_fingerprint="1" * 64,
+    )
+    assert first.session is not None
+    if has_checkpoint:
+        first.session.call_tool(
+            "draft", kind=AgentToolKind.model, operation=lambda: {"saved": True},
+            checkpoint_serializer=lambda value: ("draft.v1", value),
+        )
+    restarted = AgentRunService(runtime, instance_id="new-process")
+    if has_checkpoint:
+        with pytest.raises(AgentRunPersistenceConflictError, match="different input"):
+            restarted.start_session(**request, input_fingerprint="2" * 64)
+    else:
+        recovered = restarted.start_session(**request, input_fingerprint="2" * 64)
+        assert recovered.session is not None
+        assert recovered.record.run_id == first.record.run_id
+        assert recovered.record.input_fingerprint == "2" * 64
+        assert recovered.record.attempt_count == 2

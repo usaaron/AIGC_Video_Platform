@@ -52,15 +52,15 @@ test("正文定向修改把选区上下文和取消信号分别交给接口", ()
   assert.match(authorWorkflow, /quote: selectionOverride/);
 });
 
-test("正文修改在请求前刷新本集记忆并保留原始总纲上下文", () => {
+test("正文修改在请求前刷新本集记忆并保留来源上下文", () => {
   assert.match(generationClient, /buildEpisodeModificationMemoryRecall\(/);
   assert.match(
     generationClient,
-    /episode_context: \{\s*\.\.\.sourceEpisodeContext,\s*memory_recall:/,
+    /episode_context: \{\s*\.\.\.sourceEpisodeContext,[\s\S]*?memory_recall:/,
   );
   assert.match(generationClient, /source_generation_run: \{\s*\.\.\.refreshedSourceGenerationRun,/);
   assert.match(
     authorWorkflow,
-    /modifyEpisodeDraft\([\s\S]*?selectionOverride,\s*sourceProject,/,
+    /modifyEpisodeDraft\([\s\S]*?selectionOverride,\s*acknowledgedProject,/,
   );
 });

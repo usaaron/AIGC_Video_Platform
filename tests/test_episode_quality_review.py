@@ -289,7 +289,7 @@ def test_fixed_rhythm_samples_keep_hard_ranges_as_non_blocking_diagnostics(case)
             assert target[0] <= target[1]
 
 
-def test_dialogue_function_review_flags_four_consecutive_refusals() -> None:
+def test_dialogue_function_review_keeps_four_refusals_as_non_blocking_diagnostics() -> None:
     report = review_episode_dramatic_evidence(
         _draft(
             action="Nina keeps the archive key in her fist.",
@@ -307,8 +307,11 @@ def test_dialogue_function_review_flags_four_consecutive_refusals() -> None:
     )
 
     dialogue_review = report["dialogue_function_review"]
-    assert dialogue_review["status"] == "warning"
-    assert "dialogue_function_warning" in report["review_reasons"]
+    assert dialogue_review["status"] == "diagnostic_only"
+    assert "dialogue_function_warning" not in report["review_reasons"]
+    assert dialogue_review["is_quality_gate"] is False
+    assert dialogue_review["requires_repair"] is False
+    assert dialogue_review["matching_is_semantic_proof"] is False
     assert dialogue_review["repeated_runs"] == [{
         "category": "refusal",
         "start_sequence": 0,
@@ -316,7 +319,9 @@ def test_dialogue_function_review_flags_four_consecutive_refusals() -> None:
         "line_count": 4,
         "scene_numbers": [1],
     }]
-    assert dialogue_review["alerts"][0]["type"] == "repeated_function_run"
+    assert dialogue_review["alerts"][0] == {
+        "type": "repeated_function_run", "severity": "info", "run_count": 1,
+    }
 
 
 def test_dialogue_function_matching_uses_english_word_boundaries() -> None:
@@ -370,7 +375,7 @@ def test_generation_service_persists_review_signal_in_draft_metadata() -> None:
 
     reviewed = ScriptGenerationService._attach_episode_quality_review(  # noqa: SLF001
         draft,
-        SimpleNamespace(approved_episode_plan=_plan()),
+        SimpleNamespace(approved_episode_plan=_plan(), planned_setup_refs=[], planned_payoff_refs=[]),
     )
 
     assert reviewed.llm_metadata["provider"] == "mock"
@@ -380,3 +385,91 @@ def test_generation_service_persists_review_signal_in_draft_metadata() -> None:
     assert reviewed.llm_metadata["episode_quality_review"][
         "design_evidence_status"
     ] == "review_signal_ready"
+
+
+def test_consecutive_short_drama_counterattacks_are_not_a_literary_failure() -> None:
+    report = review_episode_dramatic_evidence(_draft(
+        actions=["林夏把原件扣在桌上，同伴伸手挡住出口。"],
+        dialogues=[
+            {"character_name": "林夏", "intent": "当面反击", "text": "不行，原件留下，你先解释这个日期。"},
+            {"character_name": "同伴", "intent": "夺回主动", "text": "你不能拿原件走，我的签名还在上面。"},
+            {"character_name": "林夏", "intent": "继续追问", "text": "别转移话题，这个签名是昨天补的。"},
+            {"character_name": "同伴", "intent": "加码阻拦", "text": "那也不行，你带走它，我就承担全部责任。"},
+        ],
+        outcome="同伴挡住出口并承认签名会暴露自己的责任。",
+    ))
+    dialogue = report["dialogue_function_review"]
+    assert dialogue["repeated_run_count"] == 1
+    assert dialogue["repeated_runs"][0]["line_count"] == 4
+    assert dialogue["status"] == "diagnostic_only"
+    assert all(alert["severity"] == "info" for alert in dialogue["alerts"])
+    assert "dialogue_function_warning" not in report["review_reasons"]
+    # The unrelated 25–35-line and duration checks continue to report gaps.
+    assert "production_count_out_of_range" in report["review_reasons"]
+    assert report["production_count_review"]["status"] == "warning"
+
+
+def test_low_keyword_coverage_reports_classifier_limits_without_quality_warning() -> None:
+    report = review_episode_dramatic_evidence(_draft(
+        action="Nina presses the marked page against the window.",
+        dialogues=[
+            {"character_name": "Nina", "intent": "state an observation", "text": line}
+            for line in (
+                "The seal sits beneath the ink.",
+                "This page carries yesterday's date.",
+                "Her signature crosses the crease.",
+                "The watermark reaches the torn edge.",
+            )
+        ],
+        outcome="The witness matches the watermark to the torn page.",
+    ))
+    dialogue = report["dialogue_function_review"]
+    assert dialogue["classified_line_ratio"] == 0
+    assert dialogue["alerts"] == [{
+        "type": "low_keyword_classification_coverage",
+        "severity": "info", "classified_line_ratio": 0.0,
+    }]
+    assert dialogue["status"] == "diagnostic_only"
+    assert "dialogue_function_warning" not in report["review_reasons"]
+    assert "有限词表" in dialogue["diagnostic_note"]
+
+
+def test_keyword_category_runs_do_not_change_report_review_reasons() -> None:
+    draft = _rhythm_calibration_draft(scene_count=1, dialogue_line_count=25, action_unit_count=15)
+    repeated = review_episode_dramatic_evidence(draft)
+    mixed = draft.model_copy(update={"scenes": [draft.scenes[0].model_copy(update={
+        "dialogues": [line.model_copy(update={"intent": "threat" if index % 2 else "refusal"})
+                      for index, line in enumerate(draft.scenes[0].dialogues)],
+    })]})
+    varied = review_episode_dramatic_evidence(mixed)
+    assert repeated["dialogue_function_review"]["repeated_run_count"] == 1
+    assert varied["dialogue_function_review"]["repeated_run_count"] == 0
+    assert repeated["review_reasons"] == varied["review_reasons"]
+    assert repeated["status"] == varied["status"]
+    assert repeated["production_count_review"] == varied["production_count_review"]
+
+
+def test_diagnostic_metadata_does_not_trigger_editor_or_agent_repair() -> None:
+    from app.modules.agent_runtime.episode_script import episode_script_result_issues, episode_script_result_warnings
+    from app.modules.script_engine.script_post_editor import ScriptPostEditor
+    from tests.test_script_generation_service import seed_dependencies
+
+    draft = _rhythm_calibration_draft(scene_count=1, dialogue_line_count=25, action_unit_count=15)
+    reviewed = ScriptGenerationService._attach_episode_quality_review(draft, None)
+    assert reviewed.llm_metadata["episode_quality_review"]["dialogue_function_review"]["repeated_run_count"] == 1
+    assert ScriptPostEditor.assess_source(draft).issues == ScriptPostEditor.assess_source(reviewed).issues
+    service, _ = seed_dependencies()
+    strategy = service._generation_strategy_repository.get("strategy.tiktok.service_generation.v1")
+    before_qc = service._story_qc.evaluate(draft.model_dump(), strategy=strategy)
+    after_qc = service._story_qc.evaluate(reviewed.model_dump(), strategy=strategy)
+    assert before_qc.overall_score == after_qc.overall_score
+    assert before_qc.checks == after_qc.checks
+    assert before_qc.dimension_evaluations == after_qc.dimension_evaluations
+    for candidate in (draft, reviewed):
+        run = SimpleNamespace(
+            draft_master_script=candidate, continuity_qc_report=None,
+            release_region=SimpleNamespace(value="cn_mainland"),
+            llm_model_info=SimpleNamespace(provider="deepseek"),
+        )
+        assert episode_script_result_issues(run) == []
+        assert episode_script_result_warnings(run) == []

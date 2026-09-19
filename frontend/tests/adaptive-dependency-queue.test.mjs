@@ -5,6 +5,38 @@ import { runAdaptiveDependencyQueue } from "../lib/adaptive-dependency-queue.ts"
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+test("layer review rejection prevents every dependent task from starting", async () => {
+  const started = [];
+  const reviewed = [];
+  await assert.rejects(runAdaptiveDependencyQueue({
+    initialValues: ["parent-a", "parent-b"], initialConcurrency: 2, maximumConcurrency: 2,
+    breadthFirst: true,
+    beforeLayer: async (depth) => {
+      reviewed.push(depth);
+      if (depth === 2) throw new Error("upstream content incomplete");
+    },
+    process: async ({ value }) => { started.push(value); return [`${value}.child`]; },
+  }), /upstream content incomplete/);
+  assert.deepEqual(started.sort(), ["parent-a", "parent-b"]);
+  assert.deepEqual(reviewed, [1, 2]);
+});
+
+test("a failed sibling drains the current layer without reviewing or starting the next", async () => {
+  const started = [];
+  const reviewed = [];
+  await assert.rejects(runAdaptiveDependencyQueue({
+    initialValues: ["saved", "failed"], initialConcurrency: 2, maximumConcurrency: 2,
+    breadthFirst: true, beforeLayer: (depth) => { reviewed.push(depth); },
+    process: async ({ value }) => {
+      started.push(value);
+      if (value === "failed") throw new Error("transport incomplete");
+      return ["must-not-start"];
+    },
+  }), /transport incomplete/);
+  assert.deepEqual(started.sort(), ["failed", "saved"]);
+  assert.deepEqual(reviewed, [1]);
+});
+
 test("a completed parent releases its children without waiting for slow siblings", async () => {
   let releaseSlowSibling;
   let childStarted = false;

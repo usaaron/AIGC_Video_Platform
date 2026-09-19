@@ -7,7 +7,7 @@ from copy import deepcopy
 import httpx
 import pytest
 
-from app.modules.master_script.models import LLMGeneratedDraftMasterScript
+from app.modules.master_script.models import LLMGeneratedDraftMasterScript, LLMContinuityRepairPatch
 from app.modules.script_engine.llm_adapter import (
     AdaptiveTransportLLMAdapter,
     AdaptiveTransportState,
@@ -868,7 +868,7 @@ def test_json_object_responses_transport_receives_native_shape_contract() -> Non
         assert payload["text"]["format"] == {"type": "json_object"}
         prompt = payload["input"][1]["content"]
         assert "JSON OUTPUT SHAPE CONTRACT" in prompt
-        assert '"children":[{"title":"值"}]' in prompt
+        assert '"children":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"}}}}' in prompt
         return httpx.Response(
             200,
             json=build_responses_api_response(
@@ -943,6 +943,42 @@ def test_real_llm_adapter_falls_back_when_gateway_rejects_streaming() -> None:
     assert seen_deltas == [('{"title": "同步回退"}', True)]
 
 
+@pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout])
+def test_connection_failure_keeps_configured_retries_without_nonstream_replay(error_type, monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    requests = []
+    def handler(request):
+        requests.append(json.loads(request.content).get("stream"))
+        raise error_type("connection unavailable", request=request)
+    adapter = RealLLMAdapter(provider="openai_compatible", model_name="compatible-model",
+        api_key="secret-key", base_url="https://example.test/v1", wire_api="responses",
+        max_retries=1, transport=httpx.MockTransport(handler))
+    with pytest.raises(LLMRequestError) as failure:
+        adapter.generate_structured_output_stream("Return a structured draft.",
+            strategy=GenerationStrategy.model_validate(build_strategy()), output_schema={"type":"object"})
+    assert isinstance(failure.value.__cause__, error_type)
+    assert requests == [True, True]
+
+
+def test_connection_failure_allows_configured_outer_route_to_recover():
+    requests=[]
+    def unavailable(request):
+        requests.append(("primary", json.loads(request.content).get("stream")))
+        raise httpx.ConnectError("DNS unavailable", request=request)
+    def available(request):
+        requests.append(("fallback", json.loads(request.content).get("stream")))
+        return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"{\\"title\\":\\"可用线路\\"}"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+            headers={"content-type":"text/event-stream"})
+    def route(handler, host):
+        return RealLLMAdapter(provider="openai_compatible", model_name="compatible-model", api_key="secret-key",
+            base_url=f"https://{host}.test/v1", max_retries=0, transport=httpx.MockTransport(handler))
+    adapter=ModelFailoverLLMAdapter(primary=route(unavailable,"primary"),fallback=route(available,"fallback"))
+    result=adapter.generate_structured_output_stream("Return a structured draft.",
+        strategy=GenerationStrategy.model_validate(build_strategy()),output_schema={"type":"object"})
+    assert result["title"] == "可用线路"
+    assert requests == [("primary", True), ("fallback", True)]
+
+
 def test_real_llm_adapter_does_not_repeat_a_timed_out_stream_as_non_streaming() -> None:
     strategy = GenerationStrategy.model_validate(build_strategy())
     request_count = 0
@@ -976,6 +1012,46 @@ def test_real_llm_adapter_does_not_repeat_a_timed_out_stream_as_non_streaming() 
         )
 
     assert request_count == 1
+
+
+@pytest.mark.parametrize("event_type", ["response.failed", None])
+def test_explicit_provider_failure_skips_same_route_retries_and_uses_configured_fallback(event_type) -> None:
+    strategy = GenerationStrategy.model_validate(build_strategy())
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload.get("stream"))
+        event = {"response": {"status": "failed"}}
+        if event_type:
+            event["type"] = event_type
+        return httpx.Response(200, text="data: " + json.dumps(event) + "\n\n",
+                              headers={"content-type": "text/event-stream"})
+
+    primary = RealLLMAdapter(
+        provider="openai_compatible", model_name="failed-planning-model", api_key="test-key",
+        base_url="https://example.test/v1", wire_api="responses", max_retries=3,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(LLMRequestError, match="Provider reported a failed generation") as caught:
+        primary.generate_structured_output_stream("Return complete JSON.", strategy=strategy)
+    assert requests == [True]
+    assert caught.value.category == "provider_generation"
+    assert caught.value.recoverable is True
+
+    fallback_calls = []
+
+    class CompleteFallback(MockLLMAdapter):
+        def generate_structured_output_stream(self, *args, **kwargs):
+            fallback_calls.append(1)
+            return {"title": "完整备用结果", "_meta": {}}
+
+    requests.clear()
+    routed = ModelFailoverLLMAdapter(primary=primary, fallback=CompleteFallback())
+    result = routed.generate_structured_output_stream("Return complete JSON.", strategy=strategy)
+    assert result["title"] == "完整备用结果"
+    assert requests == [True]
+    assert fallback_calls == [1]
 
 
 def test_real_llm_adapter_supports_json_object_mode() -> None:
@@ -1046,7 +1122,7 @@ def test_deepseek_uses_chat_json_contract_and_explicit_thinking(model: str) -> N
         assert "top_p" not in payload
         prompt = payload["messages"][1]["content"]
         assert "DEEPSEEK JSON OUTPUT CONTRACT" in prompt
-        assert '"children":[{"id":"值","title":"值"}' in prompt
+        assert '"children":{"type":"array","minItems":2,"items":{"$ref":"#/$defs/Child"}}' in prompt
         return httpx.Response(
             200,
             json=build_openai_compatible_response(
@@ -1587,6 +1663,45 @@ def test_adapter_normalizes_scalar_array_without_model_round_trip() -> None:
     assert request_count == 1
     assert result["children"] == ["阶段一"]
     assert result["_meta"]["schema_container_locally_normalized"] is True
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_valid_nullable_continuity_patch_does_not_trigger_model_repair(streaming) -> None:
+    schema = LLMContinuityRepairPatch.model_json_schema()
+    payload = {"scenes": [], "continuation_hook": None}
+    LLMContinuityRepairPatch.model_validate(payload)
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        assert request_count == 1, "A valid null patch must not be regenerated."
+        if json.loads(request.content).get("stream"):
+            event = json.dumps({"type": "response.output_text.delta", "delta": json.dumps(payload)})
+            return httpx.Response(200, text=f"data: {event}\n\ndata: [DONE]\n\n",
+                                  headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json=build_responses_api_response(json.dumps(payload)))
+
+    adapter = RealLLMAdapter(
+        provider="openai_compatible", model_name="script-model", api_key="secret-key",
+        base_url="https://example.test/v1", wire_api="responses", max_retries=0,
+        transport=httpx.MockTransport(handler),
+    )
+    kwargs = {"strategy": GenerationStrategy.model_validate(build_strategy()), "output_schema": schema}
+    if streaming:
+        result = adapter.generate_structured_output_stream("Repair only the listed conflicts.", **kwargs,
+                                                          on_delta=lambda delta, reset: None)
+    else:
+        result = adapter.generate_structured_output("Repair only the listed conflicts.", **kwargs)
+    assert result["continuation_hook"] is None
+    assert result["scenes"] == []
+    assert request_count == 1
+
+
+def test_nullable_array_stays_null_in_container_normalization() -> None:
+    schema = {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]}
+    assert RealLLMAdapter._normalize_schema_container_shape(None, schema, root_schema=schema) == (None, False)
+    assert RealLLMAdapter._schema_container_issues(None, schema, root_schema=schema) == []
 
 
 def test_streaming_adapter_regenerates_non_native_schema_containers() -> None:

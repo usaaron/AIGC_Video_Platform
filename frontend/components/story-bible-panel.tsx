@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   createContext,
   useContext,
@@ -10,31 +11,24 @@ import {
   type SyntheticEvent,
 } from "react";
 import {
-  ArrowUp,
+  Aperture,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Download,
   LoaderCircle,
-  Pencil,
   RefreshCw,
   Save,
-  Square,
   Undo2,
 } from "lucide-react";
 
-import { ArrowIcon, CloseIcon } from "@/components/icons";
 import { SectionHelp } from "@/components/section-help";
-import { CreationSettingSummary } from "@/components/creation-setting-summary";
-import { StoryInspirationEditor } from "@/components/story-inspiration-editor";
-import { CONTINUE_CREATION_REFINEMENT_MESSAGE, creationBriefWithInput, initialCreationSettingStep, inspirationRequestProject, type CreationSettingStep } from "@/lib/creation-setting-flow";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { isRequestAborted, userFacingError } from "@/lib/api-error";
+import { downloadBlob } from "@/lib/download";
+import { hostProjectId } from "@/lib/host-session";
 import type { AutomaticRetryEvent } from "@/lib/generation-retry";
 import {
   confirmStoryBible,
-  generateStoryInspirationTurn,
   generateStoryBibleDraft,
   importStoryBibleDraft,
   loadStoryBible,
@@ -58,22 +52,22 @@ import {
 } from "@/lib/story-planning-state";
 import {
   boundStoryBibleAuthorInstruction,
-  seedInspirationBriefFromInput,
   shouldApplyImportedStoryBibleConstraints,
-  storyBibleInstructionWithImportConstraints,
 } from "@/lib/input-readiness-workflow";
-import { buildImportedSourceSnapshot } from "@/lib/input-import-adapter";
 import { updatePlanningSession } from "@/lib/planning-session";
 import type {
+  CharacterActingProfile,
   ScriptProject,
-  InputReadinessAnalysis,
-  StoryInspirationBrief,
-  StoryInspirationFrontierQuestion,
-  StoryInspirationMessage,
-  StoryInspirationSession,
 } from "@/lib/types";
+import {
+  ACTING_PROFILE_FIELDS,
+  ACTING_PROFILE_LABELS,
+  emptyCharacterActingProfile,
+} from "@/lib/character-acting-profile";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
+import { useUnsavedDocument } from "@/lib/use-unsaved-document";
+import { clearPendingProjectCopy, readPendingProjectCopy, rememberPendingProjectCopy } from "@/lib/pending-project-copy";
 import {
   loadWorkspaceChatMessages,
   saveWorkspaceChatMessages,
@@ -84,32 +78,11 @@ import {
   type PlanningCanvasMessage,
   type PlanningCanvasQuickAction,
 } from "@/components/planning-canvas-copilot";
-import {
-  EMPTY_INSPIRATION_BRIEF,
-  INSPIRATION_SESSION_KEY,
-  mergeStoryInspirationBrief,
-  normalizeStoryInspirationSession,
-  storyInspirationSessionForSections,
-  storyInspirationSessionNeedsTurn,
-  storyInspirationTurnIsActionable,
-} from "@/lib/story-inspiration-session";
-import {
-  buildStoryInspirationRoundMessage,
-  INSPIRATION_ROUND_DRAFT_KEY,
-  inspirationRoundDraftFromSections,
-  previewStoryInspirationBrief,
-  replaceStoryInspirationCandidates,
-  retainStoryInspirationRoundAnswers,
-  storyInspirationRoundNavigation,
-  storyInspirationAnswerIsComplete,
-  type StoryInspirationRoundAnswer,
-} from "@/lib/story-inspiration-round";
+import { INSPIRATION_SESSION_KEY, normalizeStoryInspirationSession } from "@/lib/story-inspiration-session";
 import {
   storyBibleMarkdown,
   storyBibleMarkdownFilename,
 } from "@/lib/story-bible-export";
-
-const EMPTY_INSPIRATION_QUESTIONS: StoryInspirationFrontierQuestion[] = [];
 
 const STORY_BIBLE_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
   { id: "rewrite", label: "重写", instruction: "请重写选中内容，保留它在总纲中的结构职责，并确保前后因果一致。" },
@@ -120,12 +93,8 @@ const STORY_BIBLE_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
 
 const StoryBibleEditableContext = createContext(false);
 
-function hasRecommendedHighCompletionInput(project: ScriptProject): boolean {
-  return project.inputReadiness?.selectedPath === "recommended"
-    && project.inputReadiness.detectedLevel !== "premise";
-}
-
 function storyBibleCreativeDecisions(project: ScriptProject) {
+  if (project.storySynopsis?.conversation) return project.storySynopsis.conversation.brief.creative_decisions;
   const persistedSession = project.planningSession?.storyBibleSections?.[INSPIRATION_SESSION_KEY];
   if (!persistedSession) return [];
   return normalizeStoryInspirationSession(persistedSession).brief.creative_decisions;
@@ -133,19 +102,21 @@ function storyBibleCreativeDecisions(project: ScriptProject) {
 
 type ProjectUpdate = Partial<ScriptProject>
   | ((current: ScriptProject) => Partial<ScriptProject>);
-type ProjectUpdateCallback = (patch: ProjectUpdate) => void;
 
 export function StoryBiblePanel({ onProjectUpdate, project }: {
   project: ScriptProject;
-  onProjectUpdate?: (patch: ProjectUpdate) => void;
+  onProjectUpdate?: (patch: ProjectUpdate) => unknown | Promise<unknown>;
 }) {
   const { t } = useLocale();
   const router = useRouter();
-  const { createProject, syncProjectSnapshot, updateProject } = useProjects();
+  const { createProject, getProject, retryProjectSync, syncProjectSnapshot, updateProject } = useProjects();
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [busy, setBusy] = useState<"load" | "generate" | "version" | "save" | "confirm" | "ai" | null>("load");
   const [message, setMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [generationStage, setGenerationStage] = useState<"prepare" | "save" | "generate" | null>(null);
   const [aiInstruction, setAiInstruction] = useState("");
   const [documentSelection, setDocumentSelection] = useState<StoryBibleSelectionContext | null>(null);
   const [chatMessages, setChatMessages] = useState<PlanningCanvasMessage[]>(() => (
@@ -153,74 +124,75 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   ));
   const [chatHistoryHydrated, setChatHistoryHydrated] = useState(false);
   const [undoHistory, setUndoHistory] = useState<StoryBible[]>([]);
-  const [activeOutlineId, setActiveOutlineId] = useState("story-bible-overview");
-  const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
-  const [generationElapsedMs, setGenerationElapsedMs] = useState(0);
-  const [generationLastDurationMs, setGenerationLastDurationMs] = useState<number | null>(null);
+  const savedStoryBibleRef = useRef<StoryBible | null>(null);
+  const [pendingProgress, setPendingProgress] = useState<{ patch: ProjectUpdate } | null>(null);
+  const [rewriteCopyId, setRewriteCopyId] = useState<string | null>(() => readPendingProjectCopy(project.id, "bible"));
+  const [rewriteCopyMissing, setRewriteCopyMissing] = useState(false);
+  const rewriteInFlightRef = useRef(false);
+  useUnsavedDocument(isEditing || Boolean(pendingProgress));
+  const [activeOutlineId, setActiveOutlineId] = useState("story-bible-positioning");
   const aiAbortControllerRef = useRef<AbortController | null>(null);
   const generationRequestInFlightRef = useRef(false);
   const currentInputSignature = storyPlanningInputSignature(project);
-  const isCurrentInput = project.storyBibleInputSignature === currentInputSignature;
+  const isCurrentInput = project.storyBibleInputSignature === currentInputSignature && !project.storyBibleSynopsisOutdated;
   const regenerationLocked = !canRegenerateStoryBible(project);
+  const projectCopyLocked = Boolean(hostProjectId());
   const storyBibleCanBeRevised = Boolean(
     storyBible
     && storyBible.status === "draft"
     && isCurrentInput
-    && !regenerationLocked,
+    && !regenerationLocked
+    && !loadError
+    && !pendingProgress,
   );
-  const importedSourceDocument = storyBible?.imported_source_document?.trim()
-    || (shouldApplyImportedStoryBibleConstraints(project)
-      ? buildImportedSourceSnapshot(project).document
-      : "");
-  const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
   const storyBibleCharacterNames = new Map(
     (storyBible?.character_registry ?? []).map((character) => [
       character.character_ref,
       character.name,
     ]),
   );
+  const climaxStage = storyBible?.escalation_stages?.length
+    ? storyBible.escalation_stages[storyBible.escalation_stages.length - 1]
+    : null;
 
   useEffect(() => () => aiAbortControllerRef.current?.abort(), []);
   const storyBibleOutlineEntries = [
-    { id: "story-bible-overview", label: "故事核心" },
-    ...(storyBible?.escalation_stages?.length ? [{ id: "story-bible-escalation", label: t("storyBible.escalationStages") }] : []),
-    ...(storyBible?.character_arc_targets?.length ? [{ id: "story-bible-arcs", label: t("storyBible.characterChanges") }] : []),
-    { id: "story-bible-outcomes", label: "结局与主题" },
-    ...(storyBible?.story_lines?.length ? [{ id: "story-bible-lines", label: t("storyBible.storyLines") }] : []),
-    { id: "story-bible-settings", label: t("storyBible.moreSettings") },
+    { id: "story-bible-positioning", label: "故事定位" },
+    { id: "story-bible-overview", label: "核心故事" },
+    { id: "story-bible-characters", label: "核心人物" },
+    { id: "story-bible-relationships", label: "核心关系" },
+    { id: "story-bible-lines", label: "核心剧情线" },
+    { id: "story-bible-conflicts", label: "核心冲突" },
+    { id: "story-bible-development", label: "故事发展方向" },
+    { id: "story-bible-climax-ending", label: "高潮与结局" },
+    { id: "story-bible-principles", label: "创作原则" },
   ];
-
-  useEffect(() => {
-    if (generationStartedAt === null) return;
-    const updateElapsed = () => {
-      setGenerationElapsedMs(Math.max(0, Date.now() - generationStartedAt));
-    };
-    updateElapsed();
-    const timer = window.setInterval(updateElapsed, 250);
-    return () => window.clearInterval(timer);
-  }, [generationStartedAt]);
 
   useEffect(() => {
     let active = true;
     setBusy("load");
+    setLoadError(null);
     setDocumentSelection(null);
     setChatHistoryHydrated(false);
     setChatMessages(loadWorkspaceChatMessages(project.id, "story-bible") as PlanningCanvasMessage[]);
     loadStoryBible(project.id, project.storyBibleVersion)
       .then((value) => {
-        if (active) setStoryBible(value);
+        if (!active) return;
+        setStoryBible(value);
+        savedStoryBibleRef.current = value;
+        if (!value && project.storyBibleVersion) setLoadError("暂时未能读取已保存的故事总纲，请重试。");
       })
       .catch((error) => {
-        if (active) setMessage(userFacingError(error, t("storyBible.loadFailed")));
+        if (active) setLoadError(userFacingError(error, t("storyBible.loadFailed")));
       })
       .finally(() => {
         if (active) {
-          setBusy(null);
+          setBusy(aiAbortControllerRef.current ? "ai" : generationRequestInFlightRef.current ? "generate" : null);
           setChatHistoryHydrated(true);
         }
       });
     return () => { active = false; };
-  }, [project.id, project.storyBibleVersion, t]);
+  }, [project.id, project.storyBibleVersion, t, loadAttempt]);
 
   useEffect(() => {
     if (chatHistoryHydrated) {
@@ -228,9 +200,36 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     }
   }, [chatHistoryHydrated, chatMessages, project.id]);
 
+  async function persistProjectUpdate(patch: ProjectUpdate) {
+    // The outline itself is already saved. Retrying its progress must not
+    // create another outline version or repeat an approval/model request.
+    setPendingProgress({ patch });
+    if (await onProjectUpdate?.(patch) === false) throw new Error("总纲已保留，但当前进度未能保存。请留在本页并重试保存。");
+    setPendingProgress(null);
+  }
+
+  async function retryProgressSave() {
+    if (!pendingProgress || busy) return;
+    setBusy("save");
+    setMessage(null);
+    try {
+      await persistProjectUpdate(pendingProgress.patch);
+      setIsEditing(false);
+      setDocumentSelection(null);
+      setMessage(t("storyBible.saved"));
+      if (storyBible?.status === "approved") {
+        router.push(`/projects/${project.id}/planning/structure`);
+      }
+    } catch (error) {
+      setMessage(userFacingError(error, t("storyBible.saveFailed")));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function selectStoryBibleOutline(entry: { id: string; label: string }) {
     const targetId = entry.id === "workspace-section-story-bible"
-      ? "story-bible-overview"
+      ? "story-bible-positioning"
       : entry.id;
     setActiveOutlineId(targetId);
     if (typeof window !== "undefined") {
@@ -241,25 +240,24 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   }
 
   async function generateDraft(options: { importSource?: boolean } = {}) {
-    const importSource = options.importSource === true;
-    if (generationRequestInFlightRef.current) return;
+    const requestedImport = options.importSource === true;
+    if (generationRequestInFlightRef.current || loadError || busy || pendingProgress) return;
     if (regenerationLocked) {
       setMessage(t("storyBible.regenerationLocked"));
       return;
     }
     generationRequestInFlightRef.current = true;
-    const startedAt = Date.now();
     setBusy("generate");
+    setGenerationStage("prepare");
     setMessage(null);
-    setGenerationStartedAt(startedAt);
-    setGenerationElapsedMs(0);
-    setGenerationLastDurationMs(null);
     try {
       const prepared = await prepareStoryPlanningProject(project);
       const preparedProject = {
         ...prepared,
         updatedAt: new Date().toISOString(),
       };
+      const importSource = requestedImport || shouldApplyImportedStoryBibleConstraints(preparedProject);
+      setGenerationStage("save");
       const syncState = await syncProjectSnapshot(preparedProject);
       if (syncState.status !== "synced") {
         throw new Error(syncState.error ?? t("storyBible.syncRequired"));
@@ -269,22 +267,23 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
           .replace("{attempt}", String(nextAttempt))
           .replace("{max}", String(maxAttempts)),
       );
-      const baseAuthorInstruction = preparedProject.storyBibleAuthorInstruction ?? "";
-      const authorInstruction = !importSource
-        && shouldApplyImportedStoryBibleConstraints(preparedProject)
-        ? storyBibleInstructionWithImportConstraints(baseAuthorInstruction)
-        : boundStoryBibleAuthorInstruction(baseAuthorInstruction);
+      // The full confirmed synopsis travels in its own request field, so a
+      // long author instruction cannot truncate the latest story or its ending.
+      const authorInstruction = boundStoryBibleAuthorInstruction(preparedProject.storyBibleAuthorInstruction ?? "");
+      const creativeDecisions = storyBibleCreativeDecisions(preparedProject);
+      setGenerationStage("generate");
       const generated = importSource
         ? await importStoryBibleDraft(
             preparedProject,
             retryNotice,
             undefined,
-            storyBibleCreativeDecisions(preparedProject),
-            preparedProject.storyBibleAuthorInstruction ?? "",
+            creativeDecisions,
+            authorInstruction,
           )
-        : await generateStoryBibleDraft(preparedProject, retryNotice, authorInstruction);
+        : await generateStoryBibleDraft(preparedProject, retryNotice, authorInstruction, undefined, creativeDecisions);
       setStoryBible(generated);
-      onProjectUpdate?.({
+      savedStoryBibleRef.current = generated;
+      await persistProjectUpdate({
         ...storyBibleRegenerationPatch(preparedProject, generated),
         planningSession: updatePlanningSession(preparedProject, {
           phase: "story_bible",
@@ -304,47 +303,82 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       setMessage(userFacingError(error, t("storyBible.generateFailed")));
     } finally {
       generationRequestInFlightRef.current = false;
-      setGenerationLastDurationMs(Math.max(0, Date.now() - startedAt));
-      setGenerationStartedAt(null);
+      setGenerationStage(null);
       setBusy(null);
     }
   }
 
   async function createRewriteVersion() {
-    if (!regenerationLocked) return;
-    if (!window.confirm(t("storyBible.rewriteVersionConfirm"))) return;
+    if (hostProjectId()) {
+      setMessage("另起一版请在主站新建项目。");
+      return;
+    }
+    if (!regenerationLocked || busy || pendingProgress || rewriteInFlightRef.current) return;
+    if (!rewriteCopyId && !window.confirm(t("storyBible.rewriteVersionConfirm"))) return;
+    rewriteInFlightRef.current = true;
     setBusy("version");
+    setRewriteCopyMissing(false);
     setMessage(null);
     try {
       const seed = storyBibleRewriteVersionSeed(
         project,
         t("generation.versionSuffix"),
       );
-      const created = await createProject(seed.draft);
-      updateProject(created.id, seed.patch);
-      router.push(`/projects/${created.id}/planning`);
+      let copyId = rewriteCopyId;
+      if (!copyId) {
+        const created = await createProject(seed.draft);
+        copyId = created.id;
+        setRewriteCopyId(copyId);
+        rememberPendingProjectCopy(project.id, "bible", copyId);
+      }
+      const copy = getProject(copyId);
+      if (!copy) {
+        setRewriteCopyMissing(true);
+        throw new Error("上次创建的版本尚未加载或已删除，请先从项目库核对。");
+      }
+      if (copy.id === project.id || (copy.sourceProjectId && copy.sourceProjectId !== project.id)) {
+        throw new Error("上次创建的版本与当前作品不匹配，请从项目库核对。");
+      }
+      if (!copy.sourceProjectId && !await updateProject(copyId, seed.patch)) throw new Error("新版本的资料尚未保存，请继续创建同一个版本。");
+      const sync = await retryProjectSync(copyId);
+      if (sync?.status !== "synced") throw new Error(sync?.error ?? "新版本尚未同步，请重试。");
+      clearPendingProjectCopy(project.id, "bible");
+      setRewriteCopyId(null);
+      router.push(`/projects/${copyId}/synopsis`);
     } catch (error) {
       setMessage(userFacingError(error, t("storyBible.generateFailed")));
+    } finally {
+      rewriteInFlightRef.current = false;
       setBusy(null);
     }
   }
 
+  function forgetMissingRewriteCopy() {
+    if (busy || rewriteInFlightRef.current || !rewriteCopyMissing) return;
+    if (!window.confirm("请先从项目库确认上次创建的版本已删除。确定后，下次点击创建将生成新的改写版本。")) return;
+    clearPendingProjectCopy(project.id, "bible");
+    setRewriteCopyId(null);
+    setRewriteCopyMissing(false);
+    setMessage("可以重新创建改写版本了。");
+  }
+
   async function confirmDraft() {
-    if (!storyBible || storyBible.status !== "draft" || isEditing) return;
+    if (!storyBible || !storyBibleCanBeRevised || isEditing || busy) return;
     setBusy("confirm");
     setMessage(null);
     try {
-      const confirmed = await confirmStoryBible(storyBible);
+      const confirmed = await confirmStoryBible(storyBible, project);
       const confirmedCharacters = storyBibleProjectCharacters(
         confirmed,
         project.characters,
       );
       setStoryBible(confirmed);
+      savedStoryBibleRef.current = confirmed;
       const confirmedSession = updatePlanningSession(project, {
         phase: "story_tree",
         status: "active",
       });
-      onProjectUpdate?.({
+      await persistProjectUpdate({
         ...(project.titleSource === "user" || !confirmed.project_title?.trim()
           ? {}
           : {
@@ -388,10 +422,12 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     setBusy("save");
     setMessage(null);
     try {
-      setUndoHistory((history) => [...history, storyBible].slice(-10));
-      const saved = await saveStoryBibleDraft(storyBible);
+      const previous = savedStoryBibleRef.current;
+      const saved = await saveStoryBibleDraft(storyBible, project);
+      if (previous) setUndoHistory((history) => [...history, previous].slice(-10));
+      savedStoryBibleRef.current = saved;
       setStoryBible(saved);
-      onProjectUpdate?.({
+      await persistProjectUpdate({
         storyBibleStatus: saved.status,
         storyBibleVersion: saved.version,
         episodePlanImportDraft: undefined,
@@ -415,6 +451,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     if (
       !storyBible
       || !storyBibleCanBeRevised
+      || busy
+      || aiAbortControllerRef.current
       || (revisionMode === "targeted" && !submittedInstruction)
     ) return;
     const controller = new AbortController();
@@ -425,11 +463,13 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       let sourceStoryBible = storyBible;
       const wasEditing = isEditing;
       if (isEditing) {
-        setUndoHistory((history) => [...history, storyBible].slice(-10));
-        sourceStoryBible = await saveStoryBibleDraft(storyBible);
+        const previous = savedStoryBibleRef.current;
+        sourceStoryBible = await saveStoryBibleDraft(storyBible, project);
+        if (previous) setUndoHistory((history) => [...history, previous].slice(-10));
+        savedStoryBibleRef.current = sourceStoryBible;
         setStoryBible(sourceStoryBible);
         setIsEditing(false);
-        onProjectUpdate?.({
+        await persistProjectUpdate({
           storyBibleStatus: sourceStoryBible.status,
           storyBibleVersion: sourceStoryBible.version,
         });
@@ -463,6 +503,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         },
       ]);
     } catch (error) {
+      setAiInstruction(current => current || submittedInstruction);
       if (isRequestAborted(error, controller.signal)) {
         setChatMessages((current) => [
           ...current,
@@ -547,10 +588,11 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     setMessage(null);
     try {
       const previous = undoHistory[undoHistory.length - 1];
-      const restored = await saveStoryBibleDraft({ ...previous, version: storyBible.version });
+      const restored = await saveStoryBibleDraft({ ...previous, version: storyBible.version }, project);
       setUndoHistory((history) => history.slice(0, -1));
       setStoryBible(restored);
-      onProjectUpdate?.({
+      savedStoryBibleRef.current = restored;
+      await persistProjectUpdate({
         storyBibleStatus: restored.status,
         storyBibleVersion: restored.version,
         episodePlanImportDraft: undefined,
@@ -582,7 +624,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   }
 
   async function createEditableVersion() {
-    if (!storyBible || storyBible.status !== "approved") return;
+    if (!storyBible || storyBible.status !== "approved" || busy || pendingProgress) return;
     if (regenerationLocked) {
       await createRewriteVersion();
       return;
@@ -590,13 +632,15 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     setBusy("version");
     setMessage(null);
     try {
-      const draft = await saveStoryBibleDraft(storyBible);
+      const draft = await saveStoryBibleDraft(storyBible, project);
       setStoryBible(draft);
+      savedStoryBibleRef.current = draft;
       setUndoHistory([]);
       setDocumentSelection(null);
       setIsEditing(false);
-      onProjectUpdate?.({
+      await persistProjectUpdate({
         ...storyBibleRegenerationPatch(project, draft),
+        storyBibleSynopsisOutdated: project.storyBibleSynopsisOutdated,
         planningSession: updatePlanningSession(project, {
           phase: "story_bible",
           status: "awaiting_review",
@@ -615,12 +659,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     const blob = new Blob([storyBibleMarkdown(project.title, storyBible)], {
       type: "text/markdown;charset=utf-8",
     });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = storyBibleMarkdownFilename(project.title, storyBible.version);
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    downloadBlob(blob, storyBibleMarkdownFilename(project.title, storyBible.version));
   }
 
   function describeAppliedRevision(
@@ -732,6 +771,30 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     } : current);
   }
 
+  function updateCharacterActingProfile(
+    characterRef: string,
+    field: keyof CharacterActingProfile,
+    value: string,
+  ) {
+    setStoryBible((current) => current ? ({
+      ...current,
+      character_registry: current.character_registry.map((character) => (
+        character.character_ref === characterRef
+          ? {
+              ...character,
+              acting_profile: {
+                ...emptyCharacterActingProfile(),
+                ...project.characters.find((item) => item.name.trim() === character.name.trim())?.actingProfile,
+                ...character.acting_profile,
+                [field]: value,
+              },
+            }
+          : character
+      )),
+    }) : current);
+    setIsEditing(true);
+  }
+
   function updateRelationship(
     index: number,
     field: "relationship_type" | "initial_state" | "target_direction",
@@ -746,8 +809,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   }
 
   return (
-    <section className={`story-bible-panel${storyBible ? " is-canvas-mode" : " is-creation-mode"}`}>
-      {storyBible && <div className="story-bible-heading">
+    <section className="story-bible-panel is-canvas-mode">
+      <div className="story-bible-heading">
         <div>
           <span className="section-kicker">{t("storyBible.kicker")}</span>
           <div className="section-title-with-help">
@@ -756,23 +819,27 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
           </div>
         </div>
         <div className="story-bible-actions">
+          {!storyBible ? <Link className="outline-action" href={`/projects/${project.id}/synopsis`}>查看故事梗概</Link> : null}
           {storyBibleCanBeRevised && isEditing ? (
             <button className="primary-action" disabled={Boolean(busy)} onClick={() => void saveDraft()} type="button">
               <Save aria-hidden="true" size={15} />
               {busy === "save" ? t("storyBible.saving") : t("storyBible.save")}
             </button>
           ) : null}
-          {storyBible && storyBible.status === "approved" ? (
+          {storyBible && storyBible.status === "approved" && !pendingProgress ? (
             <button
               className="outline-action"
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || (regenerationLocked && projectCopyLocked)}
+              aria-describedby={regenerationLocked && projectCopyLocked ? "host-project-copy-hint" : undefined}
               onClick={() => void createEditableVersion()}
               type="button"
             >
               <RefreshCw aria-hidden="true" size={15} />
               {busy === "version"
                 ? t("storyBible.creatingRewriteVersion")
-                : regenerationLocked
+                : rewriteCopyId
+                  ? "继续创建改写版本"
+                  : regenerationLocked
                   ? t("storyBible.createRewriteVersion")
                   : t("storyBible.createEditableVersion")}
             </button>
@@ -783,88 +850,100 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
               {t("storyBible.export")}
             </button>
           ) : null}
-          {storyBible && storyBible.status !== "approved" && (!storyBibleCanBeRevised || regenerationLocked) ? (
+          {storyBible && storyBible.status !== "approved" && !pendingProgress && (!storyBibleCanBeRevised || regenerationLocked) ? (
             <button
               className="outline-action"
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || (regenerationLocked && projectCopyLocked)}
+              aria-describedby={regenerationLocked && projectCopyLocked ? "host-project-copy-hint" : undefined}
               onClick={() => void (regenerationLocked ? createRewriteVersion() : generateDraft())}
               type="button"
             >
               <RefreshCw aria-hidden="true" size={15} />
               {busy === "version"
                 ? t("storyBible.creatingRewriteVersion")
-                : regenerationLocked
+                : rewriteCopyId
+                  ? "继续创建改写版本"
+                  : regenerationLocked
                   ? t("storyBible.createRewriteVersion")
                   : busy === "generate"
                     ? t("storyBible.generating")
                     : t("storyBible.generateFromUpdatedInput")}
             </button>
           ) : null}
-          {storyBible?.status === "draft" && !regenerationLocked ? (
+          {storyBible?.status === "approved" && !pendingProgress ? <Link className="primary-action" href={`/projects/${project.id}/planning/structure`}>进入剧情规划</Link> : null}
+          {storyBible?.status === "draft" && storyBibleCanBeRevised ? (
             <button className="primary-action" disabled={Boolean(busy) || isEditing} onClick={() => void confirmDraft()} type="button">
               <Check aria-hidden="true" size={15} />
               {busy === "confirm" ? t("storyBible.confirming") : t("storyBible.confirm")}
             </button>
           ) : null}
         </div>
-      </div>}
+      </div>
 
-      {busy === "generate" ? (
-        <div aria-live="polite" className="story-bible-generation-timer">
-          {t("storyBible.generationElapsed")} {formatGenerationDuration(generationElapsedMs)}
+      {storyBible && busy === "load" ? <p role="status">{t("storyBible.loading")}</p> : null}
+      {loadError ? <div className="inline-notice" role="alert">
+        <p>{loadError}</p>
+        <button className="outline-action" disabled={busy === "load"} onClick={() => setLoadAttempt(attempt => attempt + 1)} type="button">重新读取总纲</button>
+      </div> : null}
+      {pendingProgress ? <div className="inline-notice" role="alert">
+        <p>{message ?? "正在保存总纲进度…"}</p>
+        <button className="outline-action" disabled={Boolean(busy)} onClick={() => void retryProgressSave()} type="button">
+          {busy === "save" ? "正在保存进度…" : "重试保存进度"}
+        </button>
+      </div> : null}
+      {rewriteCopyMissing ? <div className="inline-notice">
+        <Link className="outline-action" href="/">打开项目库核对</Link>
+        <button className="outline-action" disabled={Boolean(busy)} onClick={forgetMissingRewriteCopy} type="button">已删除上次的改写版本</button>
+      </div> : null}
+      {storyBible && regenerationLocked ? <div className="inline-notice">
+        {t("storyBible.regenerationLocked")}
+        {projectCopyLocked ? <p id="host-project-copy-hint">另起一版请在主站新建项目。</p> : null}
+      </div> : null}
+      {!storyBible ? (
+        <div className="story-bible-workbench has-section-directory">
+          <WorkspaceSectionDirectory activeSection="story-bible" currentEntries={[]} onSelect={() => undefined} projectId={project.id} />
+          <div className="story-bible-document-column">
+            <div className="story-bible-content">
+              <div className="story-bible-status"><span>{loadError ? "总纲暂未读入" : busy === "load" ? "正在读取总纲" : "待生成总纲"}</span></div>
+              <section className="story-bible-chapter">
+                <div className="story-bible-chapter-heading"><div>
+                  <h3>已确认的故事梗概</h3>
+                  <p>根据这份梗概，展开人物、关系、主要冲突和结局。生成后可在这里阅读、编辑并确认。</p>
+                </div></div>
+                <div className="story-bible-synopsis-preview" aria-label="已确认的故事梗概">
+                  {(project.storySynopsis?.text ?? project.creativePrompt).split(/\n\s*\n/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+                </div>
+              </section>
+            </div>
+          </div>
+          <aside className="story-bible-copilot story-bible-generation-copilot" aria-label="故事总纲生成助手">
+            <div className="story-bible-copilot-heading">
+              <div className="story-bible-copilot-identity">
+                <span className="story-bible-copilot-mark"><Aperture aria-hidden="true" size={16} /></span>
+                <div><h3>剧本大师</h3><span className="story-bible-chat-status">故事总纲</span></div>
+              </div>
+            </div>
+            <div className="story-bible-chat-thread">
+              <div className="story-bible-chat-bubble is-assistant">
+                <strong>剧本大师</strong>
+                <p>故事梗概已确认。我会沿着你确定的故事方向，整理核心人物、关系和故事发展。生成后，你可以直接编辑，也可以与我讨论修改。</p>
+              </div>
+            </div>
+            <div className="story-bible-generation-controls">
+              {busy === "load" ? <p role="status"><LoaderCircle aria-hidden="true" className="story-bible-generation-spinner" size={16} />正在读取故事总纲…</p> : null}
+              {busy === "generate" ? <p role="status"><LoaderCircle aria-hidden="true" className="story-bible-generation-spinner" size={16} />{generationStage === "prepare" ? "正在整理创作资料…" : generationStage === "save" ? "正在保存已确认的故事…" : "正在展开人物、冲突和故事发展，请稍候…"}</p> : null}
+              {message ? <p role={busy === "generate" ? "status" : "alert"}>{message}</p> : null}
+              {regenerationLocked ? <p role="status">{t("storyBible.regenerationLocked")}</p> : null}
+              <button className="primary-action" disabled={Boolean(busy) || Boolean(loadError) || regenerationLocked || project.storySynopsis?.status !== "confirmed"}
+                onClick={() => void generateDraft()} type="button">
+                {busy === "generate" ? "正在生成故事总纲…" : "生成故事总纲"}
+              </button>
+            </div>
+          </aside>
         </div>
-      ) : generationLastDurationMs !== null ? (
-        <div className="story-bible-generation-timer">
-          {t("storyBible.generationCompleted")} {formatGenerationDuration(generationLastDurationMs)}
-        </div>
       ) : null}
-
-      {importedSourceDocument ? (
-        <details className="story-bible-imported-source" open={!storyBible}>
-          <summary>{t("storyBible.importedSourceTitle")}</summary>
-          <pre>{importedSourceDocument}</pre>
-        </details>
-      ) : null}
-
-      {busy === "load" ? <p>{t("storyBible.loading")}</p> : null}
-      {regenerationLocked ? <div className="inline-notice">{t("storyBible.regenerationLocked")}</div> : null}
-      {!busy && !storyBible && recommendedHighCompletionInput ? (
-        <div className="inline-notice">
-          {t("inputReadiness.importReviewHint").replace(
-            "{level}",
-            t(`inputReadiness.level.${project.inputReadiness?.detectedLevel ?? "story_bible"}`),
-          )}
-        </div>
-      ) : null}
-      {(busy === null || busy === "generate") && !storyBible && !regenerationLocked ? (
-        <InteractiveStoryBibleBuilder
-          importBusy={busy === "generate"}
-          onImport={recommendedHighCompletionInput
-            ? () => void generateDraft({ importSource: true })
-            : undefined}
-          onComplete={(completed, requestProject) => {
-            setStoryBible(completed);
-            onProjectUpdate?.((current) => ({
-              ...storyBibleRegenerationPatch(requestProject, completed),
-              storyBibleAuthorInstruction: requestProject.storyBibleAuthorInstruction,
-              // Retain the session checkpoint and the exact inputs used by
-              // generation, even while its remote save is still pending.
-              planningSession: updatePlanningSession(current, {
-                phase: "story_bible",
-                status: "awaiting_review",
-                storyBibleStep: "safeguards",
-                storyBibleAuthorInstruction: requestProject.storyBibleAuthorInstruction ?? "",
-              }),
-            }));
-            setMessage(t("storyBible.generated"));
-          }}
-          onProjectUpdate={onProjectUpdate}
-          project={project}
-        />
-      ) : null}
-      {!busy && !storyBible && regenerationLocked ? <div className="story-bible-empty"><p>{t("storyBible.empty")}</p></div> : null}
       {storyBible && !isCurrentInput ? <div className="inline-notice">{t("storyBible.stale")}</div> : null}
-      {message ? <div className="inline-notice">{message}</div> : null}
+      {storyBible && message && !pendingProgress ? <div className="inline-notice" role="status">{message}</div> : null}
       {storyBible ? (
         <div className="story-bible-workbench has-section-directory">
           <WorkspaceSectionDirectory
@@ -887,6 +966,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
               selection={documentSelection}
             />
             <div className="document-edit-toolbar" role="toolbar" aria-label="文字编辑工具">
+              {storyBibleCanBeRevised ? <span className="story-bible-edit-hint">点击正文即可编辑，修改后请保存草稿。</span> : null}
               <button
                 aria-label="撤回上一版本"
                 className="document-edit-toolbar-action"
@@ -899,135 +979,128 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
                 <span>撤回</span>
               </button>
             </div>
-            <StoryBibleEditableContext.Provider value={storyBibleCanBeRevised}>
+            <StoryBibleEditableContext.Provider value={storyBibleCanBeRevised && !busy && !loadError}>
             <div className="story-bible-content">
-              <div className="story-bible-status" id="story-bible-overview">
+              <div className="story-bible-status">
                 <span>
                   {storyBible.status === "approved" ? t("storyBible.statusApproved") : t("storyBible.statusDraft")}
                   <small> · v{storyBible.version}</small>
                 </span>
               </div>
-              <div className="story-bible-lead">
-                <StoryBibleField label={t("storyBible.corePremise")} onChange={(value) => updateField("core_premise", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.core_premise} />
-              </div>
-              <div className="story-bible-core-grid">
-                <StoryBibleField label={t("storyBible.seriesGoal")} onChange={(value) => updateField("series_goal", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.series_goal} />
+              <section className="story-bible-chapter story-bible-positioning" id="story-bible-positioning">
+                <StoryBibleChapterHeading title="故事定位" summary="先确认这部作品的基本方向，再进入人物、关系和剧情推进。" />
+                <div className="story-bible-positioning-grid">
+                  <div><span>项目名称</span><strong>{storyBible.project_title || project.title}</strong></div>
+                  <div><span>创作市场</span><strong>{project.marketProfile === "overseas_tiktok" ? "海外短剧" : "中文短剧"}</strong></div>
+                  <div><span>目标体量</span><strong>{project.generationSettings.episodeCount} 集</strong></div>
+                </div>
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-overview">
+                <StoryBibleChapterHeading title="核心故事" summary="用最少的信息说清楚故事要讲什么、整部作品要完成什么。" />
+                <div className="story-bible-lead">
+                  <StoryBibleField label={t("storyBible.corePremise")} onChange={(value) => updateField("core_premise", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.core_premise} />
+                </div>
+                <div className="story-bible-core-grid">
+                  <StoryBibleField label={t("storyBible.seriesGoal")} onChange={(value) => updateField("series_goal", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.series_goal} />
+                  <StoryBibleListSection help={t("guide.storyBibleWorldRules")} helpLabel={t("guide.openHelp")} onValueChange={(index, value) => updateStoryBibleList("world_rules", index, value)} onStartEditing={() => setIsEditing(true)} title={t("storyBible.worldRules")} values={storyBible.world_rules} />
+                </div>
+              </section>
+
+              <section className="story-bible-chapter story-bible-character-chapter" id="story-bible-characters">
+                <StoryBibleChapterHeading title="核心人物" summary="先看人物是谁，再看每个人从哪里出发、会走到哪里。" help={t("guide.storyBibleCharacters")} />
+                {storyBible.character_registry.length ? <ul className="story-bible-character-list">
+                  {storyBible.character_registry.map((character, index) => <li key={character.character_ref}>
+                    <strong><InlineStoryBibleText onChange={(value) => updateCharacterRegistry(index, "name", value)} onStartEditing={() => setIsEditing(true)} value={character.name} /></strong>
+                    <span><InlineStoryBibleText onChange={(value) => updateCharacterRegistry(index, "role", value)} onStartEditing={() => setIsEditing(true)} value={character.role} /></span>
+                    <CharacterActingProfileDisclosure
+                      profile={character.acting_profile ?? project.characters.find((item) => item.name.trim() === character.name.trim())?.actingProfile}
+                      onChange={(field, value) => updateCharacterActingProfile(character.character_ref, field, value)}
+                      onStartEditing={() => setIsEditing(true)}
+                    />
+                  </li>)}
+                </ul> : <p className="story-bible-empty-section">暂未形成主要人物名单。</p>}
+                {storyBible.character_arc_targets.length ? <div className="story-bible-character-arcs">
+                  <h3>{t("storyBible.characterChanges")}</h3>
+                  {storyBible.character_arc_targets.map((arc, index) => <article key={arc.character_ref}>
+                    <strong><InlineStoryBibleText onChange={(value) => updateCharacterName(arc.character_ref, value)} onStartEditing={() => setIsEditing(true)} value={storyBibleCharacterNames.get(arc.character_ref) ?? t("storyBible.unnamedCharacter")} /></strong>
+                    <dl>
+                      <div><dt>{t("storyBible.characterStart")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "starting_state", value)} onStartEditing={() => setIsEditing(true)} value={arc.starting_state} /></dd></div>
+                      <div><dt>{t("storyBible.characterGoal")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "external_goal", value)} onStartEditing={() => setIsEditing(true)} value={arc.external_goal} /></dd></div>
+                      {arc.internal_need ? <div><dt>{t("storyBible.characterNeed")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "internal_need", value)} onStartEditing={() => setIsEditing(true)} value={arc.internal_need} /></dd></div> : null}
+                      <div><dt>{t("storyBible.characterEnd")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "target_state", value)} onStartEditing={() => setIsEditing(true)} value={arc.target_state} /></dd></div>
+                    </dl>
+                    {arc.key_turning_points.length ? <div className="story-bible-character-turns"><span>{t("storyBible.keyChanges")}</span><ol>{arc.key_turning_points.map((turn, turnIndex) => <li key={`${arc.character_ref}-${turnIndex}`}><InlineStoryBibleText onChange={(value) => updateCharacterArcTurn(index, turnIndex, value)} onStartEditing={() => setIsEditing(true)} value={turn} /></li>)}</ol></div> : null}
+                  </article>)}
+                </div> : null}
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-relationships">
+                <StoryBibleChapterHeading title="核心关系" summary="人物之间的关系怎样开始，又会被故事推向哪里。" help={t("guide.storyBibleRelationships")} />
+                {storyBible.relationships.length ? <div className="story-bible-relationships">{storyBible.relationships.map((relationship, index) => <article key={relationship.relationship_id}>
+                  <strong><InlineStoryBibleText onChange={(value) => updateCharacterName(relationship.source_character_ref, value)} onStartEditing={() => setIsEditing(true)} value={storyBibleCharacterNames.get(relationship.source_character_ref) ?? t("storyBible.unnamedCharacter")} />{" · "}<InlineStoryBibleText onChange={(value) => updateRelationship(index, "relationship_type", value)} onStartEditing={() => setIsEditing(true)} value={relationship.relationship_type} />{" · "}<InlineStoryBibleText onChange={(value) => updateCharacterName(relationship.target_character_ref, value)} onStartEditing={() => setIsEditing(true)} value={storyBibleCharacterNames.get(relationship.target_character_ref) ?? t("storyBible.unnamedCharacter")} /></strong>
+                  <p><b>{t("storyBible.relationshipStart")}</b><InlineStoryBibleText onChange={(value) => updateRelationship(index, "initial_state", value)} onStartEditing={() => setIsEditing(true)} value={relationship.initial_state} /></p>
+                  <p><b>{t("storyBible.relationshipDirection")}</b><InlineStoryBibleText onChange={(value) => updateRelationship(index, "target_direction", value)} onStartEditing={() => setIsEditing(true)} value={relationship.target_direction} /></p>
+                </article>)}</div> : <p className="story-bible-empty-section">暂未形成核心关系。</p>}
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-lines">
+                <StoryBibleChapterHeading title="核心剧情线" summary="主线、支线和人物线分别承担什么任务，最后怎样收束。" help={t("guide.storyBibleStoryLines")} />
+                {storyBible.story_lines.length ? <div className="story-bible-lines">{storyBible.story_lines.map((line, index) => <article data-story-bible-field={`故事线：${line.title}`} data-story-bible-field-text={`${line.premise} ${line.planned_resolution}`} key={line.story_line_id}>
+                  <strong><InlineStoryBibleText onChange={(value) => updateStoryLine(index, "title", value)} onStartEditing={() => setIsEditing(true)} value={line.title} /></strong>
+                  <p><InlineStoryBibleText onChange={(value) => updateStoryLine(index, "premise", value)} onStartEditing={() => setIsEditing(true)} value={line.premise} /></p>
+                  <small>{t("storyBible.plannedResolution")}：<InlineStoryBibleText onChange={(value) => updateStoryLine(index, "planned_resolution", value)} onStartEditing={() => setIsEditing(true)} value={line.planned_resolution} /></small>
+                </article>)}</div> : <p className="story-bible-empty-section">暂未形成需要并行推进的剧情线。</p>}
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-conflicts">
+                <StoryBibleChapterHeading title="核心冲突" summary="明确故事真正卡在哪里，以及人物和世界会怎样施加压力。" />
                 <StoryBibleField label={t("storyBible.centralConflict")} onChange={(value) => updateField("central_conflict", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.central_conflict} />
-              </div>
-          {storyBible.escalation_stages?.length ? <div className="story-bible-escalation" id="story-bible-escalation">
-            <div className="section-title-with-help">
-              <h3>{t("storyBible.escalationStages")}</h3>
-              <SectionHelp content={t("guide.storyBibleEscalation")} label={t("guide.openHelp")} />
-            </div>
-            {(storyBible.escalation_stages ?? []).map((stage, index) => (
-              <article
-                data-story-bible-field={`升级阶梯：${stage.title}`}
-                data-story-bible-field-text={`${stage.title} ${stage.stage_goal} ${stage.stage_opposition} ${stage.stage_payoff} ${stage.escalation_to_next}`}
-                key={stage.stage_id}
-              >
-                <strong>{String(index + 1).padStart(2, "0")} · <InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "title", value)} onStartEditing={() => setIsEditing(true)} value={stage.title} /></strong>
-                <p><b>{t("storyBible.escalationGoal")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "stage_goal", value)} onStartEditing={() => setIsEditing(true)} value={stage.stage_goal} /></p>
-                <p><b>{t("storyBible.escalationOpposition")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "stage_opposition", value)} onStartEditing={() => setIsEditing(true)} value={stage.stage_opposition} /></p>
-                <p><b>{t("storyBible.escalationPayoff")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "stage_payoff", value)} onStartEditing={() => setIsEditing(true)} value={stage.stage_payoff} /></p>
-                <p><b>{t("storyBible.escalationNext")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "escalation_to_next", value)} onStartEditing={() => setIsEditing(true)} value={stage.escalation_to_next} /></p>
-              </article>
-            ))}
-          </div> : null}
-          {storyBible.character_arc_targets.length ? (
-            <section className="story-bible-character-arcs" id="story-bible-arcs">
-              <div className="section-title-with-help">
-                <h3>{t("storyBible.characterChanges")}</h3>
-                <SectionHelp content={t("guide.storyBibleCharacters")} label={t("guide.openHelp")} />
-              </div>
-              {storyBible.character_arc_targets.map((arc, index) => (
-                <article key={arc.character_ref}>
-                  <strong><InlineStoryBibleText onChange={(value) => updateCharacterName(arc.character_ref, value)} onStartEditing={() => setIsEditing(true)} value={storyBibleCharacterNames.get(arc.character_ref) ?? t("storyBible.unnamedCharacter")} /></strong>
-                  <dl>
-                    <div><dt>{t("storyBible.characterStart")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "starting_state", value)} onStartEditing={() => setIsEditing(true)} value={arc.starting_state} /></dd></div>
-                    <div><dt>{t("storyBible.characterGoal")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "external_goal", value)} onStartEditing={() => setIsEditing(true)} value={arc.external_goal} /></dd></div>
-                    {arc.internal_need ? <div><dt>{t("storyBible.characterNeed")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "internal_need", value)} onStartEditing={() => setIsEditing(true)} value={arc.internal_need} /></dd></div> : null}
-                    <div><dt>{t("storyBible.characterEnd")}</dt><dd><InlineStoryBibleText onChange={(value) => updateCharacterArc(index, "target_state", value)} onStartEditing={() => setIsEditing(true)} value={arc.target_state} /></dd></div>
-                  </dl>
-                  {arc.key_turning_points.length ? (
-                    <div className="story-bible-character-turns">
-                      <span>{t("storyBible.keyChanges")}</span>
-                      <ol>{arc.key_turning_points.map((turn, turnIndex) => <li key={`${arc.character_ref}-${turnIndex}`}><InlineStoryBibleText onChange={(value) => updateCharacterArcTurn(index, turnIndex, value)} onStartEditing={() => setIsEditing(true)} value={turn} /></li>)}</ol>
-                    </div>
-                  ) : null}
-                </article>
-              ))}
-            </section>
-          ) : null}
-              <div className="story-bible-outcome-grid" id="story-bible-outcomes">
-                <StoryBibleField label={t("storyBible.endingDirection")} onChange={(value) => updateField("ending_direction", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.ending_direction} />
-                <StoryBibleField label={t("storyBible.theme")} onChange={(value) => updateField("theme", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.theme} />
-              </div>
-              <div className="story-bible-lines" id="story-bible-lines">
-            <div className="section-title-with-help">
-              <h3>{t("storyBible.storyLines")}</h3>
-              <SectionHelp content={t("guide.storyBibleStoryLines")} label={t("guide.openHelp")} />
-            </div>
-                {storyBible.story_lines.map((line, index) => (
-              <article
-                data-story-bible-field={`故事线：${line.title}`}
-                data-story-bible-field-text={`${line.premise} ${line.planned_resolution}`}
-                key={line.story_line_id}
-              >
-                <strong><InlineStoryBibleText onChange={(value) => updateStoryLine(index, "title", value)} onStartEditing={() => setIsEditing(true)} value={line.title} /></strong>
-                <p><InlineStoryBibleText onChange={(value) => updateStoryLine(index, "premise", value)} onStartEditing={() => setIsEditing(true)} value={line.premise} /></p>
-                <small>{t("storyBible.plannedResolution")}：<InlineStoryBibleText onChange={(value) => updateStoryLine(index, "planned_resolution", value)} onStartEditing={() => setIsEditing(true)} value={line.planned_resolution} /></small>
-              </article>
-            ))}
-              </div>
-              <details className="story-bible-details" id="story-bible-settings">
-            <summary>
-              <span className="story-bible-details-toggle"><ArrowIcon /></span>
-              <span className="story-bible-details-copy">
-                <strong>{t("storyBible.moreSettings")}</strong>
-                <small>{t("storyBible.moreSettingsSummary")}</small>
-              </span>
-            </summary>
-            <div className="story-bible-details-content">
-              {storyBible.character_registry.length ? (
-                <section>
+                {storyBible.character_arc_targets.some((arc) => arc.internal_need?.trim()) ? <div className="story-bible-inner-conflicts">
+                  <h3>人物内在压力</h3>
+                  <div>{storyBible.character_arc_targets.filter((arc) => arc.internal_need?.trim()).map((arc) => <article key={arc.character_ref}>
+                    <strong>{storyBibleCharacterNames.get(arc.character_ref) ?? t("storyBible.unnamedCharacter")}</strong>
+                    <p><InlineStoryBibleText onChange={(value) => updateCharacterArc(storyBible.character_arc_targets.indexOf(arc), "internal_need", value)} onStartEditing={() => setIsEditing(true)} value={arc.internal_need ?? ""} /></p>
+                  </article>)}</div>
+                </div> : null}
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-development">
+                <StoryBibleChapterHeading title="故事发展方向" summary="按阶段看目标、阻力、回报和下一步升级。" help={t("guide.storyBibleEscalation")} />
+                {storyBible.escalation_stages?.length ? <div className="story-bible-escalation">{storyBible.escalation_stages.map((stage, index) => <article data-story-bible-field={`升级阶梯：${stage.title}`} data-story-bible-field-text={`${stage.title} ${stage.stage_goal} ${stage.stage_opposition} ${stage.stage_payoff} ${stage.escalation_to_next}`} key={stage.stage_id}>
+                  <strong>{String(index + 1).padStart(2, "0")} · <InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "title", value)} onStartEditing={() => setIsEditing(true)} value={stage.title} /></strong>
+                  <p><b>{t("storyBible.escalationGoal")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "stage_goal", value)} onStartEditing={() => setIsEditing(true)} value={stage.stage_goal} /></p>
+                  <p><b>{t("storyBible.escalationOpposition")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "stage_opposition", value)} onStartEditing={() => setIsEditing(true)} value={stage.stage_opposition} /></p>
+                  <p><b>{t("storyBible.escalationPayoff")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "stage_payoff", value)} onStartEditing={() => setIsEditing(true)} value={stage.stage_payoff} /></p>
+                  <p><b>{t("storyBible.escalationNext")}</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(index, "escalation_to_next", value)} onStartEditing={() => setIsEditing(true)} value={stage.escalation_to_next} /></p>
+                </article>)}</div> : <p className="story-bible-empty-section">暂未形成阶段推进。</p>}
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-climax-ending">
+                <StoryBibleChapterHeading title="高潮与结局" summary="高潮要解决什么，故事最终把人物和主题带到哪里。" />
+                {climaxStage ? <div className="story-bible-climax-direction">
                   <div className="section-title-with-help">
-                    <h3>{t("storyBible.characterList")}</h3>
-                    <SectionHelp content={t("guide.storyBibleCharacterList")} label={t("guide.openHelp")} />
+                    <h3>高潮方向</h3>
+                    <SectionHelp content="这里自动取故事发展阶段的最后一阶，帮助你检查高潮是否完成了主要冲突的正面解决。" label={t("guide.openHelp")} />
                   </div>
-                  <ul className="story-bible-character-list">
-                    {storyBible.character_registry.map((character, index) => (
-                      <li key={character.character_ref}>
-                        <strong><InlineStoryBibleText onChange={(value) => updateCharacterRegistry(index, "name", value)} onStartEditing={() => setIsEditing(true)} value={character.name} /></strong>
-                        <span><InlineStoryBibleText onChange={(value) => updateCharacterRegistry(index, "role", value)} onStartEditing={() => setIsEditing(true)} value={character.role} /></span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-              <StoryBibleListSection help={t("guide.storyBibleWorldRules")} helpLabel={t("guide.openHelp")} onValueChange={(index, value) => updateStoryBibleList("world_rules", index, value)} onStartEditing={() => setIsEditing(true)} title={t("storyBible.worldRules")} values={storyBible.world_rules} />
-              {storyBible.relationships.length ? (
-                <section className="story-bible-relationships">
-                  <div className="section-title-with-help">
-                    <h3>{t("storyBible.relationships")}</h3>
-                    <SectionHelp content={t("guide.storyBibleRelationships")} label={t("guide.openHelp")} />
-                  </div>
-                  {storyBible.relationships.map((relationship, index) => (
-                    <article key={relationship.relationship_id}>
-                      <strong>
-                        <InlineStoryBibleText onChange={(value) => updateCharacterName(relationship.source_character_ref, value)} onStartEditing={() => setIsEditing(true)} value={storyBibleCharacterNames.get(relationship.source_character_ref) ?? t("storyBible.unnamedCharacter")} />
-                        {" · "}<InlineStoryBibleText onChange={(value) => updateRelationship(index, "relationship_type", value)} onStartEditing={() => setIsEditing(true)} value={relationship.relationship_type} />{" · "}
-                        <InlineStoryBibleText onChange={(value) => updateCharacterName(relationship.target_character_ref, value)} onStartEditing={() => setIsEditing(true)} value={storyBibleCharacterNames.get(relationship.target_character_ref) ?? t("storyBible.unnamedCharacter")} />
-                      </strong>
-                      <p><b>{t("storyBible.relationshipStart")}</b><InlineStoryBibleText onChange={(value) => updateRelationship(index, "initial_state", value)} onStartEditing={() => setIsEditing(true)} value={relationship.initial_state} /></p>
-                      <p><b>{t("storyBible.relationshipDirection")}</b><InlineStoryBibleText onChange={(value) => updateRelationship(index, "target_direction", value)} onStartEditing={() => setIsEditing(true)} value={relationship.target_direction} /></p>
-                    </article>
-                  ))}
-                </section>
-              ) : null}
-              <StoryBibleListSection help={t("guide.storyBibleLockedFacts")} helpLabel={t("guide.openHelp")} onValueChange={(index, value) => updateStoryBibleList("locked_facts", index, value)} onStartEditing={() => setIsEditing(true)} title={t("storyBible.lockedFacts")} values={storyBible.locked_facts} />
-              <StoryBibleListSection help={t("guide.storyBibleAvoidPatterns")} helpLabel={t("guide.openHelp")} onValueChange={(index, value) => updateStoryBibleList("avoid_patterns", index, value)} onStartEditing={() => setIsEditing(true)} title={t("storyBible.avoidPatterns")} values={storyBible.avoid_patterns} />
-            </div>
-              </details>
+                  <strong><InlineStoryBibleText onChange={(value) => updateEscalationStage(storyBible.escalation_stages.length - 1, "title", value)} onStartEditing={() => setIsEditing(true)} value={climaxStage.title} /></strong>
+                  <p><b>高潮要完成什么：</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(storyBible.escalation_stages.length - 1, "stage_goal", value)} onStartEditing={() => setIsEditing(true)} value={climaxStage.stage_goal} /></p>
+                  <p><b>正面阻力：</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(storyBible.escalation_stages.length - 1, "stage_opposition", value)} onStartEditing={() => setIsEditing(true)} value={climaxStage.stage_opposition} /></p>
+                  <p><b>高潮回报：</b><InlineStoryBibleText onChange={(value) => updateEscalationStage(storyBible.escalation_stages.length - 1, "stage_payoff", value)} onStartEditing={() => setIsEditing(true)} value={climaxStage.stage_payoff} /></p>
+                </div> : null}
+                <div className="story-bible-outcome-grid">
+                  <StoryBibleField label={t("storyBible.endingDirection")} onChange={(value) => updateField("ending_direction", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.ending_direction} />
+                  <StoryBibleField label={t("storyBible.theme")} onChange={(value) => updateField("theme", value)} onStartEditing={() => setIsEditing(true)} value={storyBible.theme} />
+                </div>
+              </section>
+
+              <section className="story-bible-chapter" id="story-bible-principles">
+                <StoryBibleChapterHeading title="创作原则" summary="后续展开时必须守住的事实，以及需要主动避开的方向。" />
+                <div className="story-bible-principles-grid">
+                  <StoryBibleListSection help={t("guide.storyBibleLockedFacts")} helpLabel={t("guide.openHelp")} onValueChange={(index, value) => updateStoryBibleList("locked_facts", index, value)} onStartEditing={() => setIsEditing(true)} title={t("storyBible.lockedFacts")} values={storyBible.locked_facts} />
+                  <StoryBibleListSection help={t("guide.storyBibleAvoidPatterns")} helpLabel={t("guide.openHelp")} onValueChange={(index, value) => updateStoryBibleList("avoid_patterns", index, value)} onStartEditing={() => setIsEditing(true)} title={t("storyBible.avoidPatterns")} values={storyBible.avoid_patterns} />
+                </div>
+              </section>
             </div>
             </StoryBibleEditableContext.Provider>
           </div>
@@ -1035,6 +1108,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
             busy={busy === "ai"}
             messages={chatMessages}
             disabled={!storyBibleCanBeRevised || regenerationLocked || (busy !== null && busy !== "ai")}
+            disabledReason={busy && busy !== "ai" ? "正在保存或读取故事总纲，请稍候。" : loadError ? "请先重新读取故事总纲，再继续修改。" : !isCurrentInput ? "故事资料已更新，请先根据新资料生成总纲。" : regenerationLocked ? projectCopyLocked ? "已有正文。另起一版请在主站新建项目。" : "已有后续规划或正文。需要调整故事方向时，可在顶部创建改写版本。" : "总纲已确认。如需修改，请先在顶部创建可编辑版本。"}
             instruction={aiInstruction}
             onClearSelection={() => setDocumentSelection(null)}
             onEditMessage={editStoryBibleChatMessage}
@@ -1054,653 +1128,64 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   );
 }
 
-function inspirationMessage(
-  role: "assistant" | "user",
-  content: string,
-  questions: StoryInspirationFrontierQuestion[] = [],
-): StoryInspirationMessage {
-  return {
-    id: `inspiration.${role}.${crypto.randomUUID()}`,
-    role,
-    content,
-    questions,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function inspirationBriefInstruction(brief: StoryInspirationBrief, directInput = ""): string {
-  const directDirection = directInput.trim() && !brief.additional_notes.includes(directInput.trim())
-    ? directInput.trim()
-    : "";
-  const lines = [
-    ["故事承诺", brief.story_promise],
-    ["主角与目标", brief.protagonist_and_goal],
-    ["核心阻力", brief.core_obstacle],
-    ["失败代价", brief.stakes],
-    ["人物关系", brief.relationship_direction],
-    ["秘密或反转", brief.reveal_or_twist],
-    ["结局方向", brief.ending_direction],
-    ["情绪与节奏", brief.tone_and_pacing],
-    ["必须保留", brief.must_keep.join("；")],
-    ["必须避免", brief.must_avoid.join("；")],
-    ["其他作者想法", brief.additional_notes.join("；")],
-    ["自由整理原始方向", directDirection],
-  ].filter(([, value]) => value.trim());
-  const unresolved = brief.creative_decisions
-    .filter((decision) => decision.status === "unresolved")
-    .map((decision) => decision.title);
-  const delegated = brief.creative_decisions
-    .filter((decision) => decision.status === "delegated")
-    .map((decision) => decision.title);
-  return [
-    "以下内容来自使用者确认过的剧本灵感对话。请将其作为总纲创作约束，保持现有总纲格式，不要写分集、场景或对白：",
-    ...lines.map(([label, value]) => `${label}：${value}`),
-    ...(unresolved.length > 0 ? [`暂时保留到后续决定：${unresolved.join("；")}`] : []),
-    ...(delegated.length > 0 ? [`仅允许剧本大师先提可修改方案：${delegated.join("；")}`] : []),
-  ].join("\n").slice(0, 7_500);
-}
-
-function InteractiveStoryBibleBuilder({
-  importBusy = false,
-  onImport,
-  project,
-  onProjectUpdate,
-  onComplete,
+function StoryBibleChapterHeading({
+  help,
+  summary,
+  title,
 }: {
-  importBusy?: boolean;
-  onImport?: () => void;
-  project: ScriptProject;
-  onProjectUpdate?: ProjectUpdateCallback;
-  onComplete: (storyBible: StoryBible, requestProject: ScriptProject) => void;
+  help?: string;
+  summary: string;
+  title: string;
 }) {
-  const { syncProjectSnapshot } = useProjects();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [creationSaveState, setCreationSaveState] = useState<"idle" | "loaded" | "saving" | "saved" | "error">(
-    () => project.planningSession?.storyBibleSections?.[INSPIRATION_SESSION_KEY] ? "loaded" : "idle",
-  );
-  const [finalGenerationStartedAt, setFinalGenerationStartedAt] = useState<number | null>(null);
-  const [finalGenerationElapsedMs, setFinalGenerationElapsedMs] = useState(0);
-  const [finalGenerationLastDurationMs, setFinalGenerationLastDurationMs] = useState<number | null>(null);
-  const [creationOpen, setCreationOpen] = useState(true);
-  const [inspirationBusy, setInspirationBusy] = useState(false);
-  const [inspirationTurnStartedAt, setInspirationTurnStartedAt] = useState<number | null>(null);
-  const [inspirationTurnElapsedMs, setInspirationTurnElapsedMs] = useState(0);
-  const [inspirationInput, setInspirationInput] = useState("");
-  const [inspirationError, setInspirationError] = useState<string | null>(null);
-  const [pendingInspirationMessage, setPendingInspirationMessage] = useState<string | null>(null);
-  const [failedInspirationMessage, setFailedInspirationMessage] = useState<string | null>(null);
-  const [failedInspirationCandidateKey, setFailedInspirationCandidateKey] = useState<string | null>(null);
-  const [inspirationSession, setInspirationSession] = useState<StoryInspirationSession>(
-    () => {
-      const session = storyInspirationSessionForSections(project.planningSession?.storyBibleSections);
-      return { ...session, brief: seedInspirationBriefFromInput(project, session.brief) };
-    },
-  );
-  const [sourceReadiness, setSourceReadiness] = useState<InputReadinessAnalysis | undefined>(project.inputReadiness);
-  const recommendedHighCompletionInput = hasRecommendedHighCompletionInput(project);
-  const [directInput, setDirectInput] = useState("");
-  const [roundAnswers, setRoundAnswers] = useState<Record<string, StoryInspirationRoundAnswer>>(() =>
-    inspirationRoundDraftFromSections(project.planningSession?.storyBibleSections, inspirationSession.messages.at(-1)));
-  const [creationStep, setCreationStep] = useState<CreationSettingStep>(() => initialCreationSettingStep(inspirationSession, recommendedHighCompletionInput, Object.keys(roundAnswers).length > 0));
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-  const creationWorkspaceRef = useRef<HTMLElement>(null);
-  const creationBodyRef = useRef<HTMLDivElement>(null);
-  const creationPositionRef = useRef<string | null>(null);
-  const frontierId = inspirationSession.messages.at(-1)?.id;
-  const draftFrontierRef = useRef(frontierId);
-  const creationBrief = creationBriefWithInput(previewStoryInspirationBrief(inspirationSession.brief,
-    inspirationSession.messages.at(-1)?.questions ?? EMPTY_INSPIRATION_QUESTIONS, roundAnswers), directInput, project.creativePrompt);
-  const lastMessage = inspirationSession.messages.at(-1);
-  const activeQuestions = !inspirationSession.readyToGenerate && lastMessage?.role === "assistant"
-    ? lastMessage.questions : EMPTY_INSPIRATION_QUESTIONS;
-  const roundNavigation = storyInspirationRoundNavigation(activeQuestions, roundAnswers, activeQuestionIndex);
-  const inspirationRoundState = { active: creationStep === "questions" && activeQuestions.length > 0, complete: roundNavigation.complete };
-  const currentAnswerComplete = storyInspirationAnswerIsComplete(roundAnswers[activeQuestions[roundNavigation.index]?.decision_key]);
-  const activeProjectRef = useRef(project);
-  const finalGenerationRequestInFlightRef = useRef(false);
-  const inspirationAbortControllerRef = useRef<AbortController | null>(null);
-  const inspirationRecoveryAttemptedRef = useRef(false);
-  const finalInspirationGenerationAbortControllerRef = useRef<AbortController | null>(null);
-  const hasExistingCreativeDirection = Boolean(
-    project.creativePrompt.trim()
-    || project.referenceMaterials.length
-    || project.selectedTagIds.length,
-  );
-  const canGenerateStoryBible = inspirationSession.readyToGenerate
-    || Boolean(directInput.trim()) || hasExistingCreativeDirection;
-  const controlsBusy = busy || importBusy || inspirationBusy || creationSaveState === "saving";
-
-  useEffect(() => {
-    if (creationOpen) creationWorkspaceRef.current?.focus({ preventScroll: true });
-  }, [creationOpen]);
-
-  useEffect(() => {
-    setRoundAnswers((current) => retainStoryInspirationRoundAnswers(activeQuestions, current));
-  }, [activeQuestions]);
-
-  useEffect(() => {
-    if (creationPositionRef.current !== null) creationBodyRef.current?.scrollIntoView({ block: "start" });
-    creationPositionRef.current = `${creationStep}:${frontierId}:${activeQuestionIndex}`;
-  }, [creationStep, frontierId, activeQuestionIndex]);
-
-  useEffect(() => {
-    if (message && (creationSaveState === "error" || inspirationError)) creationBodyRef.current?.scrollIntoView({ block: "start" });
-  }, [message, creationSaveState, inspirationError]);
-
-  useEffect(() => {
-    if (draftFrontierRef.current === frontierId) return;
-    draftFrontierRef.current = frontierId;
-    setRoundAnswers({});
-    setActiveQuestionIndex(0);
-  }, [frontierId]);
-
-  useEffect(() => {
-    if (!sourceReadiness) return;
-    setInspirationSession((current) => {
-      const brief = seedInspirationBriefFromInput({ ...project, inputReadiness: sourceReadiness }, current.brief);
-      return brief === current.brief ? current : { ...current, brief };
-    });
-  }, [project, sourceReadiness]);
-
-  useEffect(() => () => {
-    inspirationAbortControllerRef.current?.abort();
-    finalInspirationGenerationAbortControllerRef.current?.abort();
-  }, []);
-
-  useEffect(() => {
-    if (finalGenerationStartedAt === null) return;
-    const updateElapsed = () => setFinalGenerationElapsedMs(Math.max(0, Date.now() - finalGenerationStartedAt));
-    updateElapsed();
-    const timer = window.setInterval(updateElapsed, 250);
-    return () => window.clearInterval(timer);
-  }, [finalGenerationStartedAt]);
-
-  useEffect(() => {
-    if (inspirationTurnStartedAt === null) return;
-    const updateElapsed = () => setInspirationTurnElapsedMs(
-      Math.max(0, Date.now() - inspirationTurnStartedAt),
-    );
-    updateElapsed();
-    const timer = window.setInterval(updateElapsed, 250);
-    return () => window.clearInterval(timer);
-  }, [inspirationTurnStartedAt]);
-
-  useEffect(() => {
-    activeProjectRef.current = project;
-  }, [project]);
-
-  async function ensurePlanningProject(currentProject = activeProjectRef.current): Promise<ScriptProject> {
-    const signature = storyPlanningInputSignature(currentProject);
-    if (
-      currentProject.contentSpecId
-      && currentProject.generationStrategyId
-      && currentProject.resolvedCreativeContext
-      && currentProject.storyBibleInputSignature === signature
-    ) {
-      return currentProject;
-    }
-    const prepared = await prepareStoryPlanningProject(currentProject);
-    const preparedProject = {
-      ...prepared,
-      updatedAt: new Date().toISOString(),
-    };
-    const syncState = await syncProjectSnapshot(preparedProject);
-    if (syncState.status !== "synced") {
-      throw new Error(syncState.error ?? "创作规格尚未同步，请稍后重试。");
-    }
-    activeProjectRef.current = preparedProject;
-    onProjectUpdate?.(preparedProject);
-    return preparedProject;
-  }
-
-  async function persistInspirationSession(
-    nextSession: StoryInspirationSession,
-    authorInstruction = inspirationBriefInstruction(nextSession.brief),
-  ) {
-    const baseProject = activeProjectRef.current;
-    const baseSections = baseProject.planningSession?.storyBibleSections ?? {};
-    const nextSections = {
-      ...baseSections,
-      [INSPIRATION_SESSION_KEY]: nextSession,
-      [INSPIRATION_ROUND_DRAFT_KEY]: {
-        messageId: nextSession.messages.at(-1)?.id,
-        answers: nextSession.messages.at(-1)?.id === frontierId
-          ? retainStoryInspirationRoundAnswers(nextSession.messages.at(-1)?.questions ?? EMPTY_INSPIRATION_QUESTIONS, roundAnswers)
-          : {},
-      },
-    };
-    setInspirationSession(nextSession);
-    const nextPlanningSession = updatePlanningSession(baseProject, {
-      phase: "story_bible",
-      status: "awaiting_review",
-      storyBibleSections: nextSections,
-      storyBibleAuthorInstruction: authorInstruction,
-    });
-    const nextProject = {
-      ...baseProject,
-      planningSession: nextPlanningSession,
-      storyBibleAuthorInstruction: nextPlanningSession.storyBibleAuthorInstruction,
-      updatedAt: new Date().toISOString(),
-    };
-    activeProjectRef.current = nextProject;
-    onProjectUpdate?.({
-      planningSession: nextPlanningSession,
-      storyBibleAuthorInstruction: nextPlanningSession.storyBibleAuthorInstruction,
-    });
-    try {
-      const saved = await savePlanningSession(baseProject, nextPlanningSession);
-      activeProjectRef.current = {
-        ...activeProjectRef.current,
-        planningSession: saved,
-        storyBibleAuthorInstruction: saved.storyBibleAuthorInstruction,
-      };
-      onProjectUpdate?.({
-        planningSession: saved,
-        storyBibleAuthorInstruction: saved.storyBibleAuthorInstruction,
-      });
-      return saved;
-    } catch (error) {
-      setMessage(userFacingError(error, "进度已保留在本地，云端同步将在下一次保存时重试。"));
-      throw error;
-    }
-  }
-
-  async function requestInspirationTurn(
-    userMessage = "",
-    options?: {
-      replaceMessageId?: string;
-      briefCheckpoint?: StoryInspirationBrief;
-      directSetting?: boolean;
-      candidateDecisionKey?: string;
-    },
-  ) {
-    if (inspirationBusy || creationSaveState === "saving" || inspirationAbortControllerRef.current) return;
-    const submitted = userMessage.trim();
-    const replaceMessageIndex = options?.replaceMessageId
-      ? inspirationSession.messages.findIndex((item) => item.id === options.replaceMessageId)
-      : -1;
-    const normalizedSession = normalizeStoryInspirationSession(inspirationSession);
-    const rebasedSession = replaceMessageIndex >= 0
-      ? {
-          ...normalizedSession,
-          status: "active" as const,
-          messages: normalizedSession.messages.slice(0, replaceMessageIndex),
-          brief: {
-            ...EMPTY_INSPIRATION_BRIEF,
-            must_keep: [],
-            must_avoid: [],
-            unresolved: [],
-            additional_notes: [],
-          },
-          readyToGenerate: false,
-        }
-      : normalizedSession;
-    const baseSession = options?.briefCheckpoint
-      ? {
-          ...rebasedSession,
-          brief: mergeStoryInspirationBrief(
-            rebasedSession.brief,
-            options.briefCheckpoint,
-          ),
-        }
-      : rebasedSession;
-    if (replaceMessageIndex >= 0) setInspirationSession(baseSession);
-    if (options?.briefCheckpoint) setInspirationSession(baseSession);
-    const controller = new AbortController();
-    inspirationAbortControllerRef.current = controller;
-    const startedAt = Date.now();
-    setInspirationBusy(true);
-    setInspirationTurnStartedAt(startedAt);
-    setInspirationTurnElapsedMs(0);
-    setInspirationError(null);
-    setFailedInspirationMessage(null);
-    setFailedInspirationCandidateKey(null);
-    setPendingInspirationMessage(options?.candidateDecisionKey ? null : submitted || null);
-    if (!options?.candidateDecisionKey) setInspirationInput("");
-    try {
-      const requestProject = await ensurePlanningProject(inspirationRequestProject(activeProjectRef.current, submitted, baseSession.brief));
-      const result = await generateStoryInspirationTurn(
-        requestProject,
-        baseSession.messages,
-        baseSession.brief,
-        submitted,
-        controller.signal,
-        options?.candidateDecisionKey,
-      );
-        const nextQuestions = result.questions ?? [];
-        if (!storyInspirationTurnIsActionable(result.ready_to_generate, nextQuestions)) {
-          throw new Error("本轮没有返回可回答的问题，已停止保存这次无效响应。请重新加载本轮。");
-        }
-        const candidateReplacement = options?.candidateDecisionKey
-          ? nextQuestions.find((question) => question.decision_key === options.candidateDecisionKey)
-          : undefined;
-        if (options?.candidateDecisionKey && !candidateReplacement) {
-          throw new Error("本次未返回当前决定的候选方案，已有方案和答案已保留。");
-        }
-        const nextMessages = options?.candidateDecisionKey
-          ? replaceStoryInspirationCandidates(baseSession.messages, candidateReplacement!)
-          : [
-              ...baseSession.messages,
-              ...(submitted ? [inspirationMessage("user", submitted)] : []),
-              inspirationMessage(
-                "assistant",
-                result.assistant_message.trim(),
-                nextQuestions,
-              ),
-            ].slice(-30);
-        const nextSession: StoryInspirationSession = {
-          schemaVersion: "v1",
-          status: !options?.candidateDecisionKey && result.ready_to_generate ? "ready" : "active",
-          messages: nextMessages,
-          brief: options?.candidateDecisionKey ? baseSession.brief
-            : mergeStoryInspirationBrief(baseSession.brief, result.brief),
-          readyToGenerate: !options?.candidateDecisionKey && result.ready_to_generate,
-          updatedAt: new Date().toISOString(),
-        };
-        let persisted = true;
-        try {
-          await persistInspirationSession(nextSession);
-        } catch {
-          persisted = false;
-          setInspirationSession(nextSession);
-        }
-        setCreationSaveState(persisted ? "saved" : "error");
-        if (!options?.candidateDecisionKey) setCreationStep(result.ready_to_generate ? "review" : "questions");
-        if (options?.directSetting) {
-          setDirectInput("");
-        }
-    } catch (error) {
-      if (isRequestAborted(error, controller.signal)) {
-        if (options?.candidateDecisionKey) return;
-        const pausedSession: StoryInspirationSession = {
-          ...baseSession,
-          status: "active",
-          messages: [
-            ...baseSession.messages,
-            ...(submitted ? [inspirationMessage("user", submitted)] : []),
-            inspirationMessage("assistant", "已暂停本次思考。你可以编辑刚才的消息后重新发送。"),
-          ].slice(-30),
-          updatedAt: new Date().toISOString(),
-        };
-        try {
-          await persistInspirationSession(pausedSession);
-        } catch {
-          setInspirationSession(pausedSession);
-        }
-      } else {
-        setFailedInspirationMessage(submitted || null);
-        setFailedInspirationCandidateKey(options?.candidateDecisionKey ?? null);
-        const errorMessage = userFacingError(error, "灵感对话暂时没有完成本轮回答，请重试。");
-        setInspirationError(errorMessage);
-        if (options?.directSetting) {
-          setCreationSaveState("error");
-          setMessage(errorMessage);
-        }
-      }
-    } finally {
-      if (inspirationAbortControllerRef.current === controller) {
-        inspirationAbortControllerRef.current = null;
-      }
-      setPendingInspirationMessage(null);
-      setInspirationTurnElapsedMs(Math.max(0, Date.now() - startedAt));
-      setInspirationTurnStartedAt(null);
-      setInspirationBusy(false);
-    }
-  }
-
-  function editInspirationMessage(messageId: string, text: string) {
-    void requestInspirationTurn(text, { replaceMessageId: messageId });
-  }
-
-  function pauseInspirationThinking() {
-    inspirationAbortControllerRef.current?.abort();
-    finalInspirationGenerationAbortControllerRef.current?.abort();
-  }
-
-  function goToCreationStep(step: CreationSettingStep) {
-    if (controlsBusy || (step === "questions" && recommendedHighCompletionInput)) return;
-    setCreationStep(step);
-    setMessage(null);
-  }
-
-  function continueCreationRound(answers = roundAnswers) {
-    if (inspirationBusy || creationSaveState === "saving") return;
-    const navigation = storyInspirationRoundNavigation(activeQuestions, answers, activeQuestionIndex);
-    if (navigation.complete) {
-      const briefCheckpoint = creationBriefWithInput(previewStoryInspirationBrief(inspirationSession.brief, activeQuestions, answers), directInput, project.creativePrompt);
-      void requestInspirationTurn(buildStoryInspirationRoundMessage(activeQuestions, answers), { briefCheckpoint });
-    } else {
-      setActiveQuestionIndex(navigation.nextIndex);
-    }
-  }
-
-  function skipCreationQuestion() {
-    const question = activeQuestions[roundNavigation.index];
-    if (!question || controlsBusy) return;
-    const answers = { ...roundAnswers, [question.decision_key]: { kind: "unsure" as const, value: "", note: roundAnswers[question.decision_key]?.note ?? "" } };
-    setRoundAnswers(answers);
-    setCreationSaveState("idle");
-    continueCreationRound(answers);
-  }
-
-  async function saveCreationSetting() {
-    if (busy || inspirationBusy || creationSaveState === "saving") return;
-    setCreationSaveState("saving");
-    setMessage(null);
-    const nextSession = { ...inspirationSession, brief: creationBrief, updatedAt: new Date().toISOString() };
-    try {
-      await persistInspirationSession(nextSession);
-      setCreationSaveState("saved");
-    } catch (error) {
-      setCreationSaveState("error");
-      setMessage(userFacingError(error, "创作设定暂时未能保存，请稍后重试。"));
-    }
-  }
-
-  function continueCreationIdea() {
-    if (controlsBusy) return;
-    if (recommendedHighCompletionInput || (!directInput.trim() && inspirationSession.readyToGenerate)) {
-      goToCreationStep("review");
-      return;
-    }
-    const value = directInput.trim();
-    if (!value) { goToCreationStep("questions"); return; }
-    inspirationRecoveryAttemptedRef.current = true;
-    setCreationSaveState("idle");
-    setMessage(null);
-    void requestInspirationTurn(value, { directSetting: true, briefCheckpoint: creationBrief });
-  }
-
-  const inspirationNeedsTurn = storyInspirationSessionNeedsTurn(inspirationSession);
-  useEffect(() => {
-    if (!creationOpen || creationStep !== "questions") {
-      inspirationRecoveryAttemptedRef.current = false;
-      return;
-    }
-    if (inspirationBusy || !inspirationNeedsTurn || inspirationRecoveryAttemptedRef.current) return;
-    inspirationRecoveryAttemptedRef.current = true;
-    void requestInspirationTurn();
-  }, [creationOpen, creationStep, inspirationBusy, inspirationNeedsTurn]);
-
-  async function generateStoryBibleFromInspiration() {
-    const rawDirectInput = directInput.trim();
-    const additionalDirectInput = rawDirectInput !== project.creativePrompt.trim()
-      ? rawDirectInput
-      : "";
-    const hasDirectDirection = creationStep === "review"
-      && Boolean(rawDirectInput || project.creativePrompt.trim() || project.referenceMaterials.length);
-    const hasConversationDirection = inspirationSession.messages.some((item) => item.role === "user");
-    if (
-      busy
-      || creationStep !== "review"
-      || inspirationBusy
-      || creationSaveState === "saving"
-      || finalGenerationRequestInFlightRef.current
-      || (!inspirationSession.readyToGenerate && !hasDirectDirection && !hasConversationDirection)
-    ) return;
-    finalGenerationRequestInFlightRef.current = true;
-    const startedAt = Date.now();
-    setBusy(true);
-    setInspirationBusy(true);
-    setInspirationError(null);
-    setMessage(null);
-    setFinalGenerationStartedAt(startedAt);
-    setFinalGenerationElapsedMs(0);
-    setFinalGenerationLastDurationMs(null);
-    const controller = new AbortController();
-    finalInspirationGenerationAbortControllerRef.current = controller;
-    try {
-      const completedSession: StoryInspirationSession = {
-        ...inspirationSession,
-        status: "completed",
-        brief: creationBrief,
-        readyToGenerate: true,
-        updatedAt: new Date().toISOString(),
-      };
-      const authorInstruction = inspirationBriefInstruction(completedSession.brief, additionalDirectInput);
-      const requestProject = await ensurePlanningProject(inspirationRequestProject({
-        ...activeProjectRef.current,
-        storyBibleAuthorInstruction: authorInstruction,
-      }, additionalDirectInput, completedSession.brief));
-      const completed = await generateStoryBibleDraft(
-        requestProject,
-        undefined,
-        shouldApplyImportedStoryBibleConstraints(requestProject)
-          ? storyBibleInstructionWithImportConstraints(
-              authorInstruction,
-            )
-          : boundStoryBibleAuthorInstruction(
-              authorInstruction,
-            ),
-        controller.signal,
-        completedSession.brief.creative_decisions,
-      );
-      // Start persistence only after generation succeeds, but do not keep the
-      // completed Story Bible behind another network round trip. The session
-      // save queue continues in the background after the workspace opens.
-      void persistInspirationSession(completedSession, authorInstruction).catch(() => undefined);
-      onComplete(completed, requestProject);
-    } catch (error) {
-      const errorMessage = isRequestAborted(error, controller.signal)
-        ? "已暂停总纲生成，灵感对话和已保存内容均已保留。"
-        : userFacingError(error, "根据灵感对话生成总纲失败，已保存的对话不会丢失。");
-      setInspirationError(errorMessage);
-      setMessage(errorMessage);
-    } finally {
-      if (finalInspirationGenerationAbortControllerRef.current === controller) {
-        finalInspirationGenerationAbortControllerRef.current = null;
-      }
-      finalGenerationRequestInFlightRef.current = false;
-      setFinalGenerationLastDurationMs(Math.max(0, Date.now() - startedAt));
-      setFinalGenerationStartedAt(null);
-      setInspirationBusy(false);
-      setBusy(false);
-    }
-  }
-
   return (
-    <>
-      {!creationOpen && <div className="interactive-story-bible-resume">
-        <strong>创作设定</strong>
-        <span>{inspirationSession.readyToGenerate ? "已完成整理" : "当前进度已保留"}</span>
-        <button className="primary-action" onClick={() => setCreationOpen(true)} type="button">继续创作设定</button>
-      </div>}
-      {creationOpen && <section aria-labelledby="interactive-story-bible-title" className="creation-setting-workspace" ref={creationWorkspaceRef} tabIndex={-1}>
-        <header className="creation-setting-heading">
-          <div><h2 id="interactive-story-bible-title">创作设定</h2><span>从故事想法，到清晰的创作方向</span></div>
-          <div className="creation-heading-actions">
-            <span aria-live="polite" className={"creation-save-status" + (creationSaveState === "error" ? " is-error" : "")} role="status">{creationSaveState === "error" ? "同步失败" : creationSaveState === "saving" ? "正在保存" : creationSaveState === "saved" ? "已保存" : creationSaveState === "loaded" ? "已恢复设定" : "草稿未保存"}</span>
-            <button aria-label="保存草稿" className="workspace-tool" disabled={controlsBusy} onClick={() => void saveCreationSetting()} title="保存草稿" type="button">{creationSaveState === "saved" ? <Check aria-hidden="true" size={17} /> : <Save aria-hidden="true" size={17} />}</button>
-            <button aria-label="收起创作设定" className="workspace-tool" disabled={busy || importBusy || inspirationBusy} onClick={() => setCreationOpen(false)} title="收起创作设定" type="button"><CloseIcon /></button>
-          </div>
-        </header>
-        <div className="creation-setting-toolbar">
-          <ol aria-label="创作进度" className="creation-steps">
-            {([["idea", "补充想法"], ["questions", "确认方向"], ["review", "检查生成"]] as const).map(([step, label], index) => <li aria-current={creationStep === step ? "step" : undefined} key={step}><span>{index + 1}</span>{label}</li>)}
-          </ol>
-        </div>
-        <div className="creation-setting-body" ref={creationBodyRef}>
-          {message && <p className={"inline-notice creation-flow-message" + (creationSaveState === "error" || inspirationError ? " is-error" : "")} role={creationSaveState === "error" || inspirationError ? "alert" : "status"}>{message}</p>}
-          <div className={"creation-setting-layout is-" + creationStep}>
-            <div className="creation-setting-editor" id="creation-setting-editor" hidden={creationStep === "review" && finalGenerationStartedAt === null}>
-              {finalGenerationStartedAt !== null ? <section aria-live="polite" className="story-bible-generation-transition creation-generating" role="status">
-                <LoaderCircle aria-hidden="true" size={26} /><h4>正在生成故事总纲</h4>
-                <span>{formatGenerationDuration(finalGenerationElapsedMs)}</span>
-              </section> : creationStep === "idea" ? <>
-                <span className="creation-step-kicker">第一步 · 故事的起点</span>
-                <h3 className="creation-step-title">你想讲一个怎样的故事？</h3>
-                <p className="creation-step-description">一个主角、一场冲突，或一个念念不忘的画面，都可以从这里开始。</p>
-                <label className="creation-setting-direct-input">
-                  <span>补充想法 <small>{hasExistingCreativeDirection ? "可选" : "写下你的故事方向"}</small></span>
-                  <textarea aria-label="补充想法" disabled={controlsBusy} maxLength={2_000} onChange={(event) => { setDirectInput(event.target.value); setCreationSaveState("idle"); setMessage(null); }} placeholder="例如：小镇里唯一的修表师，发现每修好一只旧钟，就能听到失踪父亲留下的一段声音……" rows={8} value={directInput} />
-                </label>
-                <div className="creation-direct-actions"><span>{directInput.length} / 2000</span></div>
-                {inspirationBusy && <div aria-live="polite" className="creation-thinking" role="status"><LoaderCircle aria-hidden="true" size={17} />正在整理 <span>{formatGenerationDuration(inspirationTurnElapsedMs)}</span></div>}
-              </> : <StoryInspirationEditor
-                session={inspirationSession}
-                questions={activeQuestions}
-                index={roundNavigation.index}
-                answers={roundAnswers}
-                onAnswersChange={(update) => { setCreationSaveState("idle"); setRoundAnswers(update); }}
-                onQuestionChange={setActiveQuestionIndex}
-                busy={inspirationBusy}
-                saving={creationSaveState === "saving"}
-                error={inspirationError}
-                candidateRequest={Boolean(failedInspirationCandidateKey)}
-                pendingMessage={pendingInspirationMessage}
-                failedMessage={failedInspirationCandidateKey ? null : failedInspirationMessage}
-                input={inspirationInput}
-                onInputChange={setInspirationInput}
-                onSend={(value, candidateDecisionKey) => void requestInspirationTurn(value, { candidateDecisionKey })}
-                onEditMessage={editInspirationMessage}
-                onRetry={() => void requestInspirationTurn(failedInspirationMessage ?? "", { candidateDecisionKey: failedInspirationCandidateKey ?? undefined })}
-                onRefreshQuestions={(briefCheckpoint) => void requestInspirationTurn("", { briefCheckpoint })}
-                brief={creationBrief}
-                thinkingElapsedMs={inspirationTurnElapsedMs}
-              />}
-            </div>
-            <CreationSettingSummary brief={creationBrief} project={project} onAnalysis={setSourceReadiness} presentation={creationStep === "questions" ? "collapsed" : creationStep === "review" ? "review" : "aside"} />
-          </div>
-        </div>
-        <footer className="creation-setting-footer">
-          <div className="creation-back-actions">
-            {creationStep !== "idea" && <button aria-label={creationStep === "questions" && roundNavigation.index > 0 ? "上一题" : "返回修改想法"} className="creation-text-action" disabled={controlsBusy} onClick={() => creationStep === "questions" && roundNavigation.index > 0 ? setActiveQuestionIndex(roundNavigation.index - 1) : goToCreationStep("idea")} type="button"><ChevronLeft aria-hidden="true" size={16} />返回</button>}
-          </div>
-          <nav aria-label="创作步骤操作" className="creation-footer-actions">
-            {inspirationBusy && <button className="outline-action" onClick={pauseInspirationThinking} type="button"><Square aria-hidden="true" size={13} />{busy ? "暂停生成" : "暂停思考"}</button>}
-            {!inspirationBusy && creationStep === "idea" && <>
-              {canGenerateStoryBible && <button className="creation-text-action" disabled={controlsBusy} onClick={() => goToCreationStep("review")} type="button">直接检查设定</button>}
-              <button className="primary-action" disabled={controlsBusy || !canGenerateStoryBible} onClick={continueCreationIdea} type="button">{directInput.trim() && !recommendedHighCompletionInput ? "整理并继续" : "下一步"}<ChevronRight aria-hidden="true" size={16} /></button>
-            </>}
-            {!inspirationBusy && inspirationRoundState.active && <>
-              <button className="creation-text-action" disabled={controlsBusy} onClick={skipCreationQuestion} type="button">暂时跳过</button>
-              <button className="primary-action" disabled={controlsBusy || !currentAnswerComplete} onClick={() => continueCreationRound()} type="button">确认并继续<ChevronRight aria-hidden="true" size={16} /></button>
-            </>}
-            {!inspirationBusy && creationStep === "questions" && inspirationSession.readyToGenerate && <button className="primary-action" disabled={controlsBusy} onClick={() => goToCreationStep("review")} type="button">检查设定<ChevronRight aria-hidden="true" size={16} /></button>}
-            {creationStep === "review" && !inspirationBusy && <>
-              {!recommendedHighCompletionInput && <button className="creation-text-action" disabled={controlsBusy} onClick={() => {
-                goToCreationStep("questions");
-                if (inspirationSession.readyToGenerate) void requestInspirationTurn(CONTINUE_CREATION_REFINEMENT_MESSAGE, { briefCheckpoint: creationBrief });
-              }} type="button">继续完善</button>}
-              {onImport && <button className="outline-action" disabled={controlsBusy} onClick={onImport} type="button">{importBusy ? "正在导入" : "按原文导入"}</button>}
-              <button className="primary-action" disabled={!canGenerateStoryBible || controlsBusy} onClick={() => void generateStoryBibleFromInspiration()} type="button">生成故事总纲<ChevronRight aria-hidden="true" size={16} /></button>
-            </>}
-          </nav>
-        </footer>
-      </section>}
-    </>
+    <div className="story-bible-chapter-heading">
+      <div>
+        <span className="story-bible-chapter-index">总纲章节</span>
+        <h3>{title}</h3>
+        <p>{summary}</p>
+      </div>
+      {help ? <SectionHelp content={help} label="查看说明" /> : null}
+    </div>
   );
 }
 
-function formatGenerationDuration(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1_000));
-  const hours = Math.floor(totalSeconds / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  return hours > 0
-    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+function CharacterActingProfileDisclosure({
+  profile: suppliedProfile,
+  onChange,
+  onStartEditing,
+}: {
+  profile?: CharacterActingProfile | null;
+  onChange: (field: keyof CharacterActingProfile, value: string) => void;
+  onStartEditing: () => void;
+}) {
+  const editable = useContext(StoryBibleEditableContext);
+  const profile = { ...emptyCharacterActingProfile(), ...suppliedProfile };
+  return (
+    <details className="story-bible-acting-profile">
+      <summary>表演档案<span>人物的长期表演特征</span></summary>
+      <div className="story-bible-acting-profile-grid">
+        {ACTING_PROFILE_FIELDS.map((field) => (
+          <label key={field}>
+            <span>{ACTING_PROFILE_LABELS[field]}</span>
+            <textarea
+              key={profile[field]}
+              readOnly={!editable}
+              placeholder="尚未设定，可根据人物特征补充"
+              rows={3}
+              defaultValue={profile[field]}
+              onInput={(event) => {
+                if (editable && event.currentTarget.value !== profile[field]) onStartEditing();
+              }}
+              onBlur={(event) => {
+                const value = event.currentTarget.value;
+                if (value !== profile[field]) onChange(field, value);
+              }}
+            />
+          </label>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function StoryBibleField({ label, onChange, onStartEditing, value }: {
@@ -1720,6 +1205,9 @@ function StoryBibleField({ label, onChange, onStartEditing, value }: {
       <p
         className="story-bible-inline-document-text"
         contentEditable={editable}
+        onInput={(event) => {
+          if (editable && event.currentTarget.textContent !== value) onStartEditing?.();
+        }}
         onBlur={(event) => {
           if (!editable) return;
           const nextValue = event.currentTarget.textContent ?? "";
@@ -1745,6 +1233,9 @@ function InlineStoryBibleText({ onChange, onStartEditing, value }: {
     <span
       className="story-bible-inline-editable"
       contentEditable={editable}
+      onInput={(event) => {
+        if (editable && event.currentTarget.textContent !== value) onStartEditing?.();
+      }}
       onBlur={(event) => {
         if (!editable) return;
         const nextValue = event.currentTarget.textContent ?? "";

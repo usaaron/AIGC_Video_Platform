@@ -50,7 +50,7 @@ test("persisted import drafts are source-identified and preview stays non-mutati
 
   const panel = await readFile(new URL("../components/story-plan-node-panel.tsx", import.meta.url), "utf8");
   assert.match(panel, /episodePlanImportDraft/);
-  assert.match(panel, /预览不写入数据/);
-  assert.match(panel, /不会批准路线图或生成正文/);
+  assert.match(panel, /先看看已有分集规划是否完整/);
+  assert.match(panel, /再决定是否纳入当前故事/);
   assert.doesNotMatch(panel, /episodePlanImportDraft[\s\S]{0,500}status:\s*["']approved["']/);
 });

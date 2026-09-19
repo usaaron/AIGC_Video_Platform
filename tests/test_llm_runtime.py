@@ -15,6 +15,7 @@ from app.llm_runtime import (
     build_market_routed_role_adapter_from_env,
     build_planning_llm_adapter_from_env,
     build_planning_editor_llm_adapter_from_env,
+    build_storyboard_llm_adapter_from_env,
     build_script_fallback_llm_adapter_from_env,
     build_script_editor_llm_adapter_from_env,
     build_script_generation_adapter,
@@ -127,6 +128,72 @@ def test_planning_editor_role_uses_deepseek_profile(monkeypatch: pytest.MonkeyPa
     assert isinstance(adapter, RealLLMAdapter)
     assert adapter.get_model_info().model_name == "deepseek-v4-pro"
     assert adapter._base_url == "https://deepseek.example/v1"
+
+
+@pytest.mark.parametrize("deadline", [None, 420])
+def test_full_story_bible_keeps_long_budget_through_failover(monkeypatch, deadline):
+    for name in os.environ:
+        if name.startswith("LLM_"):
+            monkeypatch.delenv(name)
+    for prefix, model in (
+        ("LLM_CN_STORY_BIBLE", "gpt-6-astra"),
+        ("LLM_ASTRA_FALLBACK", "deepseek-v4-pro"),
+    ):
+        for suffix, value in {
+            "PROVIDER": "openai_compatible", "MODEL": model,
+            "API_KEY": "test-key", "BASE_URL": "https://example.test/v1",
+        }.items():
+            monkeypatch.setenv(f"{prefix}_{suffix}", value)
+        if deadline is not None:
+            monkeypatch.setenv(f"{prefix}_REQUEST_DEADLINE_SECONDS", str(deadline))
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_TIMEOUT_SECONDS", "300")
+
+    route = build_market_routed_role_adapter_from_env(
+        "STORY_BIBLE", fallback=MockLLMAdapter(),
+        default_timeout_seconds=600, default_max_retries=0,
+    )._mainland
+
+    assert isinstance(route, ModelFailoverLLMAdapter)
+    assert route._primary._request_deadline_seconds == (deadline or 600)
+    assert route._fallback._request_deadline_seconds == (deadline or 600)
+    assert route._fallback._timeout_seconds == 300
+    assert route._primary._max_retries == route._fallback._max_retries == 0
+
+
+@pytest.mark.parametrize("deadline", [None, 420])
+def test_storyboard_inherits_model_but_has_independent_deadline(monkeypatch, deadline):
+    for name in os.environ:
+        if name.startswith("LLM_"):
+            monkeypatch.delenv(name)
+    for suffix, value in {
+        "PROVIDER": "openai_compatible", "MODEL": "deepseek-v4-pro",
+        "API_KEY": "deepseek-key", "BASE_URL": "https://deepseek.example/v1",
+        "WIRE_API": "chat_completions", "TIMEOUT_SECONDS": "300",
+        "REQUEST_DEADLINE_SECONDS": "300", "MAX_RETRIES": "2",
+    }.items():
+        monkeypatch.setenv(f"LLM_PLANNING_EDITOR_{suffix}", value)
+    if deadline is not None:
+        monkeypatch.setenv("LLM_STORYBOARD_REQUEST_DEADLINE_SECONDS", str(deadline))
+
+    storyboard = build_storyboard_llm_adapter_from_env()
+    editor = build_planning_editor_llm_adapter_from_env()
+
+    assert isinstance(storyboard, RealLLMAdapter)
+    assert storyboard.get_model_info().model_name == editor.get_model_info().model_name
+    assert storyboard._base_url == editor._base_url
+    assert storyboard._request_deadline_seconds == (deadline or 600)
+    assert storyboard._max_retries == 0
+    assert editor._request_deadline_seconds == 300
+
+
+def test_storyboard_dependency_uses_full_scene_adapter(monkeypatch):
+    runtime = object()
+    factory = lambda: MockLLMAdapter()
+    monkeypatch.setattr(dependencies, "get_long_story_database_runtime", lambda: runtime)
+    monkeypatch.setattr(dependencies, "build_storyboard_llm_adapter_from_env", factory)
+    service = dependencies.get_storyboard_service()
+    assert service.repository.runtime is runtime
+    assert service.adapter_factory is factory
 
 
 @pytest.mark.parametrize("missing", ["MODEL", "BASE_URL", "API_KEY"])
@@ -431,7 +498,7 @@ def test_script_runtime_can_use_an_explicit_same_model_alternate_route(
     assert adapter._fallback._retry_empty_response is True
     assert adapter._primary._defer_schema_container_repair is True
     assert adapter._fallback._defer_schema_container_repair is True
-    assert adapter._primary._retry_gateway_stream_as_non_stream is True
+    assert adapter._primary._retry_gateway_stream_as_non_stream is False
     assert adapter._fallback._retry_gateway_stream_as_non_stream is True
     assert adapter._circuit_failure_threshold == 1
     assert adapter._circuit_cooldown_seconds == 600

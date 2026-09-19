@@ -81,6 +81,7 @@ def test_capture_and_cross_process_format_replay_are_isolated(sample, tmp_path, 
 
     def generate(self, **kwargs):
         adapter = RealLLMAdapter.__new__(RealLLMAdapter)
+        adapter._model_name = "offline-count-parser"
         return adapter._parse_json_content(json.dumps(sample["repaired_patch"]["output"]),
                                            output_schema=kwargs["output_schema"])
 

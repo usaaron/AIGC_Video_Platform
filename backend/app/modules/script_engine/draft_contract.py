@@ -8,10 +8,15 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
+import json
 
 from pydantic import ValidationError
 
-from app.modules.master_script.models import DraftMasterScript, LLMGeneratedDraftMasterScript
+from app.modules.master_script.models import (
+    DraftMasterScript,
+    LLMGeneratedDraftMasterScript,
+    normalize_screenplay_body_order,
+)
 
 
 class InvalidDraftMasterScriptOutputError(ValueError):
@@ -210,6 +215,155 @@ def build_contract_repair_schema(
     return schema
 
 
+def missing_body_order_repair_context(
+    output: dict[str, object],
+    error: ValidationError,
+) -> list[dict[str, object]] | None:
+    """Isolate missing references without guessing where the author put them."""
+
+    scenes = output.get("scenes")
+    if not isinstance(scenes, list):
+        return None
+    scene_numbers = [scene.get("scene_number") for scene in scenes if isinstance(scene, dict)]
+    if (
+        len(scene_numbers) != len(scenes)
+        or not all(type(number) is int for number in scene_numbers)
+        or len(set(scene_numbers)) != len(scene_numbers)
+    ):
+        return None
+    indices: set[int] = set()
+    for item in error.errors(include_input=False, include_url=False, include_context=False):
+        location = item["loc"]
+        if (
+            len(location) != 2 or location[0] != "scenes"
+            or type(location[1]) is not int
+            or "body_order must reference every action and dialogue exactly once" not in item["msg"]
+        ):
+            return None
+        indices.add(location[1])
+    if not indices:
+        return None
+
+    context: list[dict[str, object]] = []
+    validation_probe = deepcopy(without_metadata(output))
+    for index in sorted(indices):
+        if not 0 <= index < len(scenes) or not isinstance(scenes[index], dict):
+            return None
+        scene = scenes[index]
+        actions, dialogues, order = (
+            scene.get("character_actions"), scene.get("dialogues"), scene.get("body_order")
+        )
+        if not all(isinstance(value, list) for value in (actions, dialogues, order)):
+            return None
+        expected = [*(f"action:{i}" for i in range(len(actions))),
+                    *(f"dialogue:{i}" for i in range(len(dialogues)))]
+        if (
+            not order or not all(isinstance(ref, str) for ref in order)
+            or len(order) != len(set(order))
+            or not set(order) < set(expected)
+        ):
+            return None
+        missing = [ref for ref in expected if ref not in order]
+        context.append({
+            "scene_number": scene.get("scene_number"),
+            "scene_heading": scene.get("scene_heading"),
+            "character_actions": deepcopy(actions),
+            "dialogues": deepcopy(dialogues),
+            "body_order": list(order),
+            "missing_references": missing,
+        })
+        # This arbitrary completion is only a validation probe. Never return it:
+        # the missing item's position relative to dialogue needs an author decision.
+        validation_probe["scenes"][index]["body_order"] = [*order, *missing]
+    try:
+        # Scene before-validators can hide other field/root errors. A compact
+        # order patch is appropriate only when all other contracts already hold.
+        LLMGeneratedDraftMasterScript.model_validate(validation_probe)
+    except ValidationError:
+        return None
+    return context
+
+
+def build_body_order_repair_schema(context: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "title": "DraftBodyOrderRepairPatch",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["scenes"],
+        "properties": {"scenes": {
+            "type": "array", "minItems": len(context), "maxItems": len(context),
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["scene_number", "body_order"],
+                "properties": {
+                    "scene_number": {"type": "integer", "enum": [scene["scene_number"] for scene in context]},
+                    "body_order": {
+                        "type": "array", "minItems": 1, "maxItems": 59,
+                        "items": {"type": "string", "pattern": r"^(?:action|dialogue):(?:0|[1-9]\d*)$"},
+                    },
+                },
+            },
+        }},
+    }
+
+
+def build_body_order_repair_prompt(context: list[dict[str, object]]) -> str:
+    return f"""Repair only missing body_order references in the supplied scenes.
+The actions, dialogue, and existing relative performance order are fixed. Read the body to
+decide where each missing reference belongs. Insert every missing reference exactly once;
+retain all existing references in their original relative order. Do not rewrite any content.
+References are zero-based action:0 / dialogue:0 indices into the supplied arrays.
+
+Return exactly the requested scenes as {{"scenes":[{{"scene_number":1,"body_order":[...]}}]}}.
+Each scene may contain only scene_number and body_order. Do not return body text, other
+scene fields, unchanged scenes, explanations, or Markdown.
+
+Scenes requiring missing-reference insertion:
+{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}"""
+
+
+def merge_body_order_repair_fragment(
+    original: dict[str, object],
+    fragment: dict[str, object],
+    context: list[dict[str, object]],
+) -> dict[str, object] | None:
+    """Allow only insertions into the requested orders; keep every other byte."""
+
+    payload = without_metadata(fragment)
+    patches = payload.get("scenes")
+    if set(payload) != {"scenes"} or not isinstance(patches, list) or len(patches) != len(context):
+        return None
+    requested = {scene["scene_number"]: scene for scene in context}
+    orders: dict[int, list[str]] = {}
+    for patch in patches:
+        if not isinstance(patch, dict) or set(patch) != {"scene_number", "body_order"}:
+            return None
+        number = patch["scene_number"]
+        if type(number) is not int or number not in requested or number in orders:
+            return None
+        scene = requested[number]
+        if not isinstance(patch["body_order"], list) or not all(
+            isinstance(reference, str) for reference in patch["body_order"]
+        ):
+            return None
+        try:
+            order = normalize_screenplay_body_order(
+                patch["body_order"], action_count=len(scene["character_actions"]),
+                dialogue_count=len(scene["dialogues"]), allow_legacy_fallback=False,
+            )
+        except ValueError:
+            return None
+        original_refs = set(scene["body_order"])
+        if [ref for ref in order if ref in original_refs] != scene["body_order"]:
+            return None
+        orders[number] = order
+    merged = deepcopy(original)
+    for scene in merged["scenes"]:
+        if scene["scene_number"] in orders:
+            scene["body_order"] = orders[scene["scene_number"]]
+    return merged
+
+
 def merge_contract_repair_fragment(
     original: dict[str, object],
     fragment: dict[str, object],
@@ -222,7 +376,17 @@ def merge_contract_repair_fragment(
     root_fields = set(LLMGeneratedDraftMasterScript.model_fields)
     if set(payload).issubset(root_fields):
         merged = deepcopy(original)
-        merged.update(payload)
+        def apply_fields(target: dict[str, object], patch: dict[str, object]) -> None:
+            # A nested repair may contain just the invalid field. Omission is
+            # not deletion; explicit nulls and lists still replace the value.
+            for key, value in patch.items():
+                current = target.get(key)
+                if isinstance(current, dict) and isinstance(value, dict):
+                    apply_fields(current, value)
+                else:
+                    target[key] = deepcopy(value)
+
+        apply_fields(merged, payload)
         return merged
 
     fragment_targets: tuple[tuple[str, tuple[str, ...]], ...] = (

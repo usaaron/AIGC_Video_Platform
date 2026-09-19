@@ -46,7 +46,7 @@ export interface EpisodeQualityReview {
     estimatedDurationSeconds: EpisodeQualityMetricRange;
   };
   dialogueFunctionReview: {
-    status: "warning" | "within_range";
+    status: "diagnostic_only";
     lineCount: number;
     classifiedLineCount: number;
     classifiedLineRatio: number;
@@ -126,7 +126,7 @@ export function episodeQualityReview(
 ): EpisodeQualityReview | null {
   const raw = record(draftMetadata(draft).episode_quality_review);
   if (raw?.schema_version !== "episode_quality_review.v1") return null;
-  const status = raw.status === "review_required"
+  const storedStatus = raw.status === "review_required"
     ? "review_required"
     : raw.status === "review_signal_ready"
       ? "review_signal_ready"
@@ -138,7 +138,7 @@ export function episodeQualityReview(
       : raw.design_evidence_status === "review_signal_ready"
         ? "review_signal_ready"
         : null;
-  if (!status || !designEvidenceStatus) return null;
+  if (!storedStatus || !designEvidenceStatus) return null;
 
   const production = record(raw.production_count_review);
   const metrics = record(production?.metrics);
@@ -245,10 +245,28 @@ export function episodeQualityReview(
       value !== null
     ));
 
+  // Legacy keyword-only warnings are diagnostic too. Keep other saved risks,
+  // including partial reports whose nested warnings lack a top-level reason.
+  const storedReasons = strings(raw.review_reasons);
+  const reviewReasons = storedReasons.filter((reason) => reason !== "dialogue_function_warning");
+  const hasOtherReviewSignal = production.status === "warning"
+    || warningMetrics.size > 0
+    || designEvidenceStatus === "review_required"
+    || costStatus === "review_required"
+    || nonNegativeNumber(raw.review_required_unit_count) > 0
+    || unitReviews.some((unit) => unit.status === "review_required")
+    || segmented.status === "review_required"
+    || segments.some((segment) => segment.status === "review_required");
+  const status = storedStatus === "review_required"
+    && storedReasons.includes("dialogue_function_warning")
+    && reviewReasons.length === 0 && !hasOtherReviewSignal
+    ? "review_signal_ready"
+    : storedStatus;
+
   return {
     schemaVersion: "episode_quality_review.v1",
     status,
-    reviewReasons: strings(raw.review_reasons),
+    reviewReasons,
     designEvidenceStatus,
     dramaticUnitCount: nonNegativeNumber(raw.dramatic_unit_count),
     candidateUnitCount: nonNegativeNumber(raw.candidate_unit_count),
@@ -267,7 +285,7 @@ export function episodeQualityReview(
       estimatedDurationSeconds,
     },
     dialogueFunctionReview: {
-      status: dialogue.status === "warning" ? "warning" : "within_range",
+      status: "diagnostic_only",
       lineCount: nonNegativeNumber(dialogue.line_count),
       classifiedLineCount: nonNegativeNumber(dialogue.classified_line_count),
       classifiedLineRatio: nonNegativeNumber(dialogue.classified_line_ratio),

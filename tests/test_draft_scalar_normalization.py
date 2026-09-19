@@ -130,6 +130,41 @@ def test_normalization_keeps_complete_body_and_explicit_hook_fields():
     assert "summary" not in output["continuation_hook"]
 
 
+@pytest.mark.parametrize("partial", [False, True])
+@pytest.mark.parametrize("has_canonical_values", [False, True])
+def test_hook_next_step_aliases_preserve_evidence_and_canonical_values(partial, has_canonical_values):
+    output = {
+        "continuation_hook": {
+            "hook_type": "decision",
+            "hook_text": "Mara takes the letter to its owner.",
+            "next_required_step": "Ask the owner to identify the seal.",
+            "payoff_target_episode": "Episode 8",
+            "responds_to_episode": 6,
+            "previous_hook_response": "Mara found the address inside the letter.",
+            "response_evidence_scene_numbers": [2],
+        },
+    }
+    if has_canonical_values:
+        output["continuation_hook"].update({
+            "next_episode_obligation": "Follow the already approved courier.",
+            "target_payoff_episode": 9,
+        })
+    normalize_draft_scalar_contracts(output, partial=partial)
+
+    from app.modules.master_script.models import ContinuationHookState
+
+    hook = ContinuationHookState.model_validate(output["continuation_hook"])
+    assert hook.next_episode_obligation == (
+        "Follow the already approved courier." if has_canonical_values
+        else "Ask the owner to identify the seal."
+    )
+    assert hook.target_payoff_episode == (9 if has_canonical_values else 8)
+    assert hook.previous_hook_response == "Mara found the address inside the letter."
+    assert hook.responds_to_episode == 6
+    assert hook.response_evidence_scene_numbers == [2]
+    assert hook.ending_hook_summary == "Mara takes the letter to its owner."
+
+
 def test_concurrent_payloads_do_not_share_scene_maps_or_mutate_alias_policy():
     def normalize(scene_number):
         output = {

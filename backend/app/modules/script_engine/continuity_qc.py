@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from app.modules.master_script.models import DraftMasterScript
+from app.modules.script_engine.setup_payoff_provenance import stable_setup_payoff_id
 from app.modules.script_engine.models import (
     ContinuityQCIssue,
     ContinuityQCIssueSeverity,
@@ -92,12 +93,24 @@ def evaluate_episode_continuity(
             decoded_checkpoint = None
         if isinstance(decoded_checkpoint, dict):
             checkpoint = decoded_checkpoint
-        elif not context.storyline_duties and not issues:
+        elif (not context.storyline_duties and not issues and context.memory_recall is None
+              and context.approved_episode_plan is None):
             return ContinuityQCReport(
                 status=ContinuityQCStatus.not_applicable,
                 current_episode_number=context.episode_number,
             )
-    elif not context.storyline_duties and not issues:
+    checkpoint = _merge_memory_recall_checkpoint(checkpoint, context)
+    plan_requires_continuity_check = bool(
+        context.approved_episode_plan
+        and (
+            context.planned_setup_refs
+            or context.planned_payoff_refs
+            or context.storyline_duties
+            or (context.memory_recall and context.memory_recall.same_episode_setup_payoffs)
+        )
+    )
+    if (not checkpoint and not context.storyline_duties and not issues
+            and not plan_requires_continuity_check):
         return ContinuityQCReport(
             status=ContinuityQCStatus.not_applicable,
             current_episode_number=context.episode_number,
@@ -137,6 +150,104 @@ def evaluate_episode_continuity(
         blocking_issue_count=blocking_count,
         warning_count=warning_count,
     )
+
+
+def _merge_memory_recall_checkpoint(
+    checkpoint: dict[str, Any],
+    context: EpisodeGenerationContext,
+) -> dict[str, Any]:
+    """Project task-scoped recall into the QC checkpoint without losing canon.
+
+    Recall is provisional and may only supplement the persisted checkpoint.  For
+    each capsule we merge keyed knowledge and constraints onto a matching
+    character record, or create a minimal synthetic character record when the
+    canonical checkpoint has no such entity yet.  Existing canonical fields
+    remain authoritative; only missing values are filled.
+    """
+    recall = context.memory_recall
+    if recall is None:
+        return checkpoint
+    merged = dict(checkpoint)
+    merged.setdefault("through_episode_number", recall.through_episode_number)
+    character_states = [dict(item) for item in _records(merged.get("character_states"))]
+    by_ref = {
+        str(item.get("character_ref", "")).strip(): item
+        for item in character_states
+        if str(item.get("character_ref", "")).strip()
+    }
+    for capsule in recall.capsules:
+        data = capsule.model_dump(mode="json")
+        refs = [str(ref).strip() for ref in data.get("entity_refs", []) if str(ref).strip()]
+        knowledge = [dict(item) for item in data.get("knowledge_states", []) if isinstance(item, dict)]
+        constraints = [str(item).strip() for item in data.get("active_constraints", []) if str(item).strip()]
+        structured_fields = {
+            key: data.get(key)
+            for key in (
+                "life_status", "physical_state", "location", "belief_or_attitude",
+                "personality_development", "health_conditions", "action_capabilities",
+                "lasting_marks",
+            )
+            if data.get(key) not in (None, "", [], {})
+        }
+        if "life_status" not in structured_fields:
+            summary = str(data.get("summary", "")).strip()
+            if summary and _summary_indicates_dead(summary):
+                structured_fields["life_status"] = "dead"
+        if not refs and not knowledge and not constraints and not structured_fields:
+            continue
+        target_refs = refs or [f"memory.{data.get('capsule_id', 'capsule')}"]
+        if not knowledge and str(data.get("summary", "")).strip():
+            knowledge = [{
+                "knowledge_key": str(data.get("capsule_id", "memory.capsule")),
+                "statement": str(data["summary"]).strip(),
+                "status": "known",
+                "source_episode_number": data.get("source_episode"),
+                "evidence_scene_numbers": data.get("source_scene_numbers", []),
+            }]
+        for ref in target_refs:
+            state = by_ref.get(ref)
+            if state is None:
+                state = {
+                    "character_ref": ref,
+                    "aliases": list(dict.fromkeys([ref, ref.rsplit(".", 1)[-1]])),
+                    "knowledge_states": [],
+                    "active_constraints": [],
+                }
+                by_ref[ref] = state
+                character_states.append(state)
+            for key, value in structured_fields.items():
+                # Canonical checkpoint values win; recall only fills gaps.
+                if state.get(key) in (None, "", [], {}):
+                    state[key] = value
+            existing_knowledge = {
+                str(item.get("knowledge_key")): item
+                for item in _records(state.get("knowledge_states"))
+                if item.get("knowledge_key")
+            }
+            for item in knowledge:
+                key = str(item.get("knowledge_key", "")).strip()
+                if key and key not in existing_knowledge:
+                    state.setdefault("knowledge_states", []).append(item)
+            existing_constraints = set(_string_list(state.get("active_constraints")))
+            for constraint in constraints:
+                if constraint not in existing_constraints:
+                    state.setdefault("active_constraints", []).append(constraint)
+                    existing_constraints.add(constraint)
+    if character_states:
+        merged["character_states"] = character_states
+    return merged
+
+
+def _summary_indicates_dead(summary: str) -> bool:
+    """Recognize explicit death statements in legacy summary-only capsules."""
+    if re.search(r"(?:未死|没有死|not\s+dead|still\s+alive|活着)", summary, re.IGNORECASE):
+        return False
+    return bool(re.search(
+        r"(?:已|已经|确认)?(?:死亡|去世|死去|已死|不在了)|"
+        r"\b(?:dead|died|deceased|has\s+passed\s+away)\b",
+        summary,
+        re.IGNORECASE,
+    ))
 
 
 def _character_issues(
@@ -405,9 +516,12 @@ def _storyline_duty_issues(
                     entity_name=duty_id,
                     summary=f"故事线职责 {duty_id} 的状态记录没有落在指定场景内。",
                     prior_state=duty.required_progress,
-                    current_evidence=(update.progress_summary or "未提供推进摘要")[:500],
+                    current_evidence=(
+                        f"已批准可用场次：{sorted(valid_assigned)}；实际证据引用：{sorted(evidence)}。"
+                        + (update.progress_summary or "未提供推进摘要")
+                    )[:500],
                     prior_episode_number=duty.last_progressed_episode,
-                    scene_numbers=sorted(evidence),
+                    scene_numbers=sorted(evidence | valid_assigned),
                     suggested_action="让 evidence_scene_numbers 与 assigned_scene_numbers 一致，并在这些场景完成推进。",
                 ))
             unsupported = [
@@ -475,25 +589,29 @@ def _storyline_scene_has_evidence(scene: Any, update: Any) -> bool:
     normalized_values = " ".join(value.casefold() for value in values if value)
     summary_tokens = _storyline_evidence_tokens(update.progress_summary)
     cause_tokens = _storyline_evidence_tokens(update.change_cause)
-    # A matching phrase in the scene's visible/cause text is required. Merely
-    # returning a well-formed scene_causality object must not satisfy a duty.
+    # Search the whole bounded statement: a later clause may carry this scene's
+    # evidence while the opening names another scene or supplies background.
+    # Merely returning a scene_causality object must not satisfy a duty.
     if update.progress_summary.casefold() in normalized_values:
         return True
     summary_matches = sum(
-        token in normalized_values for token in summary_tokens[:8]
+        token in normalized_values for token in summary_tokens
     )
     cause_matches = sum(
-        token in normalized_values for token in cause_tokens[:8]
+        token in normalized_values for token in cause_tokens
     )
     return summary_matches >= (1 if len(summary_tokens) <= 2 else 2) or cause_matches >= 2
 
 
 def _storyline_evidence_tokens(value: str) -> list[str]:
     tokens: list[str] = []
+    common_words = {"the", "and", "that", "this", "with", "from", "into", "onto",
+                    "for", "after", "before", "has", "have", "had", "was", "were",
+                    "its", "her", "his", "their", "then", "through", "she", "him"}
     for chunk in re.findall(r"[A-Za-z0-9_]{3,}|[\u4e00-\u9fff]{2,}", value.casefold()):
         if re.fullmatch(r"[\u4e00-\u9fff]+", chunk):
             tokens.extend(chunk[index:index + 2] for index in range(len(chunk) - 1))
-        else:
+        elif chunk not in common_words:
             tokens.append(chunk)
     return list(dict.fromkeys(tokens))
 
@@ -586,22 +704,53 @@ def _setup_payoff_issues(
 ) -> list[ContinuityQCIssue]:
     issues: list[ContinuityQCIssue] = []
     ledger_records = {
-        str(item.get("setup_payoff_id", "")).strip(): item
+        str(item.get("source_ref") or item.get("setup_payoff_id", "")).strip(): item
         for item in _records(
             checkpoint.get("open_setup_payoffs") or checkpoint.get("setup_payoffs")
         )
         if str(item.get("setup_payoff_id", "")).strip()
         and not str(item.get("setup_payoff_id", "")).startswith("hook.")
     }
-    updates = {
-        update.setup_payoff_ref: update for update in draft.setup_payoff_updates
-    }
+    for record in context._persisted_setup_payoff_records:
+        ledger_records[record["source_ref"]] = record
+    approved_plan = context.approved_episode_plan
     planned_setups = {value.strip() for value in context.planned_setup_refs if value.strip()}
     planned_payoffs = {value.strip() for value in context.planned_payoff_refs if value.strip()}
+    identity_refs = ({value.strip() for value in [*approved_plan.setup_refs, *approved_plan.payoff_refs]
+                      if value.strip()} if approved_plan is not None else planned_setups | planned_payoffs)
+    # Older saved ledgers may carry only their technical ID. Resolve only an
+    # exact approved hash or a unique persisted ID/source pair, never prose
+    # similarity, delimiter splitting, or a guessed knowledge-library alias.
+    identity_sources: dict[str, set[str]] = {}
+    for reference in identity_refs:
+        identity_sources.setdefault(stable_setup_payoff_id(reference), set()).add(reference)
+    for reference, record in ledger_records.items():
+        identity_sources.setdefault(str(record["setup_payoff_id"]).strip(), set()).add(reference)
+
+    def resolve_identity(reference: str) -> str:
+        reference = reference.strip()
+        if reference in identity_refs or reference in ledger_records:
+            return reference
+        sources = identity_sources.get(reference, set())
+        return next(iter(sources)) if len(sources) == 1 else reference
+
+    updates = {
+        # An explicit unknown source must not be hidden by a valid technical ID.
+        resolve_identity(update.source_ref or update.setup_payoff_ref): update
+        for update in draft.setup_payoff_updates
+    }
+    current_sources = context._verified_same_episode_setup_payoff_refs
+    scene_numbers = {scene.scene_number for scene in draft.scenes}
+    current_payoffs = {
+        reference for reference, update in updates.items()
+        if reference in current_sources and update.action == "payoff"
+        and update.evidence_scene_numbers
+        and set(update.evidence_scene_numbers) <= scene_numbers
+    }
 
     for setup_ref in sorted(planned_setups):
         update = updates.get(setup_ref)
-        if update is not None and update.action in {"setup", "reinforce"}:
+        if update is not None and (update.action in {"setup", "reinforce"} or setup_ref in current_payoffs):
             continue
         issues.append(_issue(
             issue_type=ContinuityQCIssueType.missing_planned_setup,
@@ -642,12 +791,13 @@ def _setup_payoff_issues(
             suggested_action="用可见事件完成部分或全部答案，并明确剩余义务，不能只在对白中口头宣布。",
         ))
 
-    planned_refs = planned_setups | planned_payoffs
+    planned_refs = identity_refs
     for setup_ref, update in updates.items():
         if setup_ref not in planned_refs and setup_ref not in ledger_records:
             issues.append(_issue(
                 issue_type=ContinuityQCIssueType.unknown_setup_payoff,
-                severity=ContinuityQCIssueSeverity.warning,
+                severity=(ContinuityQCIssueSeverity.blocking if approved_plan is not None
+                          else ContinuityQCIssueSeverity.warning),
                 entity_key=setup_ref,
                 entity_name=setup_ref,
                 summary=f"本集新增了未在规划或既有账本中登记的伏笔引用 {setup_ref}。",
@@ -657,7 +807,7 @@ def _setup_payoff_issues(
                 scene_numbers=list(update.evidence_scene_numbers),
                 suggested_action="改用批准的 setup/payoff ref，或先在剧情规划中登记新伏笔。",
             ))
-        if update.action == "payoff" and setup_ref not in ledger_records:
+        if update.action == "payoff" and setup_ref not in ledger_records and setup_ref not in current_payoffs:
             issues.append(_issue(
                 issue_type=ContinuityQCIssueType.setup_payoff_plan_deviation,
                 severity=ContinuityQCIssueSeverity.warning,

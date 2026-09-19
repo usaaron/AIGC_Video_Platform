@@ -39,7 +39,7 @@ def test_overseas_market_contract_keeps_creator_chinese_and_delivery_english() -
     assert "specific country" in contract.prompt_contract
     assert "creator-facing planning artifacts" in contract.prompt_contract
     assert "English-language overseas/international cultural context" in contract.prompt_contract
-    assert contract.language_name == "Simplified Chinese (zh-CN)"
+    assert contract.language_name == "Simplified Chinese (zh-CN), with stable English character names"
 
 
 def test_platform_and_content_spec_market_paths_cannot_conflict() -> None:

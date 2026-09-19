@@ -9,7 +9,7 @@ import {
 
 const source = (relativePath) => readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
 
-test("planning requires a saved checkpoint before approval and locks the approved session", async () => {
+test("planning saves approval before entering script and locks the approved session", async () => {
   const panel = await source("components/story-plan-node-panel.tsx");
 
   assert.match(
@@ -23,8 +23,12 @@ test("planning requires a saved checkpoint before approval and locks the approve
   );
   assert.match(
     panel,
-    /confirmPlanning[\s\S]*!planningCheckpointSaved[\s\S]*phase: "script",[\s\S]*status: "approved"/,
+    /async function confirmPlanning[\s\S]*syncProjectSnapshot\(requestProject\)[\s\S]*phase: "script",[\s\S]*status: "approved"[\s\S]*await savePlanningSession[\s\S]*await persistProjectUpdate[\s\S]*router\.push/,
   );
+  assert.match(panel, /outputModeChoiceOpen/);
+  assert.match(panel, /productionOutputMode: outputMode/);
+  assert.match(panel, /只要剧本/);
+  assert.match(panel, /直接出分镜/);
   assert.match(panel, /registerRevision[\s\S]*markPlanningAwaitingReview\(\)/);
   assert.match(panel, /status: "awaiting_review"/);
   assert.match(panel, /disabled=\{planningLocked \|\| !assistant/);

@@ -4,6 +4,7 @@ from typing import NoReturn
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import ValidationError
 
+from app.api.generation_errors import _generation_failure_headers
 from app.dependencies import (
     get_episode_roadmap_agent,
     get_long_story_service,
@@ -34,6 +35,7 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanBatchDraftRequest,
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
+    EpisodePlanItemPreparationRequest,
     EpisodePlanListResponse,
     EpisodePlanMaterializationCreate,
     EpisodePlanMaterializationListResponse,
@@ -58,6 +60,8 @@ from app.modules.script_engine.long_story_models import (
     StoryBibleInteractiveStepResponse,
     StoryInspirationChatRequest,
     StoryInspirationChatResponse,
+    StorySynopsisDraftRequest,
+    StorySynopsisDraftResponse,
     StoryBibleModificationRequest,
     StoryBibleResponse,
     StoryPlanNode,
@@ -72,6 +76,7 @@ from app.modules.script_engine.long_story_models import (
     StoryProjectDeletionResponse,
     StoryProjectListResponse,
     StoryProjectResponse,
+    StoryProjectStatus,
     StoryProjectWorkspaceResponse,
     StoryProjectWorkspaceSave,
     StoryStagePlan,
@@ -92,9 +97,11 @@ from app.modules.script_engine.llm_adapter import (
     LLMStructuredOutputError,
     MissingLLMConfigurationError,
 )
+from app.modules.script_engine.planning_call_budget import PlanningCallBudgetExceeded
 from app.modules.script_engine.story_planning_service import (
     STORY_BIBLE_IMPORT_INSTRUCTION,
     StoryPlanningInputError,
+    StoryBibleLanguageRepairPendingError,
     StoryPlanningService,
     StoryPlanningTransientOutputError,
     is_transient_story_planning_output_error,
@@ -117,19 +124,6 @@ def _source_import_author_instruction(author_instruction: str) -> str:
     # it away when a previous planning session supplied a long instruction.
     prefix_budget = max(0, 7_500 - len(contract) - 2)
     return f"{prefix[:prefix_budget]}\n\n{contract}"
-
-
-def _generation_failure_headers(
-    *,
-    retryable: bool,
-    failure_class: str,
-    error_type: str,
-) -> dict[str, str]:
-    return {
-        "X-Generation-Retryable": "true" if retryable else "false",
-        "X-Generation-Failure-Class": failure_class,
-        "X-Generation-Error-Type": error_type,
-    }
 
 
 def _raise_planning_configuration_unavailable(
@@ -185,7 +179,7 @@ def _raise_planning_upstream_unavailable(
     if provider_status == status.HTTP_429_TOO_MANY_REQUESTS:
         response_status = status.HTTP_429_TOO_MANY_REQUESTS
         detail = "剧情规划模型当前请求较多，已保存的规划内容不会丢失，请稍后继续。"
-    elif category == "timeout":
+    elif category in {"timeout", "deadline"}:
         response_status = status.HTTP_503_SERVICE_UNAVAILABLE
         detail = "剧情规划模型响应超时，已保存的规划内容不会丢失，请重试当前部分。"
     elif category == "empty_response":
@@ -361,6 +355,8 @@ def generate_creative_directions(
         directions = service.generate_creative_directions(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -407,15 +403,28 @@ def list_story_projects(
     include_archived: bool = Query(default=False),
     service: LongStoryService = Depends(get_long_story_service),
 ) -> StoryProjectListResponse:
-    projects, total = service.list_projects(
-        limit=limit,
-        offset=offset,
-        include_archived=include_archived,
-    )
     host_context = getattr(request.state, "host_context", None)
     if host_context is not None and host_context.project_id:
-        projects = [project for project in projects if project.project_id == host_context.project_id]
+        # Apply host scope before pagination so an older bound project cannot
+        # disappear behind unrelated projects on the account's first page.
+        try:
+            project = service.get_project(host_context.project_id)
+        except LongStoryNotFoundError:
+            projects = []
+        else:
+            projects = (
+                [project]
+                if include_archived or project.status != StoryProjectStatus.archived
+                else []
+            )
         total = len(projects)
+        projects = projects[offset:offset + limit]
+    else:
+        projects, total = service.list_projects(
+            limit=limit,
+            offset=offset,
+            include_archived=include_archived,
+        )
     return StoryProjectListResponse(
         data=projects,
         total=total,
@@ -812,6 +821,17 @@ def _story_bible_draft_response(
         story_bible = service.generate_story_bible_draft(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
+    except StoryBibleLanguageRepairPendingError as exc:
+        logger.warning("Story Bible retained for language repair project=%s reason=%s", project_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="故事总纲还有少量内容未完成中文转换。已保留生成进度，请重试继续修正。",
+            headers=_generation_failure_headers(
+                retryable=False, failure_class="contract", error_type="language_repair_pending",
+            ),
+        ) from exc
     except StoryPlanningInputError as exc:
         logger.warning(
             "Story Bible generation rejected project=%s reason=%s",
@@ -934,6 +954,8 @@ def generate_story_bible_interactive_step(
         )
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except (ValidationError, LLMStructuredOutputError) as exc:
@@ -944,6 +966,36 @@ def generate_story_bible_interactive_step(
         _raise_planning_upstream_unavailable(
             exc, artifact="story_bible_interactive_step", project_id=project_id,
         )
+
+
+@router.post(
+    "/{project_id}/story-bibles/synopsis-draft",
+    response_model=StorySynopsisDraftResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+        422: {"model": LongStoryErrorResponse},
+        503: {"model": LongStoryErrorResponse},
+        429: {"model": LongStoryErrorResponse},
+    },
+)
+def generate_story_synopsis_draft(
+    project_id: str,
+    payload: StorySynopsisDraftRequest,
+    service: StoryPlanningService = Depends(get_story_planning_service),
+) -> StorySynopsisDraftResponse:
+    if payload.story_project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Synopsis draft project ID mismatch.")
+    try:
+        return StorySynopsisDraftResponse(data=service.generate_story_synopsis_draft(payload))
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except StoryPlanningInputError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except MissingLLMConfigurationError as exc:
+        _raise_planning_configuration_unavailable(exc)
+    except LLMRequestError as exc:
+        _raise_planning_upstream_unavailable(exc, artifact="story_synopsis_draft", project_id=project_id)
 
 
 @router.post(
@@ -969,6 +1021,8 @@ def generate_story_inspiration_turn(
         )
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except (ValidationError, LLMStructuredOutputError) as exc:
@@ -997,6 +1051,8 @@ def complete_story_bible_interactive(
         return StoryBibleResponse(data=service.complete_interactive_story_bible(payload))
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except (ValidationError, LLMStructuredOutputError) as exc:
@@ -1038,6 +1094,8 @@ def modify_story_bible(
         candidate = service.modify_story_bible(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1134,6 +1192,8 @@ def generate_story_plan_node_draft(
         node = service.generate_story_plan_node_draft(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1176,6 +1236,8 @@ def modify_story_plan_node(
         candidate = service.modify_story_plan_node(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1259,6 +1321,16 @@ def decompose_story_plan_node(
         )
     try:
         nodes = service.decompose_story_plan_node(payload)
+    except PlanningCallBudgetExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+            headers=_generation_failure_headers(
+                retryable=False,
+                failure_class="planning_call_budget_exhausted",
+                error_type="planning_call_budget_exhausted",
+            ),
+        ) from exc
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
     except (LongStoryPersistenceConflictError, LongStoryReferenceError) as exc:
@@ -1314,6 +1386,8 @@ def run_story_plan_quality_agent(
         result = agent.run(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1390,6 +1464,8 @@ def generate_episode_plan_batch(
         plans = service.generate_episode_plan_batch(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1436,6 +1512,8 @@ def generate_episode_plan_chunk(
         result = agent.run_chunk(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1477,7 +1555,7 @@ def generate_episode_plan_chunk(
         ) from exc
     response.headers["X-Agent-Run-ID"] = result.run.run_id
     response.headers["X-Agent-Run-Attempt"] = str(result.run.attempt_count)
-    return EpisodeRoadmapDraftResponse(data=result.items)
+    return EpisodeRoadmapDraftResponse(data=result.items, rebuild_receipt=result.rebuild_receipt)
 
 
 @router.post(
@@ -1511,6 +1589,8 @@ def generate_episode_plan_item(
         plan = service.generate_episode_plan_item(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1564,6 +1644,8 @@ def run_episode_roadmap_agent(
         result = agent.run(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1617,6 +1699,58 @@ def run_episode_roadmap_agent(
 
 
 @router.post(
+    "/{project_id}/plan-nodes/{node_id}/episode-plans/{episode_number}/prepare",
+    response_model=EpisodeRoadmapItemDraftResponse,
+    responses={
+        404: {"model": LongStoryErrorResponse},
+        409: {"model": LongStoryErrorResponse},
+        422: {"model": LongStoryErrorResponse},
+        503: {"model": LongStoryErrorResponse},
+        429: {"model": LongStoryErrorResponse},
+    },
+)
+def prepare_episode_plan_item(
+    project_id: str,
+    node_id: str,
+    episode_number: int,
+    payload: EpisodePlanItemPreparationRequest,
+    service: StoryPlanningService = Depends(get_story_planning_service),
+) -> EpisodeRoadmapItemDraftResponse:
+    if (
+        payload.story_project_id != project_id
+        or payload.source_node_id != node_id
+        or payload.episode_number != episode_number
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Episode Plan preparation path identity must match the payload.",
+        )
+    try:
+        plan = service.prepare_episode_plan_item(payload)
+    except LongStoryNotFoundError as exc:
+        _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
+    except StoryPlanningInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except (ValidationError, LLMStructuredOutputError) as exc:
+        _raise_planning_output_incomplete(exc)
+    except MissingLLMConfigurationError as exc:
+        _raise_planning_configuration_unavailable(exc)
+    except LLMRequestError as exc:
+        _raise_planning_upstream_unavailable(
+            exc,
+            artifact="episode_roadmap_item_preparation",
+            project_id=project_id,
+            node_id=node_id,
+        )
+    return EpisodeRoadmapItemDraftResponse(data=plan)
+
+
+@router.post(
     "/{project_id}/plan-nodes/{node_id}/episode-plans/{episode_number}/modify",
     response_model=EpisodeRoadmapItemDraftResponse,
     responses={
@@ -1647,6 +1781,8 @@ def modify_episode_plan_item(
         plan = service.modify_episode_plan_item(payload)
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)
+    except LongStoryPersistenceConflictError as exc:
+        _raise_conflict(exc)
     except StoryPlanningInputError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1680,6 +1816,7 @@ def save_story_plan_node(
     version: int,
     payload: StoryPlanNode,
     descendant_policy: str = Query(default="invalidate", pattern="^(invalidate|rebase)$"),
+    planning_revision_epoch: int = Query(default=0, ge=0),
     service: LongStoryService = Depends(get_long_story_service),
 ) -> StoryPlanNodeResponse:
     _validate_versioned_path(
@@ -1695,6 +1832,7 @@ def save_story_plan_node(
         node = service.save_story_plan_node(
             payload,
             descendant_policy=descendant_policy,
+            planning_revision_epoch=planning_revision_epoch,
         )
     except LongStoryNotFoundError as exc:
         _raise_not_found(exc)

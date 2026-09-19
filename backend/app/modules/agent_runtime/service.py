@@ -22,6 +22,10 @@ from app.modules.agent_runtime.repository import (
     AgentRunRepository,
 )
 from app.modules.agent_runtime.runtime import AgentSession
+from app.modules.script_engine.long_story_repository import (
+    LongStoryPersistenceConflictError,
+    LongStoryRepository,
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,7 @@ class AgentRunService:
         input_fingerprint: str,
         project_id: str | None = None,
         episode_number: int | None = None,
+        planning_revision_epoch: int = 0,
     ) -> AgentSessionStart:
         record = AgentRunRecord(
             agent_name=agent_name,
@@ -81,16 +86,19 @@ class AgentRunService:
             input_fingerprint=input_fingerprint,
             project_id=project_id,
             episode_number=episode_number,
+            planning_revision_epoch=planning_revision_epoch,
             owner_instance_id=self._instance_id,
             policy=policy,
         )
         try:
             with self._runtime().session() as session:
+                self._lock_and_check_planning(session, record)
                 started = AgentRunRepository(session).start_or_resume(record)
         except IntegrityError:
             # A concurrent request may have inserted the same request key after
             # our initial lookup. Re-read it through the normal replay/lease path.
             with self._runtime().session() as session:
+                self._lock_and_check_planning(session, record)
                 started = AgentRunRepository(session).start_or_resume(record)
         if started.result_payload is not None:
             return AgentSessionStart(
@@ -108,6 +116,21 @@ class AgentRunService:
                 store=self,
             ),
         )
+
+    @staticmethod
+    def _lock_and_check_planning(session: Any, record: AgentRunRecord) -> None:
+        from app.modules.script_engine.planning_revision import require_request_epoch
+        if not record.project_id:
+            return
+        repository = LongStoryRepository(session)
+        repository.get_project_for_update(record.project_id)
+        workspace = repository.get_workspace_snapshot(record.project_id)
+        try:
+            require_request_epoch(workspace.workspace_payload if workspace else {}, record.planning_revision_epoch,
+                                  body=record.agent_name == "episode_script",
+                                  episode_number=record.episode_number if record.agent_name in {"episode_roadmap", "episode_roadmap_chunk"} else None)
+        except LongStoryPersistenceConflictError as exc:
+            raise AgentRunPersistenceConflictError(str(exc)) from exc
 
     def save_record(
         self,

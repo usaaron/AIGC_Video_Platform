@@ -340,7 +340,7 @@ def test_american_dialogue_view_reuses_the_project_character_name_map() -> None:
     assert speaker == "LENA HART"
 
 
-def test_english_dialogue_view_translates_speaker_names_and_spoken_lines_into_chinese() -> None:
+def test_english_dialogue_view_retains_names_and_translates_spoken_lines_into_chinese() -> None:
     source = build_draft()
     adapter = TranslationAdapter()
     result = build_service(adapter).build(
@@ -366,7 +366,7 @@ def test_english_dialogue_view_translates_speaker_names_and_spoken_lines_into_ch
         if item.path == "scenes.0.dialogues.0.character_name"
     )
     assert dialogue.source_text == "Show me what you erased."
-    assert speaker.translated_text == "莉娜"
+    assert speaker.translated_text == "Lena"
     assert "你现在是剧本大师和语言大师" in adapter.prompts[0]
     assert "不得改变剧情内容、人物意图、事实、关系、信息量" in adapter.prompts[0]
     assert "partner_screenplay.v1" in adapter.prompts[0]
@@ -406,6 +406,7 @@ def test_chinese_dialogue_view_merges_legacy_mixed_bilingual_identity_names() ->
             generation_strategy_id=source.generation_strategy_id,
             draft_master_script=source,
             target_language="zh-CN-short-drama",
+            character_name_map={"总巡官": "CHIEF INSPECTOR", "总巡官 CHIEF INSPECTOR": "CHIEF INSPECTOR"},
         )
     )
 
@@ -418,8 +419,8 @@ def test_chinese_dialogue_view_merges_legacy_mixed_bilingual_identity_names() ->
         if item.path == "scenes.0.dialogues.0.character_name"
     )
     assert character.source_text == "总巡官 CHIEF INSPECTOR"
-    assert character.translated_text == "总巡官"
-    assert speaker.translated_text == "总巡官"
+    assert character.translated_text == "CHIEF INSPECTOR"
+    assert speaker.translated_text == "CHIEF INSPECTOR"
 
 
 def test_bilingual_view_supports_mock_functional_placeholder() -> None:

@@ -1,5 +1,26 @@
 from __future__ import annotations
 
+from app.modules.script_engine.planning_body_scale import planning_body_scale_contract
+from app.modules.script_engine.story_bible_recovery import (
+    StoryBibleRecoveryKey, StoryBibleRecoveryCheckpoint,
+    story_bible_request_fingerprint,
+)
+from app.modules.script_engine.planning_attempts import (
+    PlanningAttemptBinding, bind_planning_attempt, planning_attempt_fingerprint,
+    capture_planning_candidate, capture_planning_error, load_planning_resume_candidates,
+)
+from app.modules.script_engine.planning_call_budget import (
+    planning_call_budget_scope, remaining_planning_model_requests,
+)
+from app.modules.script_engine.decomposition_parent_completion import prepare_parent_binding_completion
+from app.modules.script_engine.decomposition_episode_completion import (
+    prepare_episode_completion, build_episode_completion_feedback,
+)
+from app.modules.script_engine.story_decomposition_boundaries import (
+    DecompositionBoundaryPlan, build_decomposition_boundary_plan,
+    boundary_plan_schema, validate_output_boundaries,
+)
+
 import ast
 import hashlib
 import json
@@ -7,6 +28,8 @@ import logging
 import math
 import re
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from time import monotonic
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -22,6 +45,7 @@ from app.modules.content_spec.market_profile import (
 )
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.script_delivery_contract import (
+    SHORT_DRAMA_PACING_CONTRACT,
     EPISODE_DIALOGUE_LINE_MAX,
     EPISODE_DIALOGUE_LINE_MIN,
     EPISODE_RUNTIME_MAX_SECONDS,
@@ -34,6 +58,9 @@ from app.script_delivery_contract import (
     ending_mode_requires_hook,
     normalize_finale_legacy_fields,
 )
+from app.modules.script_engine.future_revision_review import future_revision_context, SCOPE_IDENTITY_FIELDS
+from app.modules.script_engine.future_leaf_rebuild import prepare_future_leaf_rebuild, verify_rebuild_budget
+from app.modules.script_engine.future_rebuild_generation import future_rebuild_prompt, future_rebuild_schema, bind_future_rebuild_budget
 from app.modules.script_engine.knowledge_bundle import (
     InvalidKnowledgeBundleError,
     StaticKnowledgeBundleCatalog,
@@ -41,6 +68,38 @@ from app.modules.script_engine.knowledge_bundle import (
 from app.modules.script_engine.episode_layer_contracts import (
     compile_episode_three_layer_contract,
 )
+from app.modules.script_engine.episode_development_contract import (
+    EPISODE_DEVELOPMENT_CONTRACT, EPISODE_CONSTRAINT_SCOPE_CONTRACT, CAUSAL_PRECONDITION_CONTRACT,
+    KEY_OBJECT_CUSTODY_CONTRACT, CHARACTER_CONDITION_RESPONSE_CONTRACT,
+    CHARACTER_KNOWLEDGE_ACCESS_CONTRACT,
+    STORY_RESOLUTION_OBLIGATION_CONTRACT,
+    ESTABLISHED_STATE_EXECUTION_CONTRACT,
+    episode_development_prompt, validate_episode_developments,
+)
+from app.modules.script_engine.planning_review_context import (
+    REVIEW_REFERENCE_CONTRACT, compact_review_episode, review_event_references,
+    SAME_EPISODE_EXECUTION_REVIEW_CONTRACT,
+    SCENE_DIALOGUE_CAPACITY_REVIEW_CONTRACT,
+    build_confirmed_event_review_context,
+)
+from app.modules.script_engine.planning_execution_requirements import (
+    EXECUTION_REQUIREMENT_REVIEW_CONTRACT,
+    execution_requirements_prompt,
+    merge_model_execution_requirements,
+    validate_execution_requirements,
+)
+from app.modules.script_engine.planning_review_progress import quality_review_checkpoint_hooks
+from app.modules.script_engine.planning_wire_contract import (
+    expand_node_event_references, planning_wire_schema,
+    expand_quality_review_references, quality_review_wire_schema,
+    scene_execution_wire_schema, expand_scene_heading, SCENE_HEADING_WIRE_CONTRACT, SCENE_ACTION_EXECUTION_CONTRACT,
+    expand_episode_title, EPISODE_TITLE_WIRE_CONTRACT,
+    SCENE_PARTITION_CONTRACT, EPISODE_BOUNDARY_FIELDS,
+    episode_boundary_wire_schema, expand_episode_boundaries, native_episode_output_contract,
+)
+from app.modules.script_engine.scene_heading_metadata import explicit_scene_environment
+from app.modules.script_engine.json_schema_contract import compact_json_schema
+from app.modules.script_engine.planning_review_cache import quality_node_signature, review_after_approval, quality_episode_projection
 from app.modules.script_engine.episode_readiness import (
     episode_execution_readiness_issues,
 )
@@ -53,6 +112,8 @@ from app.modules.script_engine.llm_adapter import (
     LLMAdapter,
     LLMRequestError,
     LLMStructuredOutputError,
+    bind_local_output_schema,
+    bind_llm_log_context,
 )
 from app.modules.script_engine.long_story_models import (
     CreativeAIPermission,
@@ -68,6 +129,7 @@ from app.modules.script_engine.long_story_models import (
     EpisodePlanGenerationItem,
     EpisodePlanItemDraftRequest,
     EpisodePlanItemModificationRequest,
+    EpisodePlanItemPreparationRequest,
     EpisodePlanningContinuityMemory,
     EpisodeSceneExecutionBeat,
     IDENTIFIER_PATTERN,
@@ -90,6 +152,8 @@ from app.modules.script_engine.long_story_models import (
     StoryInspirationChatRequest,
     StoryInspirationFrontierQuestion,
     StoryInspirationTurnModelOutput,
+    StorySynopsisDraftRequest,
+    StorySynopsisDraftOutput,
     StoryBibleModificationRequest,
     StoryBibleSelectionContext,
     ShortDramaEscalationStage,
@@ -101,49 +165,66 @@ from app.modules.script_engine.long_story_models import (
     StoryPlanNodeModificationRequest,
     StoryPlanQualityAudit,
     StoryPlanQualityAuditRequest,
+    StoryPlanQualityEpisode,
     StoryPlanQualityFinding,
+    StoryPlanExecutionHandoff,
+    StoryPlanExecutionRequirement,
     StoryPlanQualityModelOutput,
     StoryPlanQualityStatus,
     StoryPlanExpansionStatus,
     StoryPlanNodeGenerationOutput,
     StoryLinePlan,
 )
+from app.modules.script_engine.story_synopsis import (
+    STORY_SYNOPSIS_MAX_OUTPUT_TOKENS,
+    SynopsisReviewBudgetError,
+    build_story_synopsis_prompt,
+    preserve_synopsis_review,
+    story_synopsis_output_schema,
+    validate_synopsis_author_budget,
+)
 from app.modules.script_engine.long_story_service import (
     LongStoryNotFoundError,
     LongStoryService,
 )
+from app.modules.script_engine.episode_progression import episode_repetition_sources, repetition_message
 from app.modules.script_engine import episode_plan_contracts
 from app.modules.script_engine import story_decomposition_contracts as decomposition_contracts
+from app.modules.script_engine.story_decomposition_recovery import (
+    RecoveryMovementPlan,
+    validate_recovery_movement_plan,
+)
+from app.modules.script_engine.story_bible_approval import approved_story_bible_context
+from app.modules.script_engine.planning_source_inheritance import (
+    load_planning_source_context, planning_source_context, render_planning_source_context,
+    planning_source_fingerprint, planning_source_signature,
+)
 from app.modules.script_engine import story_bible_contracts
 from app.modules.script_engine.episode_plan_contracts import (
     episode_title_quality_issues as _episode_title_quality_issues,
 )
 from app.modules.script_engine.planning_errors import StoryPlanningInputError
+
 from app.modules.script_engine.repository import GenerationStrategyRepository
 from app.modules.script_engine.models import GenerationStrategy
 from app.modules.script_engine.planning_text_utils import (
     bounded_planning_text,
-    join_planning_clauses,
     normalize_planning_punctuation,
     planning_clause,
 )
-from app.modules.script_engine.planning_allocation_utils import (
-    PlanningAllocationError,
-    allocate_compiled_stage_spans,
-    assign_story_lines_to_stage_groups,
-    escalation_stage_weight,
-    group_escalation_stages,
-    planning_match_tokens,
-    weighted_integer_allocation,
-)
+
+
+
+class StoryBibleLanguageRepairPendingError(StoryPlanningInputError):
+    """A durable candidate needs more language repair before formal saving."""
 
 
 class EpisodeSceneExecutionCompletionError(StoryPlanningInputError):
     """A bounded scene-blueprint completion could not satisfy its contract.
 
     This marker prevents the outer roadmap retry loop from silently treating a
-    failed completion as a fresh episode-plan draft. The planner is allowed one
-    dedicated completion request; callers must surface this error instead of
+    failed completion as a fresh episode-plan draft. Completion has a bounded
+    repair budget; callers must surface exhausted retries instead of
     deriving a production blueprint from summary prose.
     """
 
@@ -151,7 +232,7 @@ class EpisodeSceneExecutionCompletionError(StoryPlanningInputError):
 def _episode_scene_execution_completion_schema() -> dict[str, object]:
     """Return the exact wrapper schema used by the bounded blueprint repair."""
 
-    scene_schema = TypeAdapter(list[EpisodeSceneExecutionBeat]).json_schema()
+    scene_schema = scene_execution_wire_schema(TypeAdapter(list[EpisodeSceneExecutionBeat]).json_schema())
     definitions = scene_schema.pop("$defs", {})
     return {
         "type": "object",
@@ -187,6 +268,15 @@ def _story_bible_decisions_for_request(
             owner=CreativeDecisionOwner.user,
             ai_permission=CreativeAIPermission.none,
         )
+    if payload.confirmed_synopsis.strip() and "creative_input.original" in decisions:
+        # This automatically registered input predates the reviewed synopsis.
+        # Retain it as history without reasserting superseded facts downstream.
+        # Explicit author decisions under other keys keep their own authority.
+        decisions["creative_input.original"] = decisions["creative_input.original"].model_copy(update={
+            "title": "历史初始创作输入（以当前确认梗概为准）",
+            "authority": MemoryLayer.derived,
+            "status": CreativeDecisionStatus.current_direction,
+        })
     return list(decisions.values())[:80]
 
 
@@ -220,6 +310,7 @@ def _creative_decision_prompt_contract(
     decisions: list[CreativeDecisionRecord],
     *,
     allow_outline_candidates: bool = False,
+    allow_planning_candidates: bool = False,
 ) -> str:
     missing_content_rule = (
         "- In this editable Story Bible draft, ordinary unspecified content may be developed into coherent "
@@ -234,8 +325,23 @@ def _creative_decision_prompt_contract(
         else
         "- This downstream planning turn must use approved story content. Missing core plot decisions "
         "must remain visible planning questions, not silently invented episode facts. Use an explicit "
-        "Chinese 待定 statement for protected unresolved content and leave unsupported optional collections empty."
+        "Chinese 待定 statement for protected unresolved content and leave unsupported optional collections empty. "
+        "When expanding approved episode events into scenes, choosing their ordinary observable execution "
+        "details is part of this planning job, not a new core plot decision. Develop those details in the "
+        "reviewable draft while preserving the approved events and facts; absence of verbatim source "
+        "wording alone does not make an execution detail author-reserved."
     )
+    if allow_planning_candidates and not allow_outline_candidates:
+        missing_content_rule += (
+            "\n- In this editable story-tree draft, develop concrete intermediate attempts, "
+            "obstacles, consequences and emotional interactions by the established characters "
+            "within the approved goals, causal direction and protected facts. These are visible "
+            "draft proposals for node review, not automatically approved facts. A tactical action "
+            "does not need to appear word-for-word in the author's synopsis. Do not mark ordinary "
+            "dramatic development as 待定 merely because the source summarized it. This permission "
+            "never resolves an explicitly deferred core decision or changes a locked identity, "
+            "secret, death, relationship outcome or ending."
+        )
     if not decisions:
         ledger = "[]"
     else:
@@ -260,7 +366,7 @@ Decision authority rules:
   statements only within its explicitly confirmed scope. Superseded values are historical references,
   not competing current facts. Apply the newer decision to the visible Story Bible text; preserve unrelated
   decisions and explicit deferrals. Ledger order is chronological, with newer revisions appended last.
-- Explicit unresolved values must remain visibly open, including decisions the author has deferred.
+- Explicit author-owned unresolved values must remain visibly open, including decisions the author has deferred.
   Do not choose a concrete outcome, identity, betrayal, death, twist,
   relationship result, theme conclusion, or ending on the author's behalf.
 - delegated values grant only the recorded ai_permission. suggest_only permits a provisional draft direction,
@@ -428,7 +534,18 @@ def _seed_story_inspiration_source(payload: StoryInspirationChatRequest) -> Stor
         extract_source_facts, source_documents, source_fact_values,
     )
 
-    facts = extract_source_facts(source_documents(payload.creative_prompt, payload.reference_materials))
+    # Only declared story sources can seed story facts. Other references still
+    # reach the prompt with their purpose, but a format/style example's plot
+    # must not be promoted into the author's brief before the model sees it.
+    story_references = [
+        item for item in payload.reference_materials
+        if item.purpose.value == "story_reference"
+    ]
+    current_synopsis = payload.current_synopsis.strip()
+    facts = extract_source_facts(source_documents(
+        current_synopsis or payload.creative_prompt,
+        [] if current_synopsis else story_references,
+    ))
     brief = payload.current_brief.model_copy(deep=True)
     # A current answer may revise an older source. Leave those fields to the
     # answer handler instead of filling them with the source's original value.
@@ -717,17 +834,18 @@ logger = logging.getLogger(__name__)
 PlanningOutputT = TypeVar("PlanningOutputT", bound=BaseModel)
 TECHNICAL_STORY_ROOT_MARKER = "system_story_bible_root.v1"
 _TECHNICAL_IDENTIFIER_RE = re.compile(IDENTIFIER_PATTERN)
-# The Story Bible is the stable whole-story contract, not the detailed episode
-# plan. Keep the existing floor for schema/repair compatibility; the prompt
-# controls outline density and keeps downstream detail in later planning layers.
-STORY_BIBLE_MIN_OUTPUT_TOKENS = 9_000
+# The complete Story Bible includes up to 7,000 visible narrative characters
+# plus identity ledgers, acting profiles, JSON keys and repeated reference IDs.
+# Reserve protocol space without increasing the creator-facing length target
+# or the independent budgets for synopsis/chat turns and local field patches.
+STORY_BIBLE_MIN_OUTPUT_TOKENS = 16_000
 # This contract is injected only by the explicit source-import endpoint.  It
 # keeps import semantics on the server boundary, while the returned artifact
 # still follows the ordinary editable-draft lifecycle.
 STORY_BIBLE_IMPORT_INSTRUCTION = "\n".join((
     "这是一次作者原文导入整理，不是重新构思任务。",
     "将用户原文作为第一事实来源，忠实映射到现有故事总纲字段；原文没有明确的高影响内容必须保留为“待定”，不得擅自补写人物身份、关系结果、秘密、死亡或结局。",
-    "原文必须保留在 imported_source_document 中。输出只能是 status=draft 的可编辑总纲，不能批准、跳过审核或进入分集正文。",
+    "服务端会将原文保存到 imported_source_document，不需要模型抄写原文或输出该字段；只返回总纲生成 schema。输出只能是 status=draft 的可编辑总纲，不能批准、跳过审核或进入分集正文。",
 ))
 STORY_DECOMPOSITION_MIN_OUTPUT_TOKENS = 7_000
 STORY_DECOMPOSITION_PER_CHILD_OUTPUT_TOKENS = 3_000
@@ -749,13 +867,13 @@ EPISODE_ROADMAP_RECOVERY_CHUNK_SIZE = 6
 EPISODE_ROADMAP_RECOVERY_HARD_MAX_MODEL_CALLS = 24
 EPISODE_ROADMAP_SEGMENT_MIN_OUTPUT_TOKENS = 3_200
 EPISODE_ROADMAP_SEGMENT_MAX_OUTPUT_TOKENS = 16_000
-EPISODE_ROADMAP_SEGMENT_TOKENS_PER_ITEM = 2_500
-# A single roadmap item excludes scene_execution_plan and is normally well below
-# 2,000 output tokens. Do not reserve the legacy multi-item segment budget for
-# every episode: large reservations materially increase reasoning latency on
-# Responses-compatible planning gateways.
-EPISODE_ROADMAP_ITEM_MIN_OUTPUT_TOKENS = 1_800
-EPISODE_ROADMAP_ITEM_MAX_OUTPUT_TOKENS = 2_800
+EPISODE_ROADMAP_SEGMENT_TOKENS_PER_ITEM = 4_500
+# First delivery includes the complete scene blueprint. The former compact
+# roadmap cap could cut off a valid multi-scene JSON object and repeat the same
+# doomed request. Reserve bounded headroom, while the density contract keeps
+# actual output concise; this is a ceiling, never a target length.
+EPISODE_ROADMAP_ITEM_MIN_OUTPUT_TOKENS = 4_500
+EPISODE_ROADMAP_ITEM_MAX_OUTPUT_TOKENS = 6_000
 EPISODE_ROADMAP_DIVERSITY_REPAIR_MAX_OUTPUT_TOKENS = 1_200
 
 # The supplied development-outline DOCX is a structure reference, not story
@@ -775,7 +893,7 @@ STORY_BIBLE_REFERENCE_FORMAT_CONTRACT = """参考《前期故事开发大纲》�
 十、创作核心原则：锁定主角行动主体、人物能力的结构作用、爱情/阴谋/危机的边界和不可违背的主题问题，映射 locked_facts、major_setup_payoff_refs、avoid_patterns、world_rules。
 每一部分都要服务同一个核心问题；不要把“故事定位”写成营销文案，也不要把“核心故事”拆成章节梗概。"""
 
-STORY_LINE_BALANCE_CONTRACT = """【主线与支线平衡要求｜总纲阶段】
+STORY_LINE_BALANCE_CONTRACT = SHORT_DRAMA_PACING_CONTRACT + "\n" + """【主线与支线平衡要求｜总纲阶段】
 总纲必须识别素材中已经存在且有持续推进能力的主线与支线。主线可承担全剧最大的核心冲突、主要悬念和最终结局方向，但不得吞并作者已经提出的支线。
 只要素材中存在能够持续影响剧情的人物问题、关系问题、外部危机、悬疑线索或价值冲突，就必须将其登记为独立的 subplot 或 character_arc；不要把它们压缩成主线中的装饰性描述，也不要为了凑数量凭空创造支线。
 每条故事线都必须有独立的核心问题或戏剧目标、相关人物或势力、对抗力量或代价、阶段性推进方向，以及与主线之间的因果影响、人物选择、资源冲突、信息交叉或主题对照。
@@ -791,15 +909,26 @@ STORY_BIBLE_LENGTH_TARGET_CONTRACT = """篇幅目标（这是创作目标，不�
 - 整份故事总纲：3,500-5,500 字，绝对不要超过 7,000 字。
 - 每个字段写到足够表达职责即可，不要为了凑足下限重复背景或堆砌形容词。
 - 如果初稿超过目标范围，先删除重复的总纲信息、人物百科、分集流水账和场景细节，再返回 JSON。
+- 人物 acting_profile 的八项文字也计入上述总篇幅；按人物重要度和已有依据精简，不为每项凑固定字数。保留已确认的表演信息，不因压缩删除人物身份或关系事实。
 总纲只锁定全剧承诺、人物终点、主线和宽阶段；递归剧情树与分集路线图负责后续扩展和细化。"""
 
-STORY_TREE_LENGTH_TARGET_CONTRACT = """剧情树子节点篇幅目标（按每个子节点所有人类可见叙述字段合计、中文字符估算）：
+STORY_TREE_LENGTH_TARGET_CONTRACT = """剧情树子节点概述篇幅目标（仅合计节点概述部分的叙述字段，按中文字符估算；不包含 episode_developments 逐集事件分配）：
 - 顶层大阶段：每个子节点 800-1,200 字；
 - 中间阶段：每个子节点 500-900 字；
 - 8-12 集的剧情叶节点：每个子节点 350-650 字。
-这些是目标范围，不是 max_length；不要为了凑字重复父节点或总纲。若超过上限，先压缩叙述，保留进入状态、核心冲突、关键转折、退出状态、局部结算和交接压力。下层只新增本层因果与状态变化，不重述上层稳定事实，也不写场景、对白或正文。"""
+叶节点的 episode_developments 在同一次输出中完整交付，篇幅另计；每集梗概及退出状态不占上述350-650字，不得为满足概述长度而删掉逐集数组、少写集数或把它推迟到下游。
+这些是目标范围，不是 max_length；不要为了凑字重复父节点或总纲。若概述超过目标，先压缩其中重复叙述，保留进入状态、核心冲突、关键转折、退出状态、局部结算和交接压力。下层只新增本层因果与状态变化，不重述上层稳定事实，也不写场景、对白或正文。"""
 
-STORY_LINE_PLANNING_CONTRACT = """【故事线平衡与支线承接要求｜剧情树规划阶段】
+NODE_EPISODE_OWNERSHIP_OUTPUT_CONTRACT = """【本次JSON交付前逐节点核对】
+按每个当前输出节点自己的 planned_end_episode - planned_start_episode + 1 判断，不能按正在拆的父级范围、树深度或本轮称为“分段”就省略逐集分配。
+实际覆盖8—12集的输出节点，本次就必须写完整 episode_developments：从 planned_start_episode 到 planned_end_episode，每个真实集号恰好一项，按顺序连续；不能返回[]、局部示例或缺集，也不能把 recommended_next_step 写成expand来逃避。它们是已定剧情的逐集归属，不是正文或分场。
+实际跨度至少16集、仍须继续拆分的输出节点返回 episode_developments=[]，不为它虚造全跨度逐集列表。1—7或13—15集不满足当前拆分合同，须先在同层协调事件和范围，不能伪造分配绕过。
+对每个8—12集节点，将该节点全部 source_event_indices 合在一起核对：必须恰好包含本节点 unit_story_beats 的1至事件总数，每个索引一次；不能重复、漏掉或引用父级/兄弟事件索引。空索引只允许出现在有真实中间推进的个别集里，不代表整份逐集数组可为空。
+本节点最后一条事件的索引只分配给 planned_end_episode，且末集实际演出它；末集exit_state逐字交付节点exit_state。前面的梗概和状态不能提前完成末事件。逐集安排由事件实际发生的位置决定，不机械均分或复制同一行动凑集数。
+节点概述篇幅与逐集分配分开计量。下游Episode Plans只展开本次固定归属的事件、动机和场景执行，不能重新分配集号、迁移事件、补定尚未决定的核心剧情。先在本次输出内部修正上述问题，再返回完整原定JSON字段；不另输出检查报告。
+"""
+
+STORY_LINE_PLANNING_CONTRACT = SHORT_DRAMA_PACING_CONTRACT + "\n" + """【故事线平衡与支线承接要求｜剧情树规划阶段】
 剧情树不能只把主线拆成连续阶段。每个节点都必须检查已批准的 main、subplot 和 character_arc：节点涉及的故事线要有明确职责、局部目标、可见状态变化和下一步义务。
 主线可以承担最大冲突和更多叙事资源，但不能吞掉所有节点。支线在当前阶段有已批准职责或被父节点引用时，必须获得真实的推进位置；接近沉默阈值但未被当前规划引用的支线只生成复核提醒，由作者或后续已批准规划决定推进或延期，系统不得为消除提醒而自行编写剧情。
 支线推进必须通过人物选择、关系变化、信息改变、资源得失、风险代价、局部目标完成或 setup/payoff 条件变化体现。只在摘要中提及、重复主线冲突或保留一个 story_line_refs 不算推进。
@@ -808,7 +937,13 @@ STORY_LINE_PLANNING_CONTRACT = """【故事线平衡与支线承接要求｜剧�
 EPISODE_ROADMAP_LENGTH_TARGET_CONTRACT = """分集路线图篇幅参考（按人类可见叙述字段的中文字符估算，不含 JSON 键名、ID 和引用数组）：
 - 集级叙述可沿用 250-650 字作为软参考，其中 `synopsis` 约 120-320 字，保留可直接阅读的完整因果梗概；这些范围不作为逐场蓝图或整份规划的硬性字数门禁。
 - 场景执行蓝图在规划阶段生成、按需补齐并随路线图交付，篇幅按场景实际复杂程度分配，不把所有场景压进同一字数配额。
-按下述逐场交付原则精简重复内容，保留必要动机和因果，不凑字数或增加场景来填满篇幅。"""
+按下述逐场交付原则精简重复内容，保留必要动机和因果，不凑字数或增加场景来填满篇幅。
+【字段分工与首次交付密度】
+- synopsis 写完整因果梗概；episode_goal、central_conflict、protagonist_decision、reveal、emotional_movement、stage_opposition、episode_payoff、pressure_escalation 各用聚焦本字段职责的短句，不在每项里重述整集经过或全套历史限制。
+- visible_action 是本场具体动作链的完整展开位置，交代参与者、必要前置、实际行动及直接结果。scene_objective、opposition、information_shift、choice_or_cost、turn_or_reveal、exit_state 分别提炼本场目标、阻力、信息差、选择代价、转折和结果，保留必要事实，不再逐项复述整段动作链。
+- evidence_requirements 指明证明关键结果所必需的可见凭据及其证明边界；不把 visible_action 换一种说法逐步抄写。forbidden_changes 写本场确有误写风险的具体边界，不能机械附上所有历史事件和全剧未来秘密。
+- continuity_requirements 按具体人物、物件或义务合并同义要求，明确来源、有效范围及尚未解决的后果；同一事实不拆成多条反复宣告。保留本集职责、持续条件、物件控制权、知情边界及下一集承接所必需的约束，不把旧集的一次性禁令升级为永久限制。
+- 字段必须各自可理解，不能只写“同上”“见梗概”或省略关键前提。固定 entry_state、exit_state 和来源数组仍须逐字保留；必要的跨层摘要可以重复，删减对象是重复展开，不能用简短代替因果成立。"""
 
 STORY_LINE_EPISODE_DUTY_CONTRACT = """【故事线职责调度与支线连续性要求｜分集规划阶段】
 分集规划必须回答：本集需要推进哪些故事线，每条被选中的故事线获得了什么叙事资源，本集结束时它发生了什么可验证的推进或观看价值（信息、人物理解、情绪或期待变化）。
@@ -826,6 +961,8 @@ EPISODE_TITLE_NAMING_CONTRACT = """单集标题是作品标题，不是计划摘
 - 标题必须忠实于本集已经规划的事件，不得为了悬念虚构新人物、新物件或新反转。"""
 
 EPISODE_HUMAN_READABLE_FIELDS_CONTRACT = """【分集可读字段】
+- setup_refs / payoff_refs 是同一伏笔的稳定引用，只能逐字复制已批准总纲或剧情段提供的完整引用，保留标点和姓名原文，不拆句、不改写、不把本集动作或成果当作新引用。叙述字段按市场姓名规则显示，引用身份保持原文。
+- 同一伏笔从铺垫到推进、兑现始终使用同一个引用；首次在本集建立并兑现时在两数组中使用相同引用。已知事实的再次提及不等于新兑现；没有适用伏笔时允许 []，当集成果写 episode_payoff 和 scene_execution_plan。不能为填引用数组虚构前集已经发生的铺垫。
 - `synopsis` 是本集完整、连续、可直接阅读的剧情梗概，建议 120-320 个中文字符；必须交代主要人物在具体场地中的行动、冲突、选择和状态变化，变化可体现为信息、人物理解、情绪或期待，不必是不可逆事件，不写镜头脚本或对白。
 - `locations` 是本集实际使用的 1-4 个具体场地名称，例如“现代甜品店前厅”“后厨”；不要填写“核心行动地点”之类占位词。
 - `character_refs` 仍只填写已批准的角色 ID；界面会根据项目角色资料显示姓名和性别，不能在该数组里混入性别或新角色。
@@ -837,13 +974,16 @@ dramatic_units 是本集已有事件中的有效变化，不是分场表、镜�
 protagonist_cost 只写与本集行动相连的个人代价：失去什么、承诺什么、承担什么风险，或为什么结果对这个人难以接受。不得为填字段新增伤亡、背叛、秘密或关系结局。没有明确依据时返回 null，不写“承担代价”等占位句。
 新草稿可在有依据时填写这两项，缺失时返回 dramatic_units=[]、protagonist_cost=null；修改已有路线图时保留未涉及的设计，相关事件改变才同步调整，清空必须是本次修订的明确意图。两项内容仍须纳入整集路线图篇幅预算。"""
 
-EPISODE_VIEWING_VALUE_CONTRACT = """【单集观看价值与正文准备】
-每集应有具体观看价值，可以来自信息变化、人物理解、情绪体验或期待变化；允许铺垫、留白和情绪积累，不要求每集都出现不可逆变化、反转、冲突解决或关系定局。
+EPISODE_VIEWING_VALUE_CONTRACT = SHORT_DRAMA_PACING_CONTRACT + "\n" + """【单集观看价值与正文准备】
+逐场规划应在本次生成中确定已批准事件的正常执行细节：动作顺序、空间关系、可感知依据和对白目的。上层没有逐字描述这些细节，不等于作者保留了决定权；只要不改变已批准事件、身份、关系、世界规则、结果，也不触及明确未决的作者决定，就应给出具体可执行方案，不能把普通执行依据标成“待定”交给正文。需要回忆、知情或验证依据时，优先使用已在总纲或前文建立的事实，不补造人物重大经历。
+权限按来源判断：作者原文、决策账本和已批准总纲中的明确保留事项必须保留；历史分集摘要、continuity_requirements 或 forbidden_changes 里由模型自行增加的普通执行“待定”不构成新的作者禁区。保留其中真实发生的事件、知情状态和原有禁区，在本集涉及该普通细节时补齐方案，不改写过去事件，不把模型的缺项继续传给后集。确实触及作者保留的核心决定时才标明阻塞及来源。
+证据要求应给出剧情判断实际依赖的信息内容：人物凭什么认出、比较、推断或作出选择，写清需要看到或听到的具体内容以及它如何支持判断；“核对要求”“针对性追问”“某段记忆”等标签本身不是依据。若事件依赖某个条件、期限或记忆差异，确定足以支撑动作与判断的内容；不依赖的数值、地名、过往和仪式无需补造。可以直接呈现已经批准的动作或结果，不必为其另创机制。正文负责表达，不能还要决定证据是什么。
+每集应有具体观看价值，可以来自信息变化、人物理解、情绪体验或期待变化；以短剧的快速行动和有效交锋承载情绪积累，必要的铺垫和停顿要有当下作用，不能多集拖延同一选择；不要求每集都出现不可逆变化、反转、冲突解决或关系定局。
 观看价值必须由本集已批准事件中的具体动作、对白意图、信息或情绪细节承载，并在梗概和证据要求中写清；仅称“为后续做准备”、重复观众已知内容或承诺下集揭晓不构成依据。episode_payoff 可记录这样的当集体验，不必虚构胜负或奖励。
 这些标准不免除本集已批准事件、状态交接与伏笔兑现的执行义务。非终集保留因果连贯的追看动力；终局按已批准结局收束，不硬造延续悬念；钩子不等于必须反转。
-进入正文前，分集规划和场景蓝图应明确本集核心行动动机、因果承接、人物知情依据、铺垫及兑现时机，并给出可见或可听的证据。turn_or_reveal 可以写认知或情绪的细微变化，不为填字段制造反转。明确待定或冲突应保留为可供用户判断的问题，不能让正文模型临时补出核心剧情。
+进入正文前，分集规划和场景蓝图应明确本集核心行动动机、因果承接、人物知情依据、铺垫及兑现时机，并给出可见或可听的证据。turn_or_reveal 可以写认知或情绪变化，变化必须有可感知的动作或对白承载；强烈冲突与直接表达同样有效，不为填字段制造反转。明确待定或冲突应保留为可供用户判断的问题，不能让正文模型临时补出核心剧情。
 剧情层面的看点及其成立依据应在总纲、剧情部分和分集规划中逐步确定。逐场蓝图写清本场发生什么、关键行为为何发生、带来的信息或情绪体验，以及退出状态如何接到下一场；不必每场都有新增冲突、秘密、代价或反转，没有发生的变化应如实表达。
-交付前检查：正文模型是否还需要替作者决定关键事件、动机转变、知情来源或剧情结果，才能写出这一场？若仍有缺口，应在规划阶段具体标明缺少什么及影响；需要改变已批准剧情或涉及作者保留决定时，由作者确认，不能用“增强吸引力”“正文自由发挥”等笼统指令掩盖缺口。
+交付前检查：正文模型是否还需要决定关键事件、动机转变、知情依据或剧情结果，才能写出这一场？本层有权决定的普通执行内容应在本次输出内补齐；需要改变已批准剧情或涉及作者保留决定时，具体标明缺少什么、来源及影响，由作者确认。不能用“增强吸引力”“正文自由发挥”等笼统指令掩盖缺口。
 集级字段概括本集事件和承接，逐场字段只补该场执行所需的信息。普通承接场景用简短任务说明；关键选择、人物转变、知情变化或伏笔兑现写清依据与后果，已有动机和必要因果不能为了压缩而省略。达到可直接写作所需的信息量即可，细节完整不等于篇幅越长越好。
 优先删除重复背景、同义复述和装饰性说明，不重复人物百科、总纲或剧情树。使用已有引用精确定位稳定事实，不写无法定位的“同上”；source_turning_points、source_unit_story_beats 等要求逐字保留的追溯字段继续遵守原合同。
 正文的创造空间主要是人物声音、对白潜台词、动作反应、停顿和场景呈现。规划给出对白目的、必要证据与不能改变的事实即可，不提前展开成完整对白或逐镜脚本；作者明确提供或要求保留的台词、动作和镜头仍须准确承接。
@@ -876,17 +1016,7 @@ def _story_decomposition_recovery_strategy(
 
 def _compact_json_schema_for_prompt(value: object) -> object:
     """Keep structural constraints while dropping transport-only schema prose."""
-
-    if isinstance(value, list):
-        return [_compact_json_schema_for_prompt(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    omitted = {"title", "description", "examples", "default"}
-    return {
-        key: _compact_json_schema_for_prompt(item)
-        for key, item in value.items()
-        if key not in omitted
-    }
+    return compact_json_schema(value)
 
 
 def _story_decomposition_output_token_budget(
@@ -937,8 +1067,8 @@ def _bounded_decomposition_child_repair_sources(
     def contract_error_count(item: object) -> int:
         if not isinstance(item, dict):
             return 10_000
-        normalized = normalize_story_plan_node_generation_output(item, child=True)
         try:
+            normalized = normalize_story_plan_node_generation_output(item, child=True)
             StoryPlanNodeChildOutput.model_validate(normalized)
         except ValidationError as error:
             return len(error.errors())
@@ -951,54 +1081,6 @@ def _bounded_decomposition_child_repair_sources(
         )[:repair_limit]
     )
     return [source_children[index] for index in selected_indexes]
-
-
-def _fallback_decomposition_spans(
-    parent_span: int,
-    requested_child_count: int | None,
-    *,
-    narrative_child_count: int | None = None,
-) -> list[int]:
-    # Keep the two-argument behavior for older callers, while allowing the live
-    # recovery path to supply a count derived from this parent's story signals.
-    child_count = requested_child_count or narrative_child_count or 2
-    memo: dict[tuple[int, int], tuple[int, ...] | None] = {}
-
-    def valid_span(value: int) -> bool:
-        return MIN_EPISODE_READY_SPAN <= value <= MAX_EPISODE_READY_SPAN or value >= 16
-
-    def allocate(remaining: int, slots: int) -> tuple[int, ...] | None:
-        key = (remaining, slots)
-        if key in memo:
-            return memo[key]
-        if slots == 1:
-            result = (remaining,) if valid_span(remaining) else None
-            memo[key] = result
-            return result
-        maximum_first = remaining - MIN_EPISODE_READY_SPAN * (slots - 1)
-        candidates = [
-            value
-            for value in range(MIN_EPISODE_READY_SPAN, maximum_first + 1)
-            if valid_span(value)
-        ]
-        ideal = remaining / slots
-        candidates.sort(key=lambda value: (abs(value - ideal), value))
-        for value in candidates:
-            tail = allocate(remaining - value, slots - 1)
-            if tail is not None:
-                result = (value, *tail)
-                memo[key] = result
-                return result
-        memo[key] = None
-        return None
-
-    allocation = allocate(parent_span, child_count)
-    if allocation is None:
-        raise StoryPlanningInputError(
-            "The parent episode range cannot be allocated into valid segmented "
-            "decomposition children."
-        )
-    return list(allocation)
 
 
 def _distinct_decomposition_signal_values(values: object) -> list[str]:
@@ -1260,6 +1342,8 @@ def normalize_story_bible_generation_output(
                     "role": _normalize_story_bible_role(supplied.role)
                     if supplied
                     else _normalize_story_bible_role(str(entry.get("role") or "")),
+                    **({"acting_profile": supplied.acting_profile.model_dump()}
+                       if supplied and supplied.acting_profile is not None else {}),
                 }
             )
         normalized["character_registry"] = completed_registry
@@ -1384,6 +1468,8 @@ def normalize_story_bible_generation_output(
                 "character_ref": supplied.character_ref,
                 "name": supplied.name,
                 "role": _normalize_story_bible_role(supplied.role),
+                **({"acting_profile": supplied.acting_profile.model_dump()}
+                   if supplied.acting_profile is not None else {}),
             }
         normalized["character_registry"] = [
             registry_by_ref[identity] for identity in registry_order
@@ -1407,6 +1493,8 @@ def normalize_story_bible_generation_output(
                 "character_ref": supplied.character_ref,
                 "name": supplied.name,
                 "role": _normalize_story_bible_role(supplied.role),
+                **({"acting_profile": supplied.acting_profile.model_dump()}
+                   if supplied.acting_profile is not None else {}),
             }
             for supplied in supplied_characters
         ]
@@ -1494,6 +1582,8 @@ def _normalize_character_registry_entry(
             "姓名",
         ),
         "role": _normalize_story_bible_role(role),
+        **({"acting_profile": source["acting_profile"]}
+           if source.get("acting_profile") is not None else {}),
     }
 
 
@@ -1600,12 +1690,8 @@ _STORY_PLAN_NODE_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def normalize_story_plan_node_generation_output(
-    item: dict[str, object],
-    *,
-    child: bool,
-) -> dict[str, object]:
-    """Project current and legacy node keys onto the canonical tree contract."""
+def _story_plan_node_generation_source(item: dict[str, object]) -> dict[str, object]:
+    """Unwrap candidate fields without validating or fabricating their contents."""
     nested = next(
         (
             item[key]
@@ -1622,6 +1708,18 @@ def normalize_story_plan_node_generation_output(
             if key not in {"node", "child", "story_node", "节点", "子节点"}
         }
     )
+    return source
+
+
+def normalize_story_plan_node_generation_output(
+    item: dict[str, object],
+    *,
+    child: bool,
+) -> dict[str, object]:
+    """Project current and legacy node keys onto the canonical tree contract."""
+    source = _story_plan_node_generation_source(item)
+    compact_events = "turning_point_indices" in source
+    source = expand_node_event_references(source)
     model = StoryPlanNodeChildOutput if child else StoryPlanNodeGenerationOutput
     normalized: dict[str, object] = {}
     for field_name in model.model_fields:
@@ -1645,10 +1743,16 @@ def normalize_story_plan_node_generation_output(
         "setup_refs",
         "payoff_refs",
     ):
-        if field_name in normalized:
-            normalized[field_name] = _normalize_string_list(
-                normalized[field_name],
-                split_identifiers=field_name not in {"turning_points", "unit_story_beats"},
+        if field_name in normalized and not (
+            compact_events and field_name in {"turning_points", "unit_story_beats"}
+        ):
+            normalized[field_name] = (
+                _normalize_setup_payoff_reference_list(normalized[field_name])
+                if field_name in {"setup_refs", "payoff_refs"}
+                else _normalize_string_list(
+                    normalized[field_name],
+                    split_identifiers=field_name in {"character_refs", "story_line_refs"},
+                )
             )
 
     range_value = next(
@@ -1912,6 +2016,42 @@ def _normalize_location_list(value: object) -> object:
     return _normalize_string_list(value, split_identifiers=False)
 
 
+def _normalize_setup_payoff_reference_list(value: object) -> object:
+    """Keep each approved prose reference intact, including its punctuation."""
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("["):
+            try:
+                decoded = json.loads(stripped)
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, list):
+                return _normalize_setup_payoff_reference_list(decoded)
+        identifiers = [token for token in re.split(r"[,，;；\s]+", stripped) if token]
+        # Only an explicitly technical scalar retains the old delimiter format.
+        # Native/JSON array elements are already individual reference identities.
+        if identifiers and all(
+            re.fullmatch(r"(?:setup|payoff)[._:-][A-Za-z0-9_][A-Za-z0-9_.:-]*", token, re.IGNORECASE)
+            for token in identifiers
+        ):
+            value = identifiers
+    elif isinstance(value, list):
+        extracted: list[object] = []
+        for item in value:
+            if isinstance(item, dict):
+                reference = _first_text(
+                    item, "ref", "id", "character_ref", "story_line_id", "setup_id",
+                    "payoff_id", "value", "name", "text", "description", "content",
+                )
+                if reference:
+                    extracted.append(reference)
+            else:
+                extracted.append(item)
+        value = extracted
+    return _normalize_string_list(value, split_identifiers=False)
+
+
 def _parse_body_character_weight(value: object) -> float | None:
     """Read common model representations of a positive body-text weight."""
     if isinstance(value, bool):
@@ -2122,6 +2262,11 @@ _SCENE_EXECUTION_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "scene_heading": ("scene_heading", "setting", "场景标题", "场景"),
     "character_refs": ("character_refs", "characters", "出场人物", "人物引用"),
     "scene_objective": ("scene_objective", "objective", "场景目标"),
+    "opposition": ("opposition", "场景阻力", "阻力"),
+    "information_shift": ("information_shift", "信息变化"),
+    "choice_or_cost": ("choice_or_cost", "人物选择或代价", "选择或代价"),
+    "evidence_requirements": ("evidence_requirements", "可观察证据", "证据要求"),
+    "forbidden_changes": ("forbidden_changes", "禁止改写事实", "禁止改变"),
     "visible_action": ("visible_action", "action", "可见行动", "核心行动"),
     "turn_or_reveal": ("turn_or_reveal", "turn", "reveal", "转折或揭示", "转折"),
     "dialogue_objective": ("dialogue_objective", "dialogue_goal", "对白目的"),
@@ -2129,6 +2274,13 @@ _SCENE_EXECUTION_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "shot_target": ("shot_target", "shots", "镜头数"),
     "exit_state": ("exit_state", "outcome", "退出状态", "场景结果"),
 }
+
+SCENE_DIALOGUE_PLANNING_RULES = (
+    "按真实交流需要分配场间对白，不按场数均摊。人物独自查看、操作或等待而没有明确"
+    "说话对象时，优先用可见行动呈现，dialogue_line_target可以为0；不要让人物把每一步"
+    "观察、权限边界和未知事项都念给观众。确需口述、通话或独白时说明其当下目的；"
+    "不为凑句数新增人物或交流情境。整集对白预算集中到已有交锋中，保留安静场景。"
+)
 
 
 def _rebalance_integer_targets(
@@ -2171,6 +2323,7 @@ def _normalize_scene_execution_plan(
         raw_scene = _decode_nested_json_value(raw_scene)
         if not isinstance(raw_scene, dict):
             return []
+        raw_scene = expand_scene_heading(raw_scene)
         scene: dict[str, object] = {"scene_number": index}
         for field_name, aliases in _SCENE_EXECUTION_FIELD_ALIASES.items():
             field_value = next(
@@ -2191,8 +2344,8 @@ def _normalize_scene_execution_plan(
             heading = f"INT.{heading[4:]}"
         elif heading.upper().startswith("EXT."):
             heading = f"EXT.{heading[4:]}"
-        else:
-            heading = f"INT. {heading}"
+        elif environment := explicit_scene_environment(heading):
+            heading = f"{environment}. {heading}"
         scene["scene_heading"] = heading
         character_refs = _normalize_string_list(
             scene.get("character_refs", []),
@@ -2214,16 +2367,41 @@ def _normalize_scene_execution_plan(
             if not isinstance(field_value, str) or not field_value.strip():
                 return []
             scene[field_name] = field_value.strip()
+        for field_name in ("opposition", "information_shift", "choice_or_cost"):
+            if isinstance(scene.get(field_name), str):
+                scene[field_name] = scene[field_name].strip()
+        for field_name in ("evidence_requirements", "forbidden_changes"):
+            if field_name in scene:
+                scene[field_name] = _normalize_string_list(scene[field_name], split_identifiers=False)
         dialogue_targets.append(
             _parse_positive_int(scene.get("dialogue_line_target")) or 0
         )
         shot_targets.append(_parse_positive_int(scene.get("shot_target")) or 1)
         scenes.append(scene)
-    dialogue_targets = _rebalance_integer_targets(
-        dialogue_targets,
-        total=dialogue_total,
-        minimum=0,
+    # A provider can copy one scene object to fill the requested count. Keep
+    # this as a normalization failure so completion can rebuild the scene list.
+    if len(scenes) > 1:
+        fingerprints = [
+            "|".join(str(scene.get(field, "")) for field in (
+                "scene_heading", "scene_objective", "opposition",
+                "information_shift", "choice_or_cost", "turn_or_reveal", "exit_state",
+            ))
+            for scene in scenes
+        ]
+        if len(set(fingerprints)) < len(fingerprints):
+            return []
+    # Explicitly silent scenes are an authored choice. Balancing a shortfall
+    # must not turn them into exposition just because zero is the smallest count.
+    speaking_indices = [index for index, scene in enumerate(scenes)
+                        if str(scene.get("dialogue_line_target", "")).strip() not in {"0", "0.0"}]
+    if not speaking_indices and dialogue_total:
+        return []  # Conflicting budgets require scene preparation, not invented speech.
+    balanced_dialogue = _rebalance_integer_targets(
+        [dialogue_targets[index] for index in speaking_indices], total=dialogue_total, minimum=0,
     )
+    dialogue_targets = [0] * len(scenes)
+    for index, target in zip(speaking_indices, balanced_dialogue, strict=True):
+        dialogue_targets[index] = target
     shot_targets = _rebalance_integer_targets(
         shot_targets,
         total=shot_total,
@@ -2240,19 +2418,11 @@ def _normalize_scene_execution_plan(
     return scenes
 
 
+
 _EPISODE_PLAN_COLLECTION_ALIASES = (
-    "episode_plans",
-    "plans",
-    "episodes",
-    "items",
-    "roadmap_items",
-    "分集计划",
-    "单集计划",
-    "分集线路图",
-    "集",
+    "episode_plans", "plans", "episodes", "items", "roadmap_items",
+    "分集计划", "单集计划", "分集线路图", "集",
 )
-
-
 _EPISODE_HOOK_TYPE_FALLBACK = "因果压力"
 _EPISODE_HOOK_TYPE_LABEL_MAX_CHARS = 24
 _EPISODE_HOOK_TYPE_LABEL_PATTERN = re.compile(
@@ -2405,8 +2575,13 @@ def normalize_episode_plan_batch_generation_output(
                 if key not in {"plan", "episode_plan", "item", "单集计划"}
             }
         )
+        source = expand_episode_title(source)
         normalized: dict[str, object] = {}
         for field_name in EpisodePlanGenerationItem.model_fields:
+            if field_name in {"layer_contracts", "execution_ready"}:
+                # These are computed locally after validation, never authored by
+                # the provider. Old schema clients may still return them.
+                continue
             aliases = _EPISODE_PLAN_FIELD_ALIASES.get(field_name, (field_name,))
             value = next(
                 (source[key] for key in aliases if key in source and source[key] is not None),
@@ -2431,10 +2606,12 @@ def normalize_episode_plan_batch_generation_output(
                 normalized[field_name] = (
                     _normalize_location_list(normalized[field_name])
                     if field_name == "locations"
+                    else _normalize_setup_payoff_reference_list(normalized[field_name])
+                    if field_name in {"setup_refs", "payoff_refs"}
                     else _normalize_string_list(
                         normalized[field_name],
                         split_identifiers=field_name
-                        in {"setup_refs", "payoff_refs", "character_refs", "story_line_refs"},
+                        in {"character_refs", "story_line_refs"},
                     )
                 )
         if "episode_number" in normalized:
@@ -2815,11 +2992,11 @@ def _salvage_story_plan_child_from_partial_json(
             if candidate_id in seen:
                 continue
             seen.add(candidate_id)
-            normalized = normalize_story_plan_node_generation_output(
-                candidate,
-                child=True,
-            )
             try:
+                normalized = normalize_story_plan_node_generation_output(
+                    candidate,
+                    child=True,
+                )
                 StoryPlanNodeChildOutput.model_validate(normalized)
             except ValidationError:
                 pending.extend(
@@ -2921,13 +3098,21 @@ def _decomposition_children_are_structurally_empty(
         "unit_resolution",
         "handoff_pressure",
     )
-    return all(
-        sum(
-            field_name in normalize_story_plan_node_generation_output(item, child=True)
-            for field_name in required_fields
-        ) < 3
-        for item in children
-    )
+    for item in children:
+        source = _story_plan_node_generation_source(item)
+        present = sum(
+            any(source.get(alias) is not None for alias in (
+                *_STORY_PLAN_NODE_FIELD_ALIASES.get(field, (field,)),
+                *(("turning_point_indices",) if field == "turning_points" else ()),
+            ))
+            for field in required_fields
+        )
+        if present >= 3:
+            return False
+    # This is only an empty-shell probe after validation has already failed.
+    # Calling the full normalizer here rethrows compact-reference errors and
+    # bypasses the existing bounded repair before it can author the missing map.
+    return True
 
 
 def _looks_like_flat_episode_plan(payload: dict[str, object]) -> bool:
@@ -3114,6 +3299,8 @@ def deterministic_interactive_story_bible_fallback(
                 "character_ref": ref,
                 "name": str(item.get("name") or "核心人物（待定）").strip()[:80] or "核心人物（待定）",
                 "role": _normalize_story_bible_role(str(item.get("role") or "身份待定")),
+                **({"acting_profile": item["acting_profile"]}
+                   if item.get("acting_profile") is not None else {}),
             }
         )
 
@@ -3279,7 +3466,7 @@ def normalize_interactive_story_bible_sections(
     registry_by_ref: dict[str, dict[str, object]] = {}
     registry_aliases: dict[str, str] = {}
 
-    def add_registry(ref: str, name: str, role: str = "配角") -> None:
+    def add_registry(ref: str, name: str, role: str = "配角", acting_profile: object = None) -> None:
         clean_ref = ref.strip()
         if not clean_ref:
             return
@@ -3298,6 +3485,8 @@ def normalize_interactive_story_bible_sections(
                 entry["name"] = name.strip()[:80]
             if role.strip() and entry.get("role") in {None, "配角"}:
                 entry["role"] = role.strip()[:80]
+        if acting_profile is not None:
+            entry["acting_profile"] = acting_profile
         registry_aliases.setdefault(identity, clean_ref)
         entry_name = entry.get("name")
         if isinstance(entry_name, str) and entry_name.strip():
@@ -3328,7 +3517,7 @@ def normalize_interactive_story_bible_sections(
                         "反派" if "反派" in function else
                         "配角"
                     )
-                add_registry(str(ref), name, _normalize_story_bible_role(raw_role))
+                add_registry(str(ref), name, _normalize_story_bible_role(raw_role), item.get("acting_profile"))
             else:
                 add_registry(str(ref), str(ref), "配角")
     if isinstance(raw_registry, list):
@@ -3358,7 +3547,7 @@ def normalize_interactive_story_bible_sections(
                     "反派" if "反派" in function else
                     "配角"
                 )
-            add_registry(ref, name, _normalize_story_bible_role(raw_role))
+            add_registry(ref, name, _normalize_story_bible_role(raw_role), item.get("acting_profile"))
 
     for index, ref in enumerate(character_refs):
         if ref.casefold() not in registry_by_ref:
@@ -3710,26 +3899,44 @@ _STORY_PLAN_NODE_MODIFICATION_DEPENDENCIES: dict[str, set[str]] = {
     "emotional_direction": {"emotional_direction"},
     "exit_state": {"exit_state", "handoff_pressure"},
     "unit_story_beats": {"unit_story_beats", "unit_resolution", "handoff_pressure"},
+    "episode_developments": {"episode_developments", "unit_story_beats", "turning_points", "entry_state", "exit_state"},
     "unit_resolution": {"unit_resolution", "handoff_pressure"},
     "handoff_pressure": {"handoff_pressure"},
 }
 
 
+# These fields share exact event references and state boundaries. Combining any
+# new member with an old table/map can corrupt an otherwise valid model result.
+_STORY_PLAN_NODE_EVENT_FIELDS = {
+    "entry_state", "exit_state", "turning_points", "unit_story_beats",
+    "episode_developments",
+}
+
+
+def _coherent_node_modification_scope(fields: set[str]) -> set[str]:
+    if fields & (_STORY_PLAN_NODE_EVENT_FIELDS | {"synopsis", "central_conflict", "unit_resolution"}):
+        return fields | _STORY_PLAN_NODE_EVENT_FIELDS | {
+            "synopsis", "central_conflict", "unit_resolution", "handoff_pressure",
+        }
+    return set(fields)
+
+
 _EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES: dict[str, set[str]] = {
     "episode_title": {"episode_title"},
-    "synopsis": {"synopsis", "episode_goal", "central_conflict", "protagonist_decision", "episode_payoff", "exit_state", "dramatic_units", "protagonist_cost"},
+    "synopsis": {"synopsis", "episode_goal", "central_conflict", "protagonist_decision", "episode_payoff", "exit_state", "dramatic_units", "protagonist_cost", "locations", "scene_execution_plan", "continuity_requirements"},
     "locations": {"locations", "synopsis", "scene_execution_plan"},
-    "episode_goal": {"episode_title", "episode_goal", "entry_state", "central_conflict"},
-    "entry_state": {"entry_state", "episode_title", "episode_goal", "central_conflict"},
-    "central_conflict": {"central_conflict", "protagonist_decision", "stage_opposition", "emotional_movement", "dramatic_units", "protagonist_cost"},
-    "protagonist_decision": {"protagonist_decision", "episode_payoff", "exit_state", "cliffhanger", "dramatic_units", "protagonist_cost"},
-    "reveal": {"reveal", "cliffhanger", "next_episode_obligation"},
+    "scene_execution_plan": {"scene_execution_plan", "locations"},
+    "episode_goal": {"episode_title", "episode_goal", "entry_state", "central_conflict", "scene_execution_plan", "locations"},
+    "entry_state": {"entry_state", "episode_title", "episode_goal", "central_conflict", "scene_execution_plan"},
+    "central_conflict": {"central_conflict", "protagonist_decision", "stage_opposition", "emotional_movement", "dramatic_units", "protagonist_cost", "scene_execution_plan", "locations"},
+    "protagonist_decision": {"protagonist_decision", "episode_payoff", "exit_state", "cliffhanger", "dramatic_units", "protagonist_cost", "scene_execution_plan"},
+    "reveal": {"reveal", "cliffhanger", "next_episode_obligation", "scene_execution_plan"},
     "emotional_movement": {"emotional_movement"},
-    "stage_opposition": {"stage_opposition", "central_conflict", "protagonist_decision"},
-    "episode_payoff": {"episode_payoff", "exit_state", "cliffhanger", "dramatic_units", "protagonist_cost"},
+    "stage_opposition": {"stage_opposition", "central_conflict", "protagonist_decision", "scene_execution_plan"},
+    "episode_payoff": {"episode_payoff", "exit_state", "cliffhanger", "dramatic_units", "protagonist_cost", "scene_execution_plan"},
     "pressure_escalation": {"pressure_escalation", "cliffhanger", "next_episode_obligation"},
-    "exit_state": {"exit_state", "cliffhanger", "next_episode_obligation"},
-    "cliffhanger": {"cliffhanger", "next_episode_obligation"},
+    "exit_state": {"exit_state", "cliffhanger", "next_episode_obligation", "scene_execution_plan"},
+    "cliffhanger": {"cliffhanger", "next_episode_obligation", "scene_execution_plan"},
     "ending_hook_type": {"ending_hook_type"},
     "next_episode_obligation": {"next_episode_obligation"},
     "continuity_requirements": {"continuity_requirements"},
@@ -3745,6 +3952,8 @@ def _selection_modification_scope(
     dependencies: dict[str, set[str]],
     labels: tuple[tuple[str, set[str]], ...],
     revision_mode: str,
+    field_patterns: tuple[tuple[str, set[str]], ...] = (),
+    additional_impact_markers: tuple[str, ...] = (),
 ) -> set[str]:
     all_fields = set(dependencies)
     if revision_mode == "rewrite":
@@ -3755,14 +3964,18 @@ def _selection_modification_scope(
         else selection_context.source_field if selection_context else ""
     ).casefold()
     instruction_text = re.sub(r"保留[^，。；;,.!?！？]*", "", instruction.casefold())
+    field_instruction_text = re.sub(r"保持[^，。；;,.!?！？]*", "", instruction_text)
     direct_fields: set[str] = set()
     for label, fields in labels:
-        if label in source_label or label in instruction_text:
+        if label in source_label or label in field_instruction_text:
+            direct_fields.update(fields)
+    for pattern, fields in field_patterns:
+        if re.search(pattern, source_label) or re.search(pattern, field_instruction_text):
             direct_fields.update(fields)
     if not direct_fields:
         return all_fields
     impact_markers = ("前后", "上下文", "因果", "一致", "连带", "影响", "承接", "主线", "整体", "剧情", "情节", "重写")
-    if not any(marker in instruction_text for marker in impact_markers):
+    if not any(marker in instruction_text for marker in (*impact_markers, *additional_impact_markers)):
         return direct_fields
     scope = set(direct_fields)
     for field in direct_fields:
@@ -3776,18 +3989,31 @@ def infer_story_plan_node_modification_scope(
     selection_context: StoryBibleSelectionContext | None,
     revision_mode: str,
 ) -> set[str]:
-    return _selection_modification_scope(
+    if _whole_node_revision_requested(instruction, revision_mode):
+        return set(_STORY_PLAN_NODE_MODIFICATION_DEPENDENCIES)
+    return _coherent_node_modification_scope(_selection_modification_scope(
         instruction=instruction,
         selection_context=selection_context,
         dependencies=_STORY_PLAN_NODE_MODIFICATION_DEPENDENCIES,
         labels=(
-            ("标题", {"title"}), ("目的", {"narrative_purpose"}), ("概要", {"synopsis"}),
+            ("标题", {"title"}), ("目的", {"narrative_purpose"}), ("概要", {"synopsis"}), ("梗概", {"synopsis"}),
             ("进入", {"entry_state"}), ("冲突", {"central_conflict"}), ("转折", {"turning_points"}),
             ("情绪", {"emotional_direction"}), ("退出", {"exit_state"}), ("推进", {"unit_story_beats"}),
             ("结算", {"unit_resolution"}), ("交接", {"handoff_pressure"}),
+            ("逐集", {"episode_developments"}),
         ),
         revision_mode=revision_mode,
-    )
+    ))
+
+
+def _whole_node_revision_requested(instruction: str, revision_mode: str) -> bool:
+    if revision_mode == "rewrite":
+        return True
+    requests = re.finditer(r"(?:整体|完整)(?:重写|改写|修订)(?:(?:当前|这个|本)(?:剧情)?(?:部分|节点|段)|本段)", instruction)
+    return any(not re.search(
+        r"(?:不要|不得|不能|不必|无需|不需要|避免|禁止|请勿)\s*$",
+        instruction[max(0, match.start() - 8):match.start()],
+    ) for match in requests)
 
 
 def apply_story_plan_node_modification_scope(
@@ -3795,12 +4021,75 @@ def apply_story_plan_node_modification_scope(
     candidate: StoryPlanNodeGenerationOutput,
     allowed_fields: set[str],
 ) -> StoryPlanNodeGenerationOutput:
+    allowed_fields = _coherent_node_modification_scope(allowed_fields)
     source_values = source.model_dump(mode="python")
     candidate_values = candidate.model_dump(mode="python")
     for field in _STORY_PLAN_NODE_MODIFICATION_DEPENDENCIES:
         if field not in allowed_fields:
             candidate_values[field] = source_values[field]
+    if "unit_story_beats" not in allowed_fields:
+        candidate_values["parent_event_bindings"] = source_values["parent_event_bindings"]
     return StoryPlanNodeGenerationOutput.model_validate(candidate_values)
+
+
+def _whole_episode_revision_requested(instruction: str, revision_mode: str) -> bool:
+    if revision_mode == "rewrite":
+        return True
+    requests = re.finditer(
+        r"(?:整体|完整)(?:重写|改写|修订)(?:本集|这(?:一)?集|整集|第[0-9一二三四五六七八九十百零〇]+集)"
+        r"|(?:重写|改写|修订)(?:当前(?:一|这)?集|本集|这(?:一)?集|第[0-9一二三四五六七八九十百零〇]+集)"
+        r"(?:的)?(?:完整|整体)(?:规划|路线图)",
+        instruction,
+    )
+    return any(not re.search(
+        r"(?:不要|不得|不能|不必|无需|不需要|避免|禁止|请勿)\s*$",
+        instruction[max(0, match.start() - 8):match.start()],
+    ) for match in requests)
+
+
+def _explicit_episode_retention(current: EpisodePlanGenerationItem, instruction: str) -> dict[str, object]:
+    clauses = [match.group(1) for match in re.finditer(r"(?:保留|保持)([^，,。；;！？!?\n]+)", instruction)
+               if not re.search(r"(?:不要|不用|不必|无需|不需要|不再|不得|勿|不)\s*$",
+                                instruction[max(0, match.start() - 8):match.start()])]
+    retained_text = "；".join(clauses)
+    aliases = {
+        "episode_title": ("标题",), "synopsis": ("梗概",), "locations": ("场地", "地点"),
+        "episode_goal": ("目标",), "entry_state": ("进入状态",), "central_conflict": ("冲突",),
+        "protagonist_decision": ("决定", "选择"), "reveal": ("揭示",), "emotional_movement": ("情绪",),
+        "stage_opposition": ("阻力",), "episode_payoff": ("回报",), "pressure_escalation": ("压力",),
+        "exit_state": ("退出状态",), "cliffhanger": ("结尾", "钩子"),
+        "next_episode_obligation": ("承接",), "continuity_requirements": ("连续性要求",),
+        "dramatic_units": ("戏剧单位",), "protagonist_cost": ("代价",),
+        "scene_execution_plan": ("场景蓝图", "场景执行", "分场"),
+        "target_duration_seconds": ("时长", "预算"), "planned_scene_count": ("场数", "场次数"),
+        "planned_shot_count": ("镜头数", "预算"), "planned_dialogue_line_count": ("对白数", "预算"),
+    }
+    values = current.model_dump(mode="json")
+    retained = {field: values[field] for field, labels in aliases.items()
+                if field != "scene_execution_plan"
+                and (field in retained_text or any(label in retained_text for label in labels))}
+    scene_quota_clauses = [clause for clause in clauses if re.search(
+        r"(?:分场|各场|每场|场景|scene_execution_plan).*?(?:配额|分配|预算|数量|目标|句|dialogue_line_target|shot_target)"
+        r"|各\s*[0-9一二三四五六七八九十百零〇]+\s*句", clause,
+    )]
+    # A request to retain allocations protects numbers, not the defective prose
+    # being revised. Refeeding the whole old blueprint would contradict that
+    # request and bias a whole-episode revision back toward its old scenes.
+    if any(
+        ("scene_execution_plan" in clause or any(label in clause for label in aliases["scene_execution_plan"]))
+        and (clause not in scene_quota_clauses or re.search(r"原文|内容|叙事|可见行动|对白目的", clause))
+        for clause in clauses
+    ):
+        retained["scene_execution_plan"] = values["scene_execution_plan"]
+    if scene_quota_clauses:
+        retained.update({field: values[field] for field in (
+            "planned_scene_count", "planned_shot_count", "planned_dialogue_line_count",
+        )})
+        retained["scene_production_budgets"] = [
+            {field: scene[field] for field in ("scene_number", "dialogue_line_target", "shot_target")}
+            for scene in values["scene_execution_plan"]
+        ]
+    return retained
 
 
 def infer_episode_roadmap_modification_scope(
@@ -3809,12 +4098,18 @@ def infer_episode_roadmap_modification_scope(
     selection_context: StoryBibleSelectionContext | None,
     revision_mode: str,
 ) -> set[str]:
+    if _whole_episode_revision_requested(instruction, revision_mode):
+        return set(_EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES)
     return _selection_modification_scope(
         instruction=instruction,
         selection_context=selection_context,
         dependencies=_EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES,
         labels=(
             ("标题", {"episode_title"}), ("梗概", {"synopsis"}), ("场地", {"locations"}),
+            ("scene_execution_plan", {"scene_execution_plan"}), ("场景", {"scene_execution_plan"}),
+            ("分场", {"scene_execution_plan"}), ("对白", {"scene_execution_plan"}),
+            ("台词", {"scene_execution_plan"}), ("对话", {"scene_execution_plan"}),
+            ("可见行动", {"scene_execution_plan"}),
             ("目标", {"episode_goal"}),
             ("进入", {"entry_state"}), ("冲突", {"central_conflict"}),
             ("决定", {"protagonist_decision"}), ("揭示", {"reveal"}), ("情绪", {"emotional_movement"}),
@@ -3826,6 +4121,8 @@ def infer_episode_roadmap_modification_scope(
             ("代价", {"protagonist_cost"}), ("protagonist_cost", {"protagonist_cost"}),
         ),
         revision_mode=revision_mode,
+        field_patterns=((r"第[0-9一二三四五六七八九十百零〇]+场", {"scene_execution_plan"}),),
+        additional_impact_markers=("同步", "关联", "联动"),
     )
 
 
@@ -3838,6 +4135,9 @@ def apply_episode_roadmap_modification_scope(
     candidate_values = candidate.model_dump(mode="python")
     for field in _EPISODE_ROADMAP_MODIFICATION_DEPENDENCIES:
         if field not in allowed_fields:
+            candidate_values[field] = source_values[field]
+    if "scene_execution_plan" not in allowed_fields:
+        for field in ("target_duration_seconds", "planned_scene_count", "planned_shot_count", "planned_dialogue_line_count"):
             candidate_values[field] = source_values[field]
     for field in ("dramatic_units", "protagonist_cost"):
         if field not in candidate.model_fields_set:
@@ -3906,6 +4206,30 @@ class StoryPlanningService:
         )
 
     @staticmethod
+    def _approved_overseas_name_aliases(story_bible: StoryBible) -> dict[str, str]:
+        if (market_profile_contract(getattr(story_bible, "market_profile", None)).is_mainland
+                or getattr(story_bible, "status", None) != PlanningApprovalStatus.approved):
+            return {}
+        from app.modules.script_engine.overseas_identity import explicit_bilingual_aliases
+        declarations = [
+            decision.value for decision in getattr(story_bible, "creative_decisions", [])
+            if decision.status == "confirmed" and decision.authority == "canonical"
+            and isinstance(decision.value, str)
+        ]
+        return explicit_bilingual_aliases(
+            declarations, (item.name for item in story_bible.character_registry),
+        )
+
+    @staticmethod
+    def _approved_english_names(story_bible: StoryBible) -> tuple[str, ...]:
+        if market_profile_contract(getattr(story_bible, "market_profile", None)).is_mainland:
+            return ()
+        from app.modules.script_engine.overseas_identity import english_identity
+        registered = [name for item in story_bible.character_registry if (name := english_identity(item.name))]
+        aliases = StoryPlanningService._approved_overseas_name_aliases(story_bible)
+        return tuple(dict.fromkeys([*registered, *aliases.values()]))
+
+    @staticmethod
     def _market_contract_text(content_spec: ContentSpec) -> str:
         contract = content_spec_market_contract(content_spec)
         return (
@@ -3917,10 +4241,26 @@ class StoryPlanningService:
     @staticmethod
     def _story_bible_market_contract_text(story_bible: StoryBible) -> str:
         contract = market_profile_contract(getattr(story_bible, "market_profile", None))
+        aliases = StoryPlanningService._approved_overseas_name_aliases(story_bible)
+        identity_contract = (
+            "\nApproved character-name aliases explicitly confirmed in author decisions: "
+            + json.dumps(aliases, ensure_ascii=False, separators=(",", ":"))
+            + ". Use these exact English names in new overseas planning, including names inside Chinese prose. "
+            "Keep the existing character_ref values and each person's identity; these aliases do not create "
+            "new characters or authorize rewriting the approved source document. "
+            "Historical approved text and exact inherited boundary strings may retain these Chinese aliases. "
+            "They refer to the same registered people, not new identities or story changes; do not reject "
+            "otherwise valid content solely for a legacy alias spelling. Use the confirmed English names "
+            "in all new narrative and review responses. An exact immutable boundary must still preserve "
+            "its required string; presentation is projected separately. Single-character Chinese aliases "
+            "inside unrelated words must not be guessed or replaced."
+            if aliases else ""
+        )
         return (
             f"WORKFLOW MARKET CONTRACT ({contract.profile})\n"
             f"{contract.prompt_contract}\n"
             f"Cultural context: {contract.cultural_context}"
+            f"{identity_contract}"
         )
 
     def generate_creative_directions(
@@ -4035,18 +4375,45 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 max_items=8,
             ),
         )
+        recovery = self._long_story_service.story_bible_recovery_repository()
+        recovery_key = StoryBibleRecoveryKey(
+            story_project_id=payload.story_project_id,
+            request_fingerprint=story_bible_request_fingerprint(payload, generation_context={
+                "prompt": prompt,
+                "strategy": story_bible_strategy.model_dump(mode="json"),
+                "content_spec": content_spec.model_dump(mode="json"),
+            }),
+            base_story_bible_id=project.active_story_bible_id,
+            base_story_bible_version=project.active_story_bible_version,
+        )
+        checkpoint = recovery.get_pending(recovery_key)
+
+        def preserve(candidate: StoryBibleGenerationOutput, *, stage: str) -> None:
+            nonlocal checkpoint
+            checkpoint = recovery.save_pending(
+                recovery_key, candidate, stage=stage, previous=checkpoint,
+                unresolved_fields=story_bible_non_chinese_fields(
+                    candidate, market_profile=content_spec_market_profile(content_spec),
+                ),
+            )
+
         generated: dict[str, object] = {}
         normalized_generated: dict[str, object] = {}
         output: StoryBibleGenerationOutput | None = None
         first_validation_error: ValidationError | None = None
         first_structured_error: LLMStructuredOutputError | None = None
         try:
-            generated = self._generate_story_bible_model_output(
-                prompt,
-                strategy=story_bible_strategy,
-                output_schema=StoryBibleGenerationOutput.model_json_schema(),
-                stage="initial",
-            )
+            if checkpoint is not None:
+                generated = checkpoint.candidate.model_dump(mode="json")
+                logger.warning("Story Bible resumed pending candidate project=%s stage=%s revision=%d",
+                               payload.story_project_id, checkpoint.stage, checkpoint.revision)
+            else:
+                generated = self._generate_story_bible_model_output(
+                    prompt,
+                    strategy=story_bible_strategy,
+                    output_schema=StoryBibleGenerationOutput.model_json_schema(),
+                    stage="initial",
+                )
             normalized_generated = story_bible_payload_for_validation(
                 generated,
                 supplied_characters=payload.characters,
@@ -4203,7 +4570,8 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 )
                 raise failure from (repair_error or merged_error or first_validation_error)
         output = repair_deterministic_story_bible_identity_issues(output)
-        language_issues = story_bible_non_chinese_fields(output) if enforce_mainland_language else []
+        preserve(output, stage="validated_candidate")
+        language_issues = story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec)) if enforce_mainland_language else []
         identity_issues = story_bible_character_consistency_issues(
             output,
             supplied_characters=payload.characters,
@@ -4216,19 +4584,20 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                     strategy=story_bible_strategy,
                     stage="language_patch",
                     market_profile=content_spec_market_profile(content_spec),
+                    allow_partial=True,
+                    on_progress=lambda candidate: preserve(candidate, stage="language_patch"),
                 )
             except (StoryPlanningInputError, ValidationError) as patch_error:
                 logger.warning(
-                    "Story Bible language patch was invalid; falling back to complete "
-                    "quality repair error=%s",
+                    "Story Bible language patch was invalid; preserving the candidate error=%s",
                     str(patch_error)[:500],
                 )
-            language_issues = story_bible_non_chinese_fields(output) if enforce_mainland_language else []
+            language_issues = story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec)) if enforce_mainland_language else []
             identity_issues = story_bible_character_consistency_issues(
                 output,
                 supplied_characters=payload.characters,
             )
-        if language_issues or identity_issues:
+        if identity_issues:
             logger.warning(
                 "Story Bible quality repair required language_fields=%s "
                 "identity_issues=%s",
@@ -4266,7 +4635,8 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                     "structured contract. "
                     + self._validation_error_summary(quality_repair_error)
                 ) from quality_repair_error
-            remaining_language_issues = story_bible_non_chinese_fields(output)
+            preserve(output, stage="quality_repair")
+            remaining_language_issues = story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec))
             remaining_identity_issues = story_bible_character_consistency_issues(
                 output,
                 supplied_characters=payload.characters,
@@ -4282,22 +4652,33 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                         strategy=story_bible_strategy,
                         stage="quality_language_patch",
                         market_profile=content_spec_market_profile(content_spec),
+                        allow_partial=True,
+                        on_progress=lambda candidate: preserve(candidate, stage="quality_language_patch"),
                     )
-                    remaining_language_issues = story_bible_non_chinese_fields(output)
+                    remaining_language_issues = story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec))
                 except (StoryPlanningInputError, ValidationError) as patch_error:
                     logger.warning(
                         "Story Bible final language patch failed error=%s",
                         str(patch_error)[:500],
                     )
-            if remaining_language_issues or remaining_identity_issues:
-                details = [
-                    *(f"non-Chinese field: {item}" for item in remaining_language_issues[:8]),
-                    *remaining_identity_issues[:8],
-                ]
-                raise StoryPlanningInputError(
-                    "The Story Bible contains unresolved quality conflicts: "
-                    + "; ".join(details)
-                )
+        remaining_language_issues = story_bible_non_chinese_fields(
+            output, market_profile=content_spec_market_profile(content_spec),
+        )
+        remaining_identity_issues = story_bible_character_consistency_issues(
+            output, supplied_characters=payload.characters,
+        )
+        if remaining_language_issues or remaining_identity_issues:
+            details = [
+                *(f"non-Chinese field: {item}" for item in remaining_language_issues[:8]),
+                *remaining_identity_issues[:8],
+            ]
+            error_type = (StoryBibleLanguageRepairPendingError
+                          if remaining_language_issues and not remaining_identity_issues
+                          else StoryPlanningInputError)
+            raise error_type(
+                "The Story Bible contains unresolved quality conflicts: "
+                + "; ".join(details)
+            )
         output = self._ensure_short_drama_escalation_ladder(
             output,
             creative_decisions=creative_decisions,
@@ -4311,7 +4692,7 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 output.story_lines[0],
             )
             output = output.model_copy(update={"project_title": main_line.title[:40]})
-        return self._save_generated_story_bible(
+        saved = self._save_generated_story_bible(
             StoryBible(
                 story_bible_id=self._story_bible_id(payload.story_project_id),
                 story_project_id=payload.story_project_id,
@@ -4336,8 +4717,10 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
                 avoid_patterns=output.avoid_patterns,
                 creative_decisions=creative_decisions,
                 imported_source_document=_imported_source_document(payload),
-            )
+            ),
+            recovery_checkpoint=checkpoint,
         )
+        return saved
 
     def generate_story_bible_interactive_step(
         self,
@@ -4436,6 +4819,60 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
             )
             parsed = normalized or self._fallback_interactive_story_bible_step(payload.step)
         return parsed
+
+    def generate_story_synopsis_draft(
+        self,
+        payload: StorySynopsisDraftRequest,
+    ) -> StorySynopsisDraftOutput:
+        project = self._long_story_service.get_project(payload.story_project_id)
+        content_spec_id = payload.content_spec_id or project.content_spec_id
+        if not content_spec_id or project.content_spec_id != content_spec_id:
+            raise StoryPlanningInputError(
+                "Story synopsis requires the Story Project's current ContentSpec."
+            )
+        content_spec = self._content_spec_repository.get(content_spec_id)
+        if content_spec is None:
+            raise StoryPlanningInputError(f"ContentSpec '{content_spec_id}' was not found.")
+        strategy = self._generation_strategy_repository.get(payload.generation_strategy_id)
+        if strategy is None:
+            raise StoryPlanningInputError(
+                f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
+            )
+        try:
+            validate_synopsis_author_budget(payload)
+        except (ValidationError, SynopsisReviewBudgetError) as exc:
+            raise StoryPlanningInputError(
+                "梗概的创作要求超出可交接的长度或数量，请先整理要求；已有正文和对话已保留，本次未调用模型。"
+            ) from exc
+        prompt = build_story_synopsis_prompt(
+            payload,
+            project_title=project.title,
+            market_contract=self._market_contract_text(content_spec),
+            market_profile=content_spec_market_contract(content_spec).profile,
+        )
+        try:
+            # Synthesize the full manuscript with the long-form role's primary
+            # and fallback budgets; inspiration is limited to short chat turns.
+            generated = self._story_bible_llm_adapter.generate_structured_output(
+                prompt,
+                strategy=strategy.model_copy(update={
+                    "max_tokens": min(strategy.max_tokens, STORY_SYNOPSIS_MAX_OUTPUT_TOKENS),
+                }),
+                output_schema=story_synopsis_output_schema(),
+            )
+            output = StorySynopsisDraftOutput.model_validate(_without_adapter_metadata(generated))
+            output = preserve_synopsis_review(payload, output)
+        except SynopsisReviewBudgetError as exc:
+            raise StoryPlanningInputError(
+                "本次梗概检查意见超出可交接的长度或数量，已有正文和对话已保留，请重试整理。"
+            ) from exc
+        except (LLMStructuredOutputError, ValidationError) as exc:
+            # A failed synthesis must leave the author's current text intact.
+            # Never report concatenated brief fields as a generated synopsis.
+            raise StoryPlanningInputError(
+                "本次未生成完整可用的故事梗概，已有正文和对话已保留，请重试整理。"
+            ) from exc
+        return output
 
     def generate_story_inspiration_turn(
         self,
@@ -4761,8 +5198,8 @@ Return exactly {payload.option_count} distinct directions and only valid JSON.""
         )
         if ready:
             assistant_message = (
-                "故事的核心承诺、人物行动和主要代价已经足够支撑一版完整总纲。"
-                "当前决策前沿已经清空，可以进入总纲生成；仍可继续补充任何你不认可的假设。"
+                "可以先用已经确定的内容整理一版可修改草稿。"
+                "尚未决定或主动暂缓的内容会继续保留；结束提问不代表故事因果和结局已经完整。"
             )
             candidates = []
         else:
@@ -4801,6 +5238,8 @@ assistant_message 用1-2句说明这些方案主要在哪一项取舍上不同�
 当前问题：{json.dumps(question.model_dump(mode='json'), ensure_ascii=False)}
 已有设定：{json.dumps(context.model_dump(mode='json'), ensure_ascii=False)}
 初始输入：{payload.creative_prompt}
+当前作者梗概（完整正文，优先于旧输入、旧brief与参考资料；最新明确修改仅覆盖对应范围）：
+{payload.current_synopsis.strip() or '暂无'}
 参考资料：{StoryPlanningService._reference_material_context(payload.reference_materials, max_characters=5_000)}
 历史候选：{json.dumps(history, ensure_ascii=False)}
 用户本轮请求：{payload.user_message}
@@ -4891,6 +5330,8 @@ Return only JSON matching the provided schema."""
 
 项目名称：{project_title}
 初始创作输入：{payload.creative_prompt.strip() or '未提供文字输入，使用已上传参考资料'}
+当前作者梗概（完整正文，优先于旧输入、旧brief与参考资料；最新明确修改仅覆盖对应范围）：
+{payload.current_synopsis.strip() or '暂无'}
 所选标签：{'、'.join(payload.selected_tag_labels) or '未提供'}
 目标集数：{payload.target_episode_count}
 参考资料：
@@ -5216,7 +5657,7 @@ All human-readable output values must be written in Simplified Chinese."""
         # The author reviews Story Bible revisions in Simplified Chinese even
         # when the downstream audience is overseas.
         enforce_mainland_language = True
-        language_issues = story_bible_non_chinese_fields(output) if enforce_mainland_language else []
+        language_issues = story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec)) if enforce_mainland_language else []
         identity_issues = story_bible_character_consistency_issues(
             output,
             supplied_characters=[],
@@ -5236,7 +5677,7 @@ All human-readable output values must be written in Simplified Chinese."""
                     "back to complete quality repair error=%s",
                     str(patch_error)[:500],
                 )
-            language_issues = story_bible_non_chinese_fields(output) if enforce_mainland_language else []
+            language_issues = story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec)) if enforce_mainland_language else []
             identity_issues = story_bible_character_consistency_issues(
                 output,
                 supplied_characters=[],
@@ -5271,7 +5712,7 @@ All human-readable output values must be written in Simplified Chinese."""
                     "the structured contract. " + self._validation_error_summary(error)
                 ) from error
             remaining_issues = [
-                *story_bible_non_chinese_fields(output),
+                *story_bible_non_chinese_fields(output, market_profile=content_spec_market_profile(content_spec)),
                 *story_bible_character_consistency_issues(
                     output,
                     supplied_characters=[],
@@ -5397,65 +5838,84 @@ Return only JSON matching the provided schema."""
         strategy: GenerationStrategy,
         stage: str,
         market_profile: str = "cn_mainland",
+        allow_partial: bool = False,
+        on_progress: Callable[[StoryBibleGenerationOutput], None] | None = None,
     ) -> StoryBibleGenerationOutput:
-        payload = output.model_dump(mode="python")
-        current_values = {
-            path: _story_bible_value_at_path(payload, path)
-            for path in field_paths
-        }
-        patch_strategy = strategy.model_copy(
-            update={
+        repaired = output
+        remaining = list(dict.fromkeys(field_paths))
+        allowed_names = (
+            [item.name for item in output.character_registry]
+            if not market_profile_contract(market_profile).is_mainland else []
+        )
+        # Keep every valid field repair, then retry only the unresolved values.
+        # A single bad translation must not discard the other patches or cause
+        # the entire approved story to be synthesized again.
+        for attempt in range(2):
+            if not remaining:
+                break
+            payload = repaired.model_dump(mode="python")
+            current_values = {
+                path: _story_bible_value_at_path(payload, path)
+                for path in remaining
+            }
+            patch_strategy = strategy.model_copy(update={
                 "max_tokens": _story_bible_language_patch_token_budget(
                     field_values=current_values,
                     configured_max_tokens=strategy.max_tokens,
                 ),
-            }
-        )
-        generated = self._generate_story_bible_model_output(
-            self._build_story_bible_language_patch_prompt(
-                field_values=current_values,
-                output=output,
+            })
+            prompt = self._build_story_bible_language_patch_prompt(
+                field_values=current_values, output=repaired,
                 market_profile=market_profile,
-            ),
-            strategy=patch_strategy,
-            output_schema=_StoryBibleLanguagePatchOutput.model_json_schema(),
-            stage=stage,
-        )
-        patch_output = _StoryBibleLanguagePatchOutput.model_validate(
-            {key: value for key, value in generated.items() if key != "_meta"}
-        )
-        expected_paths = list(dict.fromkeys(field_paths))
-        received_paths = [item.path for item in patch_output.patches]
-        if (
-            len(received_paths) != len(set(received_paths))
-            or set(received_paths) != set(expected_paths)
-        ):
-            raise StoryPlanningInputError(
-                "Story Bible language patch did not return exactly the reported fields."
             )
-        for patch in patch_output.patches:
-            value = patch.value.strip().lstrip(":：;；,，")
-            if mainland_text_violates_language_contract(value):
-                raise StoryPlanningInputError(
-                    f"Story Bible language patch remained non-Chinese at '{patch.path}'."
+            if attempt:
+                prompt += (
+                    "\n上一轮仍未完成以下字段的中文转换。请逐句翻译其叙述内容，"
+                    "不要原样返回英文句子，也不要把字段路径、英文ID写进正文。"
+                    "只处理本次列出的字段，保留已确定的人物身份和剧情事实。"
                 )
-            _apply_story_bible_text_patch(
-                payload,
-                path=patch.path,
-                value=value,
-            )
-        repaired = StoryBibleGenerationOutput.model_validate(payload)
-        remaining = story_bible_non_chinese_fields(repaired)
-        if remaining:
+            try:
+                generated = self._generate_story_bible_model_output(
+                    prompt, strategy=patch_strategy,
+                    output_schema=_StoryBibleLanguagePatchOutput.model_json_schema(),
+                    stage=stage,
+                )
+                patch_output = _StoryBibleLanguagePatchOutput.model_validate(
+                    {key: value for key, value in generated.items() if key != "_meta"}
+                )
+                received_paths = [item.path for item in patch_output.patches]
+                if (len(received_paths) != len(set(received_paths))
+                        or any(path not in remaining for path in received_paths)):
+                    raise StoryPlanningInputError(
+                        "Story Bible language patch returned duplicate or unrelated fields."
+                    )
+            except (StoryPlanningInputError, ValidationError, LLMStructuredOutputError) as error:
+                logger.warning("Story Bible language patch invalid attempt=%d error=%s",
+                               attempt + 1, str(error)[:500])
+                continue
+            applied = []
+            for patch in patch_output.patches:
+                value = patch.value.strip().lstrip(":：;；,，")
+                if mainland_text_violates_language_contract(value, allowed_names=allowed_names):
+                    continue
+                candidate = repaired.model_dump(mode="python")
+                _apply_story_bible_text_patch(candidate, path=patch.path, value=value)
+                try:
+                    repaired = StoryBibleGenerationOutput.model_validate(candidate)
+                except ValidationError:
+                    continue
+                applied.append(patch.path)
+            remaining = [path for path in remaining if path not in applied]
+            if applied and on_progress:
+                on_progress(repaired)
+            logger.warning("Story Bible language patch applied=%d remaining=%s attempt=%d",
+                           len(applied), remaining[:20], attempt + 1)
+        unresolved = story_bible_non_chinese_fields(repaired, market_profile=market_profile)
+        if unresolved and not allow_partial:
             raise StoryPlanningInputError(
                 "Story Bible language patch left unresolved fields: "
-                + ", ".join(remaining[:20])
+                + ", ".join(unresolved[:20])
             )
-        logger.warning(
-            "Story Bible language patch applied field_count=%d fields=%s",
-            len(expected_paths),
-            expected_paths[:20],
-        )
         return repaired
 
     def _generate_story_bible_model_output(
@@ -5573,15 +6033,23 @@ Return only JSON matching the provided schema."""
         ]
         return output.model_copy(update={"escalation_stages": stages})
 
-    def _save_generated_story_bible(self, candidate: StoryBible) -> StoryBible:
+    def _save_generated_story_bible(
+        self, candidate: StoryBible, *,
+        recovery_checkpoint: StoryBibleRecoveryCheckpoint | None = None,
+    ) -> StoryBible:
+        if recovery_checkpoint is not None:
+            return self._long_story_service.save_generated_story_bible_draft(
+                candidate, recovery_checkpoint=recovery_checkpoint,
+            )
         return self._long_story_service.save_generated_story_bible_draft(candidate)
 
     def generate_top_level_story_plan_nodes(
         self,
         payload: StoryPlanNodeDraftRequest,
     ) -> list[StoryPlanNode]:
-        """Generate the first visible story branches without an LLM-authored root."""
+        """Generate narrative branches from a non-narrative technical root."""
 
+        self._validate_planning_epoch(payload, episode_number=1)
         if (
             payload.parent_node_id is not None
             or payload.parent_node_version is not None
@@ -5627,6 +6095,7 @@ Return only JSON matching the provided schema."""
 
         root = self._ensure_technical_story_root(
             project_id=payload.story_project_id,
+            planning_revision_epoch=payload.planning_revision_epoch,
             planned_episode_count=project.planned_episode_count,
             target_total_characters=project.target_total_characters,
             story_bible=story_bible,
@@ -5634,18 +6103,23 @@ Return only JSON matching the provided schema."""
         if project.planned_episode_count <= MAX_EPISODE_READY_SPAN:
             return [self._ensure_short_project_leaf(
                 project_id=payload.story_project_id,
+                planning_revision_epoch=payload.planning_revision_epoch,
                 planned_episode_count=project.planned_episode_count,
                 target_total_characters=project.target_total_characters,
                 story_bible=story_bible,
                 parent=root,
+                generation_strategy_id=payload.generation_strategy_id,
+                author_instruction=payload.author_instruction,
             )]
         return self.decompose_story_plan_node(
             StoryPlanNodeDecompositionRequest(
                 story_project_id=payload.story_project_id,
+                planning_revision_epoch=payload.planning_revision_epoch,
                 parent_node_id=root.node_id,
                 parent_node_version=root.version,
                 generation_strategy_id=payload.generation_strategy_id,
                 max_episode_ready_span=MAX_EPISODE_READY_SPAN,
+                author_instruction=payload.author_instruction,
             )
         )
 
@@ -5653,69 +6127,30 @@ Return only JSON matching the provided schema."""
         self,
         *,
         project_id: str,
+        planning_revision_epoch: int = 0,
         planned_episode_count: int,
         target_total_characters: int,
         story_bible: StoryBible,
         parent: StoryPlanNode,
+        generation_strategy_id: str,
+        author_instruction: str = "",
     ) -> StoryPlanNode:
-        """Represent a complete short project without manufacturing tiny siblings."""
+        """Develop one reviewable story, without manufacturing tiny siblings."""
 
-        node_id = self._story_plan_node_id(
-            project_id,
-            parent_node_id=parent.node_id,
-            sequence_order=1,
-        )
-        try:
-            current = self._long_story_service.get_story_plan_node(project_id, node_id)
-            if (
-                current.story_bible_id == story_bible.story_bible_id
-                and current.story_bible_version == story_bible.version
-                and current.parent_node_id == parent.node_id
-                and current.planned_start_episode == 1
-                and current.planned_end_episode == planned_episode_count
-                and current.expansion_status == StoryPlanExpansionStatus.episode_ready
-            ):
-                return current
-            version = current.version + 1
-        except LongStoryNotFoundError:
-            version = 1
-
-        return self._long_story_service.save_story_plan_node(
-            StoryPlanNode(
-                node_id=node_id,
+        # A valid episode span is not a developed narrative. Use the same model
+        # generation path as other nodes; failure must not create a template leaf.
+        return self.generate_story_plan_node_draft(
+            StoryPlanNodeDraftRequest(
                 story_project_id=project_id,
+                planning_revision_epoch=planning_revision_epoch,
                 story_bible_id=story_bible.story_bible_id,
                 story_bible_version=story_bible.version,
-                version=version,
+                generation_strategy_id=generation_strategy_id,
                 parent_node_id=parent.node_id,
                 parent_node_version=parent.version,
                 sequence_order=1,
-                title="完整短篇剧情",
-                narrative_purpose="在完整短篇范围内落实已批准总纲的核心冲突与结局。",
-                synopsis=story_bible.core_premise,
-                entry_state="承接已批准总纲确定的初始人物与世界状态。",
-                central_conflict=story_bible.central_conflict,
-                turning_points=[story_bible.ending_direction],
-                emotional_direction=story_bible.theme,
-                exit_state=story_bible.ending_direction,
-                unit_story_beats=[
-                    story_bible.core_premise,
-                    story_bible.central_conflict,
-                    story_bible.ending_direction,
-                    "完成已批准总纲要求的主要人物选择与故事线结算。",
-                ],
-                unit_resolution=story_bible.ending_direction,
-                handoff_pressure="全剧完成最终结算，不再向后转移未完成的单位剧情。",
-                character_refs=story_bible.character_refs,
-                story_line_refs=[line.story_line_id for line in story_bible.story_lines],
-                setup_refs=story_bible.major_setup_payoff_refs,
-                payoff_refs=[],
-                estimated_episode_count=planned_episode_count,
-                estimated_script_body_characters=target_total_characters,
-                planned_start_episode=1,
-                planned_end_episode=planned_episode_count,
-                expansion_status=StoryPlanExpansionStatus.episode_ready,
-                decomposition_reason="整部作品处于8至12集叶节点范围，无需继续递归拆分。",
+                target_episode_count=planned_episode_count,
+                author_instruction=author_instruction,
             )
         )
 
@@ -5723,6 +6158,7 @@ Return only JSON matching the provided schema."""
         self,
         *,
         project_id: str,
+        planning_revision_epoch: int = 0,
         planned_episode_count: int,
         target_total_characters: int,
         story_bible: StoryBible,
@@ -5787,13 +6223,15 @@ Return only JSON matching the provided schema."""
                 decomposition_reason=TECHNICAL_STORY_ROOT_MARKER,
                 status=PlanningApprovalStatus.approved,
                 approved_at=datetime.now(timezone.utc),
-            )
+            ),
+            planning_revision_epoch=planning_revision_epoch,
         )
 
     def generate_story_plan_node_draft(
         self,
         payload: StoryPlanNodeDraftRequest,
     ) -> StoryPlanNode:
+        self._validate_planning_epoch(payload, episode_number=1 if payload.parent_node_id is None else None)
         project = self._long_story_service.get_project(payload.story_project_id)
         story_bible = self._long_story_service.get_story_bible(
             payload.story_project_id,
@@ -5847,10 +6285,19 @@ Return only JSON matching the provided schema."""
         except LongStoryNotFoundError:
             version = 1
 
+        is_short_project_leaf = (
+            parent is not None
+            and parent.decomposition_reason == TECHNICAL_STORY_ROOT_MARKER
+            and MIN_EPISODE_READY_SPAN <= project.planned_episode_count <= MAX_EPISODE_READY_SPAN
+            and parent.planned_start_episode == 1
+            and parent.planned_end_episode == project.planned_episode_count
+        )
         node_prompt = self._build_story_plan_node_prompt(
             project_title=project.title,
             story_bible=story_bible,
             payload=payload,
+            parent=parent,
+            completes_story=parent is None or is_short_project_leaf,
             knowledge_context=self._knowledge_context(
                 strategy=strategy,
                 content_spec=content_spec,
@@ -5863,6 +6310,10 @@ Return only JSON matching the provided schema."""
                 ],
                 max_items=7,
             ),
+        )
+        node_prompt = (
+            render_planning_source_context(load_planning_source_context(self._long_story_service, story_bible))
+            + "\n\n" + node_prompt
         )
         output = self._generate_planning_output(
             prompt=node_prompt,
@@ -5877,11 +6328,12 @@ Return only JSON matching the provided schema."""
             output_model=StoryPlanNodeGenerationOutput,
             artifact_name="Story Plan Node",
             market_profile=content_spec_market_profile(content_spec),
+            approved_english_names=self._approved_english_names(story_bible),
         )
         if parent is not None:
             self._require_active_story_plan_lineage(parent)
         is_root = payload.parent_node_id is None
-        if is_root:
+        if is_root or is_short_project_leaf:
             # The root is the whole-story planning envelope. Its children, not the
             # root itself, decide how many uneven levels are needed below it.
             estimated_episode_count = project.planned_episode_count
@@ -5893,40 +6345,48 @@ Return only JSON matching the provided schema."""
             estimated_body_characters = output.estimated_script_body_characters
             planned_start_episode = output.planned_start_episode
             planned_end_episode = output.planned_end_episode
-        return self._long_story_service.save_story_plan_node(
-            StoryPlanNode(
-                node_id=node_id,
-                story_project_id=payload.story_project_id,
-                story_bible_id=story_bible.story_bible_id,
-                story_bible_version=story_bible.version,
-                version=version,
-                parent_node_id=payload.parent_node_id,
-                parent_node_version=payload.parent_node_version,
-                predecessor_node_id=payload.predecessor_node_id,
-                predecessor_node_version=payload.predecessor_node_version,
-                sequence_order=payload.sequence_order,
-                title=output.title,
-                narrative_purpose=output.narrative_purpose,
-                synopsis=output.synopsis,
-                entry_state=output.entry_state,
-                central_conflict=output.central_conflict,
-                turning_points=output.turning_points,
-                emotional_direction=output.emotional_direction,
-                exit_state=output.exit_state,
-                unit_story_beats=output.unit_story_beats,
-                unit_resolution=output.unit_resolution,
-                handoff_pressure=output.handoff_pressure,
-                character_refs=output.character_refs,
-                story_line_refs=output.story_line_refs,
-                setup_refs=output.setup_refs,
-                payoff_refs=output.payoff_refs,
-                estimated_episode_count=estimated_episode_count,
-                estimated_script_body_characters=estimated_body_characters,
-                planned_start_episode=planned_start_episode,
-                planned_end_episode=planned_end_episode,
-                decomposition_reason=output.decomposition_reason,
-            )
+        candidate = StoryPlanNode(
+            node_id=node_id,
+            story_project_id=payload.story_project_id,
+            story_bible_id=story_bible.story_bible_id,
+            story_bible_version=story_bible.version,
+            version=version,
+            parent_node_id=payload.parent_node_id,
+            parent_node_version=payload.parent_node_version,
+            predecessor_node_id=payload.predecessor_node_id,
+            predecessor_node_version=payload.predecessor_node_version,
+            sequence_order=payload.sequence_order,
+            title=output.title,
+            narrative_purpose=output.narrative_purpose,
+            synopsis=output.synopsis,
+            entry_state=output.entry_state,
+            central_conflict=output.central_conflict,
+            turning_points=output.turning_points,
+            emotional_direction=output.emotional_direction,
+            exit_state=output.exit_state,
+            unit_story_beats=output.unit_story_beats,
+            parent_event_bindings=output.parent_event_bindings,
+            episode_developments=output.episode_developments,
+            unit_resolution=output.unit_resolution,
+            handoff_pressure=output.handoff_pressure,
+            character_refs=output.character_refs,
+            story_line_refs=output.story_line_refs,
+            setup_refs=output.setup_refs,
+            payoff_refs=output.payoff_refs,
+            estimated_episode_count=estimated_episode_count,
+            estimated_script_body_characters=estimated_body_characters,
+            planned_start_episode=planned_start_episode,
+            planned_end_episode=planned_end_episode,
+            decomposition_reason=output.decomposition_reason,
+            expansion_status=(
+                StoryPlanExpansionStatus.episode_ready
+                if is_short_project_leaf
+                else StoryPlanExpansionStatus.unexpanded
+            ),
         )
+        require_events = self._requires_episode_developments("Story Plan Node")
+        validate_episode_developments(candidate, required=require_events, require_canonical_events=require_events)
+        return self._long_story_service.save_story_plan_node(candidate, planning_revision_epoch=payload.planning_revision_epoch)
 
     def modify_story_plan_node(
         self,
@@ -5939,6 +6399,7 @@ Return only JSON matching the provided schema."""
             payload.node_id,
             version=payload.node_version,
         )
+        self._validate_planning_epoch(payload, episode_number=source.planned_start_episode)
         self._require_active_story_plan_lineage(source)
         if source.status == PlanningApprovalStatus.superseded:
             raise StoryPlanningInputError(
@@ -5956,13 +6417,23 @@ Return only JSON matching the provided schema."""
             raise StoryPlanningInputError(
                 f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
             )
+        allowed_fields = infer_story_plan_node_modification_scope(
+            instruction=payload.instruction,
+            selection_context=payload.selection_context,
+            revision_mode=payload.revision_mode.value,
+        )
+        continuity_context = self._story_plan_node_revision_context(source)
+        fixed_boundaries = (
+            self._node_revision_fixed_boundaries(source, continuity_context)
+            if allowed_fields & _STORY_PLAN_NODE_EVENT_FIELDS else {}
+        )
         prompt = self._build_story_plan_node_modification_prompt(
             source=source,
             story_bible=story_bible,
             instruction=payload.instruction,
             revision_mode=payload.revision_mode.value,
             selection_context=payload.selection_context,
-            continuity_context=self._story_plan_node_revision_context(source),
+            continuity_context=continuity_context,
             knowledge_context=self._knowledge_context(
                 strategy=strategy,
                 content_spec=self._content_spec_for_story_bible(story_bible),
@@ -5976,11 +6447,23 @@ Return only JSON matching the provided schema."""
                 max_items=7,
             ),
         )
+        prompt += (
+            "\nApplication revision scope: " + json.dumps(sorted(allowed_fields))
+            + "\nKeep all other fields equal to the current node. Within this scope, preserve unaffected facts. "
+            "The event table, turning-point references, episode map and entry/exit states form one coherent "
+            "contract: update their dependent references together; do not combine a new map with old event text."
+            "\nBinding adjacent-node states; copy these values exactly and develop the interior events between them:\n"
+            + json.dumps(fixed_boundaries, ensure_ascii=False, separators=(',', ':'))
+        )
+        output_schema = StoryPlanNodeGenerationOutput.model_json_schema()
+        for field, value in fixed_boundaries.items():
+            output_schema["properties"][field] = {"type": "string", "enum": [value]}
         output = self._generate_planning_output(
             prompt=prompt,
             strategy=strategy,
             output_model=StoryPlanNodeGenerationOutput,
             artifact_name="Story Plan Node modification",
+            output_schema=output_schema,
         )
         output = self._ensure_mainland_planning_language(
             original_prompt=prompt,
@@ -5989,11 +6472,7 @@ Return only JSON matching the provided schema."""
             output_model=StoryPlanNodeGenerationOutput,
             artifact_name="Story Plan Node modification",
             market_profile=getattr(story_bible, "market_profile", "cn_mainland"),
-        )
-        allowed_fields = infer_story_plan_node_modification_scope(
-            instruction=payload.instruction,
-            selection_context=payload.selection_context,
-            revision_mode=payload.revision_mode.value,
+            approved_english_names=self._approved_english_names(story_bible),
         )
         output = apply_story_plan_node_modification_scope(source, output, allowed_fields)
         editable_fields = {
@@ -6006,6 +6485,8 @@ Return only JSON matching the provided schema."""
             "emotional_direction",
             "exit_state",
             "unit_story_beats",
+            "parent_event_bindings",
+            "episode_developments",
             "unit_resolution",
             "handoff_pressure",
             "decomposition_reason",
@@ -6030,8 +6511,36 @@ Return only JSON matching the provided schema."""
             "status": PlanningApprovalStatus.draft,
             "approved_at": None,
         })
+        require_events = "episode_developments" in allowed_fields and self._requires_episode_developments("Story Plan Node modification")
+        validate_episode_developments(candidate, required=require_events, require_canonical_events=require_events)
+        for field, value in fixed_boundaries.items():
+            if getattr(candidate, field) != value:
+                raise StoryPlanningInputError(
+                    f"Node revision changed its binding {field}; revise the responsible adjacent/parent "
+                    "boundary first. The existing node and roadmaps are preserved."
+                )
         self._require_active_story_plan_lineage(source)
         return candidate
+
+    @staticmethod
+    def _node_revision_fixed_boundaries(source: StoryPlanNode, context: dict[str, object]) -> dict[str, str]:
+        """Only existing adjacent/parent contracts bind an interior node edit."""
+        result: dict[str, str] = {}
+        previous = context.get("previous_sibling")
+        following = context.get("next_sibling")
+        ancestors = context.get("ancestor_path") or []
+        parent = ancestors[-1] if ancestors else None
+        if isinstance(previous, dict):
+            result["entry_state"] = previous["exit_state"]
+        elif isinstance(parent, dict) and parent["episode_range"][0] == source.planned_start_episode:
+            # The technical root has no authored opening event.
+            if parent.get("decomposition_reason") != TECHNICAL_STORY_ROOT_MARKER:
+                result["entry_state"] = parent["entry_state"]
+        if isinstance(following, dict):
+            result["exit_state"] = following["entry_state"]
+        elif isinstance(parent, dict) and parent["episode_range"][1] == source.planned_end_episode:
+            result["exit_state"] = parent["exit_state"]
+        return result
 
     def _story_plan_node_revision_context(
         self,
@@ -6039,12 +6548,12 @@ Return only JSON matching the provided schema."""
     ) -> dict[str, object]:
         """Build a bounded lineage snapshot for one node revision.
 
-        Version references remain the persistence authority. This snapshot gives the
-        model the actual narrative handoffs behind those references without copying
-        the complete tree into every revision prompt.
+        Parent versions retain the node's lineage. Predecessor IDs locate the
+        current sibling history, including corrections made after this node was
+        created, without copying the complete tree into every revision prompt.
         """
 
-        def boundary(node: StoryPlanNode) -> dict[str, object]:
+        def boundary(node: StoryPlanNode, *, include_events: bool = False) -> dict[str, object]:
             return {
                 "node_id": node.node_id,
                 "version": node.version,
@@ -6058,6 +6567,8 @@ Return only JSON matching the provided schema."""
                 "exit_state": node.exit_state,
                 "unit_resolution": node.unit_resolution,
                 "handoff_pressure": node.handoff_pressure,
+                "decomposition_reason": getattr(node, "decomposition_reason", None),
+                **(StoryPlanningService._node_event_history(node) if include_events else {}),
             }
 
         ancestors: list[StoryPlanNode] = []
@@ -6092,7 +6603,9 @@ Return only JSON matching the provided schema."""
             )
 
         next_sibling: StoryPlanNode | None = None
+        preceding_leaf: StoryPlanNode | None = None
         direct_children: list[StoryPlanNode] = []
+        approved_source: StoryPlanNode | None = source if source.status == PlanningApprovalStatus.approved else None
         list_nodes = getattr(self._long_story_service, "list_story_plan_nodes", None)
         if callable(list_nodes):
             stored = list_nodes(
@@ -6100,16 +6613,46 @@ Return only JSON matching the provided schema."""
                 story_bible_id=source.story_bible_id,
                 story_bible_version=source.story_bible_version,
             )
+            approved_versions = [item for item in stored if item.node_id == source.node_id
+                                 and item.version <= source.version and item.status == PlanningApprovalStatus.approved]
+            if approved_versions:
+                approved_source = max(approved_versions, key=lambda item: item.version)
             latest_by_id: dict[str, StoryPlanNode] = {}
             for candidate in stored:
                 current_latest = latest_by_id.get(candidate.node_id)
                 if current_latest is None or candidate.version > current_latest.version:
                     latest_by_id[candidate.node_id] = candidate
-            active = [
-                candidate
-                for candidate in latest_by_id.values()
-                if candidate.status != PlanningApprovalStatus.superseded
-            ]
+            def current_lineage(candidate: StoryPlanNode) -> bool:
+                visited_ids: set[str] = set()
+                while True:
+                    if candidate.status == PlanningApprovalStatus.superseded or candidate.node_id in visited_ids:
+                        return False
+                    visited_ids.add(candidate.node_id)
+                    if candidate.parent_node_id is None:
+                        return True
+                    parent = latest_by_id.get(candidate.parent_node_id)
+                    if parent is None or parent.version != candidate.parent_node_version:
+                        return False
+                    candidate = parent
+
+            active = [candidate for candidate in latest_by_id.values() if current_lineage(candidate)]
+            # The persisted predecessor identifies the sibling, but its old
+            # version must not erase a later correction when revising this node.
+            active_previous = next((candidate for candidate in active
+                if candidate.node_id == source.predecessor_node_id
+                and candidate.parent_node_id == source.parent_node_id
+                and candidate.parent_node_version == source.parent_node_version
+                and candidate.sequence_order < source.sequence_order), None)
+            if active_previous is not None:
+                previous_sibling = active_previous
+            preceding_leaves = [candidate for candidate in active
+                if candidate.expansion_status == StoryPlanExpansionStatus.episode_ready
+                and source.planned_start_episode is not None
+                and candidate.planned_end_episode == source.planned_start_episode - 1]
+            if preceding_leaves:
+                preceding_leaf = max(preceding_leaves, key=lambda candidate: candidate.planned_start_episode or 0)
+                if previous_sibling is not None and preceding_leaf.node_id == previous_sibling.node_id:
+                    preceding_leaf = None
             sibling_candidates = sorted(
                 (
                     candidate
@@ -6132,12 +6675,14 @@ Return only JSON matching the provided schema."""
             )[:12]
 
         return {
-            "ancestor_path": [boundary(node) for node in reversed(ancestors)],
+            "ancestor_path": [boundary(node, include_events=node is ancestors[0]) for node in reversed(ancestors)],
             "previous_sibling": (
-                boundary(previous_sibling) if previous_sibling is not None else None
+                boundary(previous_sibling, include_events=True) if previous_sibling is not None else None
             ),
+            "preceding_leaf": boundary(preceding_leaf, include_events=True) if preceding_leaf is not None else None,
             "next_sibling": boundary(next_sibling) if next_sibling is not None else None,
             "direct_children": [boundary(node) for node in direct_children],
+            "approved_node_obligations": boundary(approved_source) if approved_source is not None else None,
         }
 
     @staticmethod
@@ -6151,24 +6696,56 @@ Return only JSON matching the provided schema."""
         continuity_context: dict[str, object] | None,
         knowledge_context: str,
     ) -> str:
+        story_bible = approved_story_bible_context(story_bible)
         resolved_instruction = instruction.strip() or (
             "No additional change request. Create a fresh overall version of this story node "
             "within its fixed tree and continuity boundaries."
         )
+        whole_revision = _whole_node_revision_requested(resolved_instruction, revision_mode)
         revision_rules = (
             "Rebuild every editable dramatic field in this node from scratch. Do not merely "
             "paraphrase the current node. Keep only the immutable tree boundary, approved Story "
             "Bible facts, continuity handoffs and registered reference IDs."
-            if revision_mode == "rewrite"
+            if whole_revision
             else
             "Revise only the dramatic fields affected by the instruction and preserve all "
             "unaffected narrative facts and causal structure."
         )
+        source_context = source.model_dump(mode="json", exclude={
+            "schema_version", "node_id", "story_project_id", "story_bible_id", "story_bible_version",
+            "version", "status", "created_at", "approved_at",
+        })
+        if whole_revision:
+            # Reconstruct from approved parent events and adjacent history. The
+            # defective node's invented details must not become mandatory facts.
+            preserved_text = "；".join(match.group(0) for match in re.finditer(
+                r"(?:保留|保持)[^，。；;,.!?！？]*", resolved_instruction,
+            ) if not re.search(r"(?:不要|不得|不能|不必|无需|不需要|避免|禁止|请勿|不|未)\s*$",
+                               resolved_instruction[max(0, match.start() - 8):match.start()]))
+            retained_fields = set()
+            for label, fields in (
+                ("标题", {"title"}), ("目的", {"narrative_purpose"}), ("梗概", {"synopsis"}),
+                ("事件", {"unit_story_beats", "turning_points", "episode_developments"}),
+                ("逐集", {"episode_developments", "unit_story_beats", "turning_points"}),
+                ("冲突", {"central_conflict"}), ("情绪", {"emotional_direction"}),
+                ("结算", {"unit_resolution"}), ("交接压力", {"handoff_pressure"}),
+            ):
+                if label in preserved_text:
+                    retained_fields.update(fields)
+            source_context = {key: value for key, value in source_context.items() if key in retained_fields or key not in {
+                *_STORY_PLAN_NODE_MODIFICATION_DEPENDENCIES, "decomposition_reason",
+            }}
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
         decision_contract = _creative_decision_prompt_contract(
-            list(getattr(story_bible, "creative_decisions", []) or [])
+            list(getattr(story_bible, "creative_decisions", []) or []),
+            allow_planning_candidates=True,
         )
-        if selection_context is None:
+        if whole_revision:
+            selection_contract = (
+                "Whole-node revision; selection identifies the replacement target, not additional canon: "
+                + (selection_context.source_field if selection_context else "whole node")
+            )
+        elif selection_context is None:
             selection_contract = (
                 "No text selection was provided. Infer the smallest affected node fields from the instruction."
             )
@@ -6190,6 +6767,7 @@ Apply the user's instruction to the node's dramatic content. This is a planning 
 not an episode script. All human-readable values must follow the market contract above.
 {STORY_TREE_LENGTH_TARGET_CONTRACT}
 {STORY_LINE_PLANNING_CONTRACT}
+{EPISODE_DEVELOPMENT_CONTRACT}
 
 User modification instruction:
 {resolved_instruction}
@@ -6207,13 +6785,35 @@ Approved Story Bible boundaries:
 - Allowed character refs: {json.dumps(story_bible.character_refs, ensure_ascii=False)}
 - Allowed story-line refs: {json.dumps([item.story_line_id for item in story_bible.story_lines], ensure_ascii=False)}
 
+{StoryPlanningService._episode_bible_facts_context(story_bible)}
+
 {decision_contract}
 
-Current node JSON:
-{source.model_dump_json(exclude={"schema_version", "node_id", "story_project_id", "story_bible_id", "story_bible_version", "version", "status", "created_at", "approved_at"})}
+Current node context (whole rewrites receive only its fixed range, references and allocation):
+{json.dumps(source_context, ensure_ascii=False, separators=(',', ':'))}
+If this node has parent_event_bindings, preserve its parent event ownership and the referenced
+parent version. When changing or splitting unit_story_beats, explicitly update child_event_indices
+to the revised local event table; never leave stale indices or clear provenance. Preserve the full
+actors, prerequisites, causal outcomes and order of every bound parent event. A title/state-only
+revision keeps the original event table and bindings. Ownership changes across siblings belong at
+their common parent, not in a unilateral node edit. Legacy nodes without bindings remain compatible.
 
 Planning lineage and adjacent continuity boundaries:
 {json.dumps(continuity_context or {}, ensure_ascii=False, separators=(',', ':'))}
+The previous sibling's complete event history remains established even when its final
+exit-state summary omits an earlier result. Separate those inherited facts from this
+node's new actions. The current node is a revision candidate, not evidence that an
+already completed action must happen again. Correct conflicting event ownership here,
+before it becomes an immutable instruction for episode expansion.
+The supplied previous_sibling is the current active version, not the historical version
+recorded when this node was first created. preceding_leaf, when present, carries the
+immediately preceding detailed movement across a parent boundary; preserve its actual
+events and still-effective consequences rather than reconstructing them from a coarse parent summary.
+approved_node_obligations records the last approved purpose and local resolution of this
+same movement, before defective draft revisions. Preserve those required outcomes while
+rebuilding their causal execution; changing wording does not authorize dropping a required
+causal connection. Already executed background remains completed. If an outcome conflicts
+with the binding parent/adjacent states, that higher boundary controls the revision.
 
 {knowledge_context}
 
@@ -6224,10 +6824,14 @@ Revision rules:
 4. Maintain causal continuity from entry state through turning points and unit resolution to exit state and handoff pressure.
    Do not resolve an unresolved author decision or promote a provisional suggestion into fact unless this modification
    instruction explicitly supplies that decision.
-5. Treat ancestor boundaries, the previous sibling exit, the next sibling entry, and direct-child
-   entry/exit states in the supplied continuity context as binding. When the requested change affects
-   one of those handoffs, update every dependent field inside this node instead of hiding the conflict.
-   Descendant regeneration is handled by the application after this complete node contract returns.
+   A review suggestion is fallible: reconcile it with the approved facts above. Do not weaken an approved
+   outcome to a pending application, change an event's before/after timing, or restore an already resolved
+   uncertainty just to satisfy a suggestion. Repair the actual conflicting event and its dependent fields.
+5. Treat ancestor boundaries, the previous sibling exit and the next sibling entry as binding.
+   Direct children describe the existing downstream version, not a veto on the requested revision.
+   When an internal event or handoff changes, update every dependent field in this node coherently;
+   do not preserve a known-bad event merely because old descendants repeat it. The application
+   invalidates or retains affected descendants as drafts for regeneration and review afterwards.
 6. Do not write scenes, dialogue, camera directions, episode prose, explanations or metadata.
 7. Keep the revised node within the applicable target range above. If it runs long, compress
    repeated parent or Story Bible context before returning; do not add filler to unaffected fields.
@@ -6240,10 +6844,66 @@ Return only JSON matching the provided schema."""
     ) -> list[StoryPlanNode]:
         self._long_story_service.get_project(payload.story_project_id)
         parent = self._long_story_service.get_story_plan_node(
-            payload.story_project_id,
-            payload.parent_node_id,
+            payload.story_project_id, payload.parent_node_id,
             version=payload.parent_node_version,
         )
+        self._validate_planning_epoch(payload, episode_number=parent.planned_start_episode)
+        self._require_active_story_plan_lineage(parent)
+        bible = self._long_story_service.get_story_bible(
+            payload.story_project_id, parent.story_bible_id,
+            version=parent.story_bible_version,
+        )
+        source = load_planning_source_context(self._long_story_service, bible)
+        strategy = self._generation_strategy_repository.get(payload.generation_strategy_id)
+        fingerprint_context = {
+            "contract": "decomposition.fixed-boundaries-completion.v3",
+            "request": payload.model_dump(mode="json", exclude={"operation_id"}),
+            "parent": parent.model_dump(mode="json"),
+            "bible": bible.model_dump(mode="json"),
+            "source": source,
+            "strategy": strategy.model_dump(mode="json") if strategy else None,
+        }
+        fingerprint = planning_attempt_fingerprint(fingerprint_context)
+        compatible_fingerprints = [fingerprint, planning_attempt_fingerprint({
+            **fingerprint_context, "contract": "decomposition.fixed-boundaries-completion.v2",
+        })]
+        repository_factory = getattr(self._long_story_service, "planning_attempt_repository", None)
+        repository = repository_factory() if callable(repository_factory) else None
+        with planning_call_budget_scope(
+            database_runtime=repository.runtime if repository else None,
+            operation_id=getattr(payload, "operation_id", None),
+            project_id=payload.story_project_id,
+            parent_node_id=parent.node_id, parent_node_version=parent.version,
+            input_fingerprint=fingerprint,
+        ) as budget:
+            binding = PlanningAttemptBinding(
+                story_project_id=payload.story_project_id,
+                parent_node_id=parent.node_id, parent_node_version=parent.version,
+                request_fingerprint=fingerprint,
+                source_fingerprint=planning_attempt_fingerprint(source),
+                operation_id=budget.operation_id,
+            )
+            with bind_planning_attempt(repository, binding), bind_llm_log_context(
+                project_id=payload.story_project_id, stage="planning_decomposition",
+                agent_run_id=budget.operation_id,
+            ):
+                return self._decompose_story_plan_node_impl(
+                    payload, parent=parent, story_bible=bible,
+                    source_context=source, strategy=strategy,
+                    resume_candidates=load_planning_resume_candidates(compatible_fingerprints),
+                )
+
+    def _decompose_story_plan_node_impl(
+        self,
+        payload: StoryPlanNodeDecompositionRequest,
+        *,
+        parent: StoryPlanNode,
+        story_bible: StoryBible,
+        source_context: dict[str, object],
+        strategy: GenerationStrategy | None,
+        resume_candidates: list[dict[str, object]] | None = None,
+    ) -> list[StoryPlanNode]:
+        self._validate_planning_epoch(payload, episode_number=parent.planned_start_episode)
         self._require_active_story_plan_lineage(parent)
         if parent.status != PlanningApprovalStatus.approved:
             raise StoryPlanningInputError("Only an approved node can be decomposed.")
@@ -6263,16 +6923,8 @@ Return only JSON matching the provided schema."""
             raise StoryPlanningInputError(
                 "Approve the node as expandable before generating child nodes."
             )
-        story_bible = self._long_story_service.get_story_bible(
-            payload.story_project_id,
-            parent.story_bible_id,
-            version=parent.story_bible_version,
-        )
         if story_bible.status != PlanningApprovalStatus.approved:
             raise StoryPlanningInputError("The node must use an approved Story Bible.")
-        strategy = self._generation_strategy_repository.get(
-            payload.generation_strategy_id
-        )
         if strategy is None:
             raise StoryPlanningInputError(
                 f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
@@ -6287,11 +6939,18 @@ Return only JSON matching the provided schema."""
                 "The requested child count would create fragments shorter than the "
                 f"{MIN_EPISODE_READY_SPAN}-episode leaf minimum."
             )
-        is_technical_root = (
-            parent.decomposition_reason == TECHNICAL_STORY_ROOT_MARKER
-        )
-        decomposition_prompt: str | None = None
-        decomposition_strategy: GenerationStrategy | None = None
+        fixed_boundary_plan = None
+        if (
+            16 <= parent_span <= 36
+            and parent.decomposition_reason != TECHNICAL_STORY_ROOT_MARKER
+            and self._requires_episode_developments("Story Plan Node decomposition")
+        ):
+            proposed_plan = build_decomposition_boundary_plan(
+                parent, requested_child_count=payload.requested_child_count,
+                preferred_child_count=_narrative_decomposition_child_count(parent, story_bible),
+            )
+            if all(item.recommended_next_step == "episode_ready" for item in proposed_plan.ranges):
+                fixed_boundary_plan = proposed_plan
         used_segmented_recovery = False
         recovery_source_children: list[object] = []
         recovery_source_score = (0, 0)
@@ -6316,54 +6975,51 @@ Return only JSON matching the provided schema."""
                 score[0],
             )
 
-        if (
-            is_technical_root
-            and payload.requested_child_count is None
-            and not payload.author_instruction.strip()
-        ):
-            started = monotonic()
-            output = self._compile_top_level_decomposition(
-                parent=parent,
-                story_bible=story_bible,
-                max_episode_ready_span=episode_ready_ceiling,
-            )
-            logger.info(
-                "Top-level story branches compiled from approved Story Bible "
-                "stage_count=%d child_count=%d duration_seconds=%.3f",
-                len(story_bible.escalation_stages),
-                len(output.children),
-                monotonic() - started,
-            )
-        else:
-            decomposition_prompt = self._build_decomposition_prompt(
-                parent=parent,
-                story_bible=story_bible,
-                requested_child_count=payload.requested_child_count,
-                max_episode_ready_span=episode_ready_ceiling,
-                continuity_context=self._story_plan_node_revision_context(parent),
-                author_instruction=payload.author_instruction,
-                knowledge_context=self._knowledge_context(
-                    strategy=strategy,
-                    content_spec=content_spec,
-                    preferred_categories=[
-                        "short_drama_structure",
-                        "story_structure_and_serialization",
-                        "story_structure",
-                        "conflict_and_emotion",
-                    ],
-                    max_items=3,
+        decomposition_prompt = self._build_decomposition_prompt(
+            fixed_boundary_plan=fixed_boundary_plan,
+            parent=parent,
+            story_bible=story_bible,
+            source_context=source_context,
+            requested_child_count=payload.requested_child_count,
+            max_episode_ready_span=episode_ready_ceiling,
+            # Replacing this entire child group releases its old boundaries.
+            # Ancestors and neighboring branches still constrain the parent.
+            continuity_context={
+                key: value
+                for key, value in self._story_plan_node_revision_context(parent).items()
+                if key != "direct_children"
+            },
+            author_instruction=payload.author_instruction,
+            knowledge_context=self._knowledge_context(
+                strategy=strategy,
+                content_spec=content_spec,
+                preferred_categories=[
+                    "short_drama_structure",
+                    "story_structure_and_serialization",
+                    "story_structure",
+                    "conflict_and_emotion",
+                ],
+                max_items=3,
+            ),
+        )
+        decomposition_strategy = strategy.model_copy(
+            update={
+                "max_tokens": _story_decomposition_output_token_budget(
+                    configured_max_tokens=strategy.max_tokens,
+                    parent_span=parent_span,
+                    requested_child_count=payload.requested_child_count,
                 ),
-            )
-            decomposition_strategy = strategy.model_copy(
-                update={
-                    "max_tokens": _story_decomposition_output_token_budget(
-                        configured_max_tokens=strategy.max_tokens,
-                        parent_span=parent_span,
-                        requested_child_count=payload.requested_child_count,
-                    ),
-                }
-            )
-            try:
+            }
+        )
+        try:
+            if fixed_boundary_plan is not None:
+                output = self._generate_fixed_boundary_decomposition(
+                    prompt=decomposition_prompt, strategy=decomposition_strategy,
+                    parent=parent, story_bible=story_bible, plan=fixed_boundary_plan,
+                    requested_child_count=payload.requested_child_count,
+                    resume_candidates=resume_candidates,
+                )
+            else:
                 output = self._generate_planning_output(
                     prompt=decomposition_prompt,
                     strategy=decomposition_strategy,
@@ -6373,22 +7029,27 @@ Return only JSON matching the provided schema."""
                     ),
                     candidate_observer=remember_decomposition_candidate,
                 )
-            except (StoryPlanningInputError, StoryPlanningTransientOutputError):
-                logger.warning(
-                    "Story plan decomposition batch transport remained incomplete; "
-                    "switching to segmented recovery node=%s",
-                    parent.node_id,
-                )
-                output = self._generate_segmented_decomposition_recovery(
-                    original_prompt=decomposition_prompt,
-                    strategy=decomposition_strategy,
-                    parent=parent,
-                    story_bible=story_bible,
-                    requested_child_count=payload.requested_child_count,
-                    max_episode_ready_span=episode_ready_ceiling,
-                    source_children=recovery_source_children,
-                )
-                used_segmented_recovery = True
+        except (StoryPlanningInputError, StoryPlanningTransientOutputError):
+            if fixed_boundary_plan is not None:
+                # This path already owns the shared, bounded completion loop.
+                # Do not spend its last request rebuilding a movement plan.
+                raise
+            logger.warning(
+                "Story plan decomposition batch transport remained incomplete; "
+                "switching to segmented recovery node=%s",
+                parent.node_id,
+            )
+            output = self._generate_segmented_decomposition_recovery(
+                original_prompt=decomposition_prompt,
+                strategy=decomposition_strategy,
+                parent=parent,
+                story_bible=story_bible,
+                requested_child_count=payload.requested_child_count,
+                max_episode_ready_span=episode_ready_ceiling,
+                source_children=recovery_source_children,
+                source_context=source_context,
+            )
+            used_segmented_recovery = True
         output = self._enforce_decomposition_episode_policy(
             output,
             parent=parent,
@@ -6401,10 +7062,15 @@ Return only JSON matching the provided schema."""
                 story_bible=story_bible,
                 requested_child_count=payload.requested_child_count,
                 max_episode_ready_span=episode_ready_ceiling,
+                require_parent_events=self._requires_episode_developments("Story Plan Node decomposition"),
             )
         except StoryPlanningInputError as first_error:
-            if decomposition_prompt is None or decomposition_strategy is None:
-                raise
+            capture_planning_error("decomposition semantic validation", first_error)
+            logger.warning(
+                "Story decomposition first draft violated its input contract node=%s: %s",
+                parent.node_id,
+                first_error,
+            )
             try:
                 output = self._generate_planning_output(
                     prompt=self._build_decomposition_semantic_repair_prompt(
@@ -6430,6 +7096,7 @@ Return only JSON matching the provided schema."""
                     story_bible=story_bible,
                     requested_child_count=payload.requested_child_count,
                     max_episode_ready_span=episode_ready_ceiling,
+                    require_parent_events=self._requires_episode_developments("Story Plan Node decomposition"),
                 )
             except (StoryPlanningInputError, StoryPlanningTransientOutputError):
                 if used_segmented_recovery:
@@ -6447,6 +7114,7 @@ Return only JSON matching the provided schema."""
                     requested_child_count=payload.requested_child_count,
                     max_episode_ready_span=episode_ready_ceiling,
                     source_children=recovery_source_children,
+                    source_context=source_context,
                 )
                 used_segmented_recovery = True
                 output = self._enforce_decomposition_episode_policy(
@@ -6460,13 +7128,9 @@ Return only JSON matching the provided schema."""
                     story_bible=story_bible,
                     requested_child_count=payload.requested_child_count,
                     max_episode_ready_span=episode_ready_ceiling,
+                    require_parent_events=self._requires_episode_developments("Story Plan Node decomposition"),
                 )
-        if planning_output_chinese_issues(output):
-            if decomposition_prompt is None or decomposition_strategy is None:
-                raise StoryPlanningInputError(
-                    "Approved Story Bible stages could not be compiled into valid "
-                    "Simplified Chinese story branches."
-                )
+        if planning_output_chinese_issues(output, allowed_names=self._approved_english_names(story_bible)):
             output = self._ensure_mainland_planning_language(
                 original_prompt=decomposition_prompt,
                 output=output,
@@ -6474,6 +7138,7 @@ Return only JSON matching the provided schema."""
                 output_model=StoryPlanNodeDecompositionOutput,
                 artifact_name="Story Plan Node decomposition",
                 market_profile=getattr(story_bible, "market_profile", "cn_mainland"),
+                approved_english_names=self._approved_english_names(story_bible),
             )
             output = self._enforce_decomposition_episode_policy(
                 output,
@@ -6486,8 +7151,20 @@ Return only JSON matching the provided schema."""
                 story_bible=story_bible,
                 requested_child_count=payload.requested_child_count,
                 max_episode_ready_span=episode_ready_ceiling,
+                require_parent_events=self._requires_episode_developments("Story Plan Node decomposition"),
             )
+        if fixed_boundary_plan is not None:
+            # Language-only correction must not release the generation's ranges.
+            validate_output_boundaries(output, fixed_boundary_plan)
+        require_events = self._requires_episode_developments("Story Plan Node decomposition")
+        for child in output.children:
+            validate_episode_developments(child, required=require_events, require_canonical_events=require_events)
         self._require_active_story_plan_lineage(parent)
+        if planning_source_fingerprint(load_planning_source_context(self._long_story_service, story_bible)) != planning_source_fingerprint(source_context):
+            raise StoryPlanningInputError(
+                "Confirmed story source changed during decomposition; the candidate is retained "
+                "separately and no child nodes from this response will be saved."
+            )
         child_body_estimates = self._allocate_child_body_estimates(
             output.children,
             parent=parent,
@@ -6531,6 +7208,8 @@ Return only JSON matching the provided schema."""
                 emotional_direction=child.emotional_direction,
                 exit_state=child.exit_state,
                 unit_story_beats=child.unit_story_beats,
+                parent_event_bindings=child.parent_event_bindings,
+                episode_developments=child.episode_developments,
                 unit_resolution=child.unit_resolution,
                 handoff_pressure=child.handoff_pressure,
                 character_refs=child.character_refs,
@@ -6550,15 +7229,72 @@ Return only JSON matching the provided schema."""
                 ),
                 decomposition_reason=child.decomposition_reason,
             )
-            children.append(self._long_story_service.save_story_plan_node(child_node))
+            children.append(self._long_story_service.save_story_plan_node(
+                child_node, planning_revision_epoch=payload.planning_revision_epoch,
+                _validated_decomposition_parent=(parent.node_id, parent.version),
+            ))
         return children
+
+    def _future_quality_context(self, payload: StoryPlanQualityAuditRequest) -> dict | None:
+        load = getattr(self._long_story_service, "get_workspace_snapshot", None)
+        if not callable(load):
+            return None
+        try:
+            workspace = load(payload.story_project_id).workspace_payload
+        except LongStoryNotFoundError:
+            return None
+        try:
+            # A later execution amendment invalidates the old audit, not the
+            # saved-prefix boundary. Re-review completed revisions against the
+            # same actual history, with a fresh epoch/evidence fingerprint.
+            context = future_revision_context(workspace, completing=True)
+            if context is not None:
+                actual = [quality_episode_projection(row) for row in workspace.get("episodeRoadmaps", [])]
+                if sorted(actual, key=lambda item: item.episode_number) != sorted(payload.episode_plans, key=lambda item: item.episode_number):
+                    raise ValueError("Future review requires the exact complete saved roadmap evidence.")
+            return context
+        except (ValueError, TypeError, KeyError) as error:
+            raise StoryPlanningInputError(str(error)) from error
+
+    def quality_review_execution_fingerprint(self, payload: StoryPlanQualityAuditRequest) -> str:
+        """Bind completed agent results to the actual review contract and evidence."""
+        bible = self._long_story_service.get_story_bible(
+            payload.story_project_id, payload.story_bible_id, version=payload.story_bible_version,
+        )
+        nodes = self._active_story_plan_nodes(
+            payload.story_project_id, payload.story_bible_id, payload.story_bible_version,
+        )
+        parent_keys = {(node.parent_node_id, node.parent_node_version) for node in nodes
+                       if node.parent_node_id is not None}
+        leaves = sorted((node for node in nodes if (node.node_id, node.version) not in parent_keys),
+                        key=lambda node: node.planned_start_episode or 2_001)
+        prompt = self._build_story_plan_quality_prompt(
+            story_bible=bible, leaves=leaves, sampled_leaves=leaves, episode_plans=payload.episode_plans,
+            source_context=load_planning_source_context(self._long_story_service, bible),
+            allocation_nodes=nodes,
+            future_revision=self._future_quality_context(payload),
+            execution_requirements=payload.execution_requirements,
+            parent_nodes=[node for node in nodes if (node.node_id, node.version) in parent_keys
+                          and node.decomposition_reason != TECHNICAL_STORY_ROOT_MARKER],
+        )
+        strategy = self._generation_strategy_repository.get(payload.generation_strategy_id)
+        return hashlib.sha256(json.dumps({
+            "verdict_contract": "preserve_model_reported_issues.v1",
+            "source_binding_contract": "ordered_source.v1",
+            "prompt": prompt, "schema": StoryPlanQualityModelOutput.model_json_schema(),
+            "nodes": [node.model_dump(mode="json") for node in nodes],
+            "bible": approved_story_bible_context(bible).model_dump(mode="json"),
+            "strategy": strategy.model_dump(mode="json") if strategy is not None else None,
+        }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
     def audit_story_plan_quality(
         self,
         payload: StoryPlanQualityAuditRequest,
     ) -> StoryPlanQualityAudit:
-        """Run one bounded semantic audit over the active episode-ready lineage."""
+        """Review the current frontier before approval, expansion, or production."""
 
+        self._validate_planning_epoch(payload)
+        future_scope = self._future_quality_context(payload)
         project = self._long_story_service.get_project(payload.story_project_id)
         if (
             project.active_story_bible_id != payload.story_bible_id
@@ -6598,8 +7334,6 @@ Return only JSON matching the provided schema."""
             (
                 node for node in active_nodes
                 if (node.node_id, node.version) not in active_parent_keys
-                and node.status == PlanningApprovalStatus.approved
-                and node.expansion_status == StoryPlanExpansionStatus.episode_ready
             ),
             key=lambda node: node.planned_start_episode or 2_001,
         )
@@ -6608,7 +7342,7 @@ Return only JSON matching the provided schema."""
             for node in leaves
         ):
             raise StoryPlanningInputError(
-                "Complete the approved episode-ready Story Plan leaves before quality audit."
+                "Quality audit requires a current Story Plan frontier with episode ranges."
             )
         covered_episodes = {
             episode
@@ -6632,7 +7366,28 @@ Return only JSON matching the provided schema."""
                 "Story Plan quality audit node versions changed; refresh the tree and retry."
             )
 
+        leaves_by_key = {(node.node_id, node.version): node for node in leaves}
+        for requirement in payload.execution_requirements:
+            source = leaves_by_key.get((requirement.node_id, requirement.node_version))
+            if source is None:
+                raise StoryPlanningInputError("Execution handoffs must reference the active reviewed node version.")
+            validate_execution_requirements([requirement], source)
+        for item in payload.episode_plans:
+            source = leaves_by_key.get((item.source_node_id, item.source_node_version))
+            if source is None or not (
+                (source.planned_start_episode or 1) <= item.episode_number
+                <= (source.planned_end_episode or 0)
+            ):
+                raise StoryPlanningInputError(
+                    "Quality review episodes must belong to the requested active leaf versions."
+                )
+
+        source_context = load_planning_source_context(self._long_story_service, story_bible)
         deterministic_issues = self._story_plan_quality_hard_issues(leaves)
+        if not deterministic_issues and future_scope is None:
+            reused = self._quality_review_after_approval(payload, leaves, source_context=source_context)
+            if reused is not None:
+                return reused
         sampled_leaves = self._story_plan_quality_samples(
             leaves,
             project.planned_episode_count,
@@ -6641,15 +7396,164 @@ Return only JSON matching the provided schema."""
         audit_strategy = strategy.model_copy(
             update={"max_tokens": min(strategy.max_tokens, 5_000)}
         )
-        output = self._generate_planning_output(
-            prompt=self._build_story_plan_quality_prompt(
-                story_bible=story_bible,
-                leaves=leaves,
-                sampled_leaves=sampled_leaves,
-            ),
-            strategy=audit_strategy,
-            output_model=StoryPlanQualityModelOutput,
-            artifact_name="Story Plan Quality Audit",
+        review_refs = {
+            f"review_{index}": {"node_id": node.node_id, "node_version": node.version}
+            for index, node in enumerate(sampled_leaves, 1)
+        }
+        hooks = quality_review_checkpoint_hooks()
+        recovered_groups = hooks.recovered.get("groups", {}) if hooks else {}
+        if not isinstance(recovered_groups, dict):
+            recovered_groups = {}
+        completed_groups: dict[str, object] = {}
+        completed_group_metadata: dict[str, object] = {}
+        recovered_metadata = hooks.recovered.get("group_metadata", {}) if hooks else {}
+        if not isinstance(recovered_metadata, dict):
+            recovered_metadata = {}
+        # Include complete source data, even fields abbreviated for the prompt.
+        # A change outside the assigned group can invalidate its causal verdict.
+        evidence_signature = hashlib.sha256(json.dumps({
+            "request": payload.model_dump(mode="json"),
+            "bible": story_bible.model_dump(mode="json"),
+            "ordered_source": source_context,
+            "nodes": [node.model_dump(mode="json") for node in active_nodes],
+            "strategy": audit_strategy.model_dump(mode="json"),
+        }, sort_keys=True, ensure_ascii=False).encode()).hexdigest() if hooks else ""
+
+        def validate_group(result: StoryPlanQualityModelOutput, group: list[StoryPlanNode]) -> None:
+            if future_scope and any((node.planned_end_episode or 0) >= future_scope["start_episode"] for node in group):
+                if result.future_revision_evaluation is None:
+                    raise StoryPlanningInputError("Future revision review must explicitly assess saved-boundary continuity and the assigned future range.")
+            identities = {(node.node_id, node.version) for node in group}
+            if ({(item.node_id, item.node_version) for item in result.evaluations} != identities
+                    or len(result.evaluations) != len(group)):
+                raise StoryPlanningInputError("Quality review group must return exactly its assigned nodes.")
+            for item in result.evaluations:
+                item.execution_requirements = merge_model_execution_requirements(
+                    item.execution_requirements, leaves_by_key[(item.node_id, item.node_version)],
+                    realized_episodes={plan.episode_number for plan in payload.episode_plans},
+                )
+                validate_execution_requirements(
+                    item.execution_requirements, leaves_by_key[(item.node_id, item.node_version)],
+                    realized_episodes={plan.episode_number for plan in payload.episode_plans},
+                )
+
+        def review_group(group, group_refs, prompt, schema):
+            group_metadata: dict[str, object] = {"target_refs": group_refs, "model_route": {}}
+
+            def observe(candidate):
+                if not isinstance(candidate, dict):
+                    return
+                metadata = candidate.get("_meta")
+                # Never persist gateway URLs, credentials, provider error text,
+                # private prompts or hidden reasoning in the review trace.
+                group_metadata["model_route"] = {
+                    key: value for key, value in (metadata.items() if isinstance(metadata, dict) else [])
+                    if (
+                        key in {"provider", "model_name", "primary_model_provider", "primary_model_name",
+                                "fallback_model_provider", "fallback_model_name"}
+                        and isinstance(value, str) and len(value) <= 160
+                    ) or (key == "model_failover_used" and isinstance(value, bool))
+                }
+                evaluations = candidate.get("evaluations")
+                if isinstance(evaluations, dict):
+                    group_metadata["reported_statuses"] = {
+                        key: item["status"] for key, item in evaluations.items()
+                        if key in group_refs and isinstance(item, dict)
+                        and item.get("status") in ("pass", "needs_revision")
+                    }
+
+            logger.info("Planning quality group started project=%s targets=%s",
+                        payload.story_project_id, list(group_refs))
+            result = self._generate_planning_output(
+                prompt=prompt, output_schema=schema,
+                candidate_projection=lambda candidate: expand_quality_review_references(candidate, group_refs),
+                strategy=audit_strategy, output_model=StoryPlanQualityModelOutput,
+                artifact_name="Story Plan Quality Audit",
+                candidate_observer=observe,
+            )
+            validate_group(result, group)
+            logger.info("Planning quality group completed project=%s targets=%s",
+                        payload.story_project_id, list(group_refs))
+            return result, group_metadata
+
+        # Bound semantic work while preserving full evidence for every group.
+        groups = [sampled_leaves[index:index + 3] for index in range(0, len(sampled_leaves), 3)]
+        reviewed: dict[int, StoryPlanQualityModelOutput] = {}
+        work = []
+        for index, group in enumerate(groups):
+            identities = {(node.node_id, node.version) for node in group}
+            group_refs = {key: value for key, value in review_refs.items()
+                          if (value["node_id"], value["node_version"]) in identities}
+            prompt = self._build_story_plan_quality_prompt(
+                story_bible=story_bible, leaves=leaves, sampled_leaves=sampled_leaves,
+                evaluation_nodes=group, episode_plans=payload.episode_plans,
+                allocation_nodes=active_nodes,
+                source_context=source_context,
+                future_revision=future_scope,
+                execution_requirements=payload.execution_requirements,
+                parent_nodes=[node for node in active_nodes
+                              if (node.node_id, node.version) in active_parent_keys
+                              and node.decomposition_reason != TECHNICAL_STORY_ROOT_MARKER],
+            )
+            schema = quality_review_wire_schema(StoryPlanQualityModelOutput.model_json_schema(), group_refs)
+            if future_scope and any((node.planned_end_episode or 0) >= future_scope["start_episode"] for node in group):
+                schema["properties"]["future_revision_evaluation"] = {"$ref": "#/$defs/StoryPlanFutureRevisionEvaluation"}
+                schema["required"].append("future_revision_evaluation")
+            signature = hashlib.sha256(json.dumps({
+                "evidence": evidence_signature, "prompt": prompt, "schema": schema,
+                "verdict_contract": "preserve_model_reported_issues.v1",
+            }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            try:
+                cached = StoryPlanQualityModelOutput.model_validate(recovered_groups.get(signature))
+                validate_group(cached, group)
+            except (ValidationError, StoryPlanningInputError):
+                work.append((index, signature, group, group_refs, prompt, schema))
+            else:
+                reviewed[index] = cached
+                completed_groups[signature] = cached.model_dump(mode="json")
+                completed_group_metadata[signature] = recovered_metadata.get(signature) or {
+                    "target_refs": group_refs, "model_route": {},
+                }
+                logger.info("Planning quality group resumed project=%s targets=%s",
+                            payload.story_project_id, list(group_refs))
+
+        def checkpoint(index, signature, outcome):
+            result, group_metadata = outcome
+            reviewed[index] = result
+            completed_groups[signature] = result.model_dump(mode="json")
+            completed_group_metadata[signature] = group_metadata
+            if hooks is not None:
+                hooks.save({"groups": dict(completed_groups),
+                            "group_metadata": dict(completed_group_metadata)})
+
+        if len(work) == 1:
+            index, signature, *args = work[0]
+            checkpoint(index, signature, review_group(*args))
+        elif work:
+            first_error: Exception | None = None
+            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="planning-review") as executor:
+                pending = {executor.submit(copy_context().run, review_group, *args): (index, signature)
+                           for index, signature, *args in work}
+                # Persist on this owning thread as each group completes, including
+                # successes that arrive after another group's transport failure.
+                for future in as_completed(pending):
+                    index, signature = pending[future]
+                    try:
+                        checkpoint(index, signature, future.result())
+                    except Exception as error:
+                        if first_error is None:
+                            first_error = error
+            if first_error is not None:
+                raise first_error
+        if len(reviewed) != len(groups):
+            raise StoryPlanningInputError("Quality review groups are incomplete.")
+        if hooks is not None and not work:
+            hooks.save({"groups": dict(completed_groups),
+                        "group_metadata": dict(completed_group_metadata)})
+        output = StoryPlanQualityModelOutput(
+            overall_summary=(reviewed[0].overall_summary if len(groups) == 1
+                             else f"已完成 {len(sampled_leaves)} 个剧情部分的分组审校。"),
+            evaluations=[item for index in range(len(groups)) for item in reviewed[index].evaluations],
         )
         expected_samples = {(node.node_id, node.version) for node in sampled_leaves}
         actual_samples = {
@@ -6699,17 +7603,59 @@ Return only JSON matching the provided schema."""
                 ),
             )
 
-        node_signature = hashlib.sha256(
-            json.dumps(
-                sorted(expected_refs),
-                ensure_ascii=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        scoped_findings = []
+        if future_scope:
+            for index, group in enumerate(groups):
+                scoped = reviewed[index].future_revision_evaluation
+                future_nodes = [node for node in group if (node.planned_end_episode or 0) >= future_scope["start_episode"]]
+                if not future_nodes or scoped is None or scoped.status != StoryPlanQualityStatus.needs_revision:
+                    continue
+                node = future_nodes[0]
+                identity = (node.node_id, node.version)
+                prior = findings.get(identity)
+                scoped_findings.append(StoryPlanQualityFinding(
+                    node_id=node.node_id, node_version=node.version, title=node.title,
+                    start_episode=max(node.planned_start_episode or 1, future_scope["start_episode"]),
+                    end_episode=node.planned_end_episode or future_scope["end_episode"],
+                    summary=(scoped.summary if prior is None else prior.summary + "；" + scoped.summary)[:500],
+                    issue_codes=sorted(set((prior.issue_codes if prior else []) + scoped.issue_codes))[:12],
+                    repair_instruction=scoped.repair_instruction or "请修复未来范围及已保存正文边界的实质冲突后重新审校。",
+                ))
+        node_signature = quality_node_signature(expected_refs)
         ordered_findings = sorted(
-            findings.values(),
+            [*findings.values(), *scoped_findings],
             key=lambda item: (item.start_episode, item.node_id),
         )[:24]
+        realized_numbers = {item.episode_number for item in payload.episode_plans}
+        pending_execution = {
+            (item.node_id, item.node_version, item.episode_number, item.source_event_index): item
+            for item in payload.execution_requirements if item.episode_number not in realized_numbers
+        }
+        for evaluation in output.evaluations:
+            for item in evaluation.execution_requirements:
+                handoff = StoryPlanExecutionHandoff(
+                    **item.model_dump(), node_id=evaluation.node_id, node_version=evaluation.node_version,
+                )
+                pending_execution[(handoff.node_id, handoff.node_version, handoff.episode_number,
+                                   handoff.source_event_index)] = handoff
+        scoped_review = None
+        if future_scope:
+            future_keys = {(node.node_id, node.version) for node in leaves
+                           if (node.planned_end_episode or 0) >= future_scope["start_episode"]}
+            if not future_keys.issubset(actual_samples):
+                raise StoryPlanningInputError("Future revision audit must review every future node.")
+            boundary_verdicts = [reviewed[index].future_revision_evaluation for index, group in enumerate(groups)
+                                 if any((node.node_id, node.version) in future_keys for node in group)]
+            boundary_pass = bool(boundary_verdicts) and all(
+                item is not None and item.status == StoryPlanQualityStatus.pass_ for item in boundary_verdicts)
+            future_failures = [item for item in [*findings.values(), *scoped_findings]
+                               if item.end_episode >= future_scope["start_episode"]]
+            scoped_review = {
+                **{key: future_scope[key] for key in SCOPE_IDENTITY_FIELDS},
+                "status": "pass" if boundary_pass and not future_failures else "needs_revision",
+                "boundary_status": "pass" if boundary_pass else "needs_revision",
+                "summary": "；".join(item.summary for item in boundary_verdicts if item is not None)[:2_000],
+            }
         return StoryPlanQualityAudit(
             story_project_id=payload.story_project_id,
             story_bible_id=payload.story_bible_id,
@@ -6719,6 +7665,8 @@ Return only JSON matching the provided schema."""
                 for node in leaves
             ],
             node_signature=node_signature,
+            reviewed_source_fingerprint=planning_source_fingerprint(source_context),
+            reviewed_source_signature=planning_source_signature(source_context),
             status=(
                 StoryPlanQualityStatus.needs_revision
                 if ordered_findings
@@ -6732,7 +7680,63 @@ Return only JSON matching the provided schema."""
             audited_node_count=len(leaves),
             semantic_sample_count=len(sampled_leaves),
             findings=ordered_findings,
+            future_revision_review=scoped_review,
+            execution_requirements=sorted(pending_execution.values(), key=lambda item: (
+                item.episode_number, item.source_event_index, item.node_id,
+            )),
         )
+
+    def _quality_review_after_approval(
+        self, payload: StoryPlanQualityAuditRequest, leaves: list[StoryPlanNode],
+        *, source_context: dict[str, object],
+    ) -> StoryPlanQualityAudit | None:
+        load_snapshot = getattr(self._long_story_service, "get_workspace_snapshot", None)
+        if not callable(load_snapshot):
+            return None
+        try:
+            workspace = load_snapshot(payload.story_project_id).workspace_payload
+        except LongStoryNotFoundError:
+            return None
+        if not isinstance(workspace, dict):
+            return None
+        current_keys = {(node.node_id, node.version) for node in leaves}
+        try:
+            stored_episodes = [quality_episode_projection(item) for item in workspace.get("episodeRoadmaps") or []
+                               if isinstance(item, dict) and item.get("story_bible_version") == payload.story_bible_version
+                               and (item.get("source_node_id"), item.get("source_node_version")) in current_keys]
+        except (ValidationError, TypeError, KeyError):
+            return None
+        if sorted(stored_episodes, key=lambda item: item.episode_number) != sorted(payload.episode_plans, key=lambda item: item.episode_number):
+            return None
+        # Do not hide malformed or stale stored rows behind an empty request.
+        if workspace.get("episodeRoadmaps") and not stored_episodes:
+            return None
+        prior = workspace.get("storyTreeQualityAudit")
+        if not isinstance(prior, dict):
+            return None
+        refs = prior.get("node_refs")
+        if not isinstance(refs, list) or len(refs) != len(leaves) or any(
+            not isinstance(ref, dict) or not isinstance(ref.get("node_id"), str)
+            or type(ref.get("node_version")) is not int for ref in refs
+        ):
+            return None
+        try:
+            previous = [self._long_story_service.get_story_plan_node(
+                payload.story_project_id, ref["node_id"], version=ref["node_version"],
+            ) for ref in refs]
+        except LongStoryNotFoundError:
+            return None
+        reused = review_after_approval(
+            prior, previous, leaves, payload.episode_plans,
+            source_fingerprint=planning_source_fingerprint(source_context),
+        )
+        if reused is not None:
+            logger.info(
+                "Planning quality verdict reused after approval project_id=%s previous_signature=%s "
+                "current_signature=%s original_review_at=%s",
+                payload.story_project_id, prior.get("node_signature"), reused.node_signature, reused.created_at,
+            )
+        return reused
 
     def _active_story_plan_nodes(
         self,
@@ -6858,12 +7862,49 @@ Return only JSON matching the provided schema."""
         story_bible: StoryBible,
         leaves: list[StoryPlanNode],
         sampled_leaves: list[StoryPlanNode],
+        episode_plans: list[StoryPlanQualityEpisode] | None = None,
+        parent_nodes: list[StoryPlanNode] | None = None,
+        evaluation_nodes: list[StoryPlanNode] | None = None,
+        allocation_nodes: list[StoryPlanNode] | None = None,
+        source_context: dict[str, object] | None = None,
+        execution_requirements: list[StoryPlanExecutionHandoff] | None = None,
+        future_revision: dict | None = None,
     ) -> str:
+        market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
+        aliases = StoryPlanningService._approved_overseas_name_aliases(story_bible)
+        story_bible = approved_story_bible_context(story_bible)
+        if aliases:
+            from app.modules.script_engine.overseas_identity import planning_identity_projection
+            story_bible = planning_identity_projection(story_bible, aliases)
+            leaves = planning_identity_projection(leaves, aliases)
+            sampled_leaves = planning_identity_projection(sampled_leaves, aliases)
+            parent_nodes = planning_identity_projection(parent_nodes, aliases)
+            allocation_nodes = planning_identity_projection(allocation_nodes, aliases)
+            episode_plans = planning_identity_projection(episode_plans, aliases)
+            execution_requirements = planning_identity_projection(execution_requirements, aliases)
         bounded = StoryPlanningService._bounded_planning_text
+        def developments(node: StoryPlanNode) -> list[dict[str, object]]:
+            result = []
+            previous = node.entry_state
+            for entry in node.episode_developments:
+                result.append(compact_review_episode(
+                    entry.model_dump(mode="json"), node.unit_story_beats,
+                    preceding_exit_state=previous,
+                ))
+                previous = entry.exit_state
+            return result
+
+        def granularity(node: StoryPlanNode) -> str:
+            span = (node.planned_end_episode or 0) - (node.planned_start_episode or 1) + 1
+            if MIN_EPISODE_READY_SPAN <= span <= MAX_EPISODE_READY_SPAN:
+                return f"叶节点（{span}集）；本层必须提供完整逐集事件分配"
+            return f"待继续拆分的父级（{span}集）；本层逐集事件分配应为空"
+
         leaf_index = "\n".join(
             (
-                f"- {node.node_id} v{node.version} [{node.planned_start_episode}-"
+                f"- node_id={json.dumps(node.node_id)}, node_version={node.version} [{node.planned_start_episode}-"
                 f"{node.planned_end_episode}] {bounded(node.title, 80)}；"
+                f"规划粒度={granularity(node)}；"
                 f"冲突={bounded(node.central_conflict, 160)}；"
                 f"结算={bounded(node.unit_resolution, 140)}；"
                 f"后续压力={bounded(node.handoff_pressure, 120)}"
@@ -6872,293 +7913,190 @@ Return only JSON matching the provided schema."""
         )
         sample_details = "\n\n".join(
             (
-                f"NODE {node.node_id} v{node.version} [{node.planned_start_episode}-"
+                f"review_key=review_{index}, node_ref={json.dumps({'node_id': node.node_id, 'node_version': node.version})} [{node.planned_start_episode}-"
                 f"{node.planned_end_episode}] {bounded(node.title, 80)}\n"
+                f"规划粒度：{granularity(node)}\n"
                 f"作用：{bounded(node.narrative_purpose, 220)}\n"
-                f"梗概：{bounded(node.synopsis, 320)}\n"
-                f"进入：{bounded(node.entry_state, 180)}\n"
+                f"梗概：{node.synopsis}\n"
+                f"进入：{node.entry_state}\n"
                 f"冲突：{bounded(node.central_conflict, 220)}\n"
-                f"转折：{bounded('；'.join(node.turning_points), 300)}\n"
-                f"因果节拍：{bounded('；'.join(node.unit_story_beats), 360)}\n"
+                f"转折：{json.dumps(review_event_references(node.turning_points, node.unit_story_beats), ensure_ascii=False)}\n"
+                f"因果节拍：{json.dumps(node.unit_story_beats, ensure_ascii=False)}\n"
+                f"逐集事件分配：{json.dumps(developments(node), ensure_ascii=False, separators=(',', ':'))}\n"
                 f"结算：{bounded(node.unit_resolution, 220)}\n"
-                f"退出：{bounded(node.exit_state, 180)}\n"
+                f"退出：{node.exit_state}\n"
                 f"后续压力：{bounded(node.handoff_pressure, 180)}"
             )
-            for node in sampled_leaves
+            for index, node in enumerate(sampled_leaves, 1)
         )
-        sample_ids = "、".join(
-            f"{node.node_id} v{node.version}" for node in sampled_leaves
+        evaluation_keys = {(node.node_id, node.version) for node in evaluation_nodes or sampled_leaves}
+        sample_ids = json.dumps({
+            f"review_{index}": {"node_id": node.node_id, "node_version": node.version}
+            for index, node in enumerate(sampled_leaves, 1)
+            if (node.node_id, node.version) in evaluation_keys
+        })
+        parent_context = [{
+            "node_id": node.node_id, "version": node.version,
+            "episode_range": [node.planned_start_episode, node.planned_end_episode],
+            "narrative_purpose": node.narrative_purpose, "unit_story_beats": node.unit_story_beats,
+            "entry_state": node.entry_state, "unit_resolution": node.unit_resolution, "exit_state": node.exit_state,
+        } for node in parent_nodes or []]
+        # Compare direct siblings even when this review group owns only some of
+        # them. The mixed-depth frontier is not itself one allocation group.
+        allocation_by_key = {
+            (node.node_id, node.version): node
+            for node in (allocation_nodes if allocation_nodes is not None else [*(parent_nodes or []), *leaves])
+        }
+        allocation_parent_keys = dict.fromkeys(
+            (node.parent_node_id, node.parent_node_version)
+            for node in evaluation_nodes or sampled_leaves
+            if node.parent_node_id is not None
         )
-        market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
+        allocation_context = []
+        for parent_key in allocation_parent_keys:
+            parent = allocation_by_key.get(parent_key)
+            siblings = sorted((
+                node for node in allocation_by_key.values()
+                if (node.parent_node_id, node.parent_node_version) == parent_key
+            ), key=lambda node: node.sequence_order)
+            allocation_context.append({
+                "parent_node_id": parent_key[0], "parent_node_version": parent_key[1],
+                "parent_episode_range": [parent.planned_start_episode, parent.planned_end_episode] if parent else None,
+                "parent_body_target": parent.estimated_script_body_characters if parent else None,
+                "siblings": [{
+                    "node_id": node.node_id, "node_version": node.version, "title": node.title,
+                    "episode_range": [node.planned_start_episode, node.planned_end_episode],
+                    "body_target": node.estimated_script_body_characters,
+                    "allocation_reason": node.decomposition_reason,
+                } for node in siblings],
+            })
+        sampled_keys = {(node.node_id, node.version) for node in sampled_leaves}
+        sampled_by_key = {(node.node_id, node.version): node for node in sampled_leaves}
+        actual_episodes = [
+            compact_review_episode(
+                item.model_dump(mode="json"),
+                sampled_by_key[(item.source_node_id, item.source_node_version)].unit_story_beats,
+            )
+            for item in sorted(episode_plans or [], key=lambda item: item.episode_number)
+            if (item.source_node_id, item.source_node_version) in sampled_keys
+        ]
+        episode_context = (
+            "以下是已写出的实际分集草稿，不是上层节点对未来的承诺。对照所属节点，"
+            "检查实际行动和退出状态是否兑现阶段结果；引用栏声称发生，不等于梗概真正演出。"
+            "有 scene_execution_plan 时，逐场对照 visible_action、evidence_requirements 与 exit_state："
+            "梗概或状态宣称完成不构成独立履行证据；仅承诺、许可、排期或签字而未实际执行的动作，"
+            "不得算作完成。合理时间跳跃和可核验既往履行证据可以成立，不必逐秒展示劳动过程。"
+            "未提供场景的旧数据只能作梗概审校，不能据此断言场景已经兑现。"
+            "分集未覆盖完整节点时，只评价已有内容，不把尚未生成的结尾判为漏结算。\n"
+            + json.dumps(actual_episodes, ensure_ascii=False, separators=(",", ":"))
+            if actual_episodes else "尚未提供分集草稿，本次仅审校剧情树，不构成分集内容通过。"
+        )
         decision_contract = _creative_decision_prompt_contract(
             list(getattr(story_bible, "creative_decisions", []) or [])
         )
+        revision_contract = ""
+        if future_revision:
+            future_targets = [node for node in evaluation_nodes or sampled_leaves
+                              if (node.planned_end_episode or 0) >= future_revision["start_episode"]]
+            revision_contract = (
+                "本次正在进行服务器绑定的未来范围修订。全局 evaluations 仍如实保留所有历史问题，不得改成全剧通过。"
+                "已保存前缀不得重写；纯前缀文学问题继续列在原节点。若过去未兑现的义务、知情、物件、关系或结果会使未来剧情不成立，"
+                "必须把它作为未来当前承担动作处的阻断，不能因问题起源较早而豁免。"
+            )
+            if future_targets:
+                revision_contract += (
+                    "\n必须另返回 future_revision_evaluation：对本组承担的未来集数及已保存正文→新规划真实交接作明确判断。"
+                    "检查已保存边界正文的实际结尾、状态与承诺是否支持后续开场，以及全部前文依赖能否继续；"
+                    "recent_saved_execution 为最近已保存正文的实际顺序摘录，包含后续已写出的材料确认或作者局部修正；"
+                    "historical_saved_execution 补充更早已保存正文的全部动作与对白，字符串为动作、[人物,台词]为对白，按场内原顺序排列。"
+                    "判断材料从未取得、拍摄或保管之前，须核对这些前文实演，不能把不在最近十集窗口误判为全篇没有。"
+                    "将其与规划及状态声明交叉核验，不得忽略正文已有展示，也不能仅凭摘要认定取得链成立。"
+                    "不能只比较规划自称的 exit/entry 一致。历史问题仅在不影响未来时才允许此范围 pass；"
+                    "后段自身或跨边界有实质问题必须 needs_revision 并列 issue_codes/repair_instruction。"
+                    "此结论不替代或清空 evaluations，不宣称整剧通过。\n服务器绑定范围与真实边界："
+                    + json.dumps(future_revision, ensure_ascii=False, separators=(",", ":"))
+                )
         return f"""{market_contract}
+{revision_contract}
 你是当前市场路径漫剧的剧情总编审。只做审校，不改写剧情，不生成分集路线图。
 所有可读文本必须遵循上述市场契约。
+海外姓名检查必须同时核对人物登记表与上层边界。若中文姓名来自逐字继承的已批准结局或父级状态，
+应指出上游姓名不一致并要求保留历史版本、在对应源与后续边界一致修订；不可要求下层单独改名后
+又因未逐字复制旧边界拒绝它。新写字段仍使用人物登记表的稳定英文名；没有明确映射时不能猜译或合并人物。
 
 总纲核心：{story_bible.core_premise}
 全剧目标：{story_bible.series_goal}
 主题：{story_bible.theme}
 中心冲突：{story_bible.central_conflict}
 结局方向：{story_bible.ending_direction}
+{StoryPlanningService._episode_bible_facts_context(story_bible)}
 
 {decision_contract}
 
-全体叶节点索引（用于判断重复、升级和整体节奏）：
+当前规划前沿索引（可能同时包含叶节点与待拆父级，用于判断重复、升级和整体节奏）：
 {leaf_index}
 
-需要详细审校的代表节点：{sample_ids}
+{build_confirmed_event_review_context(story_bible, source_context, allocation_nodes if allocation_nodes is not None else [*(parent_nodes or []), *leaves])}
+
+本组涉及的同层篇幅分配（按同一父级及其版本分组，包含本组之外的相邻部分；数字是规划目标，不是已写正文）：
+{json.dumps(allocation_context, ensure_ascii=False, separators=(',', ':'))}
+只比较同组兄弟节点，不把父级与后代重复计数；未提供的父级预算不能推为零。分配理由是待核对的说明，不能代替实际剧情证据。
+
+{REVIEW_REFERENCE_CONTRACT}
+本次唯一需要给出审校结论的目标：{sample_ids}
+{EXECUTION_REQUIREMENT_REVIEW_CONTRACT}
+此前已识别、仍须对照实际动作核验的执行承接：
+{json.dumps([item.model_dump(mode="json") for item in execution_requirements or []], ensure_ascii=False, separators=(',', ':'))}
+下面保留全部代表节点的完整上下文，以检查跨段来源、重复、状态和父级职责。
+只对上面分配的目标做一次完整判断；其他节点由同轮其他组评价，不为它们重复输出结论。
+跨段问题须核对上下文，但本组只指出目标节点实际承担动作时的冲突，不重写或重新评判整部故事。
 {sample_details}
 
-逐个返回上述代表节点且不得遗漏。重点检查：
+这些子级仍须兑现的已批准父级职责（不是待审子级自行改写的目标）：
+{json.dumps(parent_context, ensure_ascii=False, separators=(',', ':'))}
+按集数范围核对父级要求的每项因果结果在相应子级何处实际发生，已在前段完成的背景不重演。
+不得只因子级梗概、退出状态与自身目标一致就判通过；若它删掉父级必需的关联、取得或履行，
+仍是未兑现上游合同。区分尚未展开的未来剧情与上层逐集安排本身遗漏的职责，不能把后者交给正文补造。
+未详细提供某父级全部后代时，仅判断已提供范围的冲突，不把未提供的后代判为缺失。
+{KEY_OBJECT_CUSTODY_CONTRACT}
+{CHARACTER_CONDITION_RESPONSE_CONTRACT}
+
+实际分集与上层承诺的兑现检查：
+{episode_context}
+{SCENE_DIALOGUE_CAPACITY_REVIEW_CONTRACT}
+{SAME_EPISODE_EXECUTION_REVIEW_CONTRACT}
+
+evaluations 是以 review_key 为键的对象，只返回本次目标映射中的每个键且不得遗漏；其他上下文节点的键不得输出。每项只写 status、summary、issue_codes、repair_instruction、execution_requirements；应用已绑定节点编号和版本，不要再次输出 node_id 或 node_version。
+重点检查：
+0. 严格按每个节点标注的规划粒度审校。只有{MIN_EPISODE_READY_SPAN}—{MAX_EPISODE_READY_SPAN}集叶节点要求逐集事件分配；跨度至少16集的父级必须先继续拆分，episode_developments 为空是正确合同，不能判 missing_episode_breakdown 或要求它直接填写全跨度逐集安排。父级要提供可拆成不同动作与后果的具体因果运动，不要求每集一个父级节拍，不能仅凭节拍数量少于集数判容量不足。叶节点仍须逐集检查，不能用此规则放过叶节点的缺失或重复。
+0a. 区分核心因果缺口与本层未展开的普通执行细节。尚无逐场蓝图时，已批准的核验、交付、取证或交易事件可在本次事件内落实普通复制、登记、现场出示和不改变既定结果的交接，不要求上层逐字列出这些动作，更不能为它们新增独立集数或反复重写同一段。仅缺少副本制作人、页码、哈希或操作步骤，不足以判 needs_revision。若原文明确把同一原件同时交给互不相容的保管人、明令禁止接触后仍使用原件，或首次使用了会改变主线的新凭证、知识或权限且无法从当前批准事件取得，则是实质冲突，须指出这两项具体事实。已有逐场蓝图时，应检查其中是否实际落实必要执行依据，不能再以本层尚未展开为由放过缺口。
 1. 是否只是复述上一段，核心冲突、行动和阶段兑现是否真正不同。
+1a. 判断重复要比较行动对象、进入状态、实际后果和生效范围。对同一事实的再次表态没有新影响，属于重复；后续正式履行、公开质证或关系结算若产生已有事件未造成的新后果，不因引用同一事实就判重复。不能要求删掉总纲明确规定的阶段职责；若确有冲突，指出具体状态矛盾。
 2. 主角目标、选择和人物关系变化是否有因果依据。
-3. 冲突、对手门槛与爽点是否持续升级，而非换词重复。
+3. 推进是否符合原题材：实际责任、认识和关系变化同样构成发展，不要求每段加入反派、反转或更强对手；检查具体变化，不能只认可“升级”标签。
 4. 伏笔、剧情线和结局方向是否得到推进或回收。
 5. 进入状态、退出状态和下一段压力是否连续。
 6. 已确认作者决定是否被保留；待定项是否仍保持待定，未被规划静默补成事实。
+7. 集数容量是否由具体行动、阻力变化、选择及后果支撑，而非把同一事件在转折/节拍两栏的复述当作两次推进；同一选择反复延期而没有新增代价，属于实质问题。
+7a. 在尚未生成分集时，也必须检查节点自身是否提供可展开的中间内容。“多次尝试、反复前进、持续升级”只是一句概括，不能证明长段有足够剧情。指出概括背后已经列出的不同动作、不同后果或关系变化；如果实际缺失而只能靠下游临时发明，则标记 insufficient_causal_development，要求先发展该节点。不要要求一集一个转折，也不要把可用于真实表演的细微生活变化误判为空转。
+7b. 对照同层篇幅分配、分配理由与实际剧情，检查是否为了凑足总集数，把前段未承载的集数或正文篇幅一股脑留给最后一段；也检查某段声称占用一段集数，却把其中剧情交给范围之外的下一段。这样的虚占范围不能只靠继续细分解决。只有存在明确内容证据时才标记 allocation_without_story_support，指出缺少什么行动与后果、哪处范围与分配理由矛盾，并要求回到共同父级连同剧情职责、交接和篇幅一起调整，保留已有有效事件与历史版本。不因最后一段长、兄弟篇幅不均或父级节拍数少就判错；剧情负荷不同可以合理不均衡，不能要求数字均分、固定比例或以增加重复情节凑数。不要把尚未展开但已有明确剧情职责的父级直接判成空段，也不要要求自动重做整部故事。
+8. 结算和后续压力是否把本段应完成的选择一再推给下一段；上游边界本身导致空转时明确指出该边界及所属节点，不能仅建议下游换措辞。
+9. 已提供完整分集的节点，必须用实际梗概、选择、回报和退出状态核对阶段结算与结局；不得因为上层写了“完成”或来源引用齐全就判通过。发现“准备做/提交申请”替代“实际完成”、重复同一选择或已知证据时，在 summary 中指出具体集号和内容证据。修订建议先定位最早偏离的分集，保留此前有效事实，再重建受影响后续；不要建议把未发生的结果直接改成已发生。
 只有会实质影响单集路线图和正文的明确问题才标记 needs_revision；轻微措辞问题必须判定 pass。
-issue_codes 使用简短英文标识。needs_revision 必须给出可直接用于局部 AI 修改的中文 repair_instruction，且必须保持节点集数范围和前后边界不变。
+issue_codes 使用简短英文标识。needs_revision 必须给出可执行的中文 repair_instruction。以审校修订范围合同为准，保留有效边界；错误边界需在共同父级最小协调，并保留已确认事件与历史版本，不得假称局部换词即可修好。
 只返回符合 schema 的 JSON。"""
 
-    @classmethod
-    def _compile_top_level_decomposition(
-        cls,
-        *,
-        parent: StoryPlanNode,
-        story_bible: StoryBible,
-        max_episode_ready_span: int,
-    ) -> StoryPlanNodeDecompositionOutput:
-        """Compile approved escalation stages into the first visible tree level."""
-
-        stages = list(story_bible.escalation_stages)
-        if len(stages) < 2:
-            raise StoryPlanningInputError(
-                "The approved Story Bible needs at least two escalation stages before "
-                "a long project can generate its first story branches."
-            )
-        parent_span = cls._story_plan_node_episode_span(parent)
-        desired_count = min(
-            len(stages),
-            12,
-            parent_span // MIN_EPISODE_READY_SPAN,
-        )
-        stage_weights = [cls._escalation_stage_weight(stage) for stage in stages]
-        spans = cls._allocate_compiled_stage_spans(
-            total_episodes=parent_span,
-            desired_child_count=desired_count,
-            stage_weights=stage_weights,
-        )
-        stage_groups = cls._group_escalation_stages(stages, len(spans))
-        story_lines_by_group = cls._assign_story_lines_to_stage_groups(
-            story_bible.story_lines,
-            stage_groups,
-        )
-
-        children: list[StoryPlanNodeChildOutput] = []
-        start_episode = parent.planned_start_episode
-        assert start_episode is not None
-        entry_state = parent.entry_state
-        for index, (stage_group, span) in enumerate(zip(stage_groups, spans)):
-            relevant_story_lines = story_lines_by_group[index]
-            story_line_refs = [
-                line.story_line_id for line in relevant_story_lines
-            ]
-            character_refs = list(
-                dict.fromkeys(
-                    character_ref
-                    for line in relevant_story_lines
-                    for character_ref in line.character_refs
-                )
-            ) or list(story_bible.character_refs)
-            end_episode = start_episode + span - 1
-            first_stage = stage_group[0]
-            last_stage = stage_group[-1]
-            is_final = index == len(stage_groups) - 1
-            last_payoff = cls._planning_clause(last_stage.stage_payoff)
-            last_escalation = cls._planning_clause(
-                last_stage.escalation_to_next
-            )
-            exit_state = (
-                parent.exit_state
-                if is_final
-                else cls._bounded_planning_text(
-                    f"已完成“{last_stage.title}”阶段结算：{last_payoff}"
-                    f"；由此形成下一阶段必须承接的局面：{last_escalation}。",
-                    1_500,
-                )
-            )
-            group_title = (
-                first_stage.title
-                if len(stage_group) == 1
-                else f"{first_stage.title}至{last_stage.title}"
-            )
-            goals = cls._join_planning_clauses(
-                stage.stage_goal for stage in stage_group
-            )
-            oppositions = cls._join_planning_clauses(
-                stage.stage_opposition for stage in stage_group
-            )
-            payoffs = cls._join_planning_clauses(
-                stage.stage_payoff for stage in stage_group
-            )
-            escalations = cls._join_planning_clauses(
-                stage.escalation_to_next for stage in stage_group
-            )
-            narrative_purpose = cls._bounded_planning_text(
-                f"完成“{group_title}”的阶段目标并兑现可见回报：{goals}",
-                1_000,
-            )
-            synopsis = cls._bounded_planning_text(
-                f"本部分以{goals}为行动目标，正面遭遇{oppositions}。"
-                f"人物必须通过具体选择和反制取得{payoffs}，其结果继续引出{escalations}。",
-                3_000,
-            )
-            unit_beats = [
-                cls._bounded_planning_text(f"目标落地与行动入口：{goals}", 1_450),
-                cls._bounded_planning_text(f"阻力施加与代价门槛：{oppositions}", 1_450),
-                cls._bounded_planning_text(
-                    f"关键选择与局部兑现：{payoffs}",
-                    1_450,
-                ),
-                cls._bounded_planning_text(
-                    f"结果余波与承接条件：{escalations}",
-                    1_450,
-                ),
-            ]
-            turning_points = [
-                value
-                for stage in stage_group
-                for value in (stage.stage_payoff, stage.escalation_to_next)
-            ]
-            children.append(
-                StoryPlanNodeChildOutput(
-                    title=cls._bounded_planning_text(group_title, 160),
-                    narrative_purpose=narrative_purpose,
-                    synopsis=synopsis,
-                    entry_state=entry_state,
-                    central_conflict=cls._bounded_planning_text(oppositions, 1_500),
-                    turning_points=turning_points,
-                    emotional_direction=cls._bounded_planning_text(
-                        f"围绕“{group_title}”由承压推进到主动行动、阶段兑现与新压力。",
-                        800,
-                    ),
-                    exit_state=exit_state,
-                    unit_story_beats=unit_beats,
-                    unit_resolution=cls._bounded_planning_text(payoffs, 1_500),
-                    handoff_pressure=cls._bounded_planning_text(
-                        last_stage.escalation_to_next,
-                        1_500,
-                    ),
-                    character_refs=character_refs,
-                    story_line_refs=story_line_refs,
-                    setup_refs=(
-                        list(story_bible.major_setup_payoff_refs)
-                        if index == 0
-                        else []
-                    ),
-                    payoff_refs=(
-                        list(story_bible.major_setup_payoff_refs)
-                        if is_final
-                        else []
-                    ),
-                    estimated_episode_count=span,
-                    estimated_script_body_characters=300
-                    + sum(
-                        cls._escalation_stage_weight(stage)
-                        for stage in stage_group
-                    ),
-                    planned_start_episode=start_episode,
-                    planned_end_episode=end_episode,
-                    decomposition_reason=(
-                        "该分支直接承接已批准总纲中的冲突升级阶段，并拥有完整的阶段目标、"
-                        "阻力、回报和向后压力。"
-                    ),
-                    recommended_next_step=(
-                        "episode_ready"
-                        if MIN_EPISODE_READY_SPAN <= span <= max_episode_ready_span
-                        else "expand"
-                    ),
-                )
-            )
-            entry_state = exit_state
-            start_episode = end_episode + 1
-        return StoryPlanNodeDecompositionOutput(children=children)
-
     @staticmethod
-    def _bounded_planning_text(value: str, maximum: int) -> str:
-        return bounded_planning_text(value, maximum)
+    def _bounded_planning_text(value: str | None, limit: int) -> str:
+        return bounded_planning_text(value or "未提供", limit)
 
     @staticmethod
     def _planning_clause(value: str) -> str:
         return planning_clause(value)
 
-    @classmethod
-    def _join_planning_clauses(cls, values: Iterable[str]) -> str:
-        return join_planning_clauses(values)
-
     @staticmethod
     def _normalize_planning_punctuation(value: str) -> str:
         return normalize_planning_punctuation(value)
-
-    @staticmethod
-    def _escalation_stage_weight(stage: ShortDramaEscalationStage) -> int:
-        return escalation_stage_weight(stage)
-
-    @staticmethod
-    def _group_escalation_stages(
-        stages: list[ShortDramaEscalationStage],
-        child_count: int,
-    ) -> list[list[ShortDramaEscalationStage]]:
-        return group_escalation_stages(stages, child_count)
-
-    @classmethod
-    def _assign_story_lines_to_stage_groups(
-        cls,
-        story_lines: list[StoryLinePlan],
-        stage_groups: list[list[ShortDramaEscalationStage]],
-    ) -> list[list[StoryLinePlan]]:
-        return assign_story_lines_to_stage_groups(story_lines, stage_groups)
-
-    @staticmethod
-    def _planning_match_tokens(value: str) -> set[str]:
-        return planning_match_tokens(value)
-
-    @classmethod
-    def _allocate_compiled_stage_spans(
-        cls,
-        *,
-        total_episodes: int,
-        desired_child_count: int,
-        stage_weights: list[int],
-    ) -> list[int]:
-        try:
-            return allocate_compiled_stage_spans(
-                total_episodes=total_episodes,
-                desired_child_count=desired_child_count,
-                stage_weights=stage_weights,
-            )
-        except PlanningAllocationError as error:
-            raise StoryPlanningInputError(str(error)) from error
-
-    @staticmethod
-    def _weighted_integer_allocation(
-        *,
-        total: int,
-        minimum: int,
-        weights: list[int],
-        maximum: int | None = None,
-    ) -> list[int]:
-        try:
-            return weighted_integer_allocation(
-                total=total,
-                minimum=minimum,
-                weights=weights,
-                maximum=maximum,
-            )
-        except PlanningAllocationError as error:
-            raise StoryPlanningInputError(str(error)) from error
 
     def generate_episode_plan_batch(
         self,
@@ -7167,6 +8105,7 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         """Compatibility wrapper over the resumable single-episode generator."""
 
         node = self._episode_plan_source_node(payload)
+        validate_execution_requirements(payload.execution_requirements, node)
         assert node.planned_start_episode is not None
         assert node.planned_end_episode is not None
         accepted: list[EpisodePlanGenerationItem] = []
@@ -7185,6 +8124,12 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             )
         return accepted
 
+    def _requires_episode_developments(self, artifact_name: str) -> bool:
+        # Legacy unit fixtures may replace generation without constructing adapters.
+        if not hasattr(self, "_llm_adapter"):
+            return False
+        return not self._adapter_allows_legacy_scene_fallback(self._adapter_for_artifact(artifact_name))
+
     def _episode_plan_context(
         self,
         payload: EpisodePlanItemDraftRequest,
@@ -7192,6 +8137,7 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         chunk: bool = False,
     ) -> tuple[StoryPlanNode, StoryBible, GenerationStrategy]:
         node = self._episode_plan_source_node(payload)
+        validate_execution_requirements(payload.execution_requirements, node)
         assert node.planned_start_episode is not None
         assert node.planned_end_episode is not None
         is_revision = isinstance(payload, EpisodePlanItemModificationRequest)
@@ -7233,6 +8179,7 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             raise StoryPlanningInputError(
                 f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
             )
+        validate_episode_developments(node, required=not self._adapter_allows_legacy_scene_fallback(getattr(self, "_episode_plan_llm_adapter", None)))
         self._validate_episode_plan_prefix(
             payload.accepted_plans,
             node=node,
@@ -7241,6 +8188,148 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         )
         return node, story_bible, strategy
 
+    @staticmethod
+    def _draft_handoff_context(payload: EpisodePlanItemDraftRequest, node: StoryPlanNode) -> str:
+        if not payload.draft_handoffs:
+            return ""
+        if any(item.episode_number >= (node.planned_start_episode or 1)
+               or item.story_bible_version != node.story_bible_version
+               for item in payload.draft_handoffs):
+            raise StoryPlanningInputError("Draft handoffs must precede this leaf and use its Story Bible version.")
+        return (
+            "\n\n以下为前一部分已保存、尚待用户审核的工作草稿，仅用于本轮创作衔接，"
+            "不是已批准事实，不得据此批准规划、写入正式记忆或覆盖已确认总纲。"
+            "承接草稿已经发生的具体行动与持有证据；除非明确写出新的失去或撤销事件，"
+            "不要重新获取已取得的证据、重复冻结已冻结的权限，或把已坦白的秘密当作首次发现。"
+            "scene_execution_facts保留概括梗概可能省略的实际行动与场景结果；已提交、已受理、"
+            "已交接或已完成的事项直接承接其结果，不能因上层安排概写该事项而重新办理一次。"
+            "如与已确认总纲冲突，以总纲为准，并把矛盾作为待审核问题。\n"
+            + json.dumps([item.model_dump(mode="json") for item in payload.draft_handoffs], ensure_ascii=False)
+        )
+
+    @staticmethod
+    def _episode_bible_facts_context(story_bible: StoryBible) -> str:
+        story_bible = approved_story_bible_context(story_bible)
+        registry = [
+            entry.model_dump(mode="json") if hasattr(entry, "model_dump") else entry
+            for entry in getattr(story_bible, "character_registry", []) or []
+        ]
+        facts = {"characters": registry, **{
+            field: [entry.model_dump(mode="json") if hasattr(entry, "model_dump") else entry
+                    for entry in getattr(story_bible, field, []) or []]
+            for field in (
+                "locked_facts", "world_rules", "avoid_patterns", "character_arc_targets",
+                "relationships", "story_lines", "escalation_stages", "major_setup_payoff_refs",
+            )
+        }}
+        return (
+            "总纲人物身份与不可改写的事实（作者层信息）：\n"
+            + json.dumps(facts, ensure_ascii=False)
+            + "\n人物编号必须指向登记的同一人物，不能把已故线索人物借作新的在场证人。"
+            "引用死者材料、回忆或录音不等于本人在现在时出场。"
+            "这些全剧真相不代表当前人物已知或当前事件已发生；揭示时机仍服从本段"
+            "事件分配、前文知情状态与本集职责，禁止提前泄露后续真相。"
+            "总纲确认过的人物关系、前史、弧光和伏笔与锁定事实共同构成作者层依据；"
+            "不能仅因某条事实未在locked_facts重复列出，就误判为下游擅自新增。"
+            + EPISODE_CONSTRAINT_SCOPE_CONTRACT
+            + "\n" + CAUSAL_PRECONDITION_CONTRACT
+            + "\n" + KEY_OBJECT_CUSTODY_CONTRACT
+            + "\n" + CHARACTER_CONDITION_RESPONSE_CONTRACT
+            + "\n" + CHARACTER_KNOWLEDGE_ACCESS_CONTRACT
+            + "\n" + STORY_RESOLUTION_OBLIGATION_CONTRACT
+        )
+
+    _episode_repetition_sources = staticmethod(episode_repetition_sources)
+
+    @staticmethod
+    def _require_distinct_episode(item: EpisodePlanGenerationItem, previous: list[EpisodePlanGenerationItem]) -> None:
+        duplicates = episode_repetition_sources(item, previous)
+        if duplicates:
+            raise StoryPlanningInputError(repetition_message(item.episode_number, duplicates))
+
+    def _repair_episode_repetition(
+        self, item: EpisodePlanGenerationItem, *, previous: list[EpisodePlanGenerationItem],
+        node: StoryPlanNode, story_bible: StoryBible, strategy: GenerationStrategy,
+    ) -> EpisodePlanGenerationItem:
+        adapter = self._episode_plan_llm_adapter
+        if self._adapter_allows_legacy_scene_fallback(adapter):
+            return item
+        duplicates = self._episode_repetition_sources(item, previous)
+        if not duplicates:
+            return item
+        protected_fields = (
+            "episode_number", "ending_mode", "target_duration_seconds", "planned_scene_count",
+            "planned_shot_count", "planned_dialogue_line_count", "character_refs", "story_line_refs",
+            "setup_refs", "payoff_refs", "source_turning_points", "source_unit_story_beats",
+        )
+        protected = {key: item.model_dump(mode="json")[key] for key in protected_fields}
+        repair_context_numbers = {
+            prior.episode_number for prior in previous[-8:]
+        } | set(duplicates[-8:])
+        context = {
+            "approved_segment": {key: getattr(node, key, None) for key in (
+                "title", "synopsis", "entry_state", "exit_state", "unit_resolution", "handoff_pressure")},
+            "locked_facts": story_bible.locked_facts,
+            "previous_episodes": [{key: getattr(prior, key, None) for key in (
+                "episode_number", "synopsis", "protagonist_decision", "exit_state", "continuity_requirements")}
+                for prior in previous if prior.episode_number in repair_context_numbers],
+            "protected_fields": protected,
+        }
+        failure = "整集梗概或人物选择与结果重复此前集数：" + str(duplicates)
+        candidate_payload = item.model_dump(mode="json", exclude={"layer_contracts"})
+        repair_strategy = strategy.model_copy(update={"max_tokens": max(6000, min(strategy.max_tokens, 12000))})
+        repair_schema = EpisodePlanGenerationItem.model_json_schema()
+        for field in ("layer_contracts", "execution_ready"):
+            repair_schema["properties"].pop(field, None)
+        repair_schema["required"] = [field for field in repair_schema.get("required", [])
+                                     if field not in {"layer_contracts", "execution_ready"}]
+        for attempt in range(2):
+            logger.warning("Repeated episode rejected episode=%d earlier=%s repair=%d/2",
+                           item.episode_number, duplicates, attempt + 1)
+            prompt = (
+                "你是短剧分集主编。以下单集出现整集剧情重复，不能靠换标题、同义词、"
+                "重复确认已知事实或再次陈述同一个选择蒙混过关。请重写这一集的具体戏剧行动："
+                "在已确认的宏观剧情与人物范围内，发展一个不同的战术尝试、具体阻力、"
+                "人物选择及可观察的后果。允许补足现有角色在本段目标下的合理行动细节，"
+                "不新增幕后组织、主线人物、大反转或改变终局。承接已持有的证据和已知秘密，"
+                "不能把得到过的材料重新写成尚未获得。此前已经完成的行动不再重演。"
+                "保留 protected_fields 的值，结算仍服从批准剧情段。场景蓝图、梗概、目标、"
+                "选择、后果、进出状态一起更新，不能只改梗概而保留旧场景。"
+                "返回完整单集 JSON 对象，所有字段遵循给定 Schema。"
+                "不返回 layer_contracts 或 execution_ready，这两项由后台计算。\n"
+                + self._episode_bible_facts_context(story_bible)
+                + json.dumps(context, ensure_ascii=False)
+                + "\n当前问题：" + failure
+                + "\n待修改单集：" + json.dumps(candidate_payload, ensure_ascii=False)
+            )
+            try:
+                generated = self._generate_structured_planning_response(
+                    adapter, prompt, strategy=repair_strategy,
+                    output_schema=repair_schema,
+                    artifact_name="Episode roadmap repetition repair", allow_stream=True,
+                    allow_relaxed_transport=False,
+                )
+                candidate_payload = normalize_episode_plan_generation_item(
+                    generated, expected_episode_number=item.episode_number)
+                revised = EpisodePlanGenerationItem.model_validate(candidate_payload)
+                changed = [key for key in protected_fields
+                           if revised.model_dump(mode="json")[key] != protected[key]]
+                if changed:
+                    raise StoryPlanningInputError("Repetition repair changed protected fields: " + ", ".join(changed))
+                duplicates = self._episode_repetition_sources(revised, previous)
+                if duplicates:
+                    raise StoryPlanningInputError("整集梗概或人物选择与结果仍与前文重复：" + str(duplicates))
+                return revised
+            except (ValidationError, StoryPlanningInputError, LLMStructuredOutputError) as error:
+                if isinstance(error, LLMStructuredOutputError) and error.refusal:
+                    raise
+                failure = str(error)[:2000]
+                logger.warning("Episode repetition repair invalid episode=%d attempt=%d error=%s",
+                               item.episode_number, attempt + 1, failure[:1000])
+        raise StoryPlanningInputError(
+            f"Episode {item.episode_number} still repeats an earlier episode after bounded story repair: {failure}"
+        )
+
     def generate_episode_plan_chunk(
         self,
         payload: EpisodePlanItemDraftRequest,
@@ -7248,8 +8337,9 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         """Generate the next bounded roadmap chunk after a saved contiguous prefix."""
 
         node, story_bible, strategy = self._episode_plan_context(payload, chunk=True)
+        rebuild_context = prepare_future_leaf_rebuild(self._long_story_service, payload, node)
 
-        chunk_end = min(
+        chunk_end = payload.episode_number if rebuild_context else min(
             node.planned_end_episode,
             payload.episode_number + self._episode_plan_chunk_size - 1,
         )
@@ -7275,7 +8365,11 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             ),
             predecessor_plan=payload.predecessor_plan,
             planning_memory=payload.planning_memory,
+            future_rebuild_context=rebuild_context,
         )
+        prompt += self._draft_handoff_context(payload, node)
+        prompt += execution_requirements_prompt(payload.execution_requirements, episode_numbers=chunk_numbers)
+        prompt += future_rebuild_prompt(rebuild_context)
         started = monotonic()
         logger.info(
             "Episode roadmap chunk started project=%s node=%s episodes=%s "
@@ -7294,18 +8388,52 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             accepted_plans=payload.accepted_plans,
             use_schema_transport=False,
             artifact_name="Episode roadmap resumable chunk",
+            episode_boundaries=self._episode_boundary_bindings(node, chunk_numbers),
+            future_rebuild_context=rebuild_context,
         )
+
+        for source_attempt in range(2):
+            try:
+                episode_plan_contracts.validate_episode_setup_payoff_references(generated.episode_plans, node=node, story_bible=story_bible)
+                self._validate_episode_plan_prefix(
+                    [*payload.accepted_plans, *generated.episode_plans],
+                    node=node, story_bible=story_bible,
+                    require_complete=(chunk_end == node.planned_end_episode),
+                )
+                break
+            except StoryPlanningInputError as error:
+                if source_attempt:
+                    raise
+                repair_prompt = self._build_episode_plan_repair_prompt(
+                    original_prompt=prompt, output=generated,
+                    validation_error=error, non_chinese_fields=[],
+                ) + (
+                    "\n来源事件引用必须对应本集正文中实际发生的事件，不能只挪动引用来凑覆盖。"
+                    "同时修正本批次的剧情与引用，保留此前已保存分集的事实。"
+                )
+                generated = self._generate_segmented_episode_roadmap(
+                    prompt=repair_prompt, strategy=strategy,
+                    expected_episode_numbers=chunk_numbers, all_episode_numbers=leaf_numbers,
+                    accepted_plans=payload.accepted_plans, use_schema_transport=False,
+                    artifact_name="Episode roadmap source mapping repair",
+                    episode_boundaries=self._episode_boundary_bindings(node, chunk_numbers),
+                    future_rebuild_context=rebuild_context,
+                )
 
         candidate = list(payload.accepted_plans)
         prepared_items: list[EpisodePlanGenerationItem] = []
         for generated_item in generated.episode_plans:
-            item = generated_item.model_copy(update=self._episode_source_assignments(
-                node,
-                accepted_plans=candidate,
-                episode_number=generated_item.episode_number,
-            ))
+            # The event links are claims made by this specific episode's prose.
+            # Reassigning them by episode position fabricates completed events in
+            # memory. Validate the model's mapping rather than silently replacing it.
+            item = generated_item
+            item = self._repair_episode_repetition(
+                item, previous=candidate, node=node, story_bible=story_bible, strategy=strategy,
+            )
             item = self._complete_episode_scene_execution_plan(
-                item, adapter=self._episode_plan_llm_adapter, strategy=strategy
+                item, adapter=self._episode_plan_llm_adapter, strategy=strategy,
+                story_bible=story_bible,
+                execution_requirements=payload.execution_requirements,
             )
             item = self._ensure_episode_item_short_drama_fields(
                 item,
@@ -7323,14 +8451,37 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             require_complete=(chunk_end == node.planned_end_episode),
         )
         language_issues = planning_output_chinese_issues(
-            EpisodePlanBatchGenerationOutput(episode_plans=prepared_items)
+            EpisodePlanBatchGenerationOutput(episode_plans=prepared_items),
+            allowed_names=self._approved_english_names(story_bible),
         )
         if language_issues:
-            raise StoryPlanningInputError(
-                "Episode roadmap chunk contains non-Chinese narrative fields: "
-                + ", ".join(language_issues[:12])
+            repaired_batch = self._ensure_mainland_planning_language(
+                original_prompt=self._build_segmented_episode_roadmap_prompt(
+                    contract_prompt=prompt, all_episode_numbers=leaf_numbers,
+                    current_episode_numbers=chunk_numbers, accepted_plans=payload.accepted_plans,
+                ),
+                output=EpisodePlanBatchGenerationOutput(episode_plans=prepared_items),
+                strategy=strategy,
+                output_model=EpisodePlanBatchGenerationOutput,
+                artifact_name="Episode roadmap resumable chunk",
+                approved_english_names=self._approved_english_names(story_bible),
+            )
+            prepared_items = list(repaired_batch.episode_plans)
+            candidate = [*payload.accepted_plans, *prepared_items]
+            self._validate_episode_plan_prefix(
+                candidate,
+                node=node,
+                story_bible=story_bible,
+                require_complete=(chunk_end == node.planned_end_episode),
             )
         for index, item in enumerate(list(prepared_items)):
+            # Language repair can rewrite prose; check its result as well as the
+            # initial generation before accepting the saved chunk.
+            item = self._repair_episode_repetition(
+                item, previous=[*payload.accepted_plans, *prepared_items[:index]],
+                node=node, story_bible=story_bible, strategy=strategy,
+            )
+            prepared_items[index] = item
             diversity_issues = self._episode_plan_diversity_issues(
                 [*payload.accepted_plans, *prepared_items[:index], item],
                 focus_episode_number=item.episode_number,
@@ -7358,7 +8509,15 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                         item.episode_number,
                         ",".join(diversity_issues),
                     )
+        if not self._adapter_allows_legacy_scene_fallback(self._episode_plan_llm_adapter):
+            previous = [*([payload.predecessor_plan] if payload.predecessor_plan else []), *payload.accepted_plans]
+            for item in prepared_items:
+                self._require_distinct_episode(item, previous)
+                previous.append(item)
         self._require_active_story_plan_lineage(node)
+        if rebuild_context:
+            for item in prepared_items:
+                verify_rebuild_budget(item, rebuild_context)
         logger.info(
             "Episode roadmap chunk accepted project=%s node=%s episodes=%s "
             "duration_seconds=%.2f",
@@ -7396,6 +8555,8 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             ),
             planning_memory=payload.planning_memory,
         )
+        prompt += self._draft_handoff_context(payload, node)
+        prompt += execution_requirements_prompt(payload.execution_requirements, episode_numbers=[payload.episode_number])
         item_strategy = strategy.model_copy(
             update={
                 "max_tokens": min(
@@ -7440,6 +8601,8 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                     # and Pydantic-validated below, so native JSON avoids one doomed
                     # upstream round trip without weakening the application contract.
                     output_schema=None,
+                    prompt_schema=EpisodePlanGenerationItem.model_json_schema(),
+                    episode_boundaries=self._episode_boundary_bindings(node, [payload.episode_number]),
                     artifact_name=(
                         "Episode roadmap item"
                         if attempt == 0
@@ -7463,8 +8626,14 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                         ),
                     )
                 item = EpisodePlanGenerationItem.model_validate(normalized)
+                episode_plan_contracts.validate_episode_setup_payoff_references([item], node=node, story_bible=story_bible)
+                item = self._repair_episode_repetition(
+                    item, previous=payload.accepted_plans,
+                    node=node, story_bible=story_bible, strategy=item_strategy,
+                )
                 item = self._complete_episode_scene_execution_plan(
-                    item, adapter=adapter, strategy=item_strategy
+                    item, adapter=adapter, strategy=item_strategy, story_bible=story_bible,
+                    execution_requirements=payload.execution_requirements,
                 )
                 item = self._ensure_episode_item_short_drama_fields(
                     item,
@@ -7472,11 +8641,6 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                         adapter
                     ),
                 )
-                item = item.model_copy(update=self._episode_source_assignments(
-                    node,
-                    accepted_plans=payload.accepted_plans,
-                    episode_number=payload.episode_number,
-                ))
                 item = self._ensure_episode_item_short_drama_fields(
                     item,
                     allow_scene_fallback=self._adapter_allows_legacy_scene_fallback(
@@ -7493,7 +8657,8 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                     ),
                 )
                 language_issues = planning_output_chinese_issues(
-                    EpisodePlanBatchGenerationOutput(episode_plans=[item])
+                    EpisodePlanBatchGenerationOutput(episode_plans=[item]),
+                    allowed_names=self._approved_english_names(story_bible),
                 )
                 if language_issues:
                     raise StoryPlanningInputError(
@@ -7526,6 +8691,10 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                         payload.source_node_id,
                         payload.episode_number,
                         ",".join(diversity_issues),
+                    )
+                if not self._adapter_allows_legacy_scene_fallback(adapter):
+                    self._require_distinct_episode(
+                        item, [*([payload.predecessor_plan] if payload.predecessor_plan else []), *payload.accepted_plans],
                     )
                 self._require_active_story_plan_lineage(node)
                 logger.info(
@@ -7574,6 +8743,89 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             f"{payload.episode_number} after one targeted item repair: {failure}"
         ) from failure
 
+    def prepare_episode_plan_item(
+        self,
+        payload: EpisodePlanItemPreparationRequest,
+    ) -> EpisodePlanGenerationItem:
+        """Return validated scene details; the caller retains author approval."""
+
+        node, story_bible, strategy = self._episode_plan_context(payload)
+        current = payload.current_plan
+        self._require_distinct_episode(
+            current, [*([payload.predecessor_plan] if payload.predecessor_plan else []), *payload.accepted_plans],
+        )
+        self._validate_episode_plan_prefix(
+            [*payload.accepted_plans, current], node=node, story_bible=story_bible,
+            require_complete=(payload.episode_number == node.planned_end_episode),
+        )
+        item = self._complete_episode_scene_execution_plan(
+            current, adapter=self._episode_plan_llm_adapter,
+            strategy=strategy, story_bible=story_bible,
+            execution_requirements=payload.execution_requirements,
+        )
+        # Completion is deliberately limited to scenes and derived contracts.
+        # It cannot change episode outcomes and invalidate later planning.
+        issues = episode_execution_readiness_issues(item)
+        if issues:
+            raise EpisodeSceneExecutionCompletionError(
+                "Episode preparation is not execution-ready: " + ", ".join(issues[:20])
+            )
+        item = item.model_copy(update={"layer_contracts": compile_episode_three_layer_contract(item)})
+        language_issues = planning_output_chinese_issues(
+            EpisodePlanBatchGenerationOutput(episode_plans=[item]),
+            allowed_names=self._approved_english_names(story_bible),
+        )
+        if language_issues:
+            raise StoryPlanningInputError(
+                "Scene preparation contains non-Chinese narrative fields: "
+                + ", ".join(language_issues[:12])
+            )
+        self._require_active_story_plan_lineage(node)
+        return item
+
+    def _future_revision_episode_input(
+        self, payload: EpisodePlanItemModificationRequest, node: StoryPlanNode,
+    ) -> EpisodePlanGenerationItem:
+        """Bind a future rewrite to server-approved events, never to client history."""
+        current = payload.current_plan
+        if not (_whole_episode_revision_requested(payload.instruction, payload.revision_mode.value)
+                and node.episode_developments):
+            return current
+        load_snapshot = getattr(self._long_story_service, "get_workspace_snapshot", None)
+        if not callable(load_snapshot):
+            return current
+        try:
+            workspace = load_snapshot(payload.story_project_id).workspace_payload
+        except LongStoryNotFoundError:
+            return current
+        if not isinstance(workspace, dict):
+            return current
+        from app.modules.script_engine.planning_revision import active_revision, require_request_epoch
+
+        require_request_epoch(workspace, payload.planning_revision_epoch, episode_number=payload.episode_number)
+        revision = active_revision(workspace)
+        if not revision:
+            return current
+        boundary = revision.get("startEpisode")
+        if type(boundary) is not int or payload.episode_number < boundary:
+            raise StoryPlanningInputError("Only unwritten episodes in the active future revision may rebind approved events.")
+        if any(isinstance(item, dict) and type(item.get("episodeNumber")) is int
+               and item["episodeNumber"] >= payload.episode_number
+               for item in workspace.get("episodes", [])):
+            raise StoryPlanningInputError("Saved screenplay episodes cannot rebind their planning source through future revision.")
+        if node.status != PlanningApprovalStatus.approved:
+            raise StoryPlanningInputError("Future episode revision requires the latest approved source node.")
+        self._require_active_story_plan_lineage(node)
+        owned = next((item for item in node.episode_developments
+                      if item.episode_number == payload.episode_number), None)
+        if owned is None:
+            raise StoryPlanningInputError("Approved episode boundaries do not cover this future revision.")
+        # Only ownership changes before validation. Old narrative/scene fields
+        # remain replacement input; readiness is recompiled on the candidate.
+        return current.model_copy(update={
+            field: getattr(owned, field) for field in EPISODE_BOUNDARY_FIELDS
+        }, deep=True)
+
     def modify_episode_plan_item(
         self,
         payload: EpisodePlanItemModificationRequest,
@@ -7581,7 +8833,11 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         """Return an unpersisted, contract-checked revision of one roadmap item."""
 
         node, story_bible, strategy = self._episode_plan_context(payload)
-        current = payload.current_plan
+        current = self._future_revision_episode_input(payload, node)
+        rebuild_cast = (
+            _whole_episode_revision_requested(payload.instruction, payload.revision_mode.value)
+            and bool(getattr(node, "episode_developments", []))
+        )
         self._validate_episode_plan_prefix(
             [*payload.accepted_plans, current],
             node=node,
@@ -7611,13 +8867,17 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
             planning_memory=payload.planning_memory,
             knowledge_context=knowledge_context,
         )
+        prompt += self._draft_handoff_context(payload, node)
+        prompt += execution_requirements_prompt(payload.execution_requirements, episode_numbers=[payload.episode_number])
         item_strategy = strategy.model_copy(
             update={
                 "max_tokens": min(
-                    EPISODE_ROADMAP_ITEM_MAX_OUTPUT_TOKENS,
+                    12_000,
                     max(
                         strategy.max_tokens,
-                        EPISODE_ROADMAP_ITEM_MIN_OUTPUT_TOKENS,
+                        # Revisions return the existing scene blueprint together
+                        # with the prose; the compact generation cap excludes it.
+                        4_000 + 2_000 * current.planned_scene_count,
                     ),
                 )
             }
@@ -7644,6 +8904,8 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                     attempt_prompt,
                     strategy=item_strategy,
                     output_schema=None,
+                    prompt_schema=EpisodePlanGenerationItem.model_json_schema(),
+                    episode_boundaries=self._episode_boundary_bindings(node, [payload.episode_number]),
                     artifact_name=(
                         "Episode roadmap item modification"
                         if attempt == 0
@@ -7665,10 +8927,18 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                         ),
                     )
                 item = EpisodePlanGenerationItem.model_validate(normalized)
-                # Event assignments and reference IDs are planning boundaries, not
-                # editable prose. Keeping them from the approved item prevents an AI
-                # revision from silently invalidating downstream continuity.
-                protected_character_refs = list(current.character_refs)
+                # A whole rewrite derives the cast from approved inputs too.
+                # Freezing a defective draft's cast prevents restoring a missing
+                # custodian/witness, then silently strips them from its scenes.
+                protected_character_refs = list(item.character_refs if rebuild_cast else current.character_refs)
+                if rebuild_cast:
+                    allowed_cast = set(story_bible.character_refs) & set(node.character_refs)
+                    if (not allowed_cast.issuperset(protected_character_refs)
+                            or any(not set(protected_character_refs).issuperset(scene.character_refs)
+                                   for scene in item.scene_execution_plan)):
+                        raise StoryPlanningInputError(
+                            "Whole episode revision cast and scene participants must use the approved node's characters."
+                        )
                 scene_execution_plan = [
                     scene.model_copy(update={
                         "character_refs": (
@@ -7702,7 +8972,8 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                 )
                 if allowed_fields != {"episode_title"}:
                     item = self._complete_episode_scene_execution_plan(
-                        item, adapter=adapter, strategy=item_strategy
+                        item, adapter=adapter, strategy=item_strategy, story_bible=story_bible,
+                        execution_requirements=payload.execution_requirements,
                     )
                 item = self._ensure_episode_item_short_drama_fields(
                     item,
@@ -7718,12 +8989,17 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                     require_complete=(payload.episode_number == node.planned_end_episode),
                 )
                 language_issues = planning_output_chinese_issues(
-                    EpisodePlanBatchGenerationOutput(episode_plans=[item])
+                    EpisodePlanBatchGenerationOutput(episode_plans=[item]),
+                    allowed_names=self._approved_english_names(story_bible),
                 )
                 if language_issues:
                     raise StoryPlanningInputError(
                         "Episode roadmap revision contains non-Chinese narrative fields: "
                         + ", ".join(language_issues[:12])
+                    )
+                if allowed_fields != {"episode_title"}:
+                    self._require_distinct_episode(
+                        item, [*([payload.predecessor_plan] if payload.predecessor_plan else []), *payload.accepted_plans],
                     )
                 self._require_active_story_plan_lineage(node)
                 return item
@@ -7732,7 +9008,15 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
                     raise
                 if isinstance(error, EpisodeSceneExecutionCompletionError):
                     raise
-                if is_transient_story_planning_output_error(error):
+                output_limit_hit = isinstance(error, LLMStructuredOutputError) and any(
+                    marker in (error.stream_termination or "").casefold()
+                    for marker in ("length", "max_output", "token_limit")
+                )
+                if output_limit_hit and attempt == 0:
+                    item_strategy = item_strategy.model_copy(update={
+                        "max_tokens": min(16_000, item_strategy.max_tokens + 4_000),
+                    })
+                if is_transient_story_planning_output_error(error) and not output_limit_hit:
                     raise StoryPlanningTransientOutputError(
                         "Episode roadmap revision provider returned an empty or "
                         f"interrupted response for episode {payload.episode_number}."
@@ -7770,10 +9054,45 @@ issue_codes 使用简短英文标识。needs_revision 必须给出可直接用�
         resolved_instruction = instruction.strip() or (
             "在不改变本集因果职责的前提下，整体重写本集路线图，使其更具体、更适合短剧拍摄。"
         )
+        if _whole_episode_revision_requested(resolved_instruction, revision_mode) and getattr(node, "episode_developments", []):
+            # Whole rewrites derive the episode from the same approved inputs as
+            # first generation. Refeeding every defective narrative field biases
+            # the editor to rationalize it even when told it is not canonical.
+            prompt = StoryPlanningService._build_episode_plan_item_prompt(
+                node=node, story_bible=story_bible, episode_number=current_plan.episode_number,
+                accepted_plans=accepted_plans, predecessor_plan=predecessor_plan,
+                knowledge_context=knowledge_context, planning_memory=planning_memory,
+            )
+            protected = {
+                field: getattr(current_plan, field)
+                for field in ("episode_number", "ending_mode", "story_line_refs",
+                              "setup_refs", "payoff_refs", "source_turning_points", "source_unit_story_beats")
+            }
+            retained = _explicit_episode_retention(current_plan, resolved_instruction)
+            return prompt + f"""
+
+WHOLE EPISODE REVISION FROM APPROVED INPUTS
+重写所有可编辑叙事字段。本次整集修订复用首稿创作合同、上游逐集安排与前文实际动作，
+不沿用被替换稿中的错误因果、临时新增对象或场景划分。来源文字中的继承背景保持成立，
+只演本集新增后果；尤其不能为了合理化旧稿而虚构前文仍有效的另一通路或未发生事件。
+同步梗概、揭示、情绪、阻力、压力、结尾和场景；recompute planned_scene_count and scene allocations together.
+Identity, reference IDs and source assignments below stay fixed:
+{json.dumps(protected, ensure_ascii=False, separators=(',', ':'))}
+本集出场人物随重写后的实际行动重新确定，只能使用本批准节点人物：{json.dumps(node.character_refs, ensure_ascii=False)}。
+旧稿遗漏的必要在场人物可以恢复；每场人物须列入本集 character_refs，不能把材料保管人或信息传递者从引用中删掉却仍使用其行动。
+Current details explicitly requested to be retained (these are not new events to replay):
+{json.dumps(retained, ensure_ascii=False, separators=(',', ':'))}
+保留分场配额不代表保留旧场景叙事；保留要求中的各场对白/镜头数量，同时按修订意见更新场景行动、对白目的及依赖字段。
+User instruction:
+{resolved_instruction}
+Selected field identifies what is being replaced; the old selected prose does not become a story fact:
+{selection_context.source_field if selection_context else '(whole episode)'}
+Return one complete episode object using the same first-generation schema; no old narrative field is immutable.
+"""
         revision_rule = (
             "重写所有可编辑叙事字段，重新组织本集的动作、选择、可见回报和结尾压力；"
             "不得改变本集在剧情段中的位置。"
-            if revision_mode == "rewrite"
+            if _whole_episode_revision_requested(resolved_instruction, revision_mode)
             else
             "只调整用户要求涉及的叙事字段，保留未涉及的因果事实和上下集交接。"
         )
@@ -7804,7 +9123,25 @@ Text immediately before the selection:
 Text immediately after the selection:
 {selection_context.after_text or "(none)"}
 Treat the selection as the precise target. If changing it breaks the preceding checkpoint,
-episode payoff, exit state or next-episode obligation, update only those dependent fields too."""
+episode payoff, exit state or next-episode obligation, update only those dependent fields too.
+When the instruction explicitly names scenes or requests synchronized dependent fields, the
+selection is the starting point: update the affected scene actions and dialogue objectives too;
+do not restrict an explicit scene revision to the selected synopsis."""
+        fixed_ownership = bool(getattr(node, "episode_developments", []))
+        segment_context = (
+            StoryPlanningService._fixed_episode_plan_context(node, [current_plan.episode_number])
+            if fixed_ownership else f"""Approved segment: {node.title}
+Segment synopsis: {node.synopsis}
+Segment entry state: {node.entry_state}
+Segment conflict: {node.central_conflict}
+Segment exit state: {node.exit_state}
+Required local resolution: {node.unit_resolution or node.exit_state}
+Required handoff pressure: {node.handoff_pressure or node.exit_state}"""
+        )
+        boundary_rule = (
+            "Preserve this episode's fixed events and exit state; do not execute later episodes' work."
+            if fixed_ownership else "Preserve the approved segment's local resolution and handoff pressure."
+        )
         return f"""{market_contract}
 
 You are revising one episode roadmap item in a serialized short drama.
@@ -7827,15 +9164,10 @@ Revision mode: {revision_mode}
 {revision_rule}
 
 Approved Story Bible premise: {story_bible.core_premise}
+{StoryPlanningService._episode_bible_facts_context(story_bible)}
 Approved characters: {json.dumps(story_bible.character_refs, ensure_ascii=False)}
 Approved story lines: {json.dumps([line.story_line_id for line in story_bible.story_lines], ensure_ascii=False)}
-Approved segment: {node.title}
-Segment synopsis: {node.synopsis}
-Segment entry state: {node.entry_state}
-Segment conflict: {node.central_conflict}
-Segment exit state: {node.exit_state}
-Required local resolution: {node.unit_resolution or node.exit_state}
-Required handoff pressure: {node.handoff_pressure or node.exit_state}
+{segment_context}
 Ending mode: {current_plan.ending_mode.value}; serial_hook requires a causal cliffhanger,
 while season_finale/series_finale must use the approved formal resolution without a
 manufactured continuation hook.
@@ -7846,8 +9178,16 @@ Immediately preceding checkpoint:
 Durable continuity memory from the accepted roadmap prefix:
 {json.dumps(continuity_memory, ensure_ascii=False, separators=(',', ':'))}
 
-Current approved roadmap item (identity, references and source assignments are immutable):
+Current saved roadmap item to revise (it may contain the continuity defects being corrected):
 {current_plan.model_dump_json(exclude={'scene_execution_plan'})}
+Current details explicitly requested to be retained:
+{json.dumps(_explicit_episode_retention(current_plan, resolved_instruction), ensure_ascii=False, separators=(',', ':'))}
+保留分场配额不代表保留旧场景叙事；保留要求中的各场对白/镜头数量，同时按修订意见更新场景行动、对白目的及依赖字段。
+The current item's narrative descriptions are revision input, not new canon. Actual prior actions,
+the approved Story Bible and the fixed upper episode boundary remain authoritative. When the user
+requests a whole-episode revision, update every affected narrative field together, including reveal,
+emotional movement, opposition, pressure and hook; do not preserve a stale description solely because
+the selected passage was its synopsis. Identity, reference IDs and source assignments below stay fixed.
 
 Immutable values that must be copied exactly:
 - episode_number: {current_plan.episode_number}
@@ -7865,17 +9205,20 @@ Requirements:
 1a. If the defining action, choice or reversal changes, update episode_title too.
 {EPISODE_TITLE_NAMING_CONTRACT}
 1b. If the revision changes where the episode happens or its causal summary, update `locations` and/or `synopsis`; otherwise preserve them exactly.
-2. Continue causally from the preceding checkpoint and preserve the approved episode's viewing value and observable exit state. The episode may use a relationship turn, information exchange, emotional accumulation, delayed payoff or another approved form; do not force a fixed cycle or an irreversible event. For serial_hook use a concrete causal hook; for season_finale or series_finale use the approved formal resolution and do not invent a continuation hook.
+2. Continue causally from the preceding actual actions and fulfill the fixed upper episode's contribution and exit state. Correct defective descriptions in the saved item instead of treating them as established events. The episode may use a relationship turn, information exchange, emotional accumulation, delayed payoff or another approved form; do not force a fixed cycle or an irreversible event. For serial_hook use a concrete causal hook; for season_finale or series_finale use the approved formal resolution and do not invent a continuation hook.
 3. Preserve every still-active continuity requirement, unresolved setup, open hook and state
    handoff in the durable memory. Do not fix a local sentence by contradicting an earlier fact.
-4. Preserve the approved segment's local resolution and handoff pressure; do not invent a new plot chain or postpone this episode's contribution.
+4. {boundary_rule} Do not invent a new plot chain or postpone this episode's contribution.
 5. Copy every immutable value above exactly. Keep all narrative values concise and production-ready. ending_hook_type must be only a 2-20 character Simplified-Chinese classification label with no explanation.
 6. Return a complete `scene_execution_plan` with exactly planned_scene_count scenes. Each
    scene must include scene_number, scene_heading, character_refs, scene_objective,
    opposition, information_shift, choice_or_cost, evidence_requirements,
    forbidden_changes, visible_action, turn_or_reveal, dialogue_objective,
-   dialogue_line_target, shot_target and exit_state. Preserve the approved scene count,
-   dialogue/shot totals and immutable character references.
+   dialogue_line_target, shot_target and exit_state. Preserve immutable character references and
+   any production budget the user explicitly asks to retain. A story revision may merge redundant
+   scenes or split distinct dramatic work; recompute planned_scene_count and scene allocations together
+   within the allowed production ranges. Do not retain an erroneous scene count just because it was saved.
+   {SCENE_DIALOGUE_PLANNING_RULES}
 7. Use the shared roadmap length reference above; necessary scene decisions take priority over brevity. If the
    revision runs long, shorten repeated upper-layer context before returning; preserve the
    episode's distinct causal contribution and handoff.
@@ -7885,15 +9228,23 @@ Requirements:
         episode_plan_contracts.validate_episode_plan_predecessor
     )
 
+    def _validate_planning_epoch(self, payload: Any, *, episode_number: int | None = None) -> None:
+        validator = getattr(self._long_story_service, "validate_planning_request_epoch", None)
+        if callable(validator):
+            validator(payload.story_project_id, payload.planning_revision_epoch, episode_number=episode_number)
+
     def _episode_plan_source_node(
         self,
         payload: EpisodePlanBatchDraftRequest,
     ) -> StoryPlanNode:
+        self._validate_planning_epoch(payload, episode_number=getattr(payload, "episode_number", None))
         node = self._long_story_service.get_story_plan_node(
             payload.story_project_id,
             payload.source_node_id,
             version=payload.source_node_version,
         )
+        if not hasattr(payload, "episode_number"):
+            self._validate_planning_epoch(payload, episode_number=node.planned_start_episode)
         self._require_active_story_plan_lineage(node)
         if node.status != PlanningApprovalStatus.approved or node.expansion_status != "episode_ready":
             raise StoryPlanningInputError(
@@ -7996,6 +9347,8 @@ Requirements:
         artifact_name: str = "Episode roadmap segmented generation",
         llm_adapter: LLMAdapter | None = None,
         output_schema: dict[str, object] | None = None,
+        episode_boundaries: dict[int, dict[str, object]] | None = None,
+        future_rebuild_context: dict[str, object] | None = None,
     ) -> EpisodePlanBatchGenerationOutput:
         """Generate bounded chunks, recursively splitting malformed responses."""
 
@@ -8054,10 +9407,22 @@ Requirements:
                     ),
                     strategy=chunk_strategy,
                     output_schema=output_schema,
+                    prompt_schema=future_rebuild_schema(EpisodePlanBatchGenerationOutput.model_json_schema(), future_rebuild_context),
+                    episode_boundaries=(
+                        {number: episode_boundaries[number] for number in numbers}
+                        if episode_boundaries else None
+                    ),
                     artifact_name=artifact_name,
                     allow_stream=True,
                     allow_relaxed_transport=len(numbers) == 1,
+                    future_rebuild_context=future_rebuild_context,
                 )
+                if future_rebuild_context:
+                    generated = bind_future_rebuild_budget(generated, future_rebuild_context)
+                    raw_items = _episode_plan_generation_items(generated)
+                    if not raw_items or len(raw_items) != 1:
+                        raise StoryPlanningInputError("Future rebuild requires exactly one raw episode before normalization.")
+                    verify_rebuild_budget(raw_items[0], future_rebuild_context)
                 output = EpisodePlanBatchGenerationOutput.model_validate(
                     planning_payload_for_validation(
                         generated,
@@ -8134,6 +9499,8 @@ Requirements:
         *,
         adapter: LLMAdapter,
         strategy: GenerationStrategy,
+        story_bible: StoryBible | None = None,
+        execution_requirements: list[StoryPlanExecutionRequirement] | None = None,
     ) -> EpisodePlanGenerationItem:
         """Ask the planning model to complete a missing or partial scene blueprint."""
 
@@ -8158,76 +9525,113 @@ Requirements:
         ]
         if not scene_issue_codes:
             return item.model_copy(update={"execution_ready": True})
+        if any(code.endswith("_unresolved") for code in scene_issue_codes):
+            raise StoryPlanningInputError(
+                "场景执行依据仍含明确待定项，请先在分集规划中补全。"
+                "普通执行细节应由规划确定；作者明确保留的决定应继续保留。"
+                "不能将尚未确定的依据标记为可执行并交给正文。"
+            )
 
         item_payload = item.model_dump(mode="json", exclude={"layer_contracts"})
         prompt = (
             "你是分集规划阶段的执行蓝图补全器。以下是已经批准的单集创意合同，"
+            + SCENE_DIALOGUE_PLANNING_RULES + "\n"
+            +
             "只补齐 scene_execution_plan，不改动任何集级字段、人物引用、地点、"
             "剧情结果、预算或集数。每个场景必须把抽象意图翻译成正文模型可以直接"
             "执行的动作合同：对抗、信息变化、主角选择或代价、可观察证据、禁止改变"
             "的事实、可见动作、转折、对白目的和退出状态。场景数量、编号、对白行数"
-            "和镜头数必须精确匹配批准合同。\n\n"
+            "和镜头数必须精确匹配批准合同。scene_heading 使用传输合同中的结构化场标；"
+            "opposition、information_shift、choice_or_cost 必须是至少三个字的具体说明，"
+            "不能是 null 或空白。evidence_requirements 至少给出一项可观察证据。"
+            "每场必须有不同的可见行动和退出结果；允许同一地点发生多场戏，"
+            "但不能复制同一行动来凑场数。\n\n"
+            + (self._episode_bible_facts_context(story_bible) + "\n\n" if story_bible else "")
+            +
             f"{EPISODE_VIEWING_VALUE_CONTRACT}\n\n"
             f"当前硬问题：{json.dumps(scene_issue_codes, ensure_ascii=False)}\n"
             f"批准合同：{json.dumps(item_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
             "只返回一个 JSON 对象，唯一顶层字段为 scene_execution_plan。不要 Markdown、"
             "解释、额外字段或占位语句。"
         )
+        prompt += execution_requirements_prompt(execution_requirements or [], episode_numbers=[item.episode_number])
         completion_strategy = strategy.model_copy(
-            update={"max_tokens": min(max(strategy.max_tokens, 1800), 5000)}
+            update={"max_tokens": min(max(strategy.max_tokens, 2000 * item.planned_scene_count), 12000)}
         )
-        generated = self._generate_structured_planning_response(
-            adapter,
-            prompt,
-            strategy=completion_strategy,
-            output_schema=_episode_scene_execution_completion_schema(),
-            artifact_name="Episode scene execution plan completion",
-            allow_stream=True,
-            allow_relaxed_transport=False,
-        )
-        source: object = generated
-        while isinstance(source, dict):
-            if "scene_execution_plan" in source:
-                source = source["scene_execution_plan"]
-                break
-            for wrapper in ("data", "result", "patch", "episode_plan"):
-                nested = source.get(wrapper)
-                if isinstance(nested, dict):
-                    source = nested
-                    break
-            else:
-                break
-        if not isinstance(source, list):
-            raise EpisodeSceneExecutionCompletionError(
-                "Episode scene execution plan completion returned no scene list; "
-                "the production roadmap is blocked and no fallback blueprint is allowed."
-            )
-        try:
-            completed_scenes = TypeAdapter(list[EpisodeSceneExecutionBeat]).validate_python(source)
-            completed = item.model_copy(
-                update={
-                    "scene_execution_plan": completed_scenes,
-                    "execution_ready": True,
-                }
-            )
-            remaining = episode_execution_readiness_issues(completed)
-            remaining_scene_issues = [
-                code for code in remaining
-                if code == "scene_execution_plan_missing"
-                or code.startswith("scene_execution_plan.")
-                or code in {"scene_execution_plan_count_mismatch", "scene_execution_plan_numbering_invalid"}
-            ]
-            if remaining_scene_issues:
-                raise StoryPlanningInputError(
-                    "Episode scene execution plan completion remained incomplete: "
-                    + ", ".join(remaining_scene_issues)
+        original_prompt = prompt
+        last_error: Exception | None = None
+        for attempt in range(3):
+            source: object = None
+            try:
+                generated = self._generate_structured_planning_response(
+                    adapter,
+                    prompt,
+                    strategy=completion_strategy,
+                    output_schema=_episode_scene_execution_completion_schema(),
+                    artifact_name="Episode scene execution plan completion",
+                    allow_stream=True,
+                    allow_relaxed_transport=False,
                 )
-            return completed
-        except ValidationError as error:
-            raise EpisodeSceneExecutionCompletionError(
-                "Episode scene execution plan completion failed validation; "
-                "the production roadmap is blocked."
-            ) from error
+                source = generated
+                while isinstance(source, dict):
+                    if "scene_execution_plan" in source:
+                        source = source["scene_execution_plan"]
+                        break
+                    for wrapper in ("data", "result", "patch", "episode_plan"):
+                        nested = source.get(wrapper)
+                        if isinstance(nested, dict):
+                            source = nested
+                            break
+                    else:
+                        break
+                if not isinstance(source, list):
+                    raise StoryPlanningInputError("scene_execution_plan must be a scene list.")
+                # Validate the entire contract, including totals and character
+                # references; model_copy would silently bypass these invariants.
+                completed = EpisodePlanGenerationItem.model_validate({
+                    **item_payload,
+                    "scene_execution_plan": [expand_scene_heading(scene) if isinstance(scene, dict) else scene for scene in source],
+                    "execution_ready": True,
+                })
+                remaining = [
+                    code for code in episode_execution_readiness_issues(completed)
+                    if code.startswith("scene_execution_plan")
+                ]
+                if remaining:
+                    raise StoryPlanningInputError(
+                        "Scene blueprint remained incomplete: " + ", ".join(remaining)
+                    )
+                return completed
+            except (ValidationError, StoryPlanningInputError, LLMStructuredOutputError) as error:
+                if isinstance(error, LLMStructuredOutputError) and error.refusal:
+                    raise
+                last_error = error
+                if isinstance(error, ValidationError):
+                    detail = json.dumps([
+                        {"field": ".".join(map(str, issue["loc"])),
+                         "error": issue["msg"], "type": issue["type"]}
+                        for issue in error.errors(include_input=False, include_url=False)
+                    ], ensure_ascii=False)
+                else:
+                    detail = str(error)
+                logger.warning(
+                    "Scene blueprint rejected episode=%d attempt=%d/3 issues=%s",
+                    item.episode_number, attempt + 1, detail,
+                )
+                prompt = (
+                    original_prompt
+                    + "\n\n上次输出未通过校验。仅修正以下错误，保留已正确的场景内容；"
+                    "不得改动批准合同的集级预算、人物和剧情事实。"
+                    "按 schema 保持字段类型、长度、场景编号，以及对白与镜头目标总和。"
+                    + "\n校验错误：" + detail
+                    + "\n待修正场景：" + json.dumps(source, ensure_ascii=False)
+                    + "\n每个场景必须承担不同的可见行动、阻力和退出结果；"
+                    "可以重复地点，但不能复制同一场戏或只改标题。"
+                )
+        raise EpisodeSceneExecutionCompletionError(
+            f"Episode {item.episode_number} scene execution plan completion failed "
+            f"after 3 attempts: {detail}"
+        ) from last_error
 
     @staticmethod
     def _ensure_episode_short_drama_fields(
@@ -8448,9 +9852,13 @@ Requirements:
         artifact_name: str,
         expected_episode_numbers: list[int] | None = None,
         candidate_observer: Callable[[dict[str, object] | str], None] | None = None,
+        output_schema: dict[str, Any] | None = None,
+        candidate_projection: Callable[[dict[str, object]], dict[str, object]] | None = None,
     ) -> PlanningOutputT:
         """Generate a planning contract with bounded format and envelope recovery."""
-        output_schema = output_model.model_json_schema()
+        if output_schema is None:
+            output_schema = output_model.model_json_schema()
+        output_schema = planning_wire_schema(output_schema)
         contract_prompt = self._with_authoritative_schema(prompt, output_schema)
         llm_adapter = self._adapter_for_artifact(artifact_name)
         repair_llm_adapter = (
@@ -8474,6 +9882,15 @@ Requirements:
                 candidate_observer(candidate)
 
         def validate(candidate: dict[str, object]) -> PlanningOutputT:
+            try:
+                return validate_candidate(candidate)
+            except Exception as error:
+                capture_planning_error(artifact_name + " validation", error)
+                raise
+
+        def validate_candidate(candidate: dict[str, object]) -> PlanningOutputT:
+            if candidate_projection is not None:
+                candidate = candidate_projection(candidate)
             normalized = planning_payload_for_validation(
                 candidate,
                 output_model,
@@ -8708,7 +10125,10 @@ Requirements:
                 strategy=repair_strategy,
                 output_schema=output_schema,
                 artifact_name=artifact_name,
-                allow_stream=False,
+                # A complete JSON object with missing/invalid fields does not
+                # indicate broken SSE. Keep the working long-response transport;
+                # reserve the non-stream compatibility repair for malformed JSON.
+                allow_stream=structured_error is None,
             )
             observe(repaired)
             return validate(repaired)
@@ -8831,6 +10251,149 @@ Requirements:
                 structured_error,
             ) from repair_error
 
+    def _generate_fixed_boundary_decomposition(
+        self, *, prompt: str, strategy: GenerationStrategy,
+        parent: StoryPlanNode, story_bible: StoryBible,
+        plan: DecompositionBoundaryPlan, requested_child_count: int | None,
+        resume_candidates: list[dict[str, object]] | None = None,
+    ) -> StoryPlanNodeDecompositionOutput:
+        """Complete a small sibling group without nested repair/repartition calls.
+
+        Missing episode maps are separate output fields. The projection cannot
+        alter authored events, boundaries or an already-valid sibling/map.
+        Every result still passes the normal event and continuity validators.
+        """
+        schema = boundary_plan_schema(
+            planning_wire_schema(StoryPlanNodeDecompositionOutput.model_json_schema()), plan,
+        )
+        adapter = self._adapter_for_artifact("Story Plan Node decomposition")
+        candidate = None
+        for saved in resume_candidates or []:
+            saved = {key: value for key, value in saved.items() if key != "_meta"}
+            try:
+                if isinstance(saved.get("children"), list):
+                    prepare_episode_completion(saved, plan)
+                    candidate = saved
+                elif candidate is not None and any(key.startswith("child_") for key in saved):
+                    _, restore_projection, _ = prepare_episode_completion(candidate, plan)
+                    candidate = restore_projection(saved)
+            except (StoryPlanningInputError, ValidationError, TypeError, KeyError, ValueError):
+                continue
+        if candidate is not None:
+            logger.info("Resuming exact-input decomposition candidate node=%s without rewriting complete story fields", parent.node_id)
+        failure = None
+        rejected_candidates: set[str] = set()
+        for attempt in range(4):
+            remaining = remaining_planning_model_requests()
+            if remaining == 0:
+                break
+            projection = None
+            pending = ()
+            field_completion = False
+            binding_feedback = ""
+            request_schema = schema
+            request_prompt = prompt
+            if candidate is not None:
+                try:
+                    completion_schema, map_projection, pending = prepare_episode_completion(candidate, plan)
+                    binding_properties, binding_projection, binding_feedback = prepare_parent_binding_completion(candidate, parent)
+                    map_keys = set(completion_schema["properties"])
+                    all_keys = map_keys | set(binding_properties)
+                    completion_schema = {
+                        **completion_schema,
+                        "properties": {**completion_schema["properties"], **binding_properties},
+                        "required": list(completion_schema["properties"]) + list(binding_properties),
+                    }
+                    def completion_projection(repair):
+                        if not isinstance(repair, dict) or set(repair) != all_keys:
+                            raise StoryPlanningInputError("Field completion must return exactly the requested map and parent-reference keys.")
+                        merged = map_projection({key: repair[key] for key in map_keys})
+                        return binding_projection(merged, {key: repair[key] for key in binding_properties})
+                    field_completion = bool(all_keys)
+                except (StoryPlanningInputError, ValidationError, TypeError, KeyError, ValueError):
+                    pending = ()
+                if field_completion:
+                    request_schema, projection = completion_schema, completion_projection
+                    request_prompt = f"""{prompt}
+
+EPISODE MAP COMPLETION — FIELD-ONLY RESPONSE
+The candidate below already owns its fixed ranges, events and states. Complete only
+its missing/invalid episode_developments and explicitly requested missing parent
+references. The field-only schema for this request supersedes the earlier full
+children response shape. Return exactly its requested child_N and parent_event_N keys;
+do not return children, a new range, title, event table, or another movement plan.
+Missing parent references only bind already-authored events; do not invent a new
+fact or change an existing ownership assignment to make an index appear covered.
+For each requested child, return every fixed episode exactly once, even when the
+number of source events differs from the episode count. Intermediate action can
+use source_event_indices=[]; each actual event index must be enacted exactly once,
+in causal order. The final event belongs to the final episode. Preserve actors and
+actual completion conditions. The last episode exit_state must copy that child's
+exit_state verbatim. Do not substitute a promise/plan for a completed action.
+
+Candidate (unchanged prose, events, ranges and valid maps are binding):
+{json.dumps(candidate, ensure_ascii=False, separators=(',', ':'))}
+
+Requested child positions (1-based): {[index + 1 for index in pending]}
+{build_episode_completion_feedback(candidate, plan)}
+{binding_feedback}
+Last validation problem: {str(failure)[:1800]}
+{plan.prompt_context()}
+Return exactly the requested child_N and parent_event_N fields in native JSON."""
+                else:
+                    request_prompt += f"""
+
+COMPLETE FIXED-RANGE CORRECTION
+Previous candidate failed the complete contract: {str(failure)[:2000]}
+{plan.prompt_context()}
+Return the complete corrected sibling group. Preserve correct actors, facts and
+causal events; do not merely renumber a shorter story or omit episode arrays.
+Previous candidate:
+{json.dumps(candidate, ensure_ascii=False, separators=(',', ':'))}"""
+            artifact = f"Story Plan Node decomposition {'episode completion' if field_completion else 'fixed ranges'} node={parent.node_id}"
+            output_budget = min(16000, max(strategy.max_tokens, sum(
+                plan.ranges[index].episode_count for index in (pending or range(len(plan.ranges)))
+            ) * 450))
+            try:
+                generated = self._generate_structured_planning_response(
+                    adapter, request_prompt, strategy=strategy.model_copy(update={"max_tokens": output_budget}),
+                    output_schema=request_schema, artifact_name=artifact,
+                    allow_relaxed_transport=False,
+                )
+                generated = {key: value for key, value in generated.items() if key != "_meta"}
+                candidate = projection(generated) if projection is not None else generated
+                capture_planning_candidate(artifact + " assembled candidate", candidate)
+                validate_output_boundaries(candidate, plan, require_episode_developments=False)
+                output = StoryPlanNodeDecompositionOutput.model_validate(
+                    planning_payload_for_validation(candidate, StoryPlanNodeDecompositionOutput),
+                )
+                validate_output_boundaries(output, plan)
+                self._validate_decomposition_output(
+                    output, parent=parent, story_bible=story_bible,
+                    requested_child_count=requested_child_count,
+                    max_episode_ready_span=MAX_EPISODE_READY_SPAN, require_parent_events=True,
+                )
+                for child in output.children:
+                    validate_episode_developments(child, required=True, require_canonical_events=True)
+                return output
+            except (ValidationError, StoryPlanningInputError, StoryPlanningTransientOutputError,
+                    LLMStructuredOutputError) as error:
+                failure = error
+                capture_planning_error(artifact + " validation", error)
+                logger.warning("Fixed-range decomposition candidate rejected node=%s attempt=%d field_completion=%s error=%s",
+                               parent.node_id, attempt + 1, field_completion, str(error)[:800])
+                if candidate is not None:
+                    rejected_fingerprint = planning_attempt_fingerprint({
+                        key: value for key, value in candidate.items() if key != "_meta"
+                    })
+                    if rejected_fingerprint in rejected_candidates:
+                        logger.warning("Stopping unchanged invalid decomposition candidate node=%s", parent.node_id)
+                        break
+                    rejected_candidates.add(rejected_fingerprint)
+        raise StoryPlanningInputError(
+            "这一部分在有限补全后仍未满足固定集数与剧情合同，候选已保留，本轮未保存不完整规划。"
+        ) from failure
+
     def _recover_decomposition_child_contracts(
         self,
         *,
@@ -8853,14 +10416,25 @@ Requirements:
                 len(bounded_source_children),
             )
         source_children = bounded_source_children
-        normalized_children = [
-            normalize_story_plan_node_generation_output(item, child=True)
-            for item in source_children
-            if isinstance(item, dict)
-        ]
+        source_children = [item for item in source_children if isinstance(item, dict)]
+        normalized_children: list[dict[str, object]] = []
+        normalization_errors: dict[int, ValidationError] = {}
+        for index, item in enumerate(source_children):
+            try:
+                normalized = normalize_story_plan_node_generation_output(item, child=True)
+            except ValidationError as error:
+                # A malformed event map still has recoverable authored prose.
+                # Keep its error and raw fields for this child's existing repair;
+                # never invent entries or let public-model defaults hide it.
+                normalization_errors[index] = error
+                normalized = _story_plan_node_generation_source(item)
+            normalized_children.append(normalized)
         _normalize_decomposition_body_weights(normalized_children)
         invalid_indexes: list[int] = []
         for index, child in enumerate(normalized_children):
+            if index in normalization_errors:
+                invalid_indexes.append(index)
+                continue
             try:
                 StoryPlanNodeChildOutput.model_validate(child)
             except ValidationError:
@@ -8871,7 +10445,7 @@ Requirements:
                 "child-level recovery."
             )
 
-        child_schema = StoryPlanNodeChildOutput.model_json_schema()
+        child_schema = planning_wire_schema(StoryPlanNodeChildOutput.model_json_schema())
         repair_strategy = strategy.model_copy(update={
             "max_tokens": min(
                 strategy.max_tokens,
@@ -8882,6 +10456,8 @@ Requirements:
         repaired_count = 0
         for index, normalized in enumerate(normalized_children):
             try:
+                if index in normalization_errors:
+                    raise normalization_errors[index]
                 child = StoryPlanNodeChildOutput.model_validate(normalized)
             except ValidationError as child_error:
                 repaired_count += 1
@@ -8916,6 +10492,88 @@ Requirements:
         )
         return StoryPlanNodeDecompositionOutput(children=repaired_children)
 
+    def _recovery_movement_plan(
+        self, *, original_prompt, strategy, parent, source_children,
+        requested_child_count, max_episode_ready_span,
+    ) -> RecoveryMovementPlan:
+        """Recover story boundaries before generating any dependent child."""
+        expected_turns = (
+            [] if getattr(parent, "decomposition_reason", None) == TECHNICAL_STORY_ROOT_MARKER
+            else parent.turning_points
+        )
+        # A complete recovered narrative partition already owns its boundaries.
+        # Reuse it rather than repartitioning it into mathematically equal spans.
+        if source_children:
+            try:
+                plan = RecoveryMovementPlan(movements=[{
+                    **{key: child[key] for key in (
+                        "title", "synopsis", "entry_state", "exit_state",
+                        "planned_start_episode", "planned_end_episode",
+                    )},
+                    "parent_turning_points": [
+                        point for point in child.get("turning_points", []) if point in expected_turns
+                    ],
+                } for child in source_children])
+                validate_recovery_movement_plan(
+                    plan, parent=parent, requested_child_count=requested_child_count,
+                    max_episode_ready_span=max_episode_ready_span,
+                )
+                return plan
+            except (KeyError, TypeError, ValidationError, StoryPlanningInputError):
+                pass
+        count_contract = (
+            f"Return exactly {requested_child_count} movements as requested by the creator."
+            if requested_child_count is not None else
+            "Choose the movement count from distinct causal developments, not a fixed quota."
+        )
+        first_entry_rule = (
+            "Author the first concrete entry state from the approved Story Bible; the technical root has no authored opening event."
+            if getattr(parent, "decomposition_reason", None) == TECHNICAL_STORY_ROOT_MARKER
+            else "First entry_state must copy the parent entry verbatim."
+        )
+        prompt = f"""RECOVER NARRATIVE MOVEMENT PLAN
+The full decomposition transport failed. First recover a compact, complete narrative
+partition. Do not fill the whole child schema yet. Each synopsis must state that
+movement's concrete action, consequence and local resolution; derive its episode span
+from that development. Never allocate equal spans or parent turns by array position.
+{count_contract}
+Cover episodes {parent.planned_start_episode}-{parent.planned_end_episode} contiguously.
+Parent entry state: {parent.entry_state}
+Parent exit state: {parent.exit_state}
+Use only 8-12 or at least 16 episodes per movement. {first_entry_rule}
+Each later entry must copy the preceding exit, and the final exit must
+copy the parent exit. These states must be supported by each movement's actual events.
+Assign each of these parent turning points verbatim exactly once, to the movement
+that actually performs it; do not invent other values in parent_turning_points:
+{json.dumps(expected_turns, ensure_ascii=False)}
+Partial recovered children are candidate content, not authority to preserve an invalid
+range or fact. Preserve complete, coherent content verbatim when it still fits.
+Recovered child candidates (JSON):
+{json.dumps(source_children or [], ensure_ascii=False, separators=(',', ':'))}
+
+The original creative, canonical and adjacent-boundary contract follows. Its full-child
+output schema is superseded only for this recovery call by RecoveryMovementPlan.
+{original_prompt}
+
+Return only native JSON with movements. Each movement contains exactly title, synopsis,
+entry_state, exit_state, parent_turning_points, planned_start_episode, planned_end_episode.
+Keep synopses concise and causal; do not write commentary, dialogue or a template."""
+        try:
+            plan = self._generate_planning_output(
+                prompt=prompt, strategy=strategy.model_copy(update={"max_tokens": min(strategy.max_tokens, 6000)}),
+                output_model=RecoveryMovementPlan, artifact_name="Story Plan Node recovery movement plan",
+            )
+            validate_recovery_movement_plan(
+                plan, parent=parent, requested_child_count=requested_child_count,
+                max_episode_ready_span=max_episode_ready_span,
+            )
+            return plan
+        except (StoryPlanningInputError, StoryPlanningTransientOutputError, ValidationError,
+                LLMRequestError, LLMStructuredOutputError) as error:
+            raise StoryPlanningTransientOutputError(
+                "剧情拆分恢复未取得完整且一致的因果分段方案；本轮未保存或批准任何替代分段，请重试此层。"
+            ) from error
+
     def _generate_segmented_decomposition_recovery(
         self,
         *,
@@ -8926,40 +10584,16 @@ Requirements:
         requested_child_count: int | None,
         max_episode_ready_span: int,
         source_children: list[object] | None = None,
+        source_context: dict[str, object] | None = None,
     ) -> StoryPlanNodeDecompositionOutput:
-        parent_span = self._story_plan_node_episode_span(parent)
-        narrative_child_count = _narrative_decomposition_child_count(
-            parent,
-            story_bible,
+        movement_plan = self._recovery_movement_plan(
+            original_prompt=original_prompt, strategy=strategy, parent=parent,
+            source_children=source_children, requested_child_count=requested_child_count,
+            max_episode_ready_span=max_episode_ready_span,
         )
-        maximum_feasible_count = min(
-            12,
-            parent_span // MIN_EPISODE_READY_SPAN,
-        )
-        recovered_child_count = len(source_children or [])
-        if 2 <= recovered_child_count <= maximum_feasible_count:
-            narrative_child_count = max(
-                narrative_child_count,
-                recovered_child_count,
-            )
-        spans = _fallback_decomposition_spans(
-            parent_span,
-            requested_child_count,
-            narrative_child_count=narrative_child_count,
-        )
-        assert parent.planned_start_episode is not None
-        allowed_character_refs = set(story_bible.character_refs)
-        allowed_story_line_refs = {
-            item.story_line_id for item in story_bible.story_lines
-        }
-        turning_point_assignments: list[list[str]] = [[] for _ in spans]
-        parent_turning_points = set(parent.turning_points)
-        for index, turning_point in enumerate(parent.turning_points):
-            target = min(
-                len(spans) - 1,
-                index * len(spans) // max(1, len(parent.turning_points)),
-            )
-            turning_point_assignments[target].append(turning_point)
+        range_plan = [[item.planned_start_episode, item.planned_end_episode]
+                      for item in movement_plan.movements]
+        spans = [end - start + 1 for start, end in range_plan]
 
         segment_strategy = strategy.model_copy(update={
             "max_tokens": min(
@@ -8969,16 +10603,12 @@ Requirements:
         })
         children: list[StoryPlanNodeChildOutput] = []
         market_contract = self._story_bible_market_contract_text(story_bible)
-        start_episode = parent.planned_start_episode
-        range_plan = []
-        range_cursor = start_episode
-        for span in spans:
-            range_plan.append([range_cursor, range_cursor + span - 1])
-            range_cursor += span
-
         recovery_context = self._compact_segmented_decomposition_context(
             parent=parent,
             story_bible=story_bible,
+        )
+        source_contract = render_planning_source_context(
+            source_context if source_context is not None else planning_source_context(story_bible)
         )
         recovery_context_json = json.dumps(
             recovery_context,
@@ -8997,13 +10627,10 @@ Requirements:
         reused_child_count = 0
         for index, (start, end) in enumerate(range_plan):
             previous_child = children[-1] if children else None
-            required_entry_state = (
-                previous_child.exit_state if previous_child else parent.entry_state
-            )
-            required_exit_state = (
-                parent.exit_state if index == len(range_plan) - 1 else None
-            )
-            assigned_turning_points = turning_point_assignments[index]
+            movement = movement_plan.movements[index]
+            required_entry_state = movement.entry_state
+            required_exit_state = movement.exit_state
+            assigned_turning_points = movement.parent_turning_points
             child: StoryPlanNodeChildOutput | None = None
             raw_source_child = (
                 source_children[index]
@@ -9022,6 +10649,8 @@ Requirements:
                     candidate_child = None
                 if (
                     candidate_child is not None
+                    and candidate_child.title == movement.title
+                    and candidate_child.synopsis == movement.synopsis
                     and candidate_child.planned_start_episode == start
                     and candidate_child.planned_end_episode == end
                     and candidate_child.entry_state == required_entry_state
@@ -9054,9 +10683,11 @@ parent conflict, references, dramatic escalation and short-drama quality require
 Child position: {index + 1} of {len(range_plan)}
 Complete fixed sibling range plan: {json.dumps(range_plan, ensure_ascii=False)}
 This child fixed episode range: {start}-{end}
+Recovered narrative movement to develop, not replace:
+{movement.model_dump_json()}
 Required entry_state, copy verbatim: {required_entry_state}
 Required final exit_state: {required_exit_state or 'Create a concrete causal state that the next sibling can copy verbatim.'}
-Approved parent turning points assigned to this child, copy each verbatim exactly once:
+Approved parent turning points assigned to this child, preserve their complete facts through parent_event_bindings and select the corresponding local turning_point_indices:
 {json.dumps(assigned_turning_points, ensure_ascii=False)}
 Previous accepted child, for distinctness and causal handoff:
 {json.dumps(self._compact_previous_decomposition_child(previous_child), ensure_ascii=False, separators=(',', ':'))}
@@ -9064,6 +10695,12 @@ Previous accepted child, for distinctness and causal handoff:
 TRANSPORT RULE: begin with the first character of a JSON object and end with its closing
 brace. Do not emit analysis, a Markdown fence, a quoted JSON string, or any text before
 or after the object.
+
+{EPISODE_DEVELOPMENT_CONTRACT}
+{decomposition_contracts.PARENT_EVENT_INHERITANCE_CONTRACT}
+Only preserve parent events assigned to this movement; previous siblings already own their events. Across the complete group, none may be omitted or replayed.
+
+{source_contract}
 
 Return only one complete StoryPlanNodeChildOutput object. Follow the market contract above
 for every human-readable value. Keep the title, synopsis, unit_story_beats, resolution
@@ -9074,7 +10711,8 @@ parent's goals, actions, consequences, local resolution and handoff. Preserve it
 rhythm; do not require an irreversible choice, reversal, victory or fixed beat order merely
 because this is a recovery attempt. Do not write scenes, dialogue, camera directions,
 placeholders, or a long-form-drama restatement of the parent. Keep the transport compact:
-use 4-6 turning_points and 4-6 unit_story_beats, keep ordinary prose fields under 180
+use the actual causal developments needed, with 4-12 unit_story_beats; shorten each
+item rather than replacing concrete events with four structural labels. Keep ordinary prose fields under 180
 Chinese characters, and do not repeat the recovery context or explain your reasoning.
 
 Approved compact recovery context. Every included fact and reference is binding:
@@ -9094,36 +10732,35 @@ Approved compact recovery context. Every included fact and reference is binding:
                     StoryPlanningInputError,
                     StoryPlanningTransientOutputError,
                 ) as first_error:
-                    # A failed child should not receive the full recovery context a
-                    # second time. Keep one bounded retry small enough for gateways
-                    # that cap prompt or completion size, while retaining every hard
-                    # continuity and reference boundary needed for validation.
-                    minimal_context = {
-                        "parent": recovery_context.get("parent", {}),
-                        "allowed_character_refs": recovery_context.get(
-                            "allowed_character_refs", []
-                        ),
-                        "allowed_story_line_refs": recovery_context.get(
-                            "allowed_story_line_refs", []
-                        ),
-                    }
+                    # Reduce output size, not the facts or author decisions
+                    # constraining the regenerated content.
+                    minimal_context = recovery_context
                     minimal_retry_prompt = f"""FINAL SEGMENTED CHILD TRANSPORT RETRY
 Return exactly one complete native JSON StoryPlanNodeChildOutput object. Do not emit
 analysis, Markdown, a quoted JSON string, or any text outside the object. This is the
 last bounded retry for one child; keep every required field concise and complete.
 
 Fixed child range: {start}-{end}
+Recovered narrative movement to develop, not replace:
+{movement.model_dump_json()}
 Required entry_state, copy verbatim: {required_entry_state}
 Required final exit_state: {required_exit_state or 'Create a concrete causal state for the next sibling.'}
-Assigned parent turning points, copy each exactly once:
+Assigned parent turning points, preserve their complete facts through parent_event_bindings:
 {json.dumps(assigned_turning_points, ensure_ascii=False, separators=(',', ':'))}
 Previous accepted child checkpoint:
 {json.dumps(self._compact_previous_decomposition_child(previous_child), ensure_ascii=False, separators=(',', ':'))}
 Allowed recovery facts:
 {json.dumps(minimal_context, ensure_ascii=False, separators=(',', ':'))}
 
-Write 4-6 concrete unit_story_beats following the approved causal movement, local resolution
-and handoff; do not impose a fixed cycle or add a reversal. Use 4-6 turning_points. Keep prose fields under
+{source_contract}
+
+{EPISODE_DEVELOPMENT_CONTRACT}
+
+{decomposition_contracts.PARENT_EVENT_INHERITANCE_CONTRACT}
+
+Write 4-12 concrete unit_story_beats following the approved causal movement, local resolution
+and handoff; preserve actual event differences while compressing prose. Do not impose a fixed
+cycle, add a reversal, or substitute structural labels for events. Keep prose fields under
 180 Chinese characters, preserve the fixed range and references, and return only JSON.
 The preceding attempt failed with: {str(first_error)[:600]}"""
                     logger.warning(
@@ -9150,66 +10787,21 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                         LLMStructuredOutputError,
                         ValidationError,
                     ) as final_error:
-                        # A single provider failure must not discard every sibling
-                        # in this parent. Keep the fixed range and continuity
-                        # contract deterministic so the whole layer can be saved
-                        # and reviewed.
-                        logger.error(
-                            "Segmented story plan child exhausted model recovery; "
-                            "using deterministic contract fallback node=%s child=%d/%d "
-                            "error=%s",
-                            parent.node_id,
-                            index + 1,
-                            len(range_plan),
-                            str(final_error)[:500],
-                        )
-                        child = self._deterministic_decomposition_child(
-                            parent=parent,
-                            story_bible=story_bible,
-                            start_episode=start,
-                            end_episode=end,
-                            child_index=index,
-                            child_count=len(range_plan),
-                            required_entry_state=required_entry_state,
-                            required_exit_state=required_exit_state,
-                            assigned_turning_points=assigned_turning_points,
-                            allowed_character_refs=allowed_character_refs,
-                            allowed_story_line_refs=allowed_story_line_refs,
-                        )
+                        # A transport failure is not permission to manufacture a
+                        # story. Nothing in this sibling batch has been persisted
+                        # yet, so the previously saved tree remains recoverable.
+                        raise StoryPlanningTransientOutputError(
+                            f"剧情拆分第{index + 1}部分在有限重试后仍未生成有效内容；"
+                            "本轮未保存或批准任何替代分段，请重试此层。"
+                        ) from final_error
             child_span = end - start + 1
             child = child.model_copy(update={
-                "planned_start_episode": start,
-                "planned_end_episode": end,
                 "estimated_episode_count": child_span,
                 "recommended_next_step": (
                     "episode_ready"
                     if MIN_EPISODE_READY_SPAN <= child_span <= max_episode_ready_span
                     else "expand"
                 ),
-                "entry_state": required_entry_state,
-                **(
-                    {"exit_state": required_exit_state}
-                    if required_exit_state is not None
-                    else {}
-                ),
-                "turning_points": list(dict.fromkeys([
-                    *assigned_turning_points,
-                    *(
-                        turning_point
-                        for turning_point in child.turning_points
-                        if turning_point not in parent_turning_points
-                    ),
-                ])),
-                "character_refs": [
-                    reference
-                    for reference in child.character_refs
-                    if reference in allowed_character_refs
-                ],
-                "story_line_refs": [
-                    reference
-                    for reference in child.story_line_refs
-                    if reference in allowed_story_line_refs
-                ],
             })
             children.append(child)
 
@@ -9231,6 +10823,7 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                     story_bible=story_bible,
                     requested_child_count=requested_child_count,
                     max_episode_ready_span=max_episode_ready_span,
+                    require_parent_events=self._requires_episode_developments("Story Plan Node decomposition"),
                 )
             except StoryPlanningInputError as reuse_error:
                 logger.warning(
@@ -9247,165 +10840,25 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                     requested_child_count=requested_child_count,
                     max_episode_ready_span=max_episode_ready_span,
                     source_children=None,
+                    source_context=source_context,
                 )
         return output
 
-    @classmethod
-    def _deterministic_decomposition_child(
-        cls,
-        *,
-        parent: StoryPlanNode,
-        story_bible: StoryBible,
-        start_episode: int,
-        end_episode: int,
-        child_index: int,
-        child_count: int,
-        required_entry_state: str,
-        required_exit_state: str | None,
-        assigned_turning_points: list[str],
-        allowed_character_refs: set[str],
-        allowed_story_line_refs: set[str],
-    ) -> StoryPlanNodeChildOutput:
-        """Build a valid sibling contract when every bounded model attempt fails.
+    @staticmethod
+    def _node_event_history(node: object) -> dict[str, object]:
+        """Retain actions lost by a latest-state or turning-point-only summary.
 
-        This is intentionally a contract-preserving emergency path, not a second
-        creative writer. It keeps the layer contiguous and editable so one bad
-        provider response can never make the UI appear to have skipped siblings.
+        This is a lossless projection of the authored plan, not an inferred state
+        ledger. Both decomposition and editing use it at the same layer boundary.
         """
-
-        span = end_episode - start_episode + 1
-        base_focus = cls._planning_clause(
-            assigned_turning_points[0]
-            if assigned_turning_points
-            else parent.central_conflict
-        ) or "当前阶段的核心压力"
-        focus_markers = (
-            "线索验证",
-            "行动反制",
-            "关系代价",
-            "资源争夺",
-            "公开压力",
-            "身份暴露",
-            "证据固化",
-            "阶段结算",
-            "阵营分化",
-            "时间窗口",
-            "关键盟友",
-            "最终选择",
-        )
-        focus_marker = focus_markers[child_index % len(focus_markers)]
-        focus = cls._planning_clause(
-            f"{base_focus}，本段聚焦{focus_marker}"
-        )
-        phase_actions = (
-            "核验线索并固定证据",
-            "切断反制并夺回主动权",
-            "逼迫关系双方明确站队",
-            "争取关键资源并承担代价",
-            "承受公开风险并保住行动空间",
-            "完成身份摊牌并锁定责任链",
-            "固化证据并锁定责任链",
-            "完成阶段结算并交接后续压力",
-            "拆穿阵营伪装并迫使对手表态",
-            "抢在窗口关闭前采取关键行动",
-            "保护关键盟友并承担关系代价",
-            "作出最终取舍并固定结局方向",
-        )
-        phase_action = phase_actions[child_index % len(phase_actions)]
-        movement = (
-            "建立突破口"
-            if child_index == 0
-            else "完成反制升级"
-            if child_index < child_count - 1
-            else "完成阶段结算"
-        )
-        title = cls._bounded_planning_text(
-            f"{parent.title}·{movement}（第{start_episode}-{end_episode}集）",
-            160,
-        )
-        exit_state = required_exit_state or cls._bounded_planning_text(
-            f"主角完成“{focus}”相关的阶段行动并取得可验证结果，局面转入下一部分的更强压力。",
-            1_500,
-        )
-        synopsis = cls._bounded_planning_text(
-            f"第{child_index + 1}段（第{start_episode}-{end_episode}集）负责{focus_marker}："
-            f"承接{required_entry_state}主角{phase_action}，围绕{focus}形成具体行动与后果，"
-            f"留下{focus_marker}造成的后续压力。",
-            3_000,
-        )
-        central_conflict = cls._bounded_planning_text(
-            f"{parent.central_conflict}本阶段必须围绕“{focus}”完成一次具体对抗并承担代价。",
-            1_500,
-        )
-        turning_points = list(dict.fromkeys([
-            *assigned_turning_points,
-            f"第{start_episode}-{end_episode}集完成{movement}并改变局面。",
-        ]))
-        unit_story_beats = [
-            cls._bounded_planning_text(f"行动入口：承接{required_entry_state}并锁定本段必须处理的具体问题。", 1_200),
-            cls._bounded_planning_text(f"阻力与代价：围绕“{focus}”采取行动，同时抬高一个可见的资源、关系或风险门槛。", 1_200),
-            cls._bounded_planning_text(f"选择与兑现：阻力迫使主角承担代价并完成{movement}，留下可观察且能承接后续的结果。", 1_200),
-            cls._bounded_planning_text(f"结果余波：{exit_state}该结果必须成为下一部分可以继续处理的具体条件。", 1_200),
-        ]
-        body_estimate = max(
-            300,
-            round((parent.estimated_script_body_characters or 300) / max(1, child_count)),
-        )
-        character_refs = [
-            reference
-            for reference in (parent.character_refs or story_bible.character_refs)
-            if reference in allowed_character_refs
-        ]
-        story_line_refs = [
-            reference
-            for reference in (
-                parent.story_line_refs
-                or [line.story_line_id for line in story_bible.story_lines]
-            )
-            if reference in allowed_story_line_refs
-        ]
-        return StoryPlanNodeChildOutput(
-            title=title,
-            narrative_purpose=cls._bounded_planning_text(
-                f"在第{start_episode}-{end_episode}集内完成{movement}，把父级冲突转化为可验证的局部结果。",
-                1_000,
-            ),
-            synopsis=synopsis,
-            entry_state=required_entry_state,
-            central_conflict=central_conflict,
-            turning_points=turning_points,
-            emotional_direction=cls._bounded_planning_text(
-                f"从承压进入主动行动，经历{movement}后留下更强后续压力。",
-                800,
-            ),
-            exit_state=exit_state,
-            unit_story_beats=unit_story_beats,
-            unit_resolution=cls._bounded_planning_text(
-                f"完成{movement}，围绕“{focus}”取得一个可复核的局部结果。",
-                1_500,
-            ),
-            handoff_pressure=cls._bounded_planning_text(
-                "局部结果暴露新的因果压力，下一部分必须在此基础上继续推进。",
-                1_500,
-            ),
-            character_refs=character_refs,
-            story_line_refs=story_line_refs,
-            setup_refs=list(parent.setup_refs),
-            payoff_refs=list(parent.payoff_refs),
-            estimated_episode_count=span,
-            estimated_script_body_characters=body_estimate,
-            planned_start_episode=start_episode,
-            planned_end_episode=end_episode,
-            decomposition_reason=(
-                "模型输出连续失败，系统依据父级集数与连续性边界生成可编辑保底分段；"
-                "进入分集规划前请复核本部分内容。"
-            ),
-            recommended_next_step=(
-                "episode_ready"
-                if MIN_EPISODE_READY_SPAN <= span <= MAX_EPISODE_READY_SPAN
-                else "expand"
-            ),
-        )
+        return {
+            "unit_story_beats": list(getattr(node, "unit_story_beats", [])),
+            "parent_event_bindings": [binding.model_dump(mode="json") for binding in getattr(node, "parent_event_bindings", [])],
+            "episode_developments": [
+                entry.model_dump(mode="json")
+                for entry in getattr(node, "episode_developments", [])
+            ],
+        }
 
     @staticmethod
     def _compact_previous_decomposition_child(
@@ -9425,6 +10878,7 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
             "exit_state": child.exit_state,
             "unit_resolution": child.unit_resolution,
             "handoff_pressure": child.handoff_pressure,
+            **StoryPlanningService._node_event_history(child),
         }
 
     @staticmethod
@@ -9491,6 +10945,10 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
             "parent": selected_fields(
                 parent,
                 (
+                    "node_id",
+                    "version",
+                    "planned_start_episode",
+                    "planned_end_episode",
                     "title",
                     "narrative_purpose",
                     "synopsis",
@@ -9596,19 +11054,81 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
         strategy: GenerationStrategy,
         output_schema: dict[str, object] | None,
         artifact_name: str,
+        prompt_schema: dict[str, object] | None = None,
         allow_stream: bool = True,
         allow_relaxed_transport: bool = True,
+        episode_boundaries: dict[int, dict[str, object]] | None = None,
+        future_rebuild_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Stream long planning calls to avoid discarding slow valid responses."""
-        # Stream the initial long collection, but honor allow_stream=False for
-        # bounded repairs. Several compatible gateways truncate long streamed
-        # repair responses while returning the same JSON normally in one body.
+        # Every route, including resumable one-episode chunks, crosses this
+        # boundary. The first call must receive the execution constraints too.
+        contract_schema = output_schema if output_schema is not None else prompt_schema
+        if contract_schema is not None:
+            contract_schema = scene_execution_wire_schema(contract_schema)
+            if episode_boundaries:
+                contract_schema = episode_boundary_wire_schema(contract_schema)
+                prompt += (
+                    "\n\n【已批准边界的传输绑定】最终路线图中的 entry_state、exit_state、"
+                    "source_turning_points、source_unit_story_beats 四个集级字段由程序按明确的 episode_number "
+                    "从上述批准逐集分配逐字绑定。它们仍是必须实际兑现的完整剧情边界，但本次 JSON 不再输出这四个集级字段。"
+                    "此规则仅替代其他字段列表对它们的重复抄写要求；不得改变其剧情含义。"
+                    "scene_execution_plan 中每场的 exit_state 仍由你根据真实行动填写并接受审校，"
+                    "不能以程序继承的集级状态冒充本场已经完成。\n"
+                )
+            if output_schema is not None:
+                output_schema = contract_schema
+            else:
+                # Native JSON avoids gateway-specific schema transport failures;
+                # it must still carry the same complete first-call contract.
+                prompt += "\n\nAUTHORITATIVE JSON SCHEMA:\n" + json.dumps(
+                    _compact_json_schema_for_prompt(contract_schema), ensure_ascii=False, separators=(",", ":"),
+                )
+            scene_shapes = [contract_schema, *contract_schema.get("$defs", {}).values()]
+            if any({"unit_story_beats", "episode_developments"} <= shape.get("properties", {}).keys()
+                   for shape in scene_shapes):
+                # All node transports, including bounded child repairs, receive
+                # the same final ownership contract immediately before schema.
+                prompt += "\n\n" + NODE_EPISODE_OWNERSHIP_OUTPUT_CONTRACT
+            if any("scene_heading" in shape.get("properties", {}) for shape in scene_shapes):
+                prompt = prompt + "\n\n" + SCENE_HEADING_WIRE_CONTRACT + "\n" + SCENE_ACTION_EXECUTION_CONTRACT
+            if any("episode_title" in shape.get("properties", {}) for shape in scene_shapes):
+                prompt = prompt + "\n\n" + EPISODE_TITLE_WIRE_CONTRACT
+            if any({"episode_number", "scene_execution_plan"} <= shape.get("properties", {}).keys()
+                   for shape in scene_shapes):
+                prompt += future_rebuild_prompt(future_rebuild_context) if future_rebuild_context else "\n\n" + SCENE_PARTITION_CONTRACT
+        native_episode_schema = (
+            contract_schema if output_schema is None and artifact_name.startswith("Episode roadmap") else None
+        )
+        if native_episode_schema is not None:
+            prompt += native_episode_output_contract(native_episode_schema, episode_boundaries)
+
+        def request_planning_output(request_prompt: str, *, stream: bool, schema: dict | None):
+            # Native JSON keeps the wire response_format unchanged while local
+            # parsing rejects nested fragments from an interrupted response.
+            with bind_local_output_schema(native_episode_schema):
+                generate = (llm_adapter.generate_structured_output_stream if stream
+                            else llm_adapter.generate_structured_output)
+                try:
+                    response = generate(request_prompt, strategy=strategy, output_schema=schema)
+                except Exception as error:
+                    capture_planning_error(artifact_name, error)
+                    raise
+                capture_planning_candidate(artifact_name, response)
+                return response
+
+        # Keep long generation and field repairs streamed. Explicit transport
+        # repairs can still opt out when a gateway returned malformed JSON.
         use_stream = allow_stream and (
             artifact_name.startswith("Story Bible modification")
             or artifact_name.startswith("Episode roadmap")
             or artifact_name == "Episode scene execution plan completion"
+            or artifact_name == "Story Plan Node"
             or artifact_name.startswith("Story Plan Node decomposition")
+            or artifact_name.startswith("Story Plan Node segmented child recovery")
             or artifact_name.startswith("Story Plan Node modification")
+            or artifact_name == "Story Plan Quality Audit"
+            or artifact_name == "Story Plan Node recovery movement plan"
         )
         model_info = llm_adapter.get_model_info()
         started = monotonic()
@@ -9627,17 +11147,9 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
         try:
             try:
                 if use_stream:
-                    result = llm_adapter.generate_structured_output_stream(
-                        prompt,
-                        strategy=strategy,
-                        output_schema=output_schema,
-                    )
+                    result = request_planning_output(prompt, stream=True, schema=output_schema)
                 else:
-                    result = llm_adapter.generate_structured_output(
-                        prompt,
-                        strategy=strategy,
-                        output_schema=output_schema,
-                    )
+                    result = request_planning_output(prompt, stream=False, schema=output_schema)
             except LLMStructuredOutputError as structured_error:
                 # Some OpenAI-compatible gateways return an empty or truncated
                 # response when a large planning object uses a structured
@@ -9710,6 +11222,13 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                         stream_termination=structured_error.stream_termination,
                         empty_response=structured_error.empty_response,
                     ) from structured_error
+                if is_episode_roadmap and any(
+                    marker in (structured_error.stream_termination or "").casefold()
+                    for marker in ("length", "max_output", "token_limit")
+                ):
+                    # Removing response-format constraints cannot fix an output
+                    # ceiling. Preserve the real cause for bounded recovery.
+                    raise
                 if not allow_relaxed_transport:
                     if is_episode_roadmap and not (
                         structured_error.raw_content or ""
@@ -9737,11 +11256,13 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                     "object against the authoritative schema after receiving it.\n"
                     "AUTHORITATIVE FALLBACK JSON SCHEMA:\n"
                     + json.dumps(
-                        _compact_json_schema_for_prompt(output_schema or {}),
+                        _compact_json_schema_for_prompt(contract_schema or {}),
                         ensure_ascii=False,
                         separators=(",", ":"),
                     )
                 )
+                if native_episode_schema is not None:
+                    relaxed_prompt += native_episode_output_contract(native_episode_schema, episode_boundaries)
                 logger.warning(
                     "Planning structured response failed; retrying artifact "
                     "in bounded JSON mode artifact=%s raw_chars=%d",
@@ -9751,17 +11272,9 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                 transport_mode = "native_json_fallback"
                 try:
                     if use_stream:
-                        result = llm_adapter.generate_structured_output_stream(
-                            relaxed_prompt,
-                            strategy=strategy,
-                            output_schema=None,
-                        )
+                        result = request_planning_output(relaxed_prompt, stream=True, schema=None)
                     else:
-                        result = llm_adapter.generate_structured_output(
-                            relaxed_prompt,
-                            strategy=strategy,
-                            output_schema=None,
-                        )
+                        result = request_planning_output(relaxed_prompt, stream=False, schema=None)
                 except LLMStructuredOutputError as relaxed_error:
                     if (
                         is_episode_roadmap
@@ -9848,7 +11361,7 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                     (monotonic() - started) * 1000
                 )
                 metadata["planning_model_call_artifact"] = artifact_name
-            return result
+            return expand_episode_boundaries(result, episode_boundaries) if episode_boundaries else result
         finally:
             logger.info(
                 "Planning model call finished artifact=%s stream=%s transport=%s "
@@ -9886,19 +11399,25 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
         output_model: type[PlanningOutputT],
         artifact_name: str,
         market_profile: str = "cn_mainland",
+        approved_english_names: tuple[str, ...] = (),
     ) -> PlanningOutputT:
-        issues = planning_output_chinese_issues(output)
+        issues = planning_output_chinese_issues(output, allowed_names=approved_english_names)
         if not issues:
             return output
-        repaired = self._adapter_for_artifact(artifact_name).generate_structured_output(
-            self._build_planning_language_repair_prompt(
-                original_prompt=original_prompt,
-                output=output,
-                non_chinese_fields=issues,
-            ),
-            strategy=strategy,
-            output_schema=output_model.model_json_schema(),
-        )
+        try:
+            repaired = self._adapter_for_artifact(artifact_name).generate_structured_output(
+                self._build_planning_language_repair_prompt(
+                    original_prompt=original_prompt,
+                    output=output,
+                    non_chinese_fields=issues,
+                ),
+                strategy=strategy,
+                output_schema=planning_wire_schema(output_model.model_json_schema()),
+            )
+        except Exception as error:
+            capture_planning_error(artifact_name + " language repair", error)
+            raise
+        capture_planning_candidate(artifact_name + " language repair", repaired)
         try:
             expected_episode_numbers = (
                 [item.episode_number for item in output.episode_plans]
@@ -9921,7 +11440,7 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
                 f"{artifact_name} Chinese-language repair broke the structured "
                 "contract. " + self._validation_error_summary(error)
             ) from error
-        remaining_issues = planning_output_chinese_issues(repaired_output)
+        remaining_issues = planning_output_chinese_issues(repaired_output, allowed_names=approved_english_names)
         if remaining_issues:
             raise StoryPlanningInputError(
                 f"{artifact_name} still contains non-Chinese narrative text after "
@@ -9961,6 +11480,7 @@ The preceding attempt failed with: {str(first_error)[:600]}"""
             if (
                 "segmented child recovery" in artifact_name.casefold()
                 or "decomposition child repair" in artifact_name.casefold()
+                or "recovery movement plan" in artifact_name.casefold()
             ):
                 return (
                     getattr(self, "_story_architect_recovery_llm_adapter", None)
@@ -10051,7 +11571,7 @@ Return one JSON object only. Do not use Markdown fences or add explanatory text.
     ) -> str:
         if validation_error is not None:
             failure = json.dumps(
-                validation_error.errors(include_input=False, include_url=False),
+                validation_error.errors(include_input=False, include_url=False, include_context=False),
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
@@ -10107,14 +11627,14 @@ the array item contract; it is never the response root. Begin the response exact
 {{"children":[{{ and close every child plus the outer array and object.
 
 Each child must use exactly these fields:
-title, narrative_purpose, synopsis, entry_state, central_conflict, turning_points,
-emotional_direction, exit_state, unit_story_beats, unit_resolution, handoff_pressure,
+title, narrative_purpose, synopsis, entry_state, central_conflict, turning_point_indices,
+emotional_direction, exit_state, unit_story_beats, parent_event_bindings, episode_developments, unit_resolution, handoff_pressure,
 character_refs, story_line_refs, setup_refs, payoff_refs,
 estimated_episode_count, estimated_script_body_characters, planned_start_episode,
 planned_end_episode, decomposition_reason, recommended_next_step.
 
 Structured failure:
-{json.dumps(validation_error.errors(include_input=False, include_url=False), ensure_ascii=False, separators=(',', ':'))}
+{json.dumps(validation_error.errors(include_input=False, include_url=False, include_context=False), ensure_ascii=False, separators=(',', ':'))}
 
 Incorrect responses, usable only as source material for real child movements:
 {json.dumps(source_responses, ensure_ascii=False, separators=(',', ':'))}
@@ -10154,7 +11674,7 @@ Previous sibling, for entry-state handoff only:
 Next sibling, for exit-state handoff only:
 {json.dumps(next_sibling, ensure_ascii=False, separators=(',', ':'))}
 Contract failures for this child:
-{json.dumps(validation_error.errors(include_input=False, include_url=False), ensure_ascii=False, separators=(',', ':'))}
+{json.dumps(validation_error.errors(include_input=False, include_url=False, include_context=False), ensure_ascii=False, separators=(',', ':'))}
 
 Original decomposition constraints remain authoritative:
 {contract_prompt}
@@ -10174,7 +11694,7 @@ the other children. Do not use Markdown fences or explanatory text."""
     ) -> str:
         failure = (
             json.dumps(
-                validation_error.errors(include_input=False, include_url=False),
+                validation_error.errors(include_input=False, include_url=False, include_context=False),
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
@@ -10230,6 +11750,24 @@ outer object. Return only the corrected JSON object."""
         current_episode_numbers: list[int],
         accepted_plans: list[EpisodePlanGenerationItem],
     ) -> str:
+        # Scope only the response list. Never rewrite the narrative range,
+        # settlement episode, or source-event ownership to match a transport chunk.
+        contract_prompt = re.sub(
+            r"<response_episode_numbers>.*?</response_episode_numbers>",
+            "<response_episode_numbers>" + json.dumps(current_episode_numbers)
+            + "</response_episode_numbers>",
+            contract_prompt, flags=re.DOTALL,
+        )
+        def scope_developments(match: re.Match[str]) -> str:
+            entries = json.loads(match.group(1))
+            return "<episode_developments>" + json.dumps(
+                [entry for entry in entries if entry["episode_number"] in current_episode_numbers],
+                ensure_ascii=False, separators=(",", ":"),
+            ) + "</episode_developments>"
+        contract_prompt = re.sub(r"<episode_developments>(.*?)</episode_developments>", scope_developments, contract_prompt, flags=re.DOTALL)
+        fixed_ownership = "FIXED EPISODE EXECUTION SCOPE" in contract_prompt
+        if fixed_ownership and current_episode_numbers[-1] != all_episode_numbers[-1]:
+            contract_prompt = re.sub(r"<final_leaf_boundary>.*?</final_leaf_boundary>", "", contract_prompt, flags=re.DOTALL)
         previous_plan = accepted_plans[-1] if accepted_plans else None
         previous_state = (
             {
@@ -10237,6 +11775,12 @@ outer object. Return only the corrected JSON object."""
                 "exit_state": previous_plan.exit_state,
                 "next_episode_obligation": previous_plan.next_episode_obligation,
                 "pressure_escalation": previous_plan.pressure_escalation,
+                "synopsis": previous_plan.synopsis,
+                "protagonist_decision": previous_plan.protagonist_decision,
+                "historical_episode_constraints": {
+                    "source_episode": previous_plan.episode_number,
+                    "requirements": previous_plan.continuity_requirements,
+                },
             }
             if previous_plan is not None
             else None
@@ -10257,9 +11801,18 @@ outer object. Return only the corrected JSON object."""
             "turning point and unit-story beat from the original contract that is not "
             "already present in accepted_plans."
             if final_chunk
-            else "Assign only approved events whose causal position belongs in this chunk; "
-            "leave later events for later episode numbers."
+            else f"This response ends at Episode {current_episode_numbers[-1]}, but the "
+            f"narrative settlement remains at Episode {all_episode_numbers[-1]}. Do not "
+            "execute or claim the terminal unit-story beat in this response. Develop "
+            "the intermediate actions belonging here and preserve distinct unperformed "
+            "events for the remaining episodes. Never compress the whole leaf into "
+            "this response and fill its remaining episodes with aftermath or repetition."
         )
+        if fixed_ownership:
+            final_requirement = (
+                "Execute only the fixed records below. Copy their source arrays exactly; do not redistribute events. "
+                "No scene may perform a result outside its own episode exit state."
+            )
         return f"""SEGMENTED EPISODE ROADMAP RECOVERY
 The full approved leaf still covers these episodes as one logical contract:
 {json.dumps(all_episode_numbers, ensure_ascii=False)}.
@@ -10270,6 +11823,13 @@ complete episode plan objects in this exact order:
 
 Minimal continuity checkpoint from the immediately preceding episode:
 {json.dumps(previous_state, ensure_ascii=False, separators=(',', ':'))}
+{EPISODE_CONSTRAINT_SCOPE_CONTRACT}
+
+Saved execution history within this leaf (actions already performed, not tasks to replay):
+{json.dumps([{"episode_number": item.episode_number, "synopsis": item.synopsis, "exit_state": item.exit_state, "scene_execution_facts": StoryPlanningService._episode_execution_facts(item)} for item in accepted_plans], ensure_ascii=False, separators=(',', ':'))}
+
+Already used episode titles (do not reuse a title or its Chinese title core):
+{json.dumps([item.episode_title for item in accepted_plans], ensure_ascii=False)}
 
 Approved turning points already assigned in earlier chunks:
 {json.dumps(used_turning_points, ensure_ascii=False, separators=(',', ':'))}
@@ -10279,7 +11839,10 @@ Approved unit-story beats already assigned in earlier chunks:
 
 Do not repeat any source_turning_points or source_unit_story_beats already present in
 the used lists above. The first entry_state in this chunk must causally follow the supplied
-previous exit_state when a checkpoint is present. {final_requirement}
+previous exit_state when a checkpoint is present. Events already completed in this
+checkpoint must remain completed: do not rediscover possessed evidence, re-freeze a
+revoked permission, or present a known confession as a new reveal. If possession or
+status changes, show the new causal event explicitly. {final_requirement}
 
 Every item must retain all exact Episode Plan fields and use only approved character,
 story-line, setup and payoff references. This recovery changes transport size only; it
@@ -10290,9 +11853,10 @@ Original full-leaf contract:
 {contract_prompt}
 </full_leaf_contract>
 
-For this recovery call only, replace every response-count or full-range output
-instruction inside full_leaf_contract with the current chunk range above. Preserve all
-story, continuity, reference, language, field, and quality constraints unchanged.
+The response_episode_numbers block has been scoped to this request. It controls only
+which JSON items to return, never when the segment settles. The full narrative range,
+terminal event and settlement episode remain unchanged. Do not execute the next
+segment's handoff obligation inside this leaf. Preserve all other story constraints.
 Return only one JSON object whose only top-level field is episode_plans."""
 
     @staticmethod
@@ -10335,9 +11899,21 @@ subsequent segmented instruction."""
     _validate_decomposition_ranges = staticmethod(
         decomposition_contracts.validate_decomposition_ranges
     )
-    _validate_decomposition_output = staticmethod(
-        decomposition_contracts.validate_decomposition_output
-    )
+    @staticmethod
+    def _validate_decomposition_output(
+        output: StoryPlanNodeDecompositionOutput, *, parent: StoryPlanNode,
+        story_bible: StoryBible, requested_child_count: int | None,
+        max_episode_ready_span: int, require_parent_events: bool = False,
+    ) -> None:
+        # This service validates newly generated outputs. Legacy records remain
+        # readable without bindings; new production generations must supply them.
+        decomposition_contracts.validate_decomposition_output(
+            output, parent=parent, story_bible=story_bible,
+            requested_child_count=requested_child_count,
+            max_episode_ready_span=max_episode_ready_span,
+            require_parent_events=require_parent_events,
+            require_parent_event_bindings=require_parent_events,
+        )
     _validate_decomposition_distinctness = staticmethod(
         decomposition_contracts.validate_decomposition_distinctness
     )
@@ -10359,7 +11935,10 @@ subsequent segmented instruction."""
         continuity_context: dict[str, object] | None = None,
         knowledge_context: str,
         author_instruction: str = "",
+        source_context: dict[str, object] | None = None,
+        fixed_boundary_plan: DecompositionBoundaryPlan | None = None,
     ) -> str:
+        story_bible = approved_story_bible_context(story_bible)
         is_technical_root = (
             getattr(parent, "decomposition_reason", None)
             == TECHNICAL_STORY_ROOT_MARKER
@@ -10394,17 +11973,25 @@ subsequent segmented instruction."""
                 "load is genuinely comparable."
             )
         )
+        if fixed_boundary_plan is not None:
+            child_count_contract = fixed_boundary_plan.prompt_context()
         preserved_turning_points = [] if is_technical_root else parent.turning_points
         turning_point_contract = (
-            "Derive the first real dramatic movements directly from the approved Story "
-            "Bible. Do not restate the whole-story premise as a child."
+            "Derive the first real dramatic movements from the complete confirmed ordered "
+            "source evidence and approved Story Bible, applying the source priority contract "
+            "above. Do not restate the whole-story premise as a child."
             if is_technical_root
             else (
-                "Copy every Parent turning point verbatim into exactly one child's "
-                "turning_points. You may add child-level turning points, but must not "
-                "omit, weaken, merge, or paraphrase an approved parent turning point."
+                "Bind every Parent turning point to exactly one child's atomic "
+                "unit_story_beats through parent_event_bindings and select its corresponding "
+                "local event index in turning_point_indices. "
+                "You may add child-level turning points, but must not "
+                "omit, weaken or change the facts of an approved parent turning point. "
+                "A compound parent sentence may unfold into multiple concrete child events."
             )
         )
+        if not is_technical_root:
+            turning_point_contract += "\n" + decomposition_contracts.PARENT_EVENT_INHERITANCE_CONTRACT
         if is_technical_root:
             relevant_story_lines = list(story_bible.story_lines)
             relevant_character_refs = set(story_bible.character_refs)
@@ -10511,30 +12098,47 @@ subsequent segmented instruction."""
             )
             for item in relevant_escalation_stages
         ) or "未指定"
-        author_instruction_text = author_instruction.strip() or "未提供；只组织已确认内容，未决定的高影响剧情保留为结构槽位。"
+        author_instruction_text = author_instruction.strip() or "未提供；在已确认设定内发展可供作者审核的行动、阻力与后果，明确待定的核心决定继续保留。"
         market_contract = cls._story_bible_market_contract_text(story_bible)
         decision_contract = _creative_decision_prompt_contract(
-            list(getattr(story_bible, "creative_decisions", []) or [])
+            list(getattr(story_bible, "creative_decisions", []) or []),
+            allow_planning_candidates=True,
         )
+        first_entry_contract = (
+            "the first child must author a concrete initial state from the confirmed ordered source and approved Story Bible; the technical root has no authored entry event"
+            if is_technical_root else "the first child entry_state must copy the parent entry_state verbatim"
+        )
+        displayed_parent_entry = "Derive the concrete opening from the confirmed ordered source and approved Story Bible." if is_technical_root else parent.entry_state
         return f"""{market_contract}
 
 You are decomposing one approved long-story planning node into content-driven contiguous child nodes for a serialized comic.
+
+{render_planning_source_context(source_context if source_context is not None else planning_source_context(story_bible))}
 Return planning JSON only. Do not write episode prose or dialogue.
 All human-readable output values must follow the market contract above.
 {STORY_TREE_LENGTH_TARGET_CONTRACT}
 {STORY_LINE_PLANNING_CONTRACT}
+{EPISODE_DEVELOPMENT_CONTRACT}
 
 Parent node: {parent.node_id} v{parent.version}
 Parent range: episodes {parent.planned_start_episode}-{parent.planned_end_episode}
+{planning_body_scale_contract(parent)}
 Parent purpose: {parent.narrative_purpose}
 Parent synopsis: {parent.synopsis}
+Parent entry state: {displayed_parent_entry}
 Parent conflict: {parent.central_conflict}
-Parent turning points that must be preserved verbatim: {json.dumps(preserved_turning_points, ensure_ascii=False)}
+Parent turning points whose facts must be preserved: {json.dumps(preserved_turning_points, ensure_ascii=False)}
+Parent complete ordered event table for 1-based parent_event_bindings: {json.dumps([] if is_technical_root else parent.unit_story_beats, ensure_ascii=False, separators=(',', ':'))}
 Parent exit state: {parent.exit_state}
 Local narrative signal counts for deciding child boundaries (evidence, not quotas):
 {json.dumps(narrative_signal_counts, ensure_ascii=False, separators=(',', ':'))}
 Planning lineage and adjacent continuity boundaries (binding):
 {json.dumps(continuity_context or {}, ensure_ascii=False, separators=(',', ':'))}
+The preceding sibling's event history is completed work, not a menu of new events.
+Its latest exit summary does not revoke earlier consequences. Apply the same rule
+between the children you create: a later child inherits each still-effective result.
+preceding_leaf supplies the current detailed handoff across parent boundaries when the
+preceding sibling is only a broad stage. Its actual events remain in force.
 Approved Story Bible premise: {story_bible.core_premise}
 Approved series goal: {getattr(story_bible, 'series_goal', '未指定')}
 Approved theme: {getattr(story_bible, 'theme', '未指定')}
@@ -10570,11 +12174,21 @@ Requirements:
 opposition regime, irreversible character choice, relationship-state change, reveal/payoff cluster,
 or completed local conflict that causes the next movement. Several signals inside the same causal
 movement belong in one child; unrelated movements must not be compressed merely to keep the count low.
-2. Preserve exact causal handoffs: the first child entry_state must copy the parent entry_state verbatim; each later child entry_state must copy the previous sibling exit_state verbatim; the final child exit_state must copy the parent exit_state verbatim.
+2. Preserve exact causal handoffs: {first_entry_contract}; each later child entry_state must copy the previous sibling exit_state verbatim; the final child exit_state must copy the parent exit_state verbatim.
 3. Episode count is a hard readiness gate: use episode_ready only for a {MIN_EPISODE_READY_SPAN}-{max_episode_ready_span} episode child and expand only for a child of at least 16 episodes. If an initial allocation would create a 1-7 or 13-15 episode fragment, coordinate it with adjacent siblings here: move the corresponding events, decisions, turning points, state transitions and body-budget weight together until every child is valid. Never repair this by changing episode numbers alone.
 4. Copy character_refs only from the Allowed character_refs list, and story_line_refs only from the Allowed story_line_refs list. Do not invent, translate, or rename IDs. Do not invent a separate main premise.
 5. Do not force equal depth across future branches. The returned recommendation is content-driven, not a fixed global hierarchy.
-6. Do not divide episode ranges evenly by default. Allocate each child's span according to its conflict density, number of meaningful turning points, state-change complexity, character/relationship work, and setup/payoff load. Equal spans are acceptable only when the narrative load is genuinely comparable.
+6. First establish the concrete causal movement each child owns, then allocate its span.
+Do not treat the number of characters in a stage description, the number of schema fields,
+or a fixed goal/opposition/payoff/handoff template as evidence of episode capacity.
+A choice or reveal selected by turning_point_indices is the SAME event in unit_story_beats,
+not another development to be staged twice. A deferred decision may span episodes only when
+new actions materially change its options or consequences; repeated explanation of the
+same dilemma, approaching a deadline, or another confirmation is not added capacity.
+When the approved material is too thin, identify the missing causal function as 待定 in
+decomposition_reason and the relevant beat, so it can be developed before approval;
+do not conceal the gap with repetition or invent an unconfirmed major fact.
+Do not divide episode ranges evenly by default. Allocate each child's span according to its conflict density, number of meaningful turning points, state-change complexity, character/relationship work, and setup/payoff load. Equal spans are acceptable only when the narrative load is genuinely comparable.
 7. Child body-character estimates are relative scale weights, not quotas or final allocations. Express every weight as a whole positive integer of at least 300 (for example 300, 450, 700); the backend will rescale the sibling weights to the parent's final body-text budget. Allocate them by dramatic depth: enacted conflict, reversals, difficult choices, relationship changes, and payoff work justify more body text than connective or transitional material. Do not derive them from episode span alone and do not repeat the full parent estimate in every child.
 8. {turning_point_contract}
 9. If this decomposition contains episode 1, episode 1 cannot be pure arrival, exposition, setup, or daily routine. Preserve an immediate active disruption or exposure threat, a consequential protagonist response, and unresolved end pressure from the approved parent events.
@@ -10583,12 +12197,16 @@ movement belong in one child; unrelated movements must not be compressed merely 
 12. Do not divide the parent into fixed equal quotas. Preserve natural dramatic boundaries wherever they comply with the hard {MIN_EPISODE_READY_SPAN}-{max_episode_ready_span} episode leaf window. If a coherent movement needs at least 16 episodes, keep it as an expandable intermediate child and let the next recursive pass find its internal dramatic boundaries. Different branches may therefore have different child counts and recursive depths.
 13. Treat world rules, locked facts, canonical identities, protected character traits, relationship directions, planned story-line resolutions, and avoid patterns as binding constraints. A child may causally evolve an unlocked state, but must not silently contradict, rename, merge, or prematurely resolve it.
 14. Preserve the approved short-drama escalation ladder in order. Each child must serve one or more concrete stage goals, opponents/barriers, and visible payoffs. Do not spend a long branch merely approaching the final opponent: resolve a reachable stage opponent or barrier, deliver a real reward, then let its consequence expose a stronger next pressure.
-15. Every child must own a complete structural movement; unit_story_beats must contain 4-12 distinct approved
+15. Every child must own a complete structural movement; unit_story_beats must contain 4-12 distinct
 events or explicit functional slots expressing its goals, actions, consequences, local resolution and resulting
-state change in the order supported by the story. Do not impose a reversal or a fixed plot cycle. Make events concrete only when supported by confirmed author
-content. For an unresolved story-specific fact, state the dramatic function and mark its content 待定 instead of
+state change in the order supported by the story. Do not impose a reversal or a fixed plot cycle. Develop concrete
+intermediate attempts, resistance, consequences and emotional interactions consistent with approved facts;
+this visible tree draft is where the author reviews that development before approving it. Do not merely
+rephrase the synopsis because every intermediate action was not supplied verbatim. For an explicitly unresolved
+core story fact, state the dramatic function and mark its content 待定 instead of
 borrowing a familiar plot template. unit_resolution states what the child must settle; handoff_pressure states what follows.
-16. Episode Plans downstream may distribute and stage approved events, but may not invent the missing core plot.
+16. Episode Plans downstream may stage and expand the events already assigned in each episode_developments entry,
+but may not redistribute them across episodes, move their fixed boundaries, or invent missing core plot.
 For an episode-ready child, every content decision required for its episodes must be confirmed before script generation;
 structural slots are not permission for the roadmap or script model to fill them silently.
 The tree establishes the core causal chain and setup/payoff responsibilities; the episode roadmap and scene
@@ -10597,16 +12215,22 @@ blueprint must then make this episode's motivation, knowledge sources and reveal
 entry requirement. Keep every child inside the ancestor and adjacent boundaries supplied
 above; if a boundary must change, move the complete causal movement and state handoff,
 never just an episode number.
-18. Keep each child transport-compact: use 4-6 turning_points and 4-6 unit_story_beats,
-write concise production-ready prose, and do not repeat the parent or Story Bible context
-inside child fields. Completeness and causal specificity matter more than ornamental detail.
+18. Keep each child transport-compact by shortening newly authored event descriptions, not by collapsing
+its events into four generic headings. Inherited parent facts remain complete through parent_event_bindings;
+split compound sentences into atomic events without changing actors, prerequisites, outcomes or order.
+Use 4-12 unit_story_beats according to the actual content.
+Each item identifies a particular action or interaction and its result. "Repeated attempts",
+"obstacles escalate", or "several relationship changes" do not specify the causal developments
+needed to support a range. An expandable node may group real developments for later staging,
+but must identify what changes between attempts; do not defer invention of the whole middle
+to its descendants. Do not repeat parent context or count synonymous turning points as new events.
 19. Treat the ranges above as target density for the combined narrative fields of each child,
 not as schema maxima. If a child exceeds its target range, compress repetition before returning;
 do not pad a short child with copied parent or Story Bible material.
 
 Exact child object fields:
-title, narrative_purpose, synopsis, entry_state, central_conflict, turning_points,
-emotional_direction, exit_state, unit_story_beats, unit_resolution, handoff_pressure,
+title, narrative_purpose, synopsis, entry_state, central_conflict, turning_point_indices,
+emotional_direction, exit_state, unit_story_beats, parent_event_bindings, episode_developments, unit_resolution, handoff_pressure,
 character_refs, story_line_refs, setup_refs, payoff_refs,
 estimated_episode_count, estimated_script_body_characters, planned_start_episode,
 planned_end_episode, decomposition_reason, recommended_next_step.
@@ -10626,13 +12250,67 @@ Return only JSON matching the provided schema."""
 
 The previous decomposition was structurally valid JSON but violated approved planning continuity.
 Repair the child nodes once. Preserve all valid content, ranges and IDs, while fixing the exact failure below.
-Do not remove or paraphrase any approved parent turning point.
+Do not remove or alter the facts of any approved parent turning point; use parent_event_bindings
+to connect its complete meaning to the child's atomic events without requiring a compound sentence to recur verbatim.
+The full source evidence above still applies: keep the approved actor, recipient, causal
+order and one-time occurrence of each event. A repeated outcome in a closing summary is
+inherited state, not a new occurrence. Preserve the parent range and repair the whole
+affected handoff coherently; do not keep a wrong actor or chronology just because the
+failed candidate repeats it. Do not replace missing source events with new plot.
 Failure: {validation_error}
 
 Previous decomposition:
 {output.model_dump_json()}
 
 Return one corrected JSON object only."""
+
+    @staticmethod
+    def _episode_leaf_boundary_contract(node: StoryPlanNode) -> str:
+        return json.dumps({
+            "full_narrative_range": [node.planned_start_episode, node.planned_end_episode],
+            "settlement_episode": node.planned_end_episode,
+            "terminal_unit_story_beat": node.unit_story_beats[-1] if node.unit_story_beats else None,
+            "required_local_resolution": node.unit_resolution or node.exit_state,
+            "required_final_exit_state": node.exit_state,
+            "reserved_for_following_segment": node.handoff_pressure,
+            "source_ownership_rule": "Each source event is enacted once across the full narrative range; response chunking changes no event ownership.",
+        }, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def _fixed_episode_plan_context(node: StoryPlanNode, numbers: list[int] | None = None) -> str:
+        """Expose fixed episode work without a competing whole-leaf plot brief."""
+        final_boundary = ""
+        if numbers is None or node.planned_end_episode in numbers:
+            final_boundary = (
+                "\n<final_leaf_boundary>\n"
+                + StoryPlanningService._episode_leaf_boundary_contract(node)
+                + "\n</final_leaf_boundary>"
+            )
+        return (
+            f"Approved segment: {node.title}\n"
+            f"Full leaf range: {node.planned_start_episode}-{node.planned_end_episode}.\n"
+            "FIXED EPISODE EXECUTION SCOPE\n"
+            "上游已经完成逐集事件分配，本次只展开下面各集的既定行动。不是重新编排整段剧情。"
+            "每集的梗概、场景、人物知情和结果都必须止于该集退出状态；不能只保留正确的来源引用，"
+            "却在可见动作或对白任务中提前执行另一集的回答、许可、取得、揭示或结算。"
+            "首次询问可以止于问题被提出，不能为了对白量提前给出后集的答复。"
+            "总纲用于核对世界事实与身份，不是本集待执行的事件清单。\n"
+            + episode_development_prompt(node, numbers)
+            + final_boundary
+        )
+
+    @staticmethod
+    def _episode_boundary_bindings(
+        node: StoryPlanNode, numbers: list[int],
+    ) -> dict[int, dict[str, object]] | None:
+        entries = getattr(node, "episode_developments", [])
+        if not entries:
+            return None  # Legacy plans still author and validate their sources.
+        boundaries = {entry.episode_number: entry.model_dump(mode="json", include=set(EPISODE_BOUNDARY_FIELDS))
+                      for entry in entries if entry.episode_number in numbers}
+        if set(boundaries) != set(numbers):
+            raise StoryPlanningInputError("Approved episode boundaries do not cover the requested response.")
+        return boundaries
 
     @staticmethod
     def _build_episode_plan_prompt(
@@ -10644,6 +12322,7 @@ Return one corrected JSON object only."""
         knowledge_context: str,
         predecessor_plan: EpisodePlanGenerationItem | None = None,
         planning_memory: EpisodePlanningContinuityMemory | None = None,
+        future_rebuild_context: dict | None = None,
     ) -> str:
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
         decision_contract = _creative_decision_prompt_contract(
@@ -10653,6 +12332,8 @@ Return one corrected JSON object only."""
             json.dumps(
                 {
                     "episode_number": predecessor_plan.episode_number,
+                    "synopsis": predecessor_plan.synopsis,
+                    "scene_execution_facts": StoryPlanningService._episode_execution_facts(predecessor_plan),
                     "exit_state": predecessor_plan.exit_state,
                     "next_episode_obligation": predecessor_plan.next_episode_obligation,
                     "pressure_escalation": predecessor_plan.pressure_escalation,
@@ -10668,27 +12349,65 @@ Return one corrected JSON object only."""
             if planning_memory is not None
             else "null"
         )
-        return f"""{market_contract}
-
-You are creating Episode Plans {start_episode}-{end_episode} for an approved episode-ready segment of a serialized comic.
-Return planning JSON only. Do not write full episode prose or dialogue.
-All human-readable output values must follow the market contract above.
-{EPISODE_ROADMAP_LENGTH_TARGET_CONTRACT}
-{STORY_LINE_EPISODE_DUTY_CONTRACT}
-
-Segment: {node.title}
+        fixed_ownership = bool(getattr(node, "episode_developments", []))
+        segment_context = StoryPlanningService._fixed_episode_plan_context(node) if fixed_ownership else f"""Segment: {node.title}
 Segment synopsis: {node.synopsis}
 Segment entry state: {node.entry_state}
 Segment conflict: {node.central_conflict}
 Segment exit state: {node.exit_state}
-Segment script-body scale reference: {node.estimated_script_body_characters or '由剧情容量决定'}
 Approved segment turning points (copy each verbatim into exactly one episode's source_turning_points):
 {chr(10).join(f'- {turning_point}' for turning_point in node.turning_points)}
 Approved unit-story beats (copy each verbatim into exactly one episode's source_unit_story_beats):
 {chr(10).join(f'- {beat}' for beat in node.unit_story_beats)}
 Required local resolution: {node.unit_resolution or node.exit_state}
 Required handoff pressure: {node.handoff_pressure or node.exit_state}
+Immutable narrative boundary contract:
+{StoryPlanningService._episode_leaf_boundary_contract(node)}"""
+        source_rule = (
+            "Copy each episode's two source arrays from its fixed episode record exactly, including empty arrays. "
+            "Event ownership is already decided; do not distribute or select from the full leaf again."
+            if fixed_ownership else
+            "Distribute every supplied approved event verbatim into exactly one episode's matching source array "
+            "across the complete leaf. Partial responses claim only events actually enacted in their episodes."
+        )
+        settlement_rule = (
+            "Execute only the supplied episode records and stop at their exit states. The final leaf boundary, "
+            "when supplied, applies only to the actual final episode. No earlier response may perform that settlement."
+            if fixed_ownership else
+            f"Episode {end_episode} completes the required local resolution with the terminal unit-story beat. "
+            "The required handoff pressure belongs to the following segment, not this response."
+        )
+        budget_rule = (
+            "The saved production budget is fixed for this future rebuild. Develop the narrative within its "
+            "explicit episode and scene allocations below; the server binds these numbers. Do not choose a new "
+            "duration, dialogue count, shot count or scene partition, and do not output the server-bound budget fields."
+            if future_rebuild_context else
+            f"Plan production load independently for every episode. target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count must be {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count must be {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count must be {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}. One scene is valid when it can complete the episode; never split scenes or actions merely to reach a count. Choose the load from that episode's actual conflict, action, reveal, payoff and hook work. Do not evenly distribute the segment and do not copy one duration, scene count, dialogue count or shot count across all episodes merely for consistency. More time, dialogue or shots must correspond to visible dramatic work, never padding. Keep deliberate editing headroom inside the runtime range."
+        )
+        scene_budget_fields = "" if future_rebuild_context else ", dialogue_line_target, shot_target"
+        episode_budget_fields = "" if future_rebuild_context else ", target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count"
+        integer_fields = "episode_number and hook_payoff_target_episode" if future_rebuild_context else "episode_number, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count and hook_payoff_target_episode"
+        dialogue_rule = (
+            "沿用逐场已确认对白预算，0对白场保持无声；有对白场围绕真实对象和当下目的形成交锋，"
+            "不得为句数把每一步操作、权限边界和未知事项念给观众。场间分配已固定，不重分配。"
+            if future_rebuild_context else SCENE_DIALOGUE_PLANNING_RULES
+        )
+        return f"""{market_contract}
+
+You are creating Episode Plans {start_episode}-{end_episode} for an approved episode-ready segment of a serialized comic.
+These are the FULL NARRATIVE boundaries, irrespective of how many plans one response contains.
+Response episode numbers (output scope only):
+<response_episode_numbers>{json.dumps(list(range(start_episode, end_episode + 1)))}</response_episode_numbers>
+Return planning JSON only. Do not write full episode prose or dialogue.
+All human-readable output values must follow the market contract above.
+{EPISODE_ROADMAP_LENGTH_TARGET_CONTRACT}
+{STORY_LINE_EPISODE_DUTY_CONTRACT}
+
+{segment_context}
+Segment script-body scale reference: {node.estimated_script_body_characters or '由剧情容量决定'}
+{planning_body_scale_contract(node)}
 Story Bible premise: {story_bible.core_premise}
+{StoryPlanningService._episode_bible_facts_context(story_bible)}
 Character refs: {'、'.join(story_bible.character_refs)}
 Story line refs: {'、'.join(line.story_line_id for line in story_bible.story_lines)}
 Short-drama escalation ladder:
@@ -10702,42 +12421,44 @@ Durable planning memory: {memory_context}
 {knowledge_context}
 
 Requirements:
-1. Return exactly one plan for every episode number from {start_episode} through {end_episode}, in order.
+1. Return exactly one plan for each number in response_episode_numbers, in that order.
+The narrative still covers Episodes {start_episode}-{end_episode}; response size cannot change this range.
 2. Each plan must have episode_title, synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, emotional_movement, stage_opposition, episode_payoff, pressure_escalation and exit_state. Optional dramatic design follows the contract below. Set ending_mode to serial_hook for a continuing episode; a final episode may use season_finale or series_finale only when the approved story direction calls for it. A serial_hook episode must provide a continuable cliffhanger; a finale must describe its formal resolution instead of manufacturing a hook.
 {EPISODE_TITLE_NAMING_CONTRACT}
 {EPISODE_HUMAN_READABLE_FIELDS_CONTRACT}
 {EPISODE_DRAMATIC_DESIGN_CONTRACT}
 {EPISODE_VIEWING_VALUE_CONTRACT}
-3. The next episode entry_state must follow the previous episode exit_state; do not repeat the same beat.
+3. The next episode entry_state must follow the previous episode exit_state; do not repeat the same beat. Every episode needs a distinct concrete attempt, resistance and observable consequence inside the approved segment. Develop plausible tactical actions by existing characters; do not fill episode slots by repeatedly confirming the same evidence or delaying the same choice. Summaries must describe different events, not paraphrase earlier episodes.
 4. Use only supplied character and story-line references. Preserve the segment's setup/payoff direction.
 5. These plans are human-reviewable contracts. Keep them concise and actionable for the existing DraftMasterScript generator.
-6. Distribute every approved segment turning point verbatim into exactly one episode's source_turning_points. Do not omit, paraphrase, merge or assign one turning point to multiple episodes. The receiving episode must execute that event in its goal, conflict, decision, reveal, exit state or cliffhanger.
+6. {source_rule} The receiving episode must execute its own events in the actual scene plan, not merely claim them in reference fields.
 7. Each episode must make a distinct causal contribution. Adjacent episodes must not repeat the same reveal, obstacle or cliffhanger function using different wording.
 8. Assign story_line_refs only from the approved Story line refs and only when the episode materially advances that line. Every episode must advance at least one approved line.
 9. For each serial_hook episode define ending_hook_type as a short 2-20 character Simplified-Chinese classification label with no explanation, plus a concrete next_episode_obligation and a realistic hook_payoff_target_episode when the hook is intended to stay open beyond the next episode. For a season_finale or series_finale, use these fields to record the formal resolution and any explicitly approved future obligation; do not manufacture a hook. Rotate hook functions according to the story; do not create unrelated surprise calls, arrivals, doors, or identity reveals solely for suspense.
 10. continuity_requirements must name facts, character states, relationship states, prior hooks, or setup/payoff obligations that the script must preserve or advance. They are not generic writing advice.
 11. Every episode must provide concrete viewing value grounded in what the audience can see or hear: information, character understanding, emotional experience or changing anticipation can carry that value. Setup, restraint and emotional accumulation are valid when supported by specific content. Do not require irreversible change, a reversal, a resolved conflict or a settled relationship in every episode. Keep approved events and causal handoffs intact; an unsupported future promise or repeated known information is insufficient.
 12. Adjacent episodes must have distinct content contributions, not only different wording. Vary tactics, costs, power, information, relationship pressure or emotional understanding when the approved story supports it. Flag repeated investigation, preparation, travel, exposition or waiting when it adds no concrete viewing value; do not add events or change the approved rhythm solely to vary the mechanism.
-13. Distribute every approved unit-story beat verbatim into exactly one episode's source_unit_story_beats. The episode goal, action, decision and state change must execute that beat. Do not add a new core event chain to compensate for an incomplete segment plan.
-13a. Do not turn an unresolved or suggest-only author decision into an episode fact. If the approved segment still
-contains a story-specific 待定 slot, preserve it as a visible planning blocker rather than filling it with a familiar trope.
-14. The batch must complete the segment's Required local resolution by the final episode, then preserve the Required handoff pressure as the concrete next-segment obligation. Do not postpone this segment's climax or local settlement to a later planning module.
-15. Plan production load independently for every episode. target_duration_seconds must be {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count must be {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count must be {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count must be {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX}. One scene is valid when it can complete the episode; never split scenes or actions merely to reach a count. Choose the load from that episode's actual conflict, action, reveal, payoff and hook work. Do not evenly distribute the segment and do not copy one duration, scene count, dialogue count or shot count across all episodes merely for consistency. More time, dialogue or shots must correspond to visible dramatic work, never padding. Keep deliberate editing headroom inside the runtime range.
+13. Keep source ownership and the actual goal, action, decision and state change consistent. Do not add a new core event chain to compensate for an incomplete segment plan.
+13a. Preserve explicitly unresolved or suggest-only author decisions under the decision-authority and
+scene-readiness contracts above. A model-authored TODO about ordinary execution details in prior episode
+notes does not create an author reservation; complete those details without changing approved story facts.
+14. {settlement_rule} Response boundaries are technical checkpoints, not story endings. If the approved events cannot support the full range, the parent plan needs development; do not prematurely settle and then repeat events.
+15. {budget_rule}
 16. Return a complete scene_execution_plan for this episode. Do not return layer_contracts; the service compiles that audit object locally. The scene_execution_plan is the execution contract that a fast screenplay model will receive, so do not leave it empty and do not make the screenplay model infer missing scene decisions.
-17. Every scene_execution_plan item must include scene_number, scene_heading, character_refs, scene_objective, opposition, information_shift, choice_or_cost, evidence_requirements, forbidden_changes, visible_action, turn_or_reveal, dialogue_objective, dialogue_line_target, shot_target and exit_state. opposition, information_shift and choice_or_cost must describe concrete story events, not writing advice. evidence_requirements must name what the audience can see or hear; forbidden_changes must list facts the screenplay must not add, reveal early, cancel or reverse.
+17. Every scene_execution_plan item must include scene_number, scene_heading, character_refs, scene_objective, opposition, information_shift, choice_or_cost, evidence_requirements, forbidden_changes, visible_action, turn_or_reveal, dialogue_objective{scene_budget_fields} and exit_state. opposition, information_shift and choice_or_cost must describe concrete story events, not writing advice. evidence_requirements must name what the audience can see or hear; forbidden_changes must list facts the screenplay must not add, reveal early, cancel or reverse.
+{dialogue_rule}
 18. Follow the shared roadmap length reference above. Compress repeated segment or Story Bible context;
 preserve the scene-specific motives, evidence and causal handoffs needed for direct screenplay execution.
 Do not add prose, extra events or filler to reach a minimum.
 
 The top-level object must contain only episode_plans. Every item must use these exact fields:
-episode_number, ending_mode, episode_title, target_duration_seconds, planned_scene_count, planned_shot_count, planned_dialogue_line_count, scene_execution_plan,
+episode_number, ending_mode, episode_title{episode_budget_fields}, scene_execution_plan,
 synopsis, locations, episode_goal, entry_state, central_conflict, protagonist_decision, reveal,
 emotional_movement, stage_opposition, episode_payoff, pressure_escalation, setup_refs,
 dramatic_units, protagonist_cost, payoff_refs, exit_state, cliffhanger, character_refs, story_line_refs,
 continuity_requirements, source_turning_points, source_unit_story_beats, ending_hook_type,
 next_episode_obligation, hook_payoff_target_episode.
-Use whole integers for episode_number, target_duration_seconds, planned_scene_count,
-planned_shot_count, planned_dialogue_line_count and hook_payoff_target_episode. Use arrays of strings
+Use whole integers for {integer_fields}. Use arrays of strings
 for all fields ending in _refs, plus continuity_requirements, source_turning_points and
 source_unit_story_beats.
 
@@ -10769,13 +12490,11 @@ Return only JSON matching the provided schema."""
         remaining_unit_beats = [
             value for value in node.unit_story_beats if value not in used_unit_beats
         ]
-        assignments = StoryPlanningService._episode_source_assignments(
-            node,
-            accepted_plans=accepted_plans,
-            episode_number=episode_number,
-        )
-        required_turning_points = assignments["source_turning_points"]
-        required_unit_beats = assignments["source_unit_story_beats"]
+        fixed_ownership = bool(getattr(node, "episode_developments", []))
+        if fixed_ownership:
+            owned = next(item for item in node.episode_developments if item.episode_number == episode_number)
+            remaining_turning_points = list(owned.source_turning_points)
+            remaining_unit_beats = list(owned.source_unit_story_beats)
         prior_contributions = StoryPlanningService._compact_episode_plan_history(
             accepted_plans,
         )
@@ -10796,7 +12515,7 @@ Return only JSON matching the provided schema."""
             else {
                 "episode_number": None,
                 "exit_state": node.entry_state,
-                "pressure_escalation": node.central_conflict,
+                "pressure_escalation": owned.entry_state if fixed_ownership else node.central_conflict,
                 "next_episode_obligation": "从批准剧情段的进入状态开始。",
             }
         )
@@ -10807,12 +12526,28 @@ Return only JSON matching the provided schema."""
             "resolution, and carry the required handoff pressure into the ending."
             if final_episode
             else "Assign only the remaining approved events whose causal position belongs "
-            "in this episode. Leave later events available for later episodes."
+            f"in this episode. The terminal unit-story beat belongs to Episode {node.planned_end_episode}; "
+            "do not execute or assign it early. Leave later events for their actual episodes "
+            "and do not execute the following segment's handoff obligation here."
         )
+        if fixed_ownership:
+            completion_rule = (
+                "Execute only this episode's fixed record and stop at its exit state. "
+                "Copy both source arrays exactly, including empty arrays; do not select or redistribute events."
+            )
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
         decision_contract = _creative_decision_prompt_contract(
             list(getattr(story_bible, "creative_decisions", []) or [])
         )
+        segment_context = StoryPlanningService._fixed_episode_plan_context(node, [episode_number]) if fixed_ownership else f"""Approved segment: {node.title}
+Narrative purpose: {node.narrative_purpose}
+Synopsis: {node.synopsis}
+Entry state: {node.entry_state}
+Central conflict: {node.central_conflict}
+Required local resolution: {node.unit_resolution or node.exit_state}
+Required handoff pressure: {node.handoff_pressure or node.exit_state}
+Immutable narrative boundary contract:
+{StoryPlanningService._episode_leaf_boundary_contract(node)}"""
         return f"""{market_contract}
 
 SINGLE EPISODE ROADMAP CONTRACT
@@ -10828,15 +12563,11 @@ must be copied exactly.
 {EPISODE_DRAMATIC_DESIGN_CONTRACT}
 {EPISODE_VIEWING_VALUE_CONTRACT}
 
-Approved segment: {node.title}
-Narrative purpose: {node.narrative_purpose}
-Synopsis: {node.synopsis}
-Entry state: {node.entry_state}
-Central conflict: {node.central_conflict}
+{segment_context}
 Segment script-body scale reference: {node.estimated_script_body_characters or '由剧情容量决定'}
-Required local resolution: {node.unit_resolution or node.exit_state}
-Required handoff pressure: {node.handoff_pressure or node.exit_state}
+{planning_body_scale_contract(node)}
 Allowed character_refs: {json.dumps(story_bible.character_refs, ensure_ascii=False)}
+{StoryPlanningService._episode_bible_facts_context(story_bible)}
 Allowed story_line_refs: {json.dumps([line.story_line_id for line in story_bible.story_lines], ensure_ascii=False)}
 Allowed setup_refs: {json.dumps(node.setup_refs, ensure_ascii=False)}
 Allowed payoff_refs: {json.dumps(node.payoff_refs, ensure_ascii=False)}
@@ -10854,17 +12585,16 @@ Durable continuity memory from the accepted roadmap prefix. Preserve active requ
 unresolved setup obligations, open hooks and the latest state handoffs:
 {json.dumps(continuity_memory, ensure_ascii=False, separators=(',', ':'))}
 
-Remaining approved turning points; copy assigned values verbatim:
+Approved turning points available to this response; copy assigned values verbatim:
 {json.dumps(remaining_turning_points, ensure_ascii=False, separators=(',', ':'))}
 
-Remaining approved unit-story beats; copy assigned values verbatim:
+Approved unit-story beats available to this response; copy assigned values verbatim:
 {json.dumps(remaining_unit_beats, ensure_ascii=False, separators=(',', ':'))}
 
-Required source_turning_points for this episode (copy exactly, no additions):
-{json.dumps(required_turning_points, ensure_ascii=False, separators=(',', ':'))}
-
-Required source_unit_story_beats for this episode (copy exactly, no additions):
-{json.dumps(required_unit_beats, ensure_ascii=False, separators=(',', ':'))}
+Source-event ownership follows the actual causal action in this episode, not an equal
+spacing of array positions across episode numbers. When a turning point and a unit-story
+beat describe the same event, assign both to the episode that enacts it; do not stage it
+again later merely to consume the second reference. Already executed events stay completed.
 
 {knowledge_context}
 
@@ -10878,8 +12608,11 @@ Rules:
    emotional accumulation, information exchange, delayed payoff or another approved form
    may carry its value; do not force a fixed cycle or an irreversible event.
 3. Use only the allowed reference IDs. story_line_refs must contain at least one allowed ID.
-4. source_turning_points and source_unit_story_beats must exactly equal the two required
-   lists assigned to this episode above. Never move, paraphrase, add, or repeat them.
+4. Select source_turning_points and source_unit_story_beats only from the remaining
+   approved events above, copying each selected value verbatim. Claim only events enacted
+   in this episode's scenes. Coordinate both lists by causal ownership, never by index or
+   equal episode spacing. Do not repeat an executed event under a second reference. Leave
+   later events for their actual episode; do not invent core plot to fill empty slots.
 5. episode_payoff must name the episode's concrete viewing value and the action, information
    or emotional detail that supports it. Setup may carry a present emotional experience;
    preparation labels or future promises alone are insufficient.
@@ -10892,8 +12625,9 @@ Rules:
    2-20 character Simplified-Chinese classification label, never a sentence or explanation.
 7. Keep every still-active item in the durable continuity memory true. Do not silently drop
    an unresolved setup, open hook, character state, relationship state or story-line obligation.
-7a. Do not turn an unresolved or suggest-only author decision into an episode fact. A story-specific
-    待定 slot is a planning blocker, not permission to fill it with an unrelated or formulaic event.
+7a. Preserve explicitly unresolved or suggest-only author decisions under the decision-authority and
+    scene-readiness contracts above. Complete ordinary execution details rather than promoting a
+    model-authored TODO in prior episode notes into a new author reservation.
 8. {completion_rule}
 9. Independently choose target_duration_seconds from {EPISODE_RUNTIME_MIN_SECONDS}-{EPISODE_RUNTIME_MAX_SECONDS}, planned_scene_count from
    {EPISODE_SCENE_MIN}-{EPISODE_SCENE_MAX}, planned_dialogue_line_count from {EPISODE_DIALOGUE_LINE_MIN}-{EPISODE_DIALOGUE_LINE_MAX}, and planned_shot_count from {EPISODE_SHOT_UNIT_MIN}-{EPISODE_SHOT_UNIT_MAX} according to this episode's dramatic load.
@@ -10906,6 +12640,7 @@ Rules:
    visible_action, turn_or_reveal, dialogue_objective, dialogue_line_target, shot_target and
    exit_state. Use concrete story events, not generic writing advice. Do not return layer_contracts;
    the service compiles that audit object locally.
+{SCENE_DIALOGUE_PLANNING_RULES}
 11. Use the shared roadmap length reference above; necessary scene decisions take priority over brevity. If the
     draft is longer, remove repeated upper-layer context and ornamental wording before returning;
     preserve the episode's distinct action, payoff, exit state and hook.
@@ -10918,6 +12653,15 @@ dramatic_units, protagonist_cost, payoff_refs, exit_state, cliffhanger, characte
 continuity_requirements, source_turning_points, source_unit_story_beats, ending_hook_type,
 next_episode_obligation, hook_payoff_target_episode.
         Return only the single JSON object."""
+
+    @staticmethod
+    def _episode_execution_facts(item: EpisodePlanGenerationItem) -> list[dict[str, object]]:
+        """Preserve actual prior actions when a coarse episode exit omits them."""
+        return [
+            {"scene_number": scene.scene_number, "visible_action": scene.visible_action,
+             "exit_state": scene.exit_state}
+            for scene in item.scene_execution_plan
+        ]
 
     @staticmethod
     def _compact_episode_plan_history(
@@ -10941,6 +12685,8 @@ next_episode_obligation, hook_payoff_target_episode.
         for index, item in enumerate(accepted_plans):
             compact: dict[str, object] = {
                 "episode_number": item.episode_number,
+                "synopsis": item.synopsis,
+                "episode_title": item.episode_title,
                 "episode_goal": short(item.episode_goal),
                 "episode_payoff": short(item.episode_payoff),
                 "exit_state": short(item.exit_state),
@@ -11003,27 +12749,33 @@ next_episode_obligation, hook_payoff_target_episode.
         open_hooks = []
         for item in ordered:
             target = item.hook_payoff_target_episode
-            if (
-                target is not None
-                and current_episode_number is not None
-                and target < current_episode_number
-            ):
+            if not item.next_episode_obligation.strip():
                 continue
             open_hooks.append({
                 "source_episode": item.episode_number,
                 "hook_type": short(item.ending_hook_type, 40),
                 "obligation": short(item.next_episode_obligation),
                 "target_episode": target,
+                "resolution_status": "unverified",
+                "overdue": target is not None and current_episode_number is not None and target < current_episode_number,
             })
 
         recent = ordered[-4:]
         local_memory = {
             "last_confirmed_episode": ordered[-1].episode_number if ordered else None,
-            "active_continuity_requirements": unique(
-                requirement
-                for item in ordered[-6:]
-                for requirement in item.continuity_requirements
-            ),
+            # The accepted leaf prefix is bounded by the 8–12 episode contract.
+            # Its concrete actions must not disappear behind a shorter exit label.
+            "established_execution_history": [
+                {"episode_number": item.episode_number, "synopsis": item.synopsis,
+                 "scene_execution_facts": StoryPlanningService._episode_execution_facts(item)}
+                for item in ordered
+            ],
+            "established_state_rule": ESTABLISHED_STATE_EXECUTION_CONTRACT,
+            "historical_episode_constraints": [
+                {"source_episode": item.episode_number, "requirements": list(item.continuity_requirements)}
+                for item in ordered[-6:] if item.continuity_requirements
+            ],
+            "constraint_scope_rule": EPISODE_CONSTRAINT_SCOPE_CONTRACT,
             "unresolved_setup_refs": [
                 reference for reference in setup_refs if reference not in paid_refs
             ],
@@ -11032,6 +12784,11 @@ next_episode_obligation, hook_payoff_target_episode.
                 reference for item in ordered for reference in item.story_line_refs
             ),
             "open_hooks": open_hooks[-6:],
+            "hook_resolution_rule": (
+                "open_hooks 是历史承诺，是否兑现须对照后续实际行动和结果核实。"
+                "预计兑现集号已过不等于已兑现；字段里写了回报也不等于已经演出。"
+                "已实际兑现的承诺不再重复执行，未兑现的承诺须继续承接或明确调整。"
+            ),
             "recent_state_handoffs": [
                 {
                     "episode_number": item.episode_number,
@@ -11061,12 +12818,11 @@ next_episode_obligation, hook_payoff_target_episode.
         local_memory["last_confirmed_episode"] = (
             max(confirmed_episodes) if confirmed_episodes else None
         )
-        local_memory["active_continuity_requirements"] = unique(
-            [
-                *supplied.get("active_continuity_requirements", []),
-                *local_memory["active_continuity_requirements"],
-            ],
-            limit=50,
+        # The public legacy field name says 'active', but those values were
+        # compiled from episode-local constraints. Retain their text/provenance
+        # without promoting past reveal restrictions into permanent prohibitions.
+        local_memory["additional_constraint_history"] = unique(
+            supplied.get("active_continuity_requirements", []), limit=50,
         )
         local_memory["unresolved_setup_refs"] = unique(
             [
@@ -11106,7 +12862,13 @@ next_episode_obligation, hook_payoff_target_episode.
                 continue
             seen_hook_keys.add(key)
             merged_hooks.append(hook)
-        local_memory["open_hooks"] = merged_hooks[-20:]
+        local_memory["open_hooks"] = [{
+            **hook,
+            "resolution_status": "unverified",
+            "overdue": isinstance(hook.get("target_episode"), int)
+                and current_episode_number is not None
+                and hook["target_episode"] < current_episode_number,
+        } for hook in merged_hooks[-20:]]
         supplied_handoffs = [
             handoff.model_dump(mode="python")
             for handoff in planning_memory.recent_state_handoffs
@@ -11122,16 +12884,6 @@ next_episode_obligation, hook_payoff_target_episode.
             merged_handoffs.append(handoff)
         local_memory["recent_state_handoffs"] = merged_handoffs[-6:]
         return local_memory
-
-    _episode_event_assignments = staticmethod(
-        episode_plan_contracts.episode_event_assignments
-    )
-    _episode_item_event_assignment = staticmethod(
-        episode_plan_contracts.episode_item_event_assignment
-    )
-    _episode_source_assignments = staticmethod(
-        episode_plan_contracts.episode_source_assignments
-    )
 
     @staticmethod
     def _build_episode_plan_item_repair_prompt(
@@ -11330,7 +13082,7 @@ next_episode_obligation. Do not return any other field, wrapper, Markdown or exp
             })
             if rebuild_scene_plan:
                 repaired = self._complete_episode_scene_execution_plan(
-                    repaired, adapter=adapter, strategy=repair_strategy
+                    repaired, adapter=adapter, strategy=repair_strategy, story_bible=story_bible,
                 )
             repaired = self._ensure_episode_item_short_drama_fields(
                 repaired,
@@ -11346,7 +13098,8 @@ next_episode_obligation. Do not return any other field, wrapper, Markdown or exp
                 require_complete=(item.episode_number == node.planned_end_episode),
             )
             language_issues = planning_output_chinese_issues(
-                EpisodePlanBatchGenerationOutput(episode_plans=[repaired])
+                EpisodePlanBatchGenerationOutput(episode_plans=[repaired]),
+                allowed_names=self._approved_english_names(story_bible),
             )
             if language_issues:
                 raise StoryPlanningInputError(
@@ -11427,6 +13180,7 @@ Previous Episode Plan batch:
         node: StoryPlanNode,
         story_bible: StoryBible,
     ) -> None:
+        episode_plan_contracts.validate_episode_setup_payoff_references(output.episode_plans, node=node, story_bible=story_bible)
         StoryPlanningService._validate_episode_plan_prefix(
             output.episode_plans,
             node=node,
@@ -11448,6 +13202,8 @@ Previous Episode Plan batch:
         story_bible: StoryBible,
         payload: StoryPlanNodeDraftRequest,
         knowledge_context: str,
+        parent: StoryPlanNode | None = None,
+        completes_story: bool | None = None,
     ) -> str:
         character_refs = "、".join(story_bible.character_refs) or "未指定"
         character_registry = "；".join(
@@ -11466,10 +13222,35 @@ Previous Episode Plan batch:
             )
             for item in getattr(story_bible, "escalation_stages", [])
         ) or "- 未指定"
+        if completes_story is None:
+            completes_story = payload.parent_node_id is None
         parent_text = (
-            f"父节点：{payload.parent_node_id} v{payload.parent_node_version}"
-            if payload.parent_node_id
-            else "当前生成覆盖整部故事的根节点；其子分支再按内容需要递归拆分。"
+            "Approved parent narrative boundary:\n"
+            + json.dumps(parent.model_dump(mode="json"), ensure_ascii=False)
+            if parent is not None
+            else "Current node covers the whole story; child branches may develop its internal movements."
+        )
+        if parent is not None and parent.decomposition_reason == TECHNICAL_STORY_ROOT_MARKER:
+            parent_text = (
+                "Whole-story technical envelope (not an authored narrative node):\n"
+                + json.dumps({"episode_range": [parent.planned_start_episode, parent.planned_end_episode],
+                              "approved_ending": story_bible.ending_direction}, ensure_ascii=False)
+                + "\nDevelop this leaf's own causal events from the approved Story Bible. "
+                "Technical-root placeholders are not source events and must never enter the story."
+            )
+        ending_contract = (
+            "This node covers the COMPLETE story. Its actual causal events must accomplish the approved "
+            "ending and planned story-line resolutions. Do not replace completion with applying, waiting, "
+            "promising or announcing future action. Resolve the central conflict here; the final state may "
+            "retain ordinary life consequences without introducing another mandatory adventure or opponent."
+            if completes_story
+            else "This node covers only its approved parent boundary. Complete its local resolution, "
+            "preserve later payoffs, and hand off the concrete resulting state. Do not preempt events "
+            "outside that boundary or turn an intermediate step into the whole-story ending."
+        )
+        decision_contract = _creative_decision_prompt_contract(
+            list(getattr(story_bible, "creative_decisions", []) or []),
+            allow_planning_candidates=True,
         )
         author_instruction = payload.author_instruction.strip() or "未提供；请根据已批准边界自主提出最稳妥的剧情推进。"
         market_contract = StoryPlanningService._story_bible_market_contract_text(story_bible)
@@ -11481,6 +13262,7 @@ The hierarchy is intentionally level-free: choose a meaningful segment boundary 
 All human-readable output values must follow the market contract above.
 {STORY_TREE_LENGTH_TARGET_CONTRACT}
 {STORY_LINE_PLANNING_CONTRACT}
+{EPISODE_DEVELOPMENT_CONTRACT}
 
 Project: {project_title}
 Target total episodes: {payload.target_episode_count}
@@ -11503,7 +13285,14 @@ Major setup/payoff refs: {'；'.join(story_bible.major_setup_payoff_refs) or '�
 Locked facts: {'；'.join(story_bible.locked_facts) or '未指定'}
 Avoid patterns: {'；'.join(story_bible.avoid_patterns) or '未指定'}
 
+{StoryPlanningService._episode_bible_facts_context(story_bible)}
+
+{decision_contract}
+
 {knowledge_context}
+
+Story scope and resolution:
+{ending_contract}
 
 Author control for this planning turn:
 {author_instruction}
@@ -11514,10 +13303,15 @@ If it conflicts with a hard constraint, preserve the hard constraint and satisfy
 Contract requirements:
 1. Define why this segment exists, its entry state, central conflict, turning points, emotional direction, and exit state.
 2. Keep all character_refs and story_line_refs inside the approved Story Bible references.
-3. Preserve setup/payoff references; do not resolve the whole story inside this node.
+3. Preserve setup/payoff references and execute the resolution required by this node's scope above.
 4. Estimate a bounded episode range only when supported by the story; do not pad the range to reach a target number.
-5. The exit state must create a concrete causal basis for the next segment.
-6. This segment must belong to a concrete short-drama escalation stage. It must confront a reachable stage opponent or barrier, repeatedly earn visible local payoffs, and then expose a stronger next pressure. Do not use the whole segment only to prepare for the final opponent.
+5. Describe concrete intermediate actions, obstacles, decisions and consequences in unit_story_beats.
+A premise, conflict label and promised ending are not an event chain. Repeated requests or postponements
+only add narrative substance when they change options, relationships or consequences.
+6. Match the approved genre and rhythm. Progress may be a practical achievement, new understanding,
+fulfilled responsibility or relationship change. Do not require an antagonist, reversal or stronger
+opponent in a story that does not call for one. The exit state must result from the events actually
+planned in this node and follow the story scope above.
 7. Keep the combined narrative fields within the applicable node target range above. If the draft runs long,
 compress repeated context before returning; use later tree levels for new causal detail rather than expanding this node.
 
@@ -11674,6 +13468,7 @@ Return only JSON matching the provided schema."""
         character_text = "\n".join(
             f"- {item.character_ref}: {item.name} ({item.role})"
             f"{(' - ' + item.description) if item.description else ''}"
+            f"{(' - 已有表演档案：' + item.acting_profile.model_dump_json()) if item.acting_profile else ''}"
             for item in payload.characters
         ) or "- 尚未预设角色；请使用稳定的角色引用，例如 character.protagonist。"
         tag_context = "、".join(
@@ -11700,11 +13495,27 @@ Return only JSON matching the provided schema."""
             creative_decisions,
             allow_outline_candidates=not payload.preserve_source_document,
         )
+        synopsis_context = (
+            "当前作者已确认的故事梗概（全文）：\n"
+            + payload.confirmed_synopsis.strip()
+            + "\n\n此梗概是当前故事依据，优先于早期输入、上传资料、历史 brief 和旧候选。"
+            "它只覆盖作者实际修订的对应内容，保留其他禁区和明确暂缓。"
+            "author_instruction 中本轮最新明确修改仍可局部调整；原文导入也必须遵守该优先级。"
+            "不要因导入要求恢复已被作者改掉的旧事实，也不能把新总纲草稿自动当成批准内容。"
+            if payload.confirmed_synopsis.strip() else "尚未提供单独确认的故事梗概。"
+        )
+        synopsis_context += (
+            "\n\n梗概作者边界与检查意见（按标签区分，不是故事事实，也不表示这些建议已经批准）：\n"
+            + json.dumps(payload.synopsis_review_notes, ensure_ascii=False)
+            + "\n必须保留/必须避免是作者边界；待定/主动暂缓继续开放；因果与冲突问题是待核实的检查意见；"
+            "建议/候选不是作者决定。保留其各自权限，说明未决对总纲的影响，不能把整份意见统一当成剧情事实。"
+            "候选不得静默变成事实。"
+        )
         return f"""{StoryPlanningService._market_contract_text(content_spec)}
 
 You are drafting the long-story Story Bible for the selected market path's serialized comic story.
 This is a planning document for human review, not an episode script.
-Do not write scenes, dialogue, camera directions, or production prompts.
+Do not write scenes, dialogue, camera directions, or shot-generation prompts.
 Define only the coherent whole-story direction that a later recursive planning step can split into narrative parts.
 Do not assign episode numbers, episode ranges, episode beats, or episode-level hooks in this step.
 Do not force every later branch to have the same depth.
@@ -11746,6 +13557,8 @@ Characters supplied by the user:
 
 {knowledge_context}
 
+{synopsis_context}
+
 Author control for this planning turn:
 {payload.author_instruction.strip() or "未提供；遵守已有创作要求，普通留白可起草为待用户确认的完整大纲方案。"}
 用户明确要求、禁区、暂缓决定和决策账本中的特定权限优先。普通未填写内容可依本轮候选权限起草；
@@ -11755,8 +13568,9 @@ suggest_only 只能形成待作者确认的临时建议；任何候选都不能�
 {decision_contract}
 
 Contract requirements:
-1. Treat the user-selected creative direction as binding guidance beneath the original prompt and tags. It may refine
-   unspecified dimensions but must never override or conflict with any original user input.
+1. Treat the user-selected creative direction as binding guidance beneath the current author-confirmed synopsis,
+   current author instruction, and still-applicable original prompt and tags. It may refine unspecified dimensions
+   but must never restore a historical fact superseded by the author's confirmed synopsis.
 2. Organize the story premise, long-form goal, central conflict, development direction, essential relationships,
    and major story lines. Where this turn permits outline candidates, develop ordinary unspecified content into
    a coherent provisional outline, marking newly proposed high-impact content AI草案（待确认）. Preserve explicit
@@ -11775,9 +13589,17 @@ Contract requirements:
    this turn permits a provisional character proposal for ordinary unspecified content. Explicit character
    restrictions remain binding. Use one stable role placeholder such as character.primary.tbd marked 待定 only
    when the identity is explicitly reserved, or source-import rules prohibit inventing it.
-5. Return character_registry with exactly one canonical Chinese name and role for every character_ref. This is the
+5. Return character_registry with exactly one stable canonical name and role for every character_ref. Overseas names must be English, including mentions within Chinese prose; mainland names remain Chinese. This is the
    authoritative identity ledger for later recursive generation. Never reuse one character's name for another character.
    If a family member's name is unknown, use a stable role label such as "母亲" instead of copying another character's name.
+   Include acting_profile for each established core character, as a compact, character-specific performance draft.
+   Preserve supplied profiles. Use identity, motivation and established relationships to explain observable habits:
+   posture/weight, vocal rhythm, purposeful movement, attention, habitual actions, pressure response and a distinct
+   response to a named relationship. Describe a trigger and visible behavior, not generic advice such as "保持一致"
+   or "视线服务目标". Do not copy the same profile across the cast. permanentVoicePrompt summarizes that character's
+   stable voice and its pressure variation; never assign an unsupported accent, disability or physical attribute.
+   Do not turn future plot events, present injuries, knowledge or location into permanent traits. For source imports,
+   extract established traits only and leave unsupported fields empty. Explicitly reserved identities may use null.
 6. Before returning, audit every character arc, relationship, locked fact, and story line for identity consistency.
    A character must not be described as their own mother, father, son, daughter, sibling, spouse, or lover.
 7. Keep established character arcs and relationships concise, using one short sentence per narrative field and no
@@ -11814,7 +13636,12 @@ Contract requirements:
    target episodes, or tonal guidance as extra top-level fields.
 
 The API may enforce only JSON-object mode, so follow this exact nested contract yourself:
-- character_registry item: character_ref, name, role. Use name, never canonical_name.
+- character_registry item: character_ref, name, role, acting_profile. Use name, never canonical_name.
+- acting_profile: bodyLanguage, voice, movement, gazeAndAttention, habitualActions, pressureResponse,
+  relationshipBehavior, permanentVoicePrompt; all values are strings. These eight fields count toward the
+  whole-outline length target, not separate per-field minimums. Use concise, character-specific phrases
+  according to the character's importance and established evidence; do not pad every field to 30-80 characters.
+  Preserve all author-confirmed profile information. Source imports leave unsupported fields empty.
 - character_arc_targets item: character_ref, external_goal, internal_need, starting_state,
   target_state, key_turning_points, protected_traits.
 - relationships item: relationship_id, source_character_ref, target_character_ref,
@@ -11905,7 +13732,7 @@ Return only JSON matching the provided schema."""
             key: value for key, value in generated.items() if key != "_meta"
         }
         errors = (
-            validation_error.errors(include_input=False, include_url=False)
+            validation_error.errors(include_input=False, include_url=False, include_context=False)
             if validation_error is not None
             else [{"type": "structured_output", "msg": str(structured_error)}]
         )
@@ -11965,7 +13792,7 @@ Return one corrected JSON object only."""
             f"{item.character_ref}={item.name}（{item.role}）"
             for item in supplied_characters
         ) or "无用户预设角色"
-        errors = validation_error.errors(include_input=False, include_url=False)
+        errors = validation_error.errors(include_input=False, include_url=False, include_context=False)
         return f"""{market_contract.prompt_contract}
 You are completing a partially generated Story Bible for a serialized comic story.
 The candidate below is the sole narrative source. Preserve every existing plot fact,
@@ -12016,6 +13843,12 @@ Binding story anchors:
 Exact field paths and current values:
 {json.dumps(field_values, ensure_ascii=False, separators=(',', ':'))}
 
+Character identities (use these display names in prose, never their technical refs):
+{json.dumps({item.character_ref: item.name for item in output.character_registry}, ensure_ascii=False, separators=(',', ':'))}
+
+请用简体中文重写每条 value 的叙述内容；path 保持原样。英文技术ID只属于引用字段，
+不要把它们写入叙述。海外项目的人名保留上述正式英文拼写，其余句子仍用中文。
+不得只替换个别词后留下整句英文，也不得删减事实来绕过语言检查。
 Return only JSON matching the patch schema."""
 
     @staticmethod
@@ -12102,7 +13935,7 @@ Return one corrected JSON object only. Do not use Markdown fences or explanatory
     @staticmethod
     def _validation_error_details(error: ValidationError) -> str:
         return json.dumps(
-            error.errors(include_input=False, include_url=False)[:12],
+            error.errors(include_input=False, include_url=False, include_context=False)[:12],
             ensure_ascii=False,
             separators=(",", ":"),
         )

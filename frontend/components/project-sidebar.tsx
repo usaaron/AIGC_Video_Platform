@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { X } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { PlusIcon, ScriptIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ProjectDeleteButton } from "@/components/project-delete-button";
+import { ProjectMenuLoadState } from "@/components/project-menu-load-state";
 import { LanguageToggle } from "@/components/language-toggle";
 import { HostReturnLink } from "@/components/host-return-link";
 import { formatRelativeTime } from "@/lib/format";
@@ -25,22 +27,32 @@ interface ProjectSidebarProps {
 
 export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: ProjectSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { projects, isReady, deleteProject, serverPersistenceAvailable } = useProjects();
+  const { projects, isReady, serverPersistenceAvailable, storageError } = useProjects();
   const { locale, t } = useLocale();
+  const sidebar = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [search, setSearch] = useState("");
   const scopedId = hostProjectId();
   const scopedProject = projects.find(project => project.id === scopedId);
   const visibleProjects = projects.filter((project) => project.title.toLowerCase().includes(search.trim().toLowerCase()));
+  const projectListLoaded = isReady && serverPersistenceAvailable === true && !storageError;
 
   useEffect(() => {
     if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      sidebar.current?.querySelector<HTMLInputElement>("input")?.focus();
+    }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) onCloseRef.current();
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [isOpen, onClose]);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      previousFocus?.focus();
+    };
+  }, [isOpen]);
 
   return (
     <>
@@ -52,7 +64,7 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
         onClick={onClose}
         type="button"
       />
-      <aside id="project-navigation" aria-label={t("nav.projects")} aria-hidden={!isOpen} inert={!isOpen} className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
+      <aside ref={sidebar} id="project-navigation" aria-label={t("nav.projects")} aria-hidden={!isOpen} inert={!isOpen} className={`project-sidebar ${isOpen ? "is-open" : ""}`}>
         {hostHref && <div className="sidebar-host-return"><HostReturnLink href={hostHref} detail /><p>新标签页打开，当前创作继续保留</p></div>}
         <div className="sidebar-module-head">
           <span className="sidebar-module-icon"><ScriptIcon /></span>
@@ -79,14 +91,9 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
         </label>
 
         <nav aria-label={t("nav.projects")} className="project-history">
-          {!isReady ? (
-            <div className="project-list-skeleton" aria-label={t("nav.loading")} />
-          ) : projects.length === 0 ? (
-            <div className="sidebar-empty">
-              {t("nav.empty")}
-            </div>
-          ) : visibleProjects.length === 0 ? (
-            <div className="sidebar-empty">{t("nav.noMatches")}</div>
+          <ProjectMenuLoadState />
+          {visibleProjects.length === 0 ? (
+            projectListLoaded ? <div className="sidebar-empty">{projects.length ? t("nav.noMatches") : t("nav.empty")}</div> : null
           ) : (
             visibleProjects.map((project) => {
               const primaryTag = projectTagLabel(project, project.selectedTagIds[0] ?? "", locale);
@@ -98,15 +105,12 @@ export function ProjectSidebar({ hostHref, isOpen, onClose, onNavigate }: Projec
                     <span className="project-history-icon"><ScriptIcon /></span>
                     <span className="project-history-copy">
                       <strong>{project.title}</strong>
-                      <small>{primaryTag ?? t("nav.storyIdea")} · {project.episodes.length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
+                      <small>{primaryTag ?? t("nav.storyIdea")} · {t("library.progress")} {project.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length} {t("workspace.episodes")} · {formatRelativeTime(project.updatedAt, locale)}</small>
                     </span>
                     <span className={`status-dot status-${project.status}`} />
                   </Link>
-                  <button aria-label={`${t("nav.delete")} ${project.title}`} className="project-delete-button" onClick={async () => {
-                    if (!window.confirm(t("nav.deleteConfirm"))) return;
-                    const deleted = await deleteProject(project.id);
-                    if (deleted && active) router.push("/");
-                  }} type="button"><TrashIcon /></button>
+                  <ProjectDeleteButton projectId={project.id} title={project.title}
+                    className="project-delete-button" onDeleted={onClose}><TrashIcon /></ProjectDeleteButton>
                 </div>
               );
             })
@@ -137,7 +141,8 @@ export function ProjectSteps({ project, onNavigate }: { project?: ScriptProject;
   const pathname = usePathname();
   return <nav className="project-history" aria-label="当前网剧创作步骤">
           {project && ([
-            ["story-bible", "创作设定", true],
+            ["story-synopsis", "故事梗概", workspaceSectionAccess(project).storySynopsis],
+            ["story-bible", "故事总纲", workspaceSectionAccess(project).storyBible],
             ["planning", "全剧规划", workspaceSectionAccess(project).planning],
             ["script", "分集正文", workspaceSectionAccess(project).script],
             ["storyboard", "分镜", workspaceSectionAccess(project).storyboard],

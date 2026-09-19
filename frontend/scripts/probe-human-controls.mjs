@@ -34,18 +34,18 @@ const file = (name, text = source) => ({ name, mimeType: "text/plain", buffer: B
 try {
   await page.goto(`${values["base-url"]}/projects/new`);
   await check("empty-input-and-episode-boundaries", async () => {
-    await expect(button("检查输入并继续")).toBeDisabled();
+    await expect(button("开始整理故事")).toBeDisabled();
     await page.getByLabel("故事创意").fill(source);
     await page.getByLabel("发行地区").selectOption("cn_mainland");
     const count = page.getByRole("spinbutton", { name: /^剧集数量/ });
     for (const invalid of ["0", "7", "2001", "8.5"]) {
       await count.fill(invalid);
       await expect(count).toHaveAttribute("aria-invalid", "true");
-      await expect(button("检查输入并继续")).toBeDisabled();
+      await expect(button("开始整理故事")).toBeDisabled();
     }
     for (const valid of ["2000", "8"]) {
       await count.fill(valid);
-      await expect(button("检查输入并继续")).toBeEnabled();
+      await expect(button("开始整理故事")).toBeEnabled();
     }
   });
   await check("unsupported-empty-oversized-and-corrupt-upload", async () => {
@@ -124,13 +124,13 @@ try {
   });
   await check("readiness-invalidates-on-source-change", async () => {
     await page.getByLabel("剧本名称").fill("细节验收-可删除测试项目");
-    await button("检查输入并继续").click();
-    await expect(button("确认资料并继续")).toBeEnabled({ timeout: 120000 });
+    await button("开始整理故事").click();
+    await expect(button("继续确认故事方向")).toBeEnabled({ timeout: 120000 });
     await page.getByLabel("故事创意").fill(source + "保留现实背景，不使用超自然能力。");
-    await expect(button("确认资料并继续")).toHaveCount(0);
-    await button("检查输入并继续").click();
-    await expect(button("确认资料并继续")).toBeEnabled({ timeout: 120000 });
-    await button("确认资料并继续").click();
+    await expect(button("继续确认故事方向")).toHaveCount(0);
+    await button("开始整理故事").click();
+    await expect(button("继续确认故事方向")).toBeEnabled({ timeout: 120000 });
+    await button("继续确认故事方向").click();
     await page.waitForURL(/\/planning$/);
     report.projectId = new URL(page.url()).pathname.split("/")[2];
   });

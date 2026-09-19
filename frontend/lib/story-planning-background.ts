@@ -43,7 +43,8 @@ const pendingTaskIds: string[] = [];
 const listeners = new Set<() => void>();
 const pausedProjectIds = new Set<string>();
 const pauseWaiters = new Map<string, Set<() => void>>();
-const waitingTaskIds = new Set<string>();
+const waitingTaskCounts = new Map<string, number>();
+const activeWorkerCounts = new Map<string, number>();
 let activeTaskCount = 0;
 let activeEpisodeRoadmapTaskCount = 0;
 
@@ -182,7 +183,8 @@ export function getPlanningPauseState(projectId: string): PlanningPauseState {
   const hasInFlightTask = [...taskRecords.values()].some((task) => (
     task.projectId === projectId
     && task.status === "running"
-    && (task.kind === "full_tree" || !waitingTaskIds.has(task.id))
+    && ((waitingTaskCounts.get(task.id) ?? 0) === 0
+      || (activeWorkerCounts.get(task.id) ?? 0) > (waitingTaskCounts.get(task.id) ?? 0))
   ));
   return hasInFlightTask ? "pausing" : "paused";
 }
@@ -217,18 +219,28 @@ export function resumePlanningTasks(projectId: string): void {
   void drainPlanningTasks();
 }
 
+/** Include workers saving checkpoints until that save has finished. */
+export function setPlanningTaskWorkerCount(taskKey: string, count: number): void {
+  const taskId = activeKeyToTask.get(taskKey);
+  if (!taskId) return;
+  activeWorkerCounts.set(taskId, count);
+  notify();
+}
+
 export async function waitForPlanningTaskResume(taskKey: string): Promise<boolean> {
   const taskId = activeKeyToTask.get(taskKey);
   const task = taskId ? taskRecords.get(taskId) : undefined;
   if (!task || !pausedProjectIds.has(task.projectId)) return false;
-  waitingTaskIds.add(task.id);
+  waitingTaskCounts.set(task.id, (waitingTaskCounts.get(task.id) ?? 0) + 1);
   notify();
   await new Promise<void>((resolve) => {
     const waiters = pauseWaiters.get(task.projectId) ?? new Set<() => void>();
     waiters.add(resolve);
     pauseWaiters.set(task.projectId, waiters);
   });
-  waitingTaskIds.delete(task.id);
+  const remaining = (waitingTaskCounts.get(task.id) ?? 1) - 1;
+  if (remaining) waitingTaskCounts.set(task.id, remaining);
+  else waitingTaskCounts.delete(task.id);
   notify();
   return true;
 }
@@ -358,7 +370,8 @@ async function executePlanningTask<T>(task: PlanningTaskRecord<T>): Promise<void
     }
     task.reject(error);
   } finally {
-    waitingTaskIds.delete(task.id);
+    waitingTaskCounts.delete(task.id);
+    activeWorkerCounts.delete(task.id);
     if (activeKeyToTask.get(task.key) === task.id) activeKeyToTask.delete(task.key);
     const hasUnfinishedProjectTask = [...taskRecords.values()].some((candidate) => (
       candidate.projectId === task.projectId

@@ -167,6 +167,46 @@ test("episode-focused checkpoint keeps route characters and bounds unrelated mem
   assert.equal(JSON.parse(checkpoint).character_states.length, 3);
 });
 
+test("episode checkpoint is reconstructed as of the prior episode", () => {
+  const checkpoint = buildProvisionalContinuityCheckpoint({
+    storyBibleVersion: 1,
+    characters: [{
+      id: "lead",
+      name: "主角",
+      dynamicState: {
+        currentGoal: "未来目标",
+        emotionalState: "未来情绪",
+        lifeStatus: "dead",
+        currentKnowledge: [],
+        activeConstraints: [],
+        latestChangeSummary: "第5集变化",
+        latestChangeCause: "第5集事件",
+        lastUpdatedEpisode: 5,
+      },
+    }],
+    continuityStates: [{
+      entityKey: "item.key",
+      entityType: "item",
+      entityName: "钥匙",
+      stateDomain: "condition",
+      currentState: "已折断",
+      persistence: "permanent",
+      lastUpdatedEpisode: 5,
+      history: [
+        { episodeNumber: 2, transition: "changed", currentState: "完好", persistence: "ongoing", cause: "找到", evidenceSceneNumbers: [], status: "confirmed" },
+        { episodeNumber: 5, transition: "destroyed", currentState: "已折断", persistence: "permanent", cause: "摧毁", evidenceSceneNumbers: [], status: "provisional" },
+      ],
+    }],
+    storyLines: [], characterRelationships: [], continuationHooks: [],
+  }, { episodeNumber: 5 });
+
+  const parsed = JSON.parse(checkpoint);
+  assert.equal(parsed.through_episode_number, 2);
+  assert.equal((parsed.character_states ?? []).length, 0);
+  assert.equal(parsed.world_states[0].current_state, "完好");
+  assert.equal(parsed.world_states[0].evidence_episode_number, 2);
+});
+
 test("bounded checkpoint reserves two slots for recent scene and prop handoff", () => {
   const makeState = (entityKey, entityType, stateDomain, episodeNumber) => ({
     entityKey,

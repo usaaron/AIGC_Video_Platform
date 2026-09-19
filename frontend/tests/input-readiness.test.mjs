@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   buildInputReadinessRequest,
   detectEpisodeCountFromCreativeInput,
+  groupInputSourceFacts,
   parseInputReadinessResponse,
   verifiedInputFacts,
 } from "../lib/input-readiness.ts";
@@ -139,13 +140,12 @@ test("project creation keeps readiness advisory and existing planning gates sepa
   assert.match(editor, /analysis = await analyzeInputReadiness\(draft, \{ signal: controller.signal \}\)/);
   assert.match(editor, /setReadinessFailed\(true\)/);
   assert.match(editor, /inputReadiness\.createWithoutAnalysis/);
-  assert.match(editor, /createWithReadinessPath\("recommended"\)/);
-  assert.match(editor, /createWithReadinessPath\("full_workflow"\)/);
+  assert.match(editor, /createWithReadinessPath\(\)/);
+  assert.match(editor, /selectedPath:\s*"full_workflow"/);
   assert.match(editor, /detectedEpisodeCount >= 8/);
-  assert.match(editor, /selectedPath:\s*path/);
+  assert.doesNotMatch(editor, /createWithReadinessPath\(path/);
   assert.match(editor, /inputReadiness\.createRecommended/);
-  assert.match(editor, /inputReadiness\.createFull/);
-  assert.match(editor, /router\.push\(`\/projects\/\$\{created\.id\}\/planning`\)/);
+  assert.match(editor, /router\.push\(`\/projects\/\$\{created\.id\}\/synopsis`\)/);
   assert.match(types, /inputReadiness\?: InputReadinessAnalysis/);
   assert.doesNotMatch(editor, /storyBibleStatus:\s*"approved"/);
   assert.doesNotMatch(editor, /episodePlansReadyThrough:\s*\d/);
@@ -191,4 +191,22 @@ test("source spans respect Unicode code points and reject changed documents", ()
   assert.equal(parsed.structurallyComplete, false);
   assert.deepEqual(parsed.knownFacts, [fact]);
   assert.deepEqual(parsed.episodeAudit.suppliedNumbers, [1]);
+});
+
+test("source display merges repeated categories without losing distinct quotes or their documents", () => {
+  const ending = { field: "ending_direction", sourceId: "reference_1", sourceName: "故事大纲.md",
+    quote: "调查员公开全部证据。", start: 100, end: 111 };
+  const relationship = { ...ending, field: "relationship_direction", quote: "两人最初互相怀疑。", start: 0, end: 10 };
+  const changedRelationship = { ...relationship, quote: "两人最终选择合作。", start: 25, end: 35 };
+  const alternativeEnding = { ...ending, sourceId: "reference_2", quote: "调查员选择暂不公开证据。" };
+  const sameQuoteOtherDocument = { ...ending, sourceId: "reference_3" };
+  const facts = Object.freeze([ending, relationship, { ...relationship }, changedRelationship,
+    alternativeEnding, sameQuoteOtherDocument].map(Object.freeze));
+
+  const groups = groupInputSourceFacts(facts);
+  assert.deepEqual(groups.map((group) => group.field), ["relationship_direction", "ending_direction"]);
+  assert.deepEqual(groups[0].sources[0].facts, [relationship, changedRelationship]);
+  assert.deepEqual(groups[1].sources.map((source) => source.facts), [[ending], [alternativeEnding], [sameQuoteOtherDocument]]);
+  assert.equal(facts.length, 6, "grouping must not change the saved evidence");
+  assert.deepEqual(groupInputSourceFacts([]), []);
 });

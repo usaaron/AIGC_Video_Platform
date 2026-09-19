@@ -689,7 +689,7 @@ def test_overseas_generation_gate_rejects_english_narrative_fields() -> None:
         _contract_ready_draft(),
         include_narrative=True,
     )
-    assert "characters.0.name" in language_issues
+    assert "characters.0.name" not in language_issues
 
 
 def _heading_only_draft() -> DraftMasterScript:
@@ -816,7 +816,7 @@ def test_overseas_dialogue_pairs_are_repaired_without_rewriting_the_episode() ->
     assert adapter.call_count == 1
     assert repaired.scenes[0].dialogues[0].character_name == "Elena"
     assert repaired.scenes[0].dialogues[0].text == source.scenes[0].dialogues[0].text
-    assert repaired.scenes[0].dialogues[0].chinese_character_name == "埃琳娜"
+    assert repaired.scenes[0].dialogues[0].chinese_character_name is None
     assert repaired.scenes[0].dialogues[0].chinese_translation == (
         "告诉我今晚是谁为这份签署的契约付了钱。"
     )
@@ -882,11 +882,11 @@ def test_overseas_editor_receives_the_american_dialogue_language_contract() -> N
 
     prompt = adapter.prompts[0]
     assert "你现在同时是剧本大师和语言大师" in prompt
-    assert "只使用对应中文名" in prompt
-    assert "中文名（ENGLISH NAME）" in prompt
+    assert "只使用已确认的稳定英文名" in prompt
+    assert "不音译、不加中文名或中英双名" in prompt
     assert "逐句检查并润色英文对白" in prompt
     assert "每条dialogue.chinese_translation同时写" in prompt
-    assert "dialogue.chinese_character_name同时写" in prompt
+    assert "dialogue.chinese_character_name填写null" in prompt
     assert "英文一旦修改，中文对照必须同步更新" in prompt
     assert "两者逐句保留动作主体、对象、否定、时态、可能性和后果严重程度" in prompt
     assert "数量词及其所指对象必须对应" in prompt
@@ -897,7 +897,9 @@ def test_overseas_editor_receives_the_american_dialogue_language_contract() -> N
     assert "补足时长不能凭空增加指责、企图或信息来源" in prompt
     assert "不得改变剧情内容、人物意图、事实、关系、信息量" in prompt
     assert "采用自然、可表演的短剧口语" in prompt
-    assert "25–35句台词必须共同支撑75–115秒真实表演时长" in prompt
+    assert "25–35句台词与可拍动作共同支撑75–115秒真实表演时长" in prompt
+    assert "允许短促攻防" in prompt
+    assert "不能因句短或情绪强就拉长或降强度" in prompt
 
 
 def test_overseas_editor_receives_and_enforces_canonical_character_name_contract() -> None:
@@ -1139,7 +1141,9 @@ def test_non_overseas_editor_defers_language_mismatch_without_stopping_generatio
     assert "逐句检查并润色英文对白" not in prompt
     assert "人物名和人物对白直接使用简体中文" in prompt
     assert "采用自然、可表演的短剧口语" in prompt
-    assert "25–35句台词必须共同支撑75–115秒真实表演时长" in prompt
+    assert "25–35句台词与可拍动作共同支撑75–115秒真实表演时长" in prompt
+    assert "允许短促攻防" in prompt
+    assert "不能因句短或情绪强就拉长或降强度" in prompt
     assert result.draft.llm_metadata["script_editor_deferred"] is True
     assert result.draft.llm_metadata["script_editor_deferred_reason"] == (
         "quality_target_not_reached"
@@ -1373,3 +1377,17 @@ def test_gpt_editor_preserves_validated_draft_when_it_invents_a_speaker() -> Non
         "protected_speaker_boundary"
     )
     assert adapter.call_count == 1
+
+
+def test_complete_overseas_translation_needs_no_chinese_name_or_extra_model_call() -> None:
+    source = _contract_ready_draft()
+    for scene in source.scenes:
+        for line in scene.dialogues:
+            line.chinese_character_name = None
+            line.chinese_translation = "Elena，听我说。"
+        scene.character_actions = ["Elena看向Damian。"] * len(scene.character_actions)
+    adapter = UnavailableEditorialAdapter()
+    repaired, attempts = ScriptPostEditor(llm_adapter=adapter).ensure_overseas_dialogue_pairs(source, strategy=_strategy())
+    assert attempts == 0
+    assert repaired is source
+    assert not ScriptPostEditor.overseas_dialogue_pair_issues(source)

@@ -46,7 +46,7 @@ def episode(number, **updates):
 
 def complete_plans(node):
     plans = [episode(number) for number in range(9, 17)]
-    plans[0] = plans[0].model_copy(update={
+    plans[-1] = plans[-1].model_copy(update={
         "source_turning_points": list(node.turning_points),
         "source_unit_story_beats": list(node.unit_story_beats),
     })
@@ -65,6 +65,31 @@ def validate(plans, node, *, complete=False):
 def test_planning_error_identity_is_preserved_for_service_and_subclasses():
     assert ServiceInputError is StoryPlanningInputError
     assert issubclass(EpisodeSceneExecutionCompletionError, StoryPlanningInputError)
+
+
+def test_setup_payoff_identity_preserves_whole_approved_prose(node):
+    ref = "Noah保留旧和声；Lena改变收句，最终共同选定新桥段。"
+    node = node.model_copy(update={"setup_refs": [ref], "payoff_refs": [ref]})
+    bible = build_active_lineage_story_bible()
+    contracts.validate_episode_setup_payoff_references(
+        [episode(9, setup_refs=[ref], payoff_refs=[ref]), episode(10, setup_refs=[], payoff_refs=[])],
+        node=node, story_bible=bible,
+    )
+
+
+@pytest.mark.parametrize("changed", [
+    "Sam的底鼓过渡被确认为变拍过渡的可行方式",
+    "本集用停鼓重数把Noah的抢拍拉回共同拍点。",
+    "Noah保留旧和声",
+    "Noah保留旧和声；Lena改变收句，最终共同选定新桥段",
+])
+def test_unapproved_paraphrase_or_split_is_rejected_before_body_generation(node, changed):
+    node = node.model_copy(update={"setup_refs": ["Noah保留旧和声；Lena改变收句，最终共同选定新桥段。"]})
+    with pytest.raises(StoryPlanningInputError, match="copy approved setup/payoff references verbatim"):
+        contracts.validate_episode_setup_payoff_references(
+            [episode(9, setup_refs=[], payoff_refs=[changed])], node=node,
+            story_bible=build_active_lineage_story_bible(),
+        )
 
 
 @pytest.mark.parametrize("numbers", [
@@ -111,7 +136,7 @@ def test_distribution_preserves_exact_text_and_diagnostic_order(
     plans = complete_plans(node)
     approved = ["approved first", "approved second", "approved third"]
     node = node.model_copy(update={node_field: approved})
-    plans[0] = plans[0].model_copy(update={item_field: [
+    plans[-1] = plans[-1].model_copy(update={item_field: [
         approved[0], approved[0], "unknown two", "unknown one", "unknown two",
     ]})
     before = [item.model_dump() for item in plans]
@@ -147,7 +172,7 @@ def test_prefix_can_defer_events_but_cannot_duplicate_or_rephrase_them(
 
 def test_complete_validation_preserves_inputs_and_author_event_order(node):
     plans = complete_plans(node)
-    plans[0] = plans[0].model_copy(update={
+    plans[-1] = plans[-1].model_copy(update={
         "source_unit_story_beats": list(reversed(node.unit_story_beats)),
     })
     before = [item.model_dump() for item in plans]
@@ -155,32 +180,19 @@ def test_complete_validation_preserves_inputs_and_author_event_order(node):
     assert [item.model_dump() for item in plans] == before
 
 
-def test_source_assignments_resume_author_distribution_without_reassigning_used_events(node):
-    accepted = [episode(9, source_unit_story_beats=[node.unit_story_beats[2]])]
-    before = accepted[0].model_dump()
-    assignments = contracts.episode_source_assignments(
-        node, accepted_plans=accepted, episode_number=10,
-    )
-    assert assignments == {
-        "source_turning_points": node.turning_points,
-        "source_unit_story_beats": [node.unit_story_beats[0]],
-    }
-    assert accepted[0].model_dump() == before
-    assignments["source_turning_points"].clear()
-    assert node.turning_points
-
-
-def test_default_source_assignment_stays_stable_across_resumed_calls(node):
-    accepted = []
-    for number in range(9, 17):
-        assignments = contracts.episode_source_assignments(
-            node, accepted_plans=accepted, episode_number=number,
-        )
-        expected_beats = [node.unit_story_beats[(number - 9) // 2]] if number % 2 else []
-        assert assignments["source_unit_story_beats"] == expected_beats
-        assert assignments["source_turning_points"] == (node.turning_points if number == 9 else [])
-        accepted.append(episode(number, **assignments))
-    validate(accepted, node, complete=True)
+def test_validation_preserves_uneven_source_ownership_across_resumed_prefixes(node):
+    plans = [episode(number) for number in range(9, 17)]
+    plans[1] = plans[1].model_copy(update={
+        "source_unit_story_beats": node.unit_story_beats[:3],
+        "source_turning_points": list(node.turning_points),
+    })
+    plans[-1] = plans[-1].model_copy(update={
+        "source_unit_story_beats": node.unit_story_beats[3:],
+    })
+    before = [item.model_dump() for item in plans]
+    for count in range(1, len(plans) + 1):
+        validate(plans[:count], node, complete=count == len(plans))
+    assert [item.model_dump() for item in plans] == before
 
 
 @pytest.mark.parametrize(("title", "expected"), [

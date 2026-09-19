@@ -20,6 +20,7 @@ async function mockHost(page: Page, existing = false, unavailable = false, withA
   if (project && withAsset) project.characters = [{ id: "test-character", name: "顾言", age: "28", gender: "男", role: "主角", background: "车站工作人员", appearance: "短发，深色外套", description: "寻找末班车的青年" }];
   let metadata: Record<string, unknown> | null = existing ? { project_id: id, revision: 1 } : null;
   const generationRequests: string[] = [], workspaceWrites: ScriptProject[] = [];
+  const imports: Record<string, unknown>[] = [];
   const token = Buffer.from(JSON.stringify({ tenantId: "test-tenant", actorId: "test-author", expiresAt: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url") + ".test-only";
   await page.route("**/api/v1/script-master/**", async route => {
     const url = new URL(route.request().url());
@@ -27,7 +28,10 @@ async function mockHost(page: Page, existing = false, unavailable = false, withA
       expect(url.searchParams.get("projectId")).toBe(id);
       return route.fulfill({ json: { enabled: true, launchUrl: `${url.origin}/script-master?host_project_id=${id}#host_token=${token}`, project: { id, name: title, episodeDurationSeconds: 90 } } });
     }
-    if (url.pathname.endsWith("/imports")) return route.fulfill({ json: { status: "completed", targetProjectId: id, importedEpisodes: 0, updatedEpisodes: 0, importedAssets: 1, updatedAssets: 0, preservedAssets: 0, importedShots: 0, updatedShots: 0 } });
+    if (url.pathname.endsWith("/imports")) {
+      imports.push(route.request().postDataJSON());
+      return route.fulfill({ json: { status: "completed", targetProjectId: id, importedEpisodes: 0, updatedEpisodes: 0, importedAssets: 1, updatedAssets: 0, preservedAssets: 0, importedShots: 0, updatedShots: 0 } });
+    }
     return route.fulfill({ json: [{ id, name: title }] });
   });
   await page.route("**/script-master/api/**", async route => {
@@ -47,13 +51,13 @@ async function mockHost(page: Page, existing = false, unavailable = false, withA
     if (path === "/ontology/nodes" || path.endsWith("/plan-nodes")) return send({ data: [] });
     return send({ detail: "Fixture absent" }, 404);
   });
-  return { workspaceWrites, generationRequests, get project() { return project; } };
+  return { workspaceWrites, generationRequests, imports, get project() { return project; } };
 }
 
 test("host context creates one bound project, preserves title and duration, and returns to its production copy", async ({ page }, testInfo) => {
   const state = await mockHost(page);
   await page.goto(`/script-master?host_project_id=${id}`);
-  await expect(page).toHaveURL(new RegExp(`/projects/${id}/planning$`));
+  await expect(page).toHaveURL(new RegExp(`/projects/${id}/synopsis$`));
   await expect(page.getByRole("region", { name: "网剧制作流程" })).toContainText(title);
   await expect(page.getByRole("link", { name: "新建剧本", exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "剧本项目库", exact: true })).toHaveCount(0);
@@ -109,22 +113,21 @@ async function openEmbeddedHost(page: Page) {
   return frame;
 }
 
-test('embedded creation keeps all four stages inside the host and reports imports without opening tabs', async ({ page, context }, testInfo) => {
+test('embedded creation keeps all five stages inside the host and reports imports without opening tabs', async ({ page, context }, testInfo) => {
   const state = await mockHost(page, true, false, true);
   const frame = await openEmbeddedHost(page);
   const steps = frame.getByRole('navigation', { name: '当前网剧创作步骤' });
-  await steps.getByRole('link', { name: '01 创作设定' }).click();
-  await expect(steps.getByRole('link', { name: '01 创作设定' })).toHaveAttribute('aria-current', 'page');
-  await steps.getByRole('link', { name: '02 全剧规划' }).click();
-  await expect(steps.getByRole('link', { name: '02 全剧规划' })).toHaveAttribute('aria-current', 'page');
-  await steps.getByRole('link', { name: '03 分集正文' }).click();
-  await expect(steps.getByRole('link', { name: '03 分集正文' })).toHaveAttribute('aria-current', 'page');
-  await steps.getByRole('link', { name: '04 分镜' }).click();
-  await expect(steps.getByRole('link', { name: '04 分镜' })).toHaveAttribute('aria-current', 'page');
+  for (const name of ['01 故事梗概', '02 故事总纲', '03 全剧规划', '04 分集正文', '05 分镜']) {
+    await steps.getByRole('link', { name, exact: true }).click();
+    await expect(steps.getByRole('link', { name, exact: true })).toHaveAttribute('aria-current', 'page');
+  }
   await frame.getByRole('button', { name: '同步到制作', exact: true }).click();
   await frame.getByRole('button', { name: '读取分镜与资产', exact: true }).click();
   await frame.getByRole('button', { name: '确认导入所选内容' }).click();
   await expect(page.locator('#status')).toHaveText('制作数据已刷新');
+  expect(state.imports).toHaveLength(1);
+  expect(state.imports[0]).toMatchObject({ contractVersion: 'script_master_delivery.v2', targetProjectId: id, sourceProjectId: id });
+  expect(state.imports[0].idempotencyKey).toMatch(/^sm2:[a-f0-9]{64}$/);
   await frame.getByRole('link', { name: '进入资产设计', exact: true }).click();
   await expect(page.locator('#navigation')).toHaveText('assets');
   await frame.getByRole('link', { name: '查看制作稿', exact: true }).click();
@@ -138,3 +141,36 @@ test('embedded creation keeps all four stages inside the host and reports import
   await assertPageFitsViewport(page, testInfo);
   expect(state.generationRequests).toEqual([]);
 });
+
+for (const saveFails of [false, true]) {
+  test(`embedded synopsis edits keep the bound project and protect failed saves: ${saveFails}`, async ({ page }, testInfo) => {
+    const state = await mockHost(page, true);
+    state.project!.storySynopsis = { text: '旧车站工作人员发现一封来历不明的信。', status: 'draft', version: 1, source: 'user', updatedAt: timestamp };
+    if (saveFails) {
+      await page.route(`**/script-master/api/story-projects/${id}/workspace`, route => route.request().method() === 'PUT'
+        ? route.fulfill({ status: 503, json: { detail: '测试保存失败，请重试。' } })
+        : route.fallback());
+    }
+    const frame = await openEmbeddedHost(page);
+    await frame.getByRole('navigation', { name: '当前网剧创作步骤' }).getByRole('link', { name: '01 故事梗概', exact: true }).click();
+    await frame.getByRole('button', { name: '编辑', exact: true }).click();
+    const editor = frame.getByRole('textbox', { name: '故事梗概正文' });
+    const nextText = '旧车站工作人员发现一封来历不明的信。他沿着信中的线索找到失踪旅客，并在末班车出发前揭开当年的误会。';
+    await editor.fill(nextText);
+    await frame.getByRole('button', { name: '保存修改', exact: true }).click();
+    if (saveFails) {
+      await expect(editor).toHaveValue(nextText);
+      await expect(frame.getByText('梗概未能保存，请保留当前页面并重试。', { exact: true })).toBeVisible();
+      expect(state.project?.storySynopsis?.text).not.toBe(nextText);
+    } else {
+      await expect.poll(() => state.project?.storySynopsis?.text).toBe(nextText);
+      await page.reload();
+      const restored = page.frameLocator('iframe');
+      await restored.getByRole('navigation', { name: '当前网剧创作步骤' }).getByRole('link', { name: '01 故事梗概', exact: true }).click();
+      await expect(restored.locator('.story-synopsis-text')).toContainText(nextText);
+    }
+    expect(state.workspaceWrites.every(project => project.id === id)).toBe(true);
+    expect(state.generationRequests).toEqual([]);
+    await assertPageFitsViewport(page, testInfo);
+  });
+}

@@ -20,13 +20,20 @@ from app.modules.script_engine.author_conflict_models import AuthorConflictAsses
 from app.modules.script_engine.author_conflicts import (
     AuthorConflictResolutionError,
     AuthorConflictReviewRepository,
+    editable_draft_packet,
     make_review,
     resolved_option,
     review_prompt,
 )
+from app.modules.script_engine.author_instructions import effective_modification_instruction
 from app.modules.script_engine.draft_contract import InvalidDraftMasterScriptOutputError
 from app.modules.script_engine.draft_evidence import reconcile_draft_evidence
+from app.modules.script_engine.overseas_identity import normalize_new_overseas_payload
 from app.modules.script_engine.draft_scalar_normalization import normalize_draft_scalar_contracts, normalize_script_tone
+from app.modules.script_engine.scene_heading_metadata import scene_heading_with_known_time
+from app.modules.script_engine.episode_progression import episode_repetition_sources, repetition_message
+from app.modules.script_engine.story_quality_gate import current_story_quality_rejection
+from app.modules.script_engine.setup_payoff_provenance import validate_same_episode_setup_payoff_sources
 
 from app.modules.content_spec.models import ResolvedCreativeContext
 from app.modules.content_spec.market_profile import content_spec_market_contract
@@ -55,6 +62,7 @@ from app.modules.script_engine.llm_adapter import (
     LLMRequestError,
     LLMStructuredOutputError,
     MockLLMAdapter,
+    bind_deepseek_full_episode_stream,
     bind_llm_log_context,
     bind_llm_market,
     deadline_request_error,
@@ -66,6 +74,9 @@ from app.modules.script_engine.creative_deepening import (
     build_deepening_qc_comparison,
 )
 from app.script_delivery_contract import (
+    DRAFT_MODIFICATION_CONTRACT,
+    SCREENPLAY_FIRST_PASS_CONTRACT,
+    SHORT_DRAMA_PACING_CONTRACT,
     DEFAULT_ENDING_MODE,
     EndingMode,
     EPISODE_DIALOGUE_LINE_MAX,
@@ -78,7 +89,9 @@ from app.script_delivery_contract import (
     EPISODE_SCENE_MIN,
     EPISODE_SHOT_UNIT_MAX,
     EPISODE_SHOT_UNIT_MIN,
+    OVERSEAS_DIALOGUE_VOICE_CONTRACT,
     OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT,
+    SCREENPLAY_EXECUTION_ORDER_CONTRACT,
     PARTNER_SCREENPLAY_CONTENT_TEMPLATE_VERSION,
     PARTNER_SCREENPLAY_FORMAT_VERSION,
     ending_mode_requires_hook,
@@ -90,6 +103,7 @@ from app.modules.script_engine.continuity_qc import (
 from app.modules.script_engine.episode_readiness import (
     episode_execution_readiness_issues,
 )
+from app.modules.script_engine.screenplay_acting_guidance import current_screenplay_acting_guidance
 from app.modules.script_engine.episode_quality_review import (
     review_episode_dramatic_evidence,
 )
@@ -127,12 +141,16 @@ from app.modules.script_engine.prompt_retrieval import PromptRetrievalService
 from app.modules.script_engine.revision_planner import RubricRevisionPlanner
 from app.modules.script_engine.repository import GenerationStrategyRepository
 from app.modules.script_engine.script_body_length import (
+    BODY_SCALE_POLICY,
     ScriptBodyLengthGuidance,
+    record_script_body_scale,
     script_body_length_guidance,
+    script_body_scale_prompt,
 )
 from app.modules.script_engine.screenplay_duration import (
     ScreenplayDurationEstimate,
     estimate_screenplay_duration,
+    screenplay_runtime_prompt_guidance,
 )
 from app.modules.script_engine.screenplay_metrics import (
     is_chinese_language,
@@ -193,6 +211,10 @@ class EpisodeExecutionNotReadyError(ValueError):
 
 class CreativeDeepeningDisabledError(ValueError):
     """Raised when the retained capability is disabled for the active runtime."""
+
+
+class _MainlandDialogueAllocationError(ValueError):
+    """An optional body repair changed an already valid dialogue allocation."""
 
 
 # These principles shape the Story Bible and recursive route. Once an approved
@@ -288,10 +310,14 @@ class ScriptGenerationService:
         creative_deepening_service: CreativeDeepeningService | None = None,
         creative_deepening_enabled: bool = False,
         initial_generation_timeout_seconds: float = 900,
+        episode_plan_history_loader: Callable[[str], list[dict[str, object]]] | None = None,
+        episode_plan_workspace_loader: Callable[[str], dict[str, object]] | None = None,
     ) -> None:
         if not math.isfinite(initial_generation_timeout_seconds) or initial_generation_timeout_seconds <= 0:
             raise ValueError("Initial generation timeout must be finite and positive.")
         self._initial_generation_timeout_seconds = initial_generation_timeout_seconds
+        self._episode_plan_history_loader = episode_plan_history_loader
+        self._episode_plan_workspace_loader = episode_plan_workspace_loader
         self._content_spec_repository = content_spec_repository
         self._generation_strategy_repository = generation_strategy_repository
         self._platform_profile_repository = platform_profile_repository
@@ -345,6 +371,50 @@ class ScriptGenerationService:
         if self._conversation_editor_llm_adapter is not None:
             return self._conversation_editor_llm_adapter
         return self._llm_adapter
+
+    def validate_episode_plan_progression(self, payload: ScriptGenerationDraftRequest) -> None:
+        """Recheck persisted roadmaps before spending a screenplay model call.
+
+        Old approved/prepared plans predate newer planning checks. Use the current
+        requested plan and only earlier approved plans from the durable workspace;
+        never silently rewrite an approved story at screenplay execution time.
+        """
+        context = payload.episode_context
+        loader = self._episode_plan_history_loader
+        workspace_loader = getattr(self, "_episode_plan_workspace_loader", None)
+        workspace = workspace_loader(payload.story_project_id) if workspace_loader is not None and payload.story_project_id else {}
+        from app.modules.script_engine.planning_revision import require_request_epoch
+        from app.modules.script_engine.long_story_repository import LongStoryPersistenceConflictError
+        try:
+            require_request_epoch(workspace, payload.planning_revision_epoch, body=True)
+        except LongStoryPersistenceConflictError as exc:
+            raise EpisodeExecutionNotReadyError(str(exc)) from exc
+        if context is None or context.approved_episode_plan is None or not payload.story_project_id:
+            self._validate_setup_payoff_sources(context, None)
+            return
+        self._validate_setup_payoff_sources(context, workspace)
+        if workspace_loader is not None:
+            quality_issue = current_story_quality_rejection(
+                context.episode_number, workspace,
+            )
+            if quality_issue:
+                raise EpisodeExecutionNotReadyError(quality_issue)
+        if loader is None:
+            return
+        duplicates = episode_repetition_sources(
+            context.approved_episode_plan, loader(payload.story_project_id),
+        )
+        if duplicates:
+            raise EpisodeExecutionNotReadyError(repetition_message(context.episode_number, duplicates))
+
+    @staticmethod
+    def _validate_setup_payoff_sources(context, workspace) -> None:
+        from app.modules.script_engine.setup_payoff_provenance import hydrate_persisted_setup_payoff_records
+        hydrate_persisted_setup_payoff_records(context, workspace)
+        try:
+            validate_same_episode_setup_payoff_sources(context, workspace)
+        except ValueError as exc:
+            raise EpisodeExecutionNotReadyError(str(exc)) from exc
 
     def generate_draft(
         self,
@@ -494,6 +564,7 @@ class ScriptGenerationService:
 
         if payload.episode_context is not None:
             self._validate_author_decisions_for_script(payload.episode_context)
+        self.validate_episode_plan_progression(payload)
         ending_mode = (
             payload.episode_context.ending_mode
             if payload.episode_context is not None
@@ -507,10 +578,11 @@ class ScriptGenerationService:
             raise MissingGenerationStrategyError(
                 f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
             )
-        if (
-            payload.episode_context is not None
-            and generation_strategy.model_tier == "fast_executor"
-        ):
+        if generation_strategy.model_tier == "fast_executor":
+            if payload.episode_context is None:
+                raise EpisodeExecutionNotReadyError(
+                    "Fast screenplay execution requires an episode context."
+                )
             readiness_issues = episode_execution_readiness_issues(
                 payload.episode_context.approved_episode_plan
             )
@@ -519,6 +591,18 @@ class ScriptGenerationService:
                     "Fast screenplay execution requires a complete approved episode "
                     "scene blueprint: " + ", ".join(readiness_issues[:20])
                 )
+        if (
+            payload.episode_context is not None
+            and payload.episode_context.memory_recall is not None
+            and payload.episode_context.memory_recall.status.value == "insufficient"
+        ):
+            missing = ", ".join(
+                payload.episode_context.memory_recall.missing_requirements[:10]
+            )
+            raise EpisodeExecutionNotReadyError(
+                "Memory recall is insufficient for episode generation"
+                + (f"; missing requirements: {missing}" if missing else ".")
+            )
 
         knowledge_bundle = None
         knowledge_items: list[StaticKnowledgeItem] = []
@@ -583,6 +667,25 @@ class ScriptGenerationService:
             ),
             strategy=generation_strategy,
         )
+        if payload.episode_context is not None and not episode_execution_readiness_issues(
+            payload.episode_context.approved_episode_plan
+        ):
+            # A complete approved scene contract needs execution, not another
+            # round of generic story planning. Keep selected prompt templates
+            # and knowledge while replacing duplicated generic instructions.
+            selected_instructions = prompt_build_result.prompt_text.partition(
+                "\n\n[structured_context]"
+            )[0]
+            execution_prompt = self._build_compact_episode_recovery_prompt(
+                content_spec=content_spec, payload=payload,
+                target_duration_seconds=effective_target_duration_seconds,
+                recovery=False,
+            )
+            knowledge = prompt_build_result.rendered_variables.get("knowledge_bundle_json")
+            prompt_build_result = prompt_build_result.model_copy(update={
+                "prompt_text": selected_instructions + "\n\n" + execution_prompt
+                + ("\n创作参考：" + knowledge if knowledge else ""),
+            })
         self._emit_progress(progress_callback, "stage", stage="generating")
         initial_model_started_at = time.perf_counter()
 
@@ -700,6 +803,17 @@ class ScriptGenerationService:
             platform_profile_id=content_spec.platform_goal.platform_profile_id,
             target_platform=generation_strategy.target_platform,
         )
+        initial_body_scale_metrics: dict[str, object] = {}
+        if payload.target_script_body_characters is not None and not self._is_mock_output(draft_output):
+            initial_body = LLMGeneratedDraftMasterScript.model_validate(
+                draft_contract.without_metadata(draft_output)
+            )
+            initial_scene_characters = screenplay_scene_character_counts(initial_body)
+            self._record_script_body_metrics(
+                initial_body_scale_metrics, actual_characters=sum(initial_scene_characters),
+                guidance=script_body_length_guidance(payload.target_script_body_characters),
+                scene_characters=initial_scene_characters, expanded=False,
+            )
         if requires_mainland_acceptance and not self._is_mock_output(draft_output):
             previous_model_passes = self._acceptance_model_pass_count(draft_output)
             draft_output = self._run_valid_draft_postprocess_stage(
@@ -878,6 +992,12 @@ class ScriptGenerationService:
             if cancel_event is not None and cancel_event.is_set():
                 raise LLMRequestCancelledError()
         if continuity_qc_report.blocking_issue_count:
+            logger.warning(
+                "Episode continuity rejected episode=%s issues=%s",
+                payload.episode_context.episode_number if payload.episode_context else None,
+                [issue.model_dump(mode="json") for issue in continuity_qc_report.issues
+                 if issue.severity.value == "blocking"],
+            )
             raise BlockingContinuityConflictError(continuity_qc_report)
 
         if not self._is_mock_output(draft_output):
@@ -1099,6 +1219,13 @@ class ScriptGenerationService:
                     strategy=generation_strategy,
                 )
             )
+        if initial_body_scale_metrics:
+            draft_master_script = draft_master_script.model_copy(update={
+                "llm_metadata": {
+                    **initial_body_scale_metrics["_meta"],
+                    **draft_master_script.llm_metadata,
+                },
+            })
         draft_master_script = self._attach_episode_quality_review(
             draft_master_script,
             payload.episode_context,
@@ -1153,6 +1280,14 @@ class ScriptGenerationService:
             if isinstance(episode_execution_context, str)
             else 0
         )
+        postprocess_deferred = bool(
+            draft_master_script.llm_metadata.get("deferred_postprocess_phases")
+            or draft_master_script.llm_metadata.get("postprocess_failure_preserved_valid_draft")
+        )
+        scale_first_pass_eligible = not (
+            draft_master_script.llm_metadata.get("script_body_scale_warning")
+            or draft_master_script.llm_metadata.get("script_body_scale_initial_below_minimum")
+        )
         runtime_metadata = {
             "generation_elapsed_ms": generation_elapsed_ms,
             "initial_model_elapsed_ms": initial_model_elapsed_ms,
@@ -1203,9 +1338,13 @@ class ScriptGenerationService:
             # end-to-end first-pass signal. A draft that needed JSON/length
             # repair or an editor retry is not a first-pass success, even if
             # the final artifact is ultimately usable.
-            "first_model_pass_accepted": not model_repair_phases,
+            "first_model_pass_accepted": (
+                not model_repair_phases and not postprocess_deferred and scale_first_pass_eligible
+            ),
             "first_pass_accepted": (
                 not model_repair_phases
+                and not postprocess_deferred
+                and scale_first_pass_eligible
                 and script_editor_pass_count == 0
                 and not script_editor_deferred
                 and not defer_agent_finalization
@@ -1264,6 +1403,7 @@ class ScriptGenerationService:
         self,
         source_run: ScriptGenerationDraftRun,
         *,
+        planning_revision_epoch: int = 0,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
         script_editor_checkpoint: ScriptPostEditCheckpoint | None = None,
         script_editor_checkpoint_callback: (
@@ -1484,6 +1624,14 @@ class ScriptGenerationService:
         source_metadata = source_draft.llm_metadata
         prior_model_pass_count = source_metadata.get("model_pass_count", 0)
         prior_generation_elapsed_ms = source_metadata.get("generation_elapsed_ms", 0)
+        first_model_pass_accepted = bool(
+            source_metadata.get("first_model_pass_accepted", True)
+        ) and not (
+            source_metadata.get("deferred_postprocess_phases")
+            or source_metadata.get("postprocess_failure_preserved_valid_draft")
+            or source_metadata.get("script_body_scale_warning")
+            or source_metadata.get("script_body_scale_initial_below_minimum")
+        )
         runtime_metadata = {
             "generation_elapsed_ms": (
                 prior_generation_elapsed_ms
@@ -1509,12 +1657,8 @@ class ScriptGenerationService:
             "script_editor_pass_count": script_editor_pass_count,
             "overseas_dialogue_pair_repair_count": dialogue_pair_repair_count,
             "script_editor_deferred": script_editor_deferred,
-            "first_model_pass_accepted": bool(
-                source_metadata.get("first_model_pass_accepted", True)
-            ),
-            "first_pass_accepted": bool(
-                source_metadata.get("first_model_pass_accepted", True)
-            )
+            "first_model_pass_accepted": first_model_pass_accepted,
+            "first_pass_accepted": first_model_pass_accepted
             and script_editor_pass_count == 0
             and dialogue_pair_repair_count == 0
             and not script_editor_deferred,
@@ -1540,6 +1684,7 @@ class ScriptGenerationService:
         self._emit_progress(progress_callback, "stage", stage="quality_checking")
         finalized = self.review_draft(
             ScriptDraftReviewRequest(
+                planning_revision_epoch=planning_revision_epoch,
                 source_generation_run=staged_run,
                 draft_master_script=draft_master_script,
             )
@@ -1581,8 +1726,26 @@ class ScriptGenerationService:
         )
         return finalized
 
+    def _validate_draft_edit_source(self, payload) -> None:
+        source = payload.source_generation_run
+        loader = getattr(self, "_episode_plan_workspace_loader", None)
+        if loader is None or not source.story_project_id:
+            if payload.planning_revision_epoch:
+                raise EpisodeExecutionNotReadyError("Cannot validate the current planning revision source.")
+            return
+        workspace = loader(source.story_project_id)
+        from app.modules.script_engine.produced_plan_amendment import require_amendment_body_operation
+        from app.modules.script_engine.long_story_repository import LongStoryPersistenceConflictError
+        context = source.episode_context
+        try:
+            require_amendment_body_operation(workspace, context.episode_number if context else 0,
+                                             payload.planning_revision_epoch, context)
+        except LongStoryPersistenceConflictError as exc:
+            raise EpisodeExecutionNotReadyError(str(exc)) from exc
+
     def review_draft(self, payload: ScriptDraftReviewRequest) -> ScriptGenerationDraftRun:
         """Re-run deterministic QC/planning after a creator edits an episode draft."""
+        self._validate_draft_edit_source(payload)
         source_run = payload.source_generation_run
         draft = self._attach_episode_quality_review(
             payload.draft_master_script,
@@ -1620,11 +1783,50 @@ class ScriptGenerationService:
         draft: DraftMasterScript,
         episode_context: EpisodeGenerationContext | None,
     ) -> DraftMasterScript:
+        if episode_context:
+            from app.modules.script_engine.setup_payoff_identity import restore_legacy_setup_payoff_sources
+            draft = restore_legacy_setup_payoff_sources(draft, [
+                *episode_context.planned_setup_refs, *episode_context.planned_payoff_refs,
+            ])
         review = review_episode_dramatic_evidence(
             draft,
             episode_context.approved_episode_plan if episode_context else None,
         )
         metadata = dict(draft.llm_metadata)
+        # Count repairs and optional edits happen after initial acceptance.
+        # Report the current body, retaining the history of those earlier passes.
+        scene_characters = screenplay_scene_character_counts(draft)
+        duration = estimate_screenplay_duration(draft)
+        metadata.update({
+            "script_body_characters": sum(scene_characters),
+            "script_body_scene_characters": scene_characters,
+            "estimated_duration_seconds": duration.total_seconds,
+            "estimated_dialogue_seconds": duration.dialogue_seconds,
+            "estimated_visual_seconds": duration.visual_seconds,
+            "episode_scene_count": len(draft.scenes),
+            "episode_dialogue_line_count": sum(len(scene.dialogues) for scene in draft.scenes),
+            "episode_shot_unit_count": sum(len(scene.character_actions) for scene in draft.scenes),
+        })
+        reference = metadata.get("script_body_reference_characters")
+        if (
+            metadata.get("script_body_scale_policy") == BODY_SCALE_POLICY
+            and isinstance(reference, int) and not isinstance(reference, bool) and reference > 0
+        ):
+            guidance = script_body_length_guidance(reference)
+            metadata.update({
+                "script_body_preferred_min_characters": guidance.preferred_min_characters,
+                "script_body_preferred_max_characters": guidance.preferred_max_characters,
+            })
+            record_script_body_scale(
+                metadata, actual_characters=sum(scene_characters), guidance=guidance,
+            )
+            if metadata["script_body_scale_warning"]:
+                review["status"] = "review_required"
+                review["review_reasons"].append("script_body_below_preferred_minimum")
+        window = metadata.get("duration_window_seconds")
+        if (isinstance(window, list) and len(window) == 2
+                and all(isinstance(value, (int, float)) for value in window)):
+            metadata["duration_warning"] = not window[0] <= duration.total_seconds <= window[1]
         metadata["episode_quality_review"] = review
         return draft.model_copy(update={"llm_metadata": metadata})
 
@@ -1634,7 +1836,20 @@ class ScriptGenerationService:
         payload: ScriptDraftModificationRequest,
     ) -> ScriptDraftModificationResult:
         """Generate one user-directed candidate without overwriting the source draft."""
+        self._validate_draft_edit_source(payload)
         source_run = payload.source_generation_run
+        if (
+            source_run.episode_context is not None
+            and source_run.episode_context.memory_recall is not None
+            and source_run.episode_context.memory_recall.status.value == "insufficient"
+        ):
+            missing = ", ".join(
+                source_run.episode_context.memory_recall.missing_requirements[:10]
+            )
+            raise EpisodeExecutionNotReadyError(
+                "Memory recall is insufficient for episode modification"
+                + (f"; missing requirements: {missing}" if missing else ".")
+            )
         source_draft = payload.source_draft_master_script
         generation_strategy = self._validate_source_run(source_run, source_draft)
         content_spec = self._content_spec_repository.get(source_run.content_spec_id)
@@ -1651,21 +1866,34 @@ class ScriptGenerationService:
             )
 
         option = resolved_option(payload, self._author_conflict_repository)
+        rewrite_scope = (
+            payload.resolution.review.rewrite_scope if payload.resolution is not None
+            else "preserve_unaffected_text"
+        )
         if option is not None and option.kind != "bridge":
             raise AuthorConflictResolutionError("该方案涉及上游设定，请确认建立修订版本后在新版规划中处理。")
         if option is None:
             adapter = self._author_conflict_llm_adapter or self._conversation_editor_adapter()
+            assessment_schema = AuthorConflictAssessment.model_json_schema()
+            # Persisted reviews may omit this field; every new model assessment
+            # must make the scope explicit instead of silently taking the default.
+            assessment_schema["required"] = list(dict.fromkeys([
+                *assessment_schema.get("required", []), "rewrite_scope",
+            ]))
             with bind_llm_log_context(stage="script_modification.author_conflict_review"):
                 assessment_output = adapter.generate_structured_output(
                     review_prompt(payload),
                     strategy=generation_strategy.model_copy(update={"max_tokens": 6_000}),
-                    output_schema=AuthorConflictAssessment.model_json_schema(),
+                    output_schema=assessment_schema,
                 )
             try:
+                if "rewrite_scope" not in assessment_output:
+                    raise ValueError("The model must state the requested rewrite scope.")
                 assessment = AuthorConflictAssessment.model_validate({
                     key: value for key, value in assessment_output.items() if key != "_meta"
                 })
                 review = make_review(payload, assessment)
+                rewrite_scope = assessment.rewrite_scope
             except (ValueError, TypeError, AttributeError) as exc:
                 raise InvalidDraftMasterScriptOutputError("修改影响审阅尚未形成可核对结果，请重新检查。") from exc
             if review.conflicts:
@@ -1735,11 +1963,48 @@ class ScriptGenerationService:
                 knowledge_items=knowledge_items,
                 episode_context=source_run.episode_context,
                 source_draft_master_script=source_draft,
-                modification_instruction=payload.instruction,
+                modification_instruction=effective_modification_instruction(payload),
                 selection_context=payload.selection_context,
             ),
             strategy=generation_strategy,
         )
+        if (
+            payload.selection_context is None
+            and source_run.episode_context is not None
+            and not episode_execution_readiness_issues(source_run.episode_context.approved_episode_plan)
+        ):
+            execution_request = ScriptGenerationDraftRequest(
+                content_spec_id=source_run.content_spec_id,
+                generation_strategy_id=source_run.generation_strategy_id,
+                story_project_id=source_run.story_project_id,
+                output_language=source_draft.language,
+                release_region=source_run.release_region,
+                desired_scene_count=len(source_draft.scenes),
+                resolved_creative_context=source_run.resolved_creative_context,
+                episode_context=source_run.episode_context,
+            )
+            selected_instructions = prompt_build_result.prompt_text.partition("\n\n[structured_context]")[0]
+            execution_prompt = self._build_compact_episode_recovery_prompt(
+                content_spec=content_spec,
+                payload=execution_request,
+                target_duration_seconds=source_draft.target_duration_seconds,
+                recovery=False,
+            )
+            knowledge = prompt_build_result.rendered_variables.get("knowledge_bundle_json")
+            editable_source_context = (
+                "\n本次范围：按批准场景完整重新执行本集。旧正文及其派生账本不作为写作来源；"
+                "仅由批准场景和此前集数的记忆确定事实。保持人物声音，重新写出自然、可拍的动作与对白。"
+                if rewrite_scope == "reexecute_approved_plan"
+                else "\nSourceDraftMasterScript (editable current episode): "
+                + json.dumps(editable_draft_packet(source_draft), ensure_ascii=False, separators=(",", ":"))
+            )
+            prompt_build_result = prompt_build_result.model_copy(update={
+                "prompt_text": selected_instructions + "\n\n" + execution_prompt
+                + ("\n创作参考：" + knowledge if knowledge else "")
+                + "\nUserDirectedModificationContract: " + DRAFT_MODIFICATION_CONTRACT
+                + editable_source_context
+                + "\nUserModificationInstruction: " + effective_modification_instruction(payload),
+            })
         if option is not None:
             prompt_build_result = prompt_build_result.model_copy(update={
                 "prompt_text": prompt_build_result.prompt_text + (
@@ -1756,11 +2021,25 @@ class ScriptGenerationService:
         modification_strategy = self._with_full_draft_repair_output_budget(
             generation_strategy
         )
-        with bind_llm_log_context(stage="script_modification.full_episode"):
+        logger.warning("Script modification scope=%s episode=%s prompt_chars=%s", rewrite_scope,
+                    source_run.episode_context.episode_number if source_run.episode_context else None,
+                    len(prompt_build_result.prompt_text))
+        with bind_llm_log_context(stage="script_modification.full_episode"), bind_deepseek_full_episode_stream():
             raw_output = self._conversation_editor_adapter().generate_structured_output(
                 prompt_build_result.prompt_text,
                 strategy=modification_strategy,
-                output_schema=LLMGeneratedDraftMasterScript.model_json_schema(),
+                output_schema=self._initial_draft_output_schema(),
+            )
+        # Reuse deterministic normalization and one bounded field repair, while
+        # keeping the completed candidate body out of full-episode regeneration.
+        if not self._is_mock_output(raw_output):
+            raw_output = self._ensure_valid_draft_contract(
+                output=raw_output,
+                strategy=generation_strategy,
+                original_prompt=prompt_build_result.prompt_text,
+                ending_mode=(source_run.episode_context.ending_mode
+                             if source_run.episode_context else DEFAULT_ENDING_MODE),
+                patch_only=True,
             )
         candidate = self._build_draft_master_script(
             content_spec=content_spec,
@@ -1769,6 +2048,7 @@ class ScriptGenerationService:
             retrieval_result=source_run.retrieval_result,
             llm_raw_output=raw_output,
             output_language=source_draft.language,
+            episode_context=source_run.episode_context,
             selected_prompt_versions=[
                 prompt.version for prompt in source_run.prompt_retrieval_result.prompts
             ],
@@ -1829,6 +2109,7 @@ class ScriptGenerationService:
         )
         candidate_run = self.review_draft(
             ScriptDraftReviewRequest(
+                planning_revision_epoch=payload.planning_revision_epoch,
                 source_generation_run=candidate_run,
                 draft_master_script=candidate,
             )
@@ -2006,6 +2287,7 @@ class ScriptGenerationService:
         try:
             return self.review_draft(
                 ScriptDraftReviewRequest(
+                    planning_revision_epoch=payload.planning_revision_epoch,
                     source_generation_run=candidate_run,
                     draft_master_script=candidate,
                 )
@@ -2034,7 +2316,7 @@ class ScriptGenerationService:
                 source_run.episode_context,
                 model_context_tokens=self._llm_adapter.get_model_info().max_context_tokens,
             )
-        return targeted_revision.build_targeted_modification_prompt(
+        prompt = targeted_revision.build_targeted_modification_prompt(
             payload=payload,
             source_run=source_run,
             source_draft=source_draft,
@@ -2045,6 +2327,13 @@ class ScriptGenerationService:
             knowledge_items=knowledge_items,
             episode_context=episode_context,
         )
+        if source_run.release_region == ScriptReleaseRegion.overseas:
+            prompt += (
+                "\n\n" + OVERSEAS_DIALOGUE_VOICE_CONTRACT
+                + "\nApply this language contract to the selected text and its Chinese counterpart only. "
+                "Keep the targeted response schema; use the existing full-episode handoff when other fields must change."
+            )
+        return self._with_short_drama_pacing(prompt)
 
     _targeted_modification_path = staticmethod(targeted_revision.targeted_modification_path)
     _unwrap_targeted_patch_response = staticmethod(targeted_revision.unwrap_targeted_patch_response)
@@ -2144,6 +2433,54 @@ class ScriptGenerationService:
         source_run: ScriptGenerationDraftRun,
         draft: DraftMasterScript,
     ) -> GenerationStrategy:
+        context = source_run.episode_context
+        if context is not None:
+            loader = getattr(self, "_episode_plan_workspace_loader", None)
+            workspace = loader(source_run.story_project_id) if loader and source_run.story_project_id else None
+            self._validate_setup_payoff_sources(context, workspace)
+            # A saved draft may be reviewed after its ledger projection has
+            # advanced to the same or a later episode. The original context had this exact
+            # source in its pre-save ledger, but serialized recovery contexts
+            # intentionally omit private provenance.  Rehydrate only an exact
+            # source named by the draft, preserving the conservative rule that
+            # an unrelated current-episode record cannot self-authorize.
+            if workspace and context.episode_number and draft.setup_payoff_updates:
+                from app.modules.script_engine.setup_payoff_provenance import stable_setup_payoff_id
+                known = {
+                    str(item.get("source_ref", "")).strip()
+                    for item in context._persisted_setup_payoff_records
+                    if str(item.get("source_ref", "")).strip()
+                }
+                draft_refs = {
+                    str(update.source_ref or update.setup_payoff_ref).strip()
+                    for update in draft.setup_payoff_updates
+                    if str(update.source_ref or update.setup_payoff_ref).strip()
+                }
+                for record in workspace.get("setupPayoffs", []):
+                    if not isinstance(record, dict):
+                        continue
+                    reference = str(record.get("ref", "")).strip()
+                    if (not reference or reference in known or reference not in draft_refs
+                            or type(record.get("setupEpisode")) is not int
+                            or not 0 < record["setupEpisode"] < context.episode_number
+                            or type(record.get("lastUpdatedEpisode")) is not int
+                            or record["lastUpdatedEpisode"] < context.episode_number):
+                        continue
+                    historical = [entry for entry in record.get("history", [])
+                                  if isinstance(entry, dict)
+                                  and type(entry.get("episodeNumber")) is int
+                                  and record["setupEpisode"] <= entry["episodeNumber"] < context.episode_number]
+                    # A later projection cannot lend future knowledge to an
+                    # earlier edit. Require an actual earlier server history
+                    # entry and recover identity only, not the later status.
+                    if record["lastUpdatedEpisode"] > context.episode_number and not historical:
+                        continue
+                    context._persisted_setup_payoff_records.append({
+                        "setup_payoff_id": stable_setup_payoff_id(reference),
+                        "source_ref": reference,
+                        "setup_episode": record["setupEpisode"],
+                        "status": record.get("status") if record["lastUpdatedEpisode"] == context.episode_number else None,
+                    })
         if draft.content_spec_id != source_run.content_spec_id:
             raise InvalidDraftMasterScriptOutputError(
                 "Draft content_spec_id does not match the source generation run."
@@ -2278,24 +2615,29 @@ class ScriptGenerationService:
         extra_variables = {
             "content_spec_json": json.dumps(
                 content_spec_payload,
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "creative_brief_json": json.dumps(
                 content_spec.creative_brief.model_dump(mode="json"),
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "platform_profile_json": json.dumps(
                 platform_profile_payload,
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "market_profile_contract": content_spec_market_contract(content_spec).prompt_contract,
             "retrieved_assets_json": json.dumps(
                 retrieved_assets,
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "generation_strategy_json": json.dumps(
                 generation_strategy_payload,
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "output_language": output_language,
             "ending_mode_contract": (
@@ -2350,7 +2692,8 @@ class ScriptGenerationService:
                         rule.summary for rule in platform_profile.community_guidelines
                     ],
                 },
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
             "output_json_schema": output_schema,
         }
@@ -2361,7 +2704,8 @@ class ScriptGenerationService:
         if resolved_creative_context is not None:
             extra_variables["resolved_creative_context_json"] = json.dumps(
                 resolved_creative_context.model_dump(mode="json"),
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
         if knowledge_bundle is not None:
             extra_variables["knowledge_bundle_json"] = json.dumps(
@@ -2381,7 +2725,8 @@ class ScriptGenerationService:
                         for item in knowledge_items
                     ],
                 },
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
         if episode_context is not None:
             episode_context_payload = self._episode_execution_context_payload(
@@ -2390,21 +2735,26 @@ class ScriptGenerationService:
                     self._llm_adapter.get_model_info().max_context_tokens
                 ),
             )
+            if episode_context._persisted_setup_payoff_records:
+                episode_context_payload["persisted_setup_payoff_identities"] = episode_context._persisted_setup_payoff_records
             extra_variables["episode_context_json"] = json.dumps(
                 episode_context_payload,
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
         if source_draft_master_script is not None:
             extra_variables["source_draft_master_script_json"] = json.dumps(
-                source_draft_master_script.model_dump(mode="json"),
-                ensure_ascii=True,
+                editable_draft_packet(source_draft_master_script),
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
         if modification_instruction is not None:
             extra_variables["user_modification_instruction"] = modification_instruction
         if selection_context is not None:
             extra_variables["document_selection_context_json"] = json.dumps(
                 selection_context.model_dump(mode="json"),
-                ensure_ascii=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
         return PromptBuildContext(
             content_spec_id=content_spec.id,
@@ -2470,6 +2820,10 @@ class ScriptGenerationService:
         """Compile the stored episode context into one bounded writing packet."""
 
         payload = episode_context.model_dump(mode="json", exclude_none=True)
+        if isinstance(payload.get("episode_instruction"), str):
+            payload["episode_instruction"] = current_screenplay_acting_guidance(
+                payload["episode_instruction"]
+            )
         decisions = payload.get("creative_decisions")
         if isinstance(decisions, list):
             open_statuses = {"unresolved", "delegated", "proposed", "conflicted"}
@@ -2481,14 +2835,11 @@ class ScriptGenerationService:
                 item for item in reversed(decisions)
                 if isinstance(item, dict) and item not in prioritized
             )
-            compact_decisions: list[dict[str, object]] = []
-            for item in prioritized[:30]:
-                compact_item = dict(item)
-                value = compact_item.get("value")
-                if isinstance(value, str):
-                    compact_item["value"] = value[:600]
-                compact_decisions.append(compact_item)
-            payload["creative_decisions"] = compact_decisions
+            # The request has already selected/bounded these decisions. Cutting
+            # a value mid-sentence or dropping its oldest entries silently loses
+            # author prohibitions, open choices and permissions. Compact JSON
+            # formatting, not the meaning of an authoritative decision.
+            payload["creative_decisions"] = prioritized
         supporting_context_scale = min(
             1.0,
             max(0.35, model_context_tokens / 128_000),
@@ -2497,7 +2848,6 @@ class ScriptGenerationService:
             ("previous_episode_summary", 1_200),
             ("module_handoff", 3_000),
             ("long_range_anchor", 1_800),
-            ("story_bible_context", 2_200),
             ("reference_material_context", 1_800),
             ("project_continuity_summary", 2_400),
         ):
@@ -2507,8 +2857,9 @@ class ScriptGenerationService:
                 payload[field_name] = value[:scaled_limit]
 
         payload.pop("planned_story_beat", None)
-        if str(payload.get("previous_episode_handoff") or "").strip():
-            payload.pop("previous_episode_summary", None)
+        # A handoff and a saved synopsis are complementary projections. An
+        # author may have corrected a non-final-scene fact in the synopsis;
+        # the presence of a handoff does not establish semantic duplication.
         if str(payload.get("story_bible_context") or "").strip():
             payload.pop("long_range_anchor", None)
         if payload.get("approved_story_node") is not None:
@@ -2560,6 +2911,38 @@ class ScriptGenerationService:
                         "through_episode_number": checkpoint["through_episode_number"],
                         "characters": knowledge_index,
                     }
+                # Retrieval can omit non-character facts to meet its prose
+                # budget. Preserve the checkpoint's precise state/constraint
+                # whenever no selected capsule actually contains that content.
+                # This remains bounded by the existing 7k checkpoint contract
+                # and only admits evidence at the same prior-episode boundary.
+                world_states = checkpoint.get("world_states")
+                missing_world_states = []
+                for state in world_states if isinstance(world_states, list) else []:
+                    if not isinstance(state, dict) or not state.get("entity_key"):
+                        continue
+                    evidence_episode = state.get("evidence_episode_number")
+                    if isinstance(evidence_episode, int) and evidence_episode > checkpoint["through_episode_number"]:
+                        continue
+                    facts = [state.get(key) for key in (
+                        "current_state", "future_constraint", "change_cause",
+                    ) if isinstance(state.get(key), str) and state.get(key)]
+                    if not facts:
+                        continue
+                    covered = any(
+                        isinstance(capsule, dict)
+                        and state["entity_key"] in capsule.get("entity_refs", [])
+                        and all(fact in str(capsule.get("summary") or "") for fact in facts)
+                        for capsule in memory_recall.get("capsules", [])
+                    )
+                    if not covered:
+                        missing_world_states.append(state)
+                if missing_world_states:
+                    payload["continuity_world_state_index"] = {
+                        "memory_layer": "provisional",
+                        "through_episode_number": checkpoint["through_episode_number"],
+                        "world_states": missing_world_states,
+                    }
         elif continuity_checkpoint:
             payload["continuity_checkpoint"] = cls._decode_json_context(
                 continuity_checkpoint
@@ -2596,7 +2979,21 @@ class ScriptGenerationService:
                     key_events.append(value)
                 if len(key_events) >= 8:
                     break
-            if key_events:
+            # Source-event allocation is also used for segment coverage auditing.
+            # With a reviewed scene blueprint, that allocation must not introduce
+            # a second, conflicting execution order (or reveal later facts early).
+            # Keep the original references on the stored plan; the prompt executes
+            # its explicit scene actions and handoffs. Legacy plans still need the
+            # source events when they have no scene blueprint.
+            blueprint = approved_plan.get("scene_execution_plan")
+            has_complete_blueprint = (
+                isinstance(blueprint, list)
+                and bool(blueprint)
+                and len(blueprint) == approved_plan.get("planned_scene_count")
+                and all(isinstance(scene, dict) and scene.get("visible_action")
+                        and scene.get("exit_state") for scene in blueprint)
+            )
+            if key_events and not has_complete_blueprint:
                 approved_plan["key_events"] = key_events
             cls._drop_empty_context_values(approved_plan)
 
@@ -2632,13 +3029,11 @@ class ScriptGenerationService:
         content_spec,
         payload: ScriptGenerationDraftRequest,
         target_duration_seconds: int,
+        recovery: bool = True,
     ) -> str:
-        """Build a bounded screenplay packet after reasoning-only exhaustion.
+        """Compile approved scenes and memory into a single writing packet.
 
-        The normal prompt remains authoritative for the first attempt. This
-        packet removes duplicated platform and knowledge prose while retaining
-        the approved episode plan, scene blueprint, continuity checkpoint,
-        character identities, hook duty, and three-layer contract.
+        Used for ready episode execution and bounded recovery of legacy inputs.
         """
 
         assert payload.episode_context is not None
@@ -2670,6 +3065,15 @@ class ScriptGenerationService:
                 "dialogue.chinese_character_name和dialogue.chinese_translation填写null。"
             )
         )
+        spoken_seconds = max(1, target_duration_seconds - 1.5 * payload.desired_scene_count)
+        chinese_dialogue = (
+            self._is_chinese_language(payload.output_language)
+            and payload.release_region != ScriptReleaseRegion.overseas
+        )
+        body_guidance = (
+            script_body_length_guidance(payload.target_script_body_characters)
+            if payload.target_script_body_characters is not None else None
+        )
         recovery_packet = {
             "project": {
                 "title": content_spec.title,
@@ -2679,11 +3083,17 @@ class ScriptGenerationService:
                 "pacing": content_spec.creative_brief.pacing,
                 "target_emotion": content_spec.creative_brief.target_emotion,
             },
+            "creative_brief": content_spec.creative_brief.model_dump(mode="json"),
+            # The complete delivery/language contract appears once above the
+            # packet. The market profile repeats it for other call sites.
+            "market_contract": content_spec_market_contract(content_spec).prompt_contract.replace(
+                OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT, ""
+            ).strip(),
             "episode_execution": execution_context,
             "ending_mode": ending_mode.value,
             "characters": character_contexts,
             "delivery": {
-                "language_contract": language_contract,
+                "language_contract": "遵守上方执行要求第6项的语言与人物身份合同。",
                 "target_duration_seconds": target_duration_seconds,
                 "scene_count": payload.desired_scene_count,
                 "dialogue_line_range": [
@@ -2695,6 +3105,20 @@ class ScriptGenerationService:
                     EPISODE_SHOT_UNIT_MAX,
                 ],
                 "body_character_reference": payload.target_script_body_characters,
+                "body_character_preferred_range": (
+                    [body_guidance.preferred_min_characters, body_guidance.preferred_max_characters]
+                    if body_guidance else None
+                ),
+                "production_count_fields": {
+                    "dialogue_line_range": "sum(len(scene.dialogues) for scene in scenes)",
+                    "shot_unit_range": "sum(len(scene.character_actions) for scene in scenes)",
+                    "scope": "整集合计，不是逐场配额；这些是正文动作单元，分镜另行生成。",
+                },
+                "spoken_text_reference": {
+                    "unit": "中文有效字" if chinese_dialogue else "英文单词",
+                    "quantity": round(spoken_seconds * (4.2 if chinese_dialogue else 2.7)),
+                    "is_hard_quota": False,
+                },
                 "screenplay_format": PARTNER_SCREENPLAY_FORMAT_VERSION,
                 "content_template": PARTNER_SCREENPLAY_CONTENT_TEMPLATE_VERSION,
                 "required_scene_content": [
@@ -2704,8 +3128,12 @@ class ScriptGenerationService:
                 ],
             },
         }
-        return f"""你是序幕TV剧本大师的单集正文 Agent。上一轮 DeepSeek high 推理已耗尽输出预算，
-但批准路线图和连续性检查点都没有变化。不要重新规划故事，只执行下面这一份紧凑写作包。
+        context_reason = (
+            "上一轮请求未完成，使用同一份批准路线图和连续性检查点恢复。"
+            if recovery else "分集场次已经审核，当前任务是将其写成可拍摄正文。"
+        )
+        return f"""你是序幕TV剧本大师的单集正文 Agent。{context_reason}
+不要重新规划故事，只执行下面这一份紧凑写作包。
 
 先在内部核对场景职责和因果顺序，然后立即输出最终 JSON。必须为最终 JSON 预留至少
 8000 tokens，不得把输出预算全部用于推理。按供应方提供的 JSON schema 返回一个完整根对象，
@@ -2714,14 +3142,22 @@ class ScriptGenerationService:
 执行要求：
 1. approved_episode_plan、scene_execution_plan、layer_contracts和continuity_checkpoint是硬合同。
 2. 沿用批准的单集节奏和场景职责，让行动与后果因果连贯，并呈现具体的信息、人物理解、情绪或期待变化；允许有价值的安静段落，不强制反转、不可逆变化或固定循环；{ending_instruction}
-3. 每场按body_order自然交错可拍动作与对白；不得写镜头语言、心理活动或小说叙述。
+3. 每场按body_order自然交错可拍动作与对白；不得写镜头语言、心理活动或小说叙述。{SCREENPLAY_EXECUTION_ORDER_CONTRACT}
 4. 全集场景1–5个、对白25–35条、镜头执行单元15–20个、成片75–115秒。
 5. characters和所有状态更新必须来自写作包中的人物与已确认事实；状态更新保持简短并标注场次证据。
 6. {language_contract}
 7. 先保证完整、可解析、可拍，再在既定场景内提高语言和动作质量，不得增加支线。
+8. characters.acting_profile沿用已有的字符串键值对象；没有结构化档案时为null，不得填成一段文字、数组或嵌套对象。角色长期特征不能因本集场面被重设。
+9. spoken_text_reference是整集对白的口播篇幅参考，不是逐句配额；给停顿、反应和场间转换留出时间。body_character_reference同时包含动作与对白，不得将全部正文字数写成对白，也不靠重复手势补字数。
+10. {script_body_scale_prompt(body_guidance) if body_guidance else '动作写清实际阻力、人物回应和可见后果，不把真实因果过程压成摘要，不添戏凑数。'}
+11. 收尾通过当下的行动或对白兑现上一集留下的问题，并把已发生的回应、对应集数和证据场次写入continuation_hook.previous_hook_response、responds_to_episode和response_evidence_scene_numbers；continuation_hook必须是schema规定的对象，不能只写一段悬念。尚未兑现的内容不能登记成已完成，未解问题可以继续悬置，但“尚未核验”等信息边界不等于人物需要反复把后台规则说出口。
+
+{screenplay_runtime_prompt_guidance(target_duration_seconds=target_duration_seconds, scene_count=payload.desired_scene_count, chinese_dialogue=chinese_dialogue)}
 
 紧凑写作包：
 {json.dumps(recovery_packet, ensure_ascii=False, separators=(',', ':'))}
+
+{SCREENPLAY_FIRST_PASS_CONTRACT}
 """
 
     @staticmethod
@@ -2755,6 +3191,7 @@ class ScriptGenerationService:
                 "status",
                 "required_refs",
                 "missing_requirements",
+                "same_episode_setup_payoffs",
             )
             if key in value and value[key] not in (None, "", [], {})
         }
@@ -2776,6 +3213,14 @@ class ScriptGenerationService:
                         "authority",
                         "mandatory",
                         "conflict_note",
+                        "life_status",
+                        "physical_state",
+                        "location",
+                        "health_conditions",
+                        "action_capabilities",
+                        "lasting_marks",
+                        "belief_or_attitude",
+                        "personality_development",
                         "knowledge_states",
                         "active_constraints",
                     )
@@ -2840,6 +3285,11 @@ class ScriptGenerationService:
         ending_mode: EndingMode = DEFAULT_ENDING_MODE,
         episode_context: EpisodeGenerationContext | None = None,
     ) -> DraftMasterScript:
+        if not content_spec_market_contract(content_spec).is_mainland:
+            llm_raw_output = normalize_new_overseas_payload(
+                llm_raw_output,
+                episode_context.canonical_character_names if episode_context else None,
+            )
         llm_metadata = (
             llm_raw_output.get("_meta", {})
             if isinstance(llm_raw_output.get("_meta"), dict)
@@ -3019,6 +3469,11 @@ class ScriptGenerationService:
         try:
             llm_script = LLMGeneratedDraftMasterScript.model_validate(validation_payload)
         except Exception as exc:
+            if isinstance(exc, ValidationError):
+                logger.warning("Draft schema rejected issues=%s", json.dumps([
+                    {"path": list(item["loc"]), "type": item["type"], "message": item["msg"]}
+                    for item in exc.errors(include_url=False, include_context=False, include_input=False)[:24]
+                ], ensure_ascii=False))
             raise InvalidDraftMasterScriptOutputError(
                 "Real LLM output did not validate as DraftMasterScript."
             ) from exc
@@ -3579,6 +4034,30 @@ class ScriptGenerationService:
             guidance
             and actual_characters < guidance.truncation_floor_characters
         )
+        body_scale_issue = bool(
+            guidance and actual_characters < guidance.preferred_min_characters
+        )
+        # Keep the original measurements even when an optional repair fails
+        # and recovery preserves this valid draft.
+        if guidance is not None:
+            self._record_script_body_metrics(
+                output,
+                actual_characters=actual_characters,
+                guidance=guidance,
+                scene_characters=scene_characters,
+                expanded=False,
+            )
+        self._record_duration_metrics(
+            output,
+            estimate=duration_estimate,
+            enriched=False,
+            warning=duration_issue,
+        )
+        # Rechecking after continuity is allowed, but scale alone gets only the
+        # existing bounded acceptance attempt, never another length-only pass.
+        scale_repair_needed = body_scale_issue and not output.get("_meta", {}).get(
+            "script_body_scale_repair_attempted"
+        )
         self._emit_progress(
             progress_callback,
             "stage",
@@ -3593,35 +4072,26 @@ class ScriptGenerationService:
             dialogue_count=dialogue_count,
             shot_count=shot_count,
             production_count_issue=production_count_issue,
+            body_scale_issue=body_scale_issue,
         )
         if (
             not language_issues
             and not screenplay_issues
-            and not appears_truncated
+            and not scale_repair_needed
             and not duration_issue
         ):
             self._record_mainland_acceptance_warnings(
                 output,
                 language_issues=language_warnings,
             )
+            if guidance is not None:
+                record_script_body_scale(
+                    output["_meta"], actual_characters=actual_characters, guidance=guidance,
+                )
             self._record_screenplay_style_metrics(
                 output,
                 repaired=False,
                 issue_count=0,
-            )
-            if guidance is not None:
-                self._record_script_body_metrics(
-                    output,
-                    actual_characters=actual_characters,
-                    guidance=guidance,
-                    scene_characters=scene_characters,
-                    expanded=False,
-                )
-            self._record_duration_metrics(
-                output,
-                estimate=duration_estimate,
-                enriched=False,
-                warning=False,
             )
             return output
 
@@ -3632,13 +4102,17 @@ class ScriptGenerationService:
             language_issue_count=len(language_issues),
             screenplay_issue_count=len(screenplay_issues),
             appears_truncated=appears_truncated,
+            body_scale_issue=body_scale_issue,
             duration_issue=duration_issue,
             dialogue_count=dialogue_count,
             shot_count=shot_count,
             production_count_issue=production_count_issue,
         )
         acceptance_model_passes = 1
+        if body_scale_issue:
+            output["_meta"]["script_body_scale_repair_attempted"] = True
         body_only_repair = not language_issues
+        preserve_dialogue_counts = not production_count_issue and not appears_truncated
         if body_only_repair:
             try:
                 raw_patch = self._generate_postprocess_output(
@@ -3679,6 +4153,13 @@ class ScriptGenerationService:
                 repaired = self._apply_mainland_body_repair_patch(
                     output,
                     repair_patch,
+                    preserve_dialogue_counts=preserve_dialogue_counts,
+                )
+            except _MainlandDialogueAllocationError as error:
+                return self._preserve_valid_draft_after_postprocess_failure(
+                    output,
+                    phase="acceptance_repair",
+                    error=error,
                 )
             except (ValidationError, ValueError) as error:
                 logger.warning(
@@ -3776,6 +4257,10 @@ class ScriptGenerationService:
                     draft_contract.without_metadata(repaired)
                 )
             except ValidationError as fallback_error:
+                if body_scale_issue:
+                    return self._preserve_valid_draft_after_postprocess_failure(
+                        output, phase="acceptance_contract_fallback", error=fallback_error,
+                    )
                 raise InvalidDraftMasterScriptOutputError(
                     "The bounded mainland acceptance fallback did not return a "
                     "complete DraftMasterScript. Invalid fields: "
@@ -3791,11 +4276,16 @@ class ScriptGenerationService:
         )
         remaining_screenplay_issues = draft_screenplay_style_issues(repaired_output)
         if blocking_language_issues:
-            raise InvalidDraftMasterScriptOutputError(
+            error = InvalidDraftMasterScriptOutputError(
                 "The performable episode body still violates the mainland language "
                 "contract after one combined repair. Invalid fields: "
                 + ", ".join(blocking_language_issues[:12])
             )
+            if body_scale_issue:
+                return self._preserve_valid_draft_after_postprocess_failure(
+                    output, phase="acceptance_repair", error=error,
+                )
+            raise error
         repaired_scene_characters = self._script_body_scene_character_counts(repaired_output)
         repaired_characters = sum(repaired_scene_characters)
         repaired_duration = estimate_screenplay_duration(repaired_output)
@@ -3804,6 +4294,24 @@ class ScriptGenerationService:
             repaired_dialogue_count,
             repaired_shot_count,
         ) = self._episode_production_counts(repaired_output)
+        if body_scale_issue and (
+            (not production_count_issue and not self._episode_production_counts_are_valid(
+                repaired_dialogue_count, repaired_shot_count,
+            ))
+            or (
+                MAINLAND_DURATION_TARGET_MIN_SECONDS <= duration_estimate.total_seconds
+                <= MAINLAND_DURATION_TARGET_MAX_SECONDS
+                and not MAINLAND_DURATION_TARGET_MIN_SECONDS <= repaired_duration.total_seconds
+                <= MAINLAND_DURATION_TARGET_MAX_SECONDS
+            )
+        ):
+            return self._preserve_valid_draft_after_postprocess_failure(
+                output, phase="acceptance_repair",
+                error=InvalidDraftMasterScriptOutputError(
+                    "正文规模修复破坏了原稿已满足的对白/动作数量或75–115秒时长；"
+                    "保留原稿及真实规模缺口。"
+                ),
+            )
         duration_hard_drift = bool(
             target_duration_seconds is not None
             and not MAINLAND_DURATION_TARGET_MIN_SECONDS
@@ -3818,6 +4326,7 @@ class ScriptGenerationService:
             screenplay_issues
             and not language_issues
             and not appears_truncated
+            and not body_scale_issue
             and not duration_issue
         ):
             if draft_contract.body_lock_signature(
@@ -3827,16 +4336,21 @@ class ScriptGenerationService:
                     "The combined screenplay repair changed protected story or dialogue fields."
                 )
         if (
-            (appears_truncated or duration_issue or production_count_issue)
+            (body_scale_issue or duration_issue or production_count_issue)
             and not language_issues
             and not screenplay_issues
         ):
             if draft_contract.body_lock_signature(
                 repaired_output
             ) != draft_contract.body_lock_signature(validated):
-                raise InvalidDraftMasterScriptOutputError(
+                error = InvalidDraftMasterScriptOutputError(
                     "The combined completion repair changed protected story or scene fields."
                 )
+                if body_scale_issue:
+                    return self._preserve_valid_draft_after_postprocess_failure(
+                        output, phase="acceptance_repair", error=error,
+                    )
+                raise error
 
         draft_contract.merge_output_metadata(source=output, target=repaired)
         metadata = repaired.get("_meta")
@@ -3846,6 +4360,7 @@ class ScriptGenerationService:
                 *( ["language"] if language_issues else [] ),
                 *( ["screenplay_style"] if screenplay_issues else [] ),
                 *( ["truncation"] if appears_truncated else [] ),
+                *( ["body_scale"] if body_scale_issue else [] ),
                 *( ["duration"] if duration_issue else [] ),
                 *( ["production_counts"] if production_count_issue else [] ),
             ]
@@ -3917,7 +4432,7 @@ class ScriptGenerationService:
                 actual_characters=repaired_characters,
                 guidance=guidance,
                 scene_characters=repaired_scene_characters,
-                expanded=appears_truncated,
+                expanded=body_scale_issue and repaired_characters > actual_characters,
             )
         self._record_duration_metrics(
             repaired,
@@ -3980,12 +4495,25 @@ class ScriptGenerationService:
             if not isinstance(scene, dict):
                 continue
             setting = scene.get("setting")
-            if isinstance(setting, str) and setting.strip():
-                normalized_setting = ScriptGenerationService._client_scene_heading(setting)
-                if normalized_setting != setting:
-                    scene["setting"] = normalized_setting
-                    setting = normalized_setting
-                    normalized_paths.append(f"scenes.{index}.setting")
+            heading = scene.get("scene_heading")
+            has_heading = isinstance(heading, str) and bool(heading.strip())
+            heading_value = heading if has_heading else setting
+            if isinstance(heading_value, str) and heading_value.strip():
+                manifest = scene.get("content_manifest")
+                time_of_day = manifest.get("time_of_day") if isinstance(manifest, dict) else None
+                if not isinstance(time_of_day, str):
+                    time_of_day = None
+                normalized_heading = ScriptGenerationService._client_scene_heading(
+                    scene_heading_with_known_time(heading_value, time_of_day)
+                )
+                # `setting` can contain descriptive prose and props. A formal
+                # heading already exists: do not classify that prose again or
+                # invent a default daytime in a separate alias.
+                heading_key = "scene_heading" if has_heading else "setting"
+                if normalized_heading != heading_value:
+                    scene[heading_key] = normalized_heading
+                    normalized_paths.append(f"scenes.{index}.{heading_key}")
+                setting = normalized_heading
             slug = scene.get("slug")
             if not isinstance(slug, str) or not mainland_text_violates_language_contract(slug):
                 continue
@@ -4025,11 +4553,11 @@ class ScriptGenerationService:
                 flags=re.IGNORECASE,
             )
         time_match = re.search(
-            r"夜晚|白天|日间|黄昏|傍晚|黎明|清晨|早晨|上午|中午|下午|深夜|瞬间|日|夜",
+            r"(?:^|[，,。·、 /-])(夜间|夜晚|白天|日间|黄昏|傍晚|黎明|清晨|早晨|上午|中午|下午|深夜|瞬间|日|夜)(?=$|[，,。·、 /（(-])",
             normalized,
         )
-        raw_time = time_match.group(0) if time_match else "日"
-        time_value = "夜" if raw_time == "夜晚" else "日" if raw_time in {"白天", "日间"} else raw_time
+        raw_time = time_match.group(1) if time_match else "日"
+        time_value = "夜" if raw_time in {"夜晚", "夜间"} else "日" if raw_time in {"白天", "日间"} else raw_time
         transition_match = re.search(
             r"MOMENTS LATER|CONTINUOUS|LATER|SAME TIME|连续|稍后|片刻后|同时",
             normalized,
@@ -4050,8 +4578,8 @@ class ScriptGenerationService:
             r"街|路|公路|停车场|公园|广场|庭院|屋顶|荒漠|沙漠|森林|树林|山|"
             r"码头|海滩|河岸|车站|机场|货场|田野|门外|入口外"
         )
-        explicit_exterior = bool(re.search(r"(?:^|[，, /-])(?:室外|外景|外)(?:$|[，, /-])", normalized))
-        explicit_interior = bool(re.search(r"(?:^|[，, /-])(?:室内|内景|内)(?:$|[，, /-])", normalized))
+        explicit_exterior = bool(re.search(r"(?:^|[，,·、 /-])(?:室外|外景|外)(?:$|[，,·、 /-])", normalized))
+        explicit_interior = bool(re.search(r"(?:^|[，,·、 /-])(?:室内|内景|内)(?:$|[，,·、 /-])", normalized))
         prefix = (
             "EXT."
             if explicit_exterior
@@ -4067,23 +4595,25 @@ class ScriptGenerationService:
             flags=re.IGNORECASE,
         )
         location = re.sub(
-            r"(?:^|[，, /-])(?:室内|室外|内景|外景|内|外)(?=$|[，, /-])",
+            r"(?:^|[，,·、 /-])(?:室内|室外|内景|外景|内|外)(?=$|[，,·、 /-])",
             " ",
             location,
         )
         location = re.sub(
-            r"夜晚|白天|日间|黄昏|傍晚|黎明|清晨|早晨|上午|中午|下午|深夜|瞬间|日|夜",
+            r"(?:^|[，,。·、 /-])(夜间|夜晚|白天|日间|黄昏|傍晚|黎明|清晨|早晨|上午|中午|下午|深夜|瞬间|日|夜)(?=$|[，,。·、 /（(-])",
             " ",
             location,
             count=1,
         )
-        location = re.sub(r"[，, /]+", " ", location).strip("-–— ") or "未指定地点"
+        location = re.sub(r"[，,·、 /]+", " ", location).strip("-–— ") or "未指定地点"
         return f"{prefix} {location} {time_value}{flashback}{f' - {transition}' if transition else ''}"
 
     @staticmethod
     def _apply_mainland_body_repair_patch(
         output: dict[str, object],
         repair_patch: LLMMainlandBodyRepairPatch,
+        *,
+        preserve_dialogue_counts: bool = False,
     ) -> dict[str, object]:
         repaired = deepcopy(output)
         raw_scenes = repaired.get("scenes")
@@ -4106,6 +4636,15 @@ class ScriptGenerationService:
             )
         for patch_scene in repair_patch.scenes:
             target = scenes_by_number[patch_scene.scene_number]
+            if preserve_dialogue_counts:
+                original_count = len(target["dialogues"])
+                repaired_count = len(patch_scene.dialogues)
+                if repaired_count != original_count:
+                    raise _MainlandDialogueAllocationError(
+                        "Body repair changed protected dialogue allocation: "
+                        f"scene {patch_scene.scene_number}, "
+                        f"{original_count} -> {repaired_count}."
+                    )
             target["character_actions"] = list(patch_scene.character_actions)
             target["body_order"] = list(patch_scene.body_order)
             target["dialogues"] = [
@@ -4165,7 +4704,7 @@ class ScriptGenerationService:
             raise InvalidDraftMasterScriptOutputError(
                 "The bounded continuity repair did not return a valid local patch."
             ) from error
-        repaired = self._apply_continuity_repair_patch(output, repair_patch)
+        repaired = self._apply_continuity_repair_patch(output, repair_patch, report=report)
         draft_contract.merge_output_metadata(source=patch_payload, target=repaired)
         metadata = repaired.get("_meta")
         if isinstance(metadata, dict):
@@ -4183,6 +4722,8 @@ class ScriptGenerationService:
     def _apply_continuity_repair_patch(
         output: dict[str, object],
         repair_patch: LLMContinuityRepairPatch,
+        *,
+        report: ContinuityQCReport | None = None,
     ) -> dict[str, object]:
         repaired = draft_contract.without_metadata(output)
         raw_scenes = repaired.get("scenes")
@@ -4224,6 +4765,43 @@ class ScriptGenerationService:
                     item.model_dump(mode="json")
                     for item in patch_items
                 ]
+                if report is not None:
+                    # A local repair must not erase unrelated, already checked
+                    # ledger entries merely because the model returned a subset.
+                    # Preserve replacement/deletion inside the actual repair
+                    # scope: implicated entities or scenes whose bodies changed.
+                    fields_by_type = {
+                        "character_state_updates": ("character_name",),
+                        "relationship_state_updates": ("source_character_name", "target_character_name"),
+                        "continuity_state_updates": ("entity_key", "state_domain"),
+                        "story_line_updates": ("story_line_id",),
+                        "setup_payoff_updates": ("setup_payoff_ref",),
+                    }
+                    keys = fields_by_type[field_name]
+                    def identity(item):
+                        values = tuple(str(item.get(key, "")).strip().casefold() for key in keys)
+                        return tuple(sorted(values)) if field_name == "relationship_state_updates" else values
+                    present = {identity(item) for item in repaired[field_name]}
+                    affected_entities = {
+                        value.strip().casefold()
+                        for issue in report.issues if issue.severity.value == "blocking"
+                        for value in (issue.entity_key, issue.entity_name) if value
+                    }
+                    for original in output.get(field_name, []):
+                        if not isinstance(original, dict) or identity(original) in present:
+                            continue
+                        entity_values = {str(original.get(key, "")).strip().casefold()
+                                         for key in keys if key != "state_domain"}
+                        if field_name == "setup_payoff_updates":
+                            # Normalization hashes an authored source into the
+                            # technical ref. QC reports the source itself; a
+                            # repair that corrects it must remove that old row.
+                            entity_values.add(str(original.get("source_ref") or "").strip().casefold())
+                        if entity_values.intersection(affected_entities):
+                            continue
+                        if set(original.get("evidence_scene_numbers", [])).intersection(replacements):
+                            continue
+                        repaired[field_name].append(deepcopy(original))
         if repair_patch.continuation_hook is not None:
             repaired["continuation_hook"] = (
                 repair_patch.continuation_hook.model_dump(mode="json")
@@ -4302,6 +4880,7 @@ class ScriptGenerationService:
         original_prompt: str | None = None,
         ending_mode: EndingMode | str | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
+        patch_only: bool = False,
     ) -> dict[str, object]:
         self._emit_progress(progress_callback, "stage", stage="validating_structure")
         resolved_ending_mode = self._coerce_ending_mode(ending_mode)
@@ -4364,6 +4943,32 @@ class ScriptGenerationService:
             second_error = first_error
 
             if draft_contract.should_attempt_contract_patch(normalized_payload):
+                order_context = draft_contract.missing_body_order_repair_context(
+                    normalized_payload, first_error
+                )
+                repair_prompt = (
+                    draft_contract.build_body_order_repair_prompt(order_context)
+                    if order_context is not None
+                    else self._build_draft_contract_repair_prompt(
+                        output=normalized_payload,
+                        validation_error=first_error,
+                        repair_fields=repair_fields,
+                    )
+                )
+                if order_context is None and "scenes" in repair_fields:
+                    repair_prompt = self._with_short_drama_pacing(repair_prompt)
+                if patch_only:
+                    repair_prompt += (
+                        "\nThis is a field-only repair of a completed modification candidate. "
+                        "Every scene, action, dialogue and body_order reference must remain "
+                        "exactly unchanged. Correct only the reported fields; do not rewrite "
+                        "the screenplay or replace it with a complete episode."
+                    )
+                repair_schema = (
+                    draft_contract.build_body_order_repair_schema(order_context)
+                    if order_context is not None
+                    else draft_contract.build_contract_repair_schema(repair_fields)
+                )
                 self._emit_progress(
                     progress_callback,
                     "stage",
@@ -4372,15 +4977,9 @@ class ScriptGenerationService:
                 model_pass_count += 1
                 try:
                     raw_repair = self._repair_llm_adapter.generate_structured_output_stream(
-                        self._build_draft_contract_repair_prompt(
-                            output=normalized_payload,
-                            validation_error=first_error,
-                            repair_fields=repair_fields,
-                        ),
+                        repair_prompt,
                         strategy=self._with_repair_output_budget(strategy),
-                        output_schema=draft_contract.build_contract_repair_schema(
-                            repair_fields
-                        ),
+                        output_schema=repair_schema,
                         on_delta=lambda delta, reset: self._emit_progress(
                             progress_callback,
                             "draft_delta",
@@ -4390,6 +4989,11 @@ class ScriptGenerationService:
                         ),
                     )
                 except LLMStructuredOutputError as error:
+                    if patch_only:
+                        raise InvalidDraftMasterScriptOutputError(
+                            "Modification contract patch was not valid JSON; "
+                            "no full-episode fallback was attempted."
+                        ) from error
                     if self._structured_output_error_is_transient(error):
                         raise LLMRequestError(
                             "正文结构修复响应为空或被截断；可从当前集重新尝试。",
@@ -4403,6 +5007,13 @@ class ScriptGenerationService:
                         len(error.raw_content or ""),
                     )
                 else:
+                    if patch_only and set(draft_contract.without_metadata(
+                        draft_contract.unwrap_response_envelope(raw_repair)
+                    )) != set(repair_fields):
+                        raise InvalidDraftMasterScriptOutputError(
+                            "Modification contract patch must contain exactly the "
+                            "failed root fields; no full-episode fallback was attempted."
+                        )
                     repair_metadata = raw_repair.get("_meta")
                     if isinstance(repair_metadata, dict):
                         adapter_pass_count = repair_metadata.get(
@@ -4410,15 +5021,25 @@ class ScriptGenerationService:
                         )
                         if isinstance(adapter_pass_count, int) and adapter_pass_count > 1:
                             model_pass_count += adapter_pass_count - 1
-                    repair_fragment = self._normalize_draft_fragment_contract(
-                        draft_contract.unwrap_response_envelope(raw_repair),
-                        ending_mode=resolved_ending_mode,
-                    )
-                    recovered = draft_contract.merge_contract_repair_fragment(
-                        normalized_output,
-                        repair_fragment,
-                    )
-                    candidate = recovered if recovered is not None else repair_fragment
+                    if order_context is not None:
+                        repair_fragment = draft_contract.unwrap_response_envelope(raw_repair)
+                        recovered = draft_contract.merge_body_order_repair_fragment(
+                            normalized_output, repair_fragment, order_context
+                        )
+                        # A rejected order patch cannot become a scene replacement.
+                        # Revalidate the unchanged source to enter the same bounded
+                        # fallback used by every failed contract patch.
+                        candidate = recovered if recovered is not None else normalized_output
+                    else:
+                        repair_fragment = self._normalize_draft_fragment_contract(
+                            draft_contract.unwrap_response_envelope(raw_repair),
+                            ending_mode=resolved_ending_mode,
+                        )
+                        recovered = draft_contract.merge_contract_repair_fragment(
+                            normalized_output,
+                            repair_fragment,
+                        )
+                        candidate = recovered if recovered is not None else repair_fragment
                     candidate = self._normalize_mechanical_draft_contract(
                         candidate,
                         ending_mode=resolved_ending_mode,
@@ -4427,16 +5048,34 @@ class ScriptGenerationService:
                         candidate,
                         resolved_ending_mode,
                     )
+                    if patch_only and not self._contract_patch_preserves_unrequested_content(
+                        normalized_output, candidate, repair_fields=repair_fields,
+                    ):
+                        raise InvalidDraftMasterScriptOutputError(
+                            "Modification contract patch changed the screenplay or an "
+                            "unrequested field; no full-episode fallback was attempted."
+                        )
                     try:
                         LLMGeneratedDraftMasterScript.model_validate(
                             draft_contract.without_metadata(candidate)
                         )
                         fragment_merged = recovered is not None
+                        if order_context is not None:
+                            metadata = candidate.setdefault("_meta", {})
+                            if isinstance(metadata, dict):
+                                metadata["draft_contract_body_order_repaired"] = True
                     except ValidationError as error:
                         second_error = error
                         candidate = None
 
             if candidate is None:
+                if patch_only:
+                    raise InvalidDraftMasterScriptOutputError(
+                        "Modification output did not validate after bounded field-only "
+                        "structure repair; no full-episode fallback was attempted. "
+                        "Invalid paths: "
+                        + ", ".join(draft_contract.validation_error_paths(second_error))
+                    ) from second_error
                 logger.warning(
                     "Draft contract requires full-root fallback elapsed_ms=%d "
                     "initial_shape=%s requested_fields=%s remaining_errors=%s",
@@ -4580,7 +5219,30 @@ class ScriptGenerationService:
                 metadata["draft_contract_repaired"] = True
                 metadata["draft_contract_model_pass_count"] = model_pass_count
                 metadata["draft_contract_initial_payload_shape"] = initial_shape
+                if patch_only:
+                    metadata["draft_contract_patch_only"] = True
             return candidate
+
+    @staticmethod
+    def _contract_patch_preserves_unrequested_content(
+        source: dict[str, object],
+        candidate: dict[str, object],
+        *,
+        repair_fields: list[str],
+    ) -> bool:
+        """Keep completed modification bodies immutable during ledger repair."""
+        original = draft_contract.without_metadata(source)
+        repaired = draft_contract.without_metadata(candidate)
+        if (set(original) ^ set(repaired)) - set(repair_fields):
+            return False
+        # Scenes stay frozen even if a scene validation error selected that root.
+        # Field repair does not authorize a body/order rewrite to repair metadata.
+        frozen_fields = ((set(original) | set(repaired)) - set(repair_fields)) | {"scenes"}
+        return all(
+            json.dumps(original.get(field), ensure_ascii=False, sort_keys=True)
+            == json.dumps(repaired.get(field), ensure_ascii=False, sort_keys=True)
+            for field in frozen_fields
+        )
 
     @classmethod
     def _normalize_mechanical_draft_contract(
@@ -4650,7 +5312,7 @@ class ScriptGenerationService:
     ) -> dict[str, object]:
         """Normalize a repair patch without assuming its last scene is the episode end."""
         normalized = deepcopy(output)
-        cls._normalize_draft_scalar_contracts(normalized, ending_mode=ending_mode)
+        cls._normalize_draft_scalar_contracts(normalized, ending_mode=ending_mode, partial=True)
         return normalized
 
     _normalize_draft_scalar_contracts = staticmethod(normalize_draft_scalar_contracts)
@@ -5030,6 +5692,9 @@ class ScriptGenerationService:
                 "script_body_expanded": expanded,
             }
         )
+        record_script_body_scale(
+            metadata, actual_characters=actual_characters, guidance=guidance, record_initial=True,
+        )
 
     @staticmethod
     def _record_duration_metrics(
@@ -5094,6 +5759,12 @@ class ScriptGenerationService:
         if callback is not None:
             callback(event_type, payload)
 
+    @staticmethod
+    def _with_short_drama_pacing(prompt: str) -> str:
+        if SHORT_DRAMA_PACING_CONTRACT in prompt:
+            return prompt
+        return prompt + "\n\n" + SHORT_DRAMA_PACING_CONTRACT
+
     def _generate_postprocess_output(
         self,
         *,
@@ -5107,7 +5778,7 @@ class ScriptGenerationService:
     ) -> dict[str, object]:
         return draft_recovery.generate_postprocess_output(
             adapter=adapter,
-            prompt=prompt,
+            prompt=self._with_short_drama_pacing(prompt),
             strategy=strategy,
             output_schema=output_schema,
             phase=phase,
@@ -5454,6 +6125,9 @@ class ScriptGenerationService:
         )
         check_deadline()
         model_pass_count += 1
+        use_compact_recovery = bool(compact_recovery_prompt) and (
+            reasoning_length_exhausted or last_request_error is not None
+        )
         try:
             if cancel_event is not None and cancel_event.is_set():
                 raise LLMRequestCancelledError()
@@ -5463,7 +6137,7 @@ class ScriptGenerationService:
             fallback = self._initial_fallback_llm_adapter.generate_structured_output(
                 (
                     compact_recovery_prompt
-                    if reasoning_length_exhausted and compact_recovery_prompt
+                    if use_compact_recovery
                     else self._build_initial_draft_regeneration_fallback_prompt(
                         prompt=prompt
                     )
@@ -5541,7 +6215,7 @@ class ScriptGenerationService:
                         metadata["initial_generation_failure_diagnostics"] = (
                             failure_diagnostics
                         )
-                        if reasoning_length_exhausted and compact_recovery_prompt:
+                        if use_compact_recovery:
                             metadata["initial_generation_compact_recovery_used"] = True
                     return repaired_fallback
             raise InvalidDraftMasterScriptOutputError(
@@ -5577,7 +6251,7 @@ class ScriptGenerationService:
             metadata["initial_generation_retried"] = primary_attempt_count > 1
             metadata["initial_generation_fallback_used"] = True
             metadata["initial_generation_failure_diagnostics"] = failure_diagnostics
-            if reasoning_length_exhausted and compact_recovery_prompt:
+            if use_compact_recovery:
                 metadata["initial_generation_compact_recovery_used"] = True
         preview = draft_contract.without_metadata(fallback)
         self._emit_progress(
@@ -5632,18 +6306,18 @@ class ScriptGenerationService:
             return schema
         preferred_order = (
             "title",
+            "language",
+            "target_duration_seconds",
+            "ending_mode",
+            "scenes",
             "logline",
             "synopsis",
             "hook",
+            "episode_goal",
+            "characters",
             "target_audience",
             "target_platform",
-            "language",
             "tone",
-            "episode_goal",
-            "target_duration_seconds",
-            "ending_mode",
-            "characters",
-            "scenes",
             "character_state_updates",
             "relationship_state_updates",
             "continuity_state_updates",
@@ -5664,6 +6338,35 @@ class ScriptGenerationService:
                 if field_name not in schema["properties"]
             }
         )
+        schema["description"] = (
+            "Write scenes first from the approved scene plan and prior memory. The approved plan already "
+            "supplies the story; do not invent another version in synopsis, hook or state ledgers and then "
+            "make the body follow it. After the body is complete, derive synopsis, hook and state updates "
+            "only from the actions and dialogue actually written. Keep unestablished facts unresolved."
+        )
+        # Apply that same body-first order inside each scene. In particular,
+        # body_order must reference completed action/dialogue arrays, and the
+        # original spoken line must precede its translation/performance note.
+        for definition_name, order in (
+            ("LLMGeneratedSceneCard", (
+                "scene_number", "scene_heading", "character_refs", "character_actions",
+                "dialogues", "body_order", "slug", "setting", "purpose", "beat_summary",
+                "emotional_shift", "emotional_objective", "turning_point", "scene_causality",
+                "cliffhanger", "content_manifest",
+            )),
+            ("DialogueLine", (
+                "character_name", "text", "chinese_character_name", "chinese_translation", "intent",
+            )),
+        ):
+            definition = schema.get("$defs", {}).get(definition_name)
+            if not isinstance(definition, dict) or not isinstance(definition.get("properties"), dict):
+                continue
+            original = definition["properties"]
+            ordered = [name for name in order if name in original]
+            ordered.extend(name for name in original if name not in ordered)
+            definition["properties"] = {name: original[name] for name in ordered}
+            if isinstance(definition.get("required"), list):
+                definition["required"] = [name for name in ordered if name in definition["required"]]
         required = schema.get("required")
         if isinstance(required, list):
             schema["required"] = [
@@ -5746,7 +6449,9 @@ introduction, or commentary."""
 
     @staticmethod
     def _build_malformed_json_repair_prompt(*, raw_content: str) -> str:
-        return f"""Repair the malformed model response below into one complete JSON object matching
+        return f"""{SHORT_DRAMA_PACING_CONTRACT}
+
+Repair the malformed model response below into one complete JSON object matching
 the separately supplied JSON schema. Preserve every usable story event, scene action, dialogue,
 character fact, character state update, causal link, and ending from the response. Remove Markdown
 fences, reasoning, introductions, and trailing commentary. If the response was cut off, complete only
@@ -5821,11 +6526,13 @@ Return one complete JSON object only."""
             output.language
         )
         pacing_rule = (
-            "中文对白不要全部压成2至5字口号；在25至35句台词内，整体通常需要约"
+            "中文对白允许短促攻防、打断、反击和强情绪表达；不能删去必要交锋和因果，"
+            "也不能靠无效碎句凑数。在25至35句台词内，整体通常需要约"
             "300至450个可说中文字符，并配合每个镜头内可见的动作、反应、停顿和后果。"
             if language_is_chinese
             else (
-                "英文对白不要全部压成单词式短句；在25至35句台词内，整体通常需要约"
+                "英文对白允许短促攻防、打断、反击和强情绪表达；不能删去必要交锋和因果，"
+                "也不能靠无效碎句凑数。在25至35句台词内，整体通常需要约"
                 "210至300个自然口语词，并配合每个镜头内可见的动作、反应、停顿和后果。"
             )
         )
@@ -5976,6 +6683,7 @@ Return one JSON merge-patch object only. Do not use Markdown fences or explanato
             "Use the approved story direction and episode facts present in the previous "
             "response. Do not invent a different plot."
         )
+        source_prompt = ScriptGenerationService._with_short_drama_pacing(source_prompt)
         return f"""{source_prompt}
 
 FULL DRAFT CONTRACT FALLBACK
@@ -6025,11 +6733,14 @@ Return exactly one complete JSON object matching the authoritative response sche
                 "只把下列动作改成镜头和声音可直接呈现的简洁动作单元："
                 + "、".join(screenplay_issues[:20])
             )
-        if guidance and actual_characters < guidance.truncation_floor_characters:
+        if guidance and actual_characters < guidance.preferred_min_characters:
             tasks.append(
-                f"当前有效正文约 {actual_characters} 字，低于明显截断线 "
-                f"{guidance.truncation_floor_characters} 字；补全已规划场景中缺失的行动、"
-                "反应、对白交锋和结果，不新增剧情事件，不为凑字重复。"
+                f"当前有效正文 {actual_characters} 字，低于规模下沿 "
+                f"{guidance.preferred_min_characters} 字，缺口 "
+                f"{guidance.preferred_min_characters - actual_characters} 字。"
+                "在本次合并修复中找出被摘要带过的既有行动、阻力、人物回应或可见后果，"
+                "只展开有实际因果作用的过程；不新增剧情事件、不重复事实或手势。"
+                "若全部已充分呈现，保留可用正文和真实缺口，不能用填充或虚报计数伪装达标。"
             )
         if (
             duration_issue
@@ -6047,7 +6758,7 @@ Return exactly one complete JSON object matching the authoritative response sche
         ):
             tasks.append(
                 f"预计成片约 {duration_estimate.total_seconds} 秒，超过115秒；保留全部剧情节点和"
-                f"尾钩，压缩重复动作、解释性台词和无推进停顿，使成片接近{target_duration}秒。"
+                f"尾钩，精简重复动作、每轮台词措辞和无推进停顿，使成片接近{target_duration}秒。"
             )
         tasks.append(
             ScriptGenerationService._build_mainland_production_count_task(
@@ -6056,10 +6767,24 @@ Return exactly one complete JSON object matching the authoritative response sche
                 shot_count=shot_count,
             )
         )
+        if (
+            ScriptGenerationService._episode_production_counts_are_valid(
+                dialogue_count, shot_count
+            )
+            and not (guidance and actual_characters < guidance.truncation_floor_characters)
+        ):
+            tasks.append(
+                ScriptGenerationService._build_mainland_dialogue_allocation_task(output)
+            )
+        if duration_issue or (guidance and actual_characters < guidance.preferred_min_characters):
+            tasks.append(screenplay_runtime_prompt_guidance(
+                target_duration_seconds=target_duration,
+                scene_count=scene_count,
+                chinese_dialogue=True,
+            ))
         task_text = "\n".join(f"{index}. {task}" for index, task in enumerate(tasks, 1))
         range_text = (
-            f"宽松参考范围为 {guidance.preferred_min_characters}-"
-            f"{guidance.preferred_max_characters} 字。"
+            script_body_scale_prompt(guidance)
             if guidance
             else ""
         )
@@ -6069,7 +6794,7 @@ Return exactly one complete JSON object matching the authoritative response sche
 {task_text}
 
 保持人物身份、既定事实、剧情职责、场景数量、场景编号、因果顺序、关键选择、信息揭示、
-结尾悬念作用和所有技术枚举不变。只修正被指出的表达，并在明显截断时补足原场景内已经隐含的
+结尾悬念作用和所有技术枚举不变。只修正被指出的表达，并在正文未达下沿或明显截断时补足原场景内已经隐含的
 可拍摄戏剧行动。动作必须可见或可听；对白必须可直接表演。不得写小说叙述、作者解释、规划说明，
 不得新增人物、场景、支线、反转或设定。{range_text} 当前各场正文量为 {scene_characters}，不按场均分。
 
@@ -6102,11 +6827,15 @@ Return exactly one complete JSON object matching the authoritative response sche
                 "把下列动作改成镜头和声音可直接呈现的简洁动作单元："
                 + "、".join(screenplay_issues[:20])
             )
-        if guidance and actual_characters < guidance.truncation_floor_characters:
+        if guidance and actual_characters < guidance.preferred_min_characters:
             tasks.append(
-                f"正文约 {actual_characters} 字，低于明显截断线 "
-                f"{guidance.truncation_floor_characters} 字；补全原场景内缺失的行动、反应、"
-                "对白交锋和结果，不新增剧情事件，不重复凑字；补丁必须覆盖全部原有场景。"
+                f"当前有效正文 {actual_characters} 字，低于规模下沿 "
+                f"{guidance.preferred_min_characters} 字，缺口 "
+                f"{guidance.preferred_min_characters - actual_characters} 字。"
+                "在本次合并修复中找出被摘要带过的既有行动、阻力、人物回应或可见后果，"
+                "只展开有实际因果作用的过程；不新增剧情事件、不重复事实或手势。"
+                "若全部已充分呈现，保留可用正文和真实缺口，不能用填充或虚报计数伪装达标；"
+                "补丁必须覆盖全部原有场景。"
             )
         if (
             duration_issue
@@ -6124,7 +6853,7 @@ Return exactly one complete JSON object matching the authoritative response sche
         ):
             tasks.append(
                 f"当前预计成片约 {duration_estimate.total_seconds} 秒，超过115秒。保持全部剧情"
-                f"节点和结尾钩子，删除重复动作、解释性台词和无推进停顿，使预计时长接近{target_duration}秒。"
+                f"节点和结尾钩子，精简重复动作、每轮台词措辞和无推进停顿，使预计时长接近{target_duration}秒。"
             )
         tasks.append(
             ScriptGenerationService._build_mainland_production_count_task(
@@ -6133,6 +6862,21 @@ Return exactly one complete JSON object matching the authoritative response sche
                 shot_count=shot_count,
             )
         )
+        if (
+            ScriptGenerationService._episode_production_counts_are_valid(
+                dialogue_count, shot_count
+            )
+            and not (guidance and actual_characters < guidance.truncation_floor_characters)
+        ):
+            tasks.append(
+                ScriptGenerationService._build_mainland_dialogue_allocation_task(output)
+            )
+        if duration_issue or (guidance and actual_characters < guidance.preferred_min_characters):
+            tasks.append(screenplay_runtime_prompt_guidance(
+                target_duration_seconds=target_duration,
+                scene_count=scene_count,
+                chinese_dialogue=True,
+            ))
         task_text = "\n".join(
             f"{index}. {task}" for index, task in enumerate(tasks, 1)
         )
@@ -6152,8 +6896,7 @@ Return exactly one complete JSON object matching the authoritative response sche
             for scene in output.scenes
         ]
         range_text = (
-            f"宽松参考范围为 {guidance.preferred_min_characters}-"
-            f"{guidance.preferred_max_characters} 字。"
+            script_body_scale_prompt(guidance)
             if guidance
             else ""
         )
@@ -6176,6 +6919,21 @@ Return exactly one complete JSON object matching the authoritative response sche
 body_order使用action:0、dialogue:0这类零基引用，必须按真实表演顺序把本场每个动作和对白
 各引用且只引用一次，让动作与对白自然交错；
 不要返回标题、人物、状态账本、梗概或其他顶层字段。"""
+
+    @staticmethod
+    def _build_mainland_dialogue_allocation_task(
+        output: LLMGeneratedDraftMasterScript,
+    ) -> str:
+        allocation = "、".join(
+            f"第{scene.scene_number}场{len(scene.dialogues)}轮"
+            for scene in output.scenes
+        )
+        return (
+            "当前全局生产数量已合法，必须保留原有各场对白轮次数和静默场："
+            f"{allocation}。纯时长或文风修复只调整现有轮次内的措辞及可拍动作；"
+            "过长时逐句精简，保留每轮的交锋与信息，不得删除、合并、拆分对白轮次，"
+            "不得跨场挪动对白或向原静默场添加对白，不得把合法总数向25条下限压缩。"
+        )
 
     @staticmethod
     def _build_mainland_production_count_task(
@@ -6246,6 +7004,11 @@ continuity_state_updates，不能只改摘要。对于人物能力冲突，动�
 必须修正的 blocking 冲突：
 {json.dumps(blocking_issues, ensure_ascii=False, separators=(',', ':'))}
 
+返回规则与上一轮相同：scenes只返回需修改的完整场景；任何非空状态数组都会替换该类型的
+整份数组，因此修改一条也必须保留该类型所有仍有效的其他记录，尤其不能丢掉已通过检查的
+story_line_updates。某类型无需修改时返回空数组，continuation_hook无需修改时返回null。
+先逐项核对最新错误要求的证据场次；不得只改摘要却继续保留同一个错误的场次引用。
+
 受影响上下文：
 {context}
 
@@ -6295,9 +7058,11 @@ scene_number 合并场景，并保留空数组或 null 所代表的未修改原�
         context: dict[str, object] = {
             "affected_scenes": scenes,
             "character_state_updates": output.get("character_state_updates", []),
+            "relationship_state_updates": output.get("relationship_state_updates", []),
             "continuity_state_updates": output.get("continuity_state_updates", []),
             "story_line_updates": output.get("story_line_updates", []),
             "setup_payoff_updates": output.get("setup_payoff_updates", []),
+            "continuation_hook": output.get("continuation_hook"),
         }
         return json.dumps(context, ensure_ascii=False, separators=(",", ":"))
 

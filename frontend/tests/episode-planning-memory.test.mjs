@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildEpisodePlanningMemory } from "../lib/episode-planning-memory.ts";
+import { buildEpisodePlanningMemory, buildDraftPlanningHandoffs } from "../lib/episode-planning-memory.ts";
 
 const activeNode = (nodeId, version, overrides = {}) => ({
   node_id: nodeId,
@@ -82,7 +82,7 @@ test("memory carries bounded continuity across consecutive approved leaves", () 
       payoff_refs: episodeNumber === 16 ? ["setup.1"] : [],
       continuity_requirements: [`约束${episodeNumber}`],
       story_line_refs: [`line.${episodeNumber % 3}`],
-      hook_payoff_target_episode: episodeNumber === 8 ? 18 : null,
+      hook_payoff_target_episode: episodeNumber === 8 ? 10 : null,
     }));
   }
 
@@ -94,12 +94,15 @@ test("memory carries bounded continuity across consecutive approved leaves", () 
 
   assert.equal(memory.last_confirmed_episode, 16);
   assert.equal(memory.active_continuity_requirements.length, 6);
+  assert.equal(memory.active_continuity_requirements[0], "第11集的执行约束：约束11");
+  assert.equal(memory.active_continuity_requirements[5], "第16集的执行约束：约束16");
   assert.equal(memory.recent_state_handoffs.length, 6);
   assert.deepEqual(
     memory.recent_state_handoffs.map((handoff) => handoff.episode_number),
     [11, 12, 13, 14, 15, 16],
   );
   assert.equal(memory.open_hooks.some((hook) => hook.source_episode === 8), true);
+  assert.equal(memory.open_hooks.find((hook) => hook.source_episode === 8).target_episode, 10);
   assert.equal(memory.unresolved_setup_refs.includes("setup.1"), false);
   assert.equal(memory.active_story_line_refs.length, 3);
 });
@@ -177,4 +180,25 @@ test("active nodes from another Story Bible version cannot authorize memory", ()
 
   assert.equal(memory.last_confirmed_episode, null);
   assert.deepEqual(memory.unresolved_setup_refs, []);
+});
+
+
+test("draft handoffs bridge planning leaves without entering confirmed memory", () => {
+  const node = { story_bible_version: 4, planned_start_episode: 9 };
+  const active = [activeNode("leaf.alpha", 3)];
+  const project = { episodeRoadmaps: [
+    roadmap("leaf.alpha", 3, 8, { status: "draft", exit_state: "原始纸档已经交给主角。",
+      scene_execution_plan: [{ scene_number: 1, visible_action: "窗口收到申请并递交受理回执，主角收好回执。", exit_state: "申请已经受理，尚未裁决。", dialogue_objective: "无需在交接包重复其他编导字段" }],
+    }),
+    roadmap("leaf.alpha", 2, 7, { status: "draft" }),
+    roadmap("leaf.alpha", 3, 9, { status: "draft" }),
+    roadmap("leaf.retired", 1, 6, { status: "draft" }),
+  ] };
+  assert.deepEqual(buildDraftPlanningHandoffs(project, node, active).map(item => item.episode_number), [8]);
+  assert.equal(buildDraftPlanningHandoffs(project, node, active)[0].exit_state, "原始纸档已经交给主角。");
+  assert.deepEqual(buildDraftPlanningHandoffs(project, node, active)[0].scene_execution_facts, [{
+    scene_number: 1, visible_action: "窗口收到申请并递交受理回执，主角收好回执。", exit_state: "申请已经受理，尚未裁决。",
+  }]);
+  assert.equal(buildEpisodePlanningMemory(project, node, active).last_confirmed_episode, null);
+  assert.deepEqual(buildDraftPlanningHandoffs(project, node), []);
 });

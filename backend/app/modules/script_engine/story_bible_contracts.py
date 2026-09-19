@@ -134,9 +134,12 @@ def _apply_story_bible_text_patch(
 
 def story_bible_non_chinese_fields(
     output: StoryBibleGenerationOutput,
+    *, market_profile: str = "cn_mainland",
 ) -> list[str]:
-    """Locate Chinese-mainland narrative fields with Latin-script leakage."""
-    return story_bible_chinese_issues(output)
+    """Validate Chinese narrative while preserving overseas English identities."""
+    from app.modules.content_spec.market_profile import market_profile_contract
+    names = [entry.name for entry in output.character_registry] if not market_profile_contract(market_profile).is_mainland else []
+    return story_bible_chinese_issues(output, allowed_names=names)
 
 
 _KINSHIP_PREFIX_PATTERN = re.compile(

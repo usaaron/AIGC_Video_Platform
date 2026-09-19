@@ -1,5 +1,6 @@
 from copy import deepcopy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -72,12 +73,15 @@ from app.modules.script_engine.script_post_editor import ScriptEditorialAssessme
 from app.modules.script_engine.models import (
     ApprovedEpisodePlanContext,
     ApprovedStoryNodeContext,
+    ContinuityQCReport,
     GenerationStrategy,
     GenerationStrategyStatus,
     GenerationWorkflowStep,
     CreativeDeepeningMode,
     EpisodeGenerationContext,
     EpisodeGenerationMode,
+    MemoryRecall,
+    MemoryRecallStatus,
     GenerationBatchContext,
     LLMModelInfo,
     PromptLibraryItem,
@@ -661,7 +665,7 @@ def test_episode_prompt_prefers_handoffs_and_newest_continuity_slice() -> None:
                 generation_mode=EpisodeGenerationMode.sequential,
                 episode_number=9,
                 total_episodes=100,
-                previous_episode_summary="OLD_SUMMARY_SHOULD_BE_REMOVED",
+                previous_episode_summary="SAVED_NON_FINAL_SCENE_CORRECTION",
                 previous_episode_handoff="NEW_EPISODE_HANDOFF",
                 module_handoff="MODULE_HANDOFF",
                 long_range_anchor="LONG_RANGE_ANCHOR",
@@ -685,7 +689,7 @@ def test_episode_prompt_prefers_handoffs_and_newest_continuity_slice() -> None:
     }
     assert "provisional_continuity_checkpoint" not in prompt_episode_context
     assert "confirmed_continuity_checkpoint" not in prompt_episode_context
-    assert "OLD_SUMMARY_SHOULD_BE_REMOVED" not in prompt
+    assert "SAVED_NON_FINAL_SCENE_CORRECTION" in prompt
     assert "OLD_PROJECT_SUMMARY" not in prompt
     assert '\"version\": \"confirmed\"' not in prompt
 
@@ -782,6 +786,44 @@ def test_fast_executor_rejects_episode_without_execution_ready_blueprint() -> No
         ))
 
 
+def test_fast_executor_requires_episode_context() -> None:
+    service, content_spec_id = seed_dependencies()
+    repository = service._generation_strategy_repository
+    original = repository.get("strategy.tiktok.service_generation.v1")
+    assert original is not None
+    fast_strategy = original.model_copy(update={"model_tier": "fast_executor"})
+    repository.get = lambda _strategy_id: fast_strategy
+
+    with pytest.raises(EpisodeExecutionNotReadyError, match="episode context"):
+        service.generate_draft(ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id=fast_strategy.id,
+            output_language="en",
+            desired_scene_count=3,
+        ))
+
+
+def test_generation_blocks_insufficient_memory_recall() -> None:
+    service, content_spec_id = seed_dependencies()
+    with pytest.raises(EpisodeExecutionNotReadyError, match="Memory recall is insufficient"):
+        service.generate_draft(ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language="en",
+            desired_scene_count=3,
+            episode_context=EpisodeGenerationContext(
+                generation_mode=EpisodeGenerationMode.sequential,
+                episode_number=2,
+                total_episodes=3,
+                memory_recall=MemoryRecall(
+                    through_episode_number=1,
+                    status=MemoryRecallStatus.insufficient,
+                    missing_requirements=["character.lead"],
+                ),
+            ),
+        ))
+
+
 def test_episode_prompt_preserves_final_scene_evidence_after_long_handoff() -> None:
     service, content_spec_id = seed_dependencies()
     handoff = "Previous episode state. " * 160 + "\nAdam: I'll stay across the road."
@@ -812,8 +854,11 @@ def test_episode_prompt_preserves_keyed_knowledge_only_at_recall_boundary(checkp
             "statement": "Nora has not viewed the work order yet.", "status": "known",
         }]}],
     }
+    # The current episode must follow the checkpoint; a same-episode checkpoint
+    # is rejected by the context contract before prompt compilation.
     context = EpisodeGenerationContext(
-        generation_mode=EpisodeGenerationMode.sequential, episode_number=3, total_episodes=120,
+        generation_mode=EpisodeGenerationMode.sequential,
+        episode_number=max(3, checkpoint_episode + 1), total_episodes=120,
         provisional_continuity_checkpoint=json.dumps(checkpoint),
         memory_recall={"memory_layer": "provisional", "through_episode_number": 2,
             "status": "sufficient", "capsules": [{
@@ -975,10 +1020,10 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
     assert "TargetScriptBodyCharacters: 1797" in result.prompt_build_result.prompt_text
     assert "TargetDurationSeconds: 75" in result.prompt_build_result.prompt_text
     assert "PartnerScreenplayDeliveryContract:" in result.prompt_build_result.prompt_text
-    assert "所有可见叙事字段统一使用简体中文" in result.prompt_build_result.prompt_text
-    assert "dialogues.chinese_character_name写该说话人的稳定中文名" in result.prompt_build_result.prompt_text
+    assert "其余创作者可见叙事文字" in result.prompt_build_result.prompt_text
+    assert "dialogues.chinese_character_name是旧数据兼容字段" in result.prompt_build_result.prompt_text
     assert "dialogues.chinese_translation" in result.prompt_build_result.prompt_text
-    assert "中文名（ENGLISH NAME）" in result.prompt_build_result.prompt_text
+    assert "不音译、不加中文名或中英双名" in result.prompt_build_result.prompt_text
     assert "CharacterIdentityLedgerContract:" in result.prompt_build_result.prompt_text
     assert "AuthorDecisionAuthorityContract:" in result.prompt_build_result.prompt_text
     assert "unresolved values must remain open" in result.prompt_build_result.prompt_text
@@ -988,7 +1033,8 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
     assert "Force Mara to protect the suspected betrayer" in result.prompt_build_result.prompt_text
     assert '"approved_episode_plan"' in result.prompt_build_result.prompt_text
     assert '"approved_story_node"' in result.prompt_build_result.prompt_text
-    assert "Choose protection" in result.prompt_build_result.prompt_text
+    assert "Choose protection" not in result.prompt_build_result.prompt_text
+    assert "Mara checks the exit and moves the witness past a blocked route." in result.prompt_build_result.prompt_text
     assert "CANONICAL_STORY_BIBLE_ANCHOR" in result.prompt_build_result.prompt_text
     assert "DUPLICATE_MODULE_HANDOFF" not in result.prompt_build_result.prompt_text
     assert "DUPLICATE_LONG_RANGE_ANCHOR" not in result.prompt_build_result.prompt_text
@@ -1018,7 +1064,19 @@ def test_script_generation_service_preserves_serialized_episode_context() -> Non
     assert prompt_episode_context["approved_story_node"]["unit_resolution"] == (
         "The witness survives but the evidence becomes public."
     )
-    assert prompt_episode_context["approved_episode_plan"]["key_events"] == [
+    assert "key_events" not in prompt_episode_context["approved_episode_plan"]
+    # The persisted references remain available for auditing. They are not a
+    # second set of writing instructions alongside an explicit scene blueprint.
+    assert context.approved_episode_plan.source_turning_points == ["Mara hides the witness"]
+    legacy_context = context.model_copy(update={
+        "approved_episode_plan": context.approved_episode_plan.model_copy(update={
+            "scene_execution_plan": [],
+        }),
+    })
+    legacy_packet = service._episode_execution_context_payload(
+        legacy_context, model_context_tokens=32_000,
+    )
+    assert legacy_packet["approved_episode_plan"]["key_events"] == [
         "Find the witness",
         "Choose protection",
         "Mara hides the witness",
@@ -1117,6 +1175,44 @@ def test_script_generation_stops_before_model_for_due_author_decision() -> None:
         ],
     })
     ScriptGenerationService._validate_author_decisions_for_script(deferred)
+
+
+def test_review_refreshes_final_body_metrics_after_edits_without_mutating_source():
+    service, content_spec_id = seed_dependencies(llm_adapter=StubRealScriptAdapter())
+    source = service.generate_draft(ScriptGenerationDraftRequest(
+        content_spec_id=content_spec_id,
+        generation_strategy_id="strategy.tiktok.service_generation.v1",
+        output_language="en", desired_scene_count=3,
+    ))
+    original = source.draft_master_script.model_dump(mode="json")
+    edited = source.draft_master_script.model_copy(deep=True)
+    edited.scenes[0].character_actions[0] = "甲乙１２。"  # Four normalized letters/numbers.
+    edited.scenes[0].dialogues[0].text = "丙丁！" * 300
+    edited.llm_metadata.update({
+        "script_body_characters": -1, "script_body_scene_characters": [-1],
+        "estimated_duration_seconds": 90, "duration_window_seconds": [75, 115],
+        "duration_warning": False, "script_body_expanded": True,
+        "script_body_reference_characters": 1600,
+    })
+
+    reviewed = service.review_draft(ScriptDraftReviewRequest(
+        source_generation_run=source, draft_master_script=edited,
+    )).draft_master_script
+
+    import unicodedata
+    counts = [sum(sum(unicodedata.category(char)[0] in {"L", "N"}
+                      for char in unicodedata.normalize("NFKC", text))
+                  for text in scene.character_actions + [line.text for line in scene.dialogues])
+              for scene in edited.scenes]
+    assert reviewed.llm_metadata["script_body_characters"] == sum(counts)
+    assert reviewed.llm_metadata["script_body_scene_characters"] == counts
+    assert reviewed.llm_metadata["estimated_duration_seconds"] == estimate_screenplay_duration(edited).total_seconds
+    assert reviewed.llm_metadata["duration_warning"] is True
+    assert reviewed.llm_metadata["script_body_expanded"] is True
+    assert reviewed.llm_metadata["script_body_reference_characters"] == 1600
+    assert reviewed.scenes == edited.scenes
+    assert edited.llm_metadata["script_body_characters"] == -1
+    assert source.draft_master_script.model_dump(mode="json") == original
 
 
 def test_script_generation_service_reviews_and_modifies_creator_draft(
@@ -1386,6 +1482,37 @@ def test_targeted_modification_handoff_uses_existing_full_episode_fallback() -> 
     assert "UserDirectedModificationContract:" in (
         result.candidate_generation_run.prompt_build_result.prompt_text
     )
+
+
+def test_full_modification_normalizes_transport_placeholders_without_rewriting_body():
+    service, content_spec_id = seed_dependencies()
+    source = service.generate_draft(ScriptGenerationDraftRequest(
+        content_spec_id=content_spec_id, generation_strategy_id="strategy.tiktok.service_generation.v1",
+        output_language="en", desired_scene_count=3,
+    ))
+    calls = []
+    returned = []
+    class CandidateAdapter(StubRealScriptAdapter):
+        def generate_structured_output(self, prompt, **kwargs):
+            calls.append(prompt)
+            fields = list(kwargs["output_schema"]["properties"])
+            assert fields.index("scenes") < fields.index("synopsis") < fields.index("character_state_updates")
+            value = super().generate_structured_output(prompt, **kwargs)
+            value["provider_placeholder"] = None
+            returned.append(deepcopy(value))
+            return value
+    service._conversation_editor_llm_adapter = CandidateAdapter()
+    service._script_editor_enabled = False
+    result = service.modify_draft(ScriptDraftModificationRequest(
+        source_generation_run=source, source_draft_master_script=source.draft_master_script,
+        instruction="Rewrite the approved episode.",
+    ))
+    candidate = result.candidate_generation_run.draft_master_script
+    assert len(calls) == 1
+    assert candidate.llm_metadata["draft_contract_locally_normalized"] is True
+    for scene, original in zip(candidate.scenes, returned[0]["scenes"]):
+        assert scene.character_actions == original["character_actions"]
+        assert [item.text for item in scene.dialogues] == [item["text"] for item in original["dialogues"]]
 
 
 @pytest.mark.parametrize("market", ["cn_mainland", "overseas"])
@@ -3015,8 +3142,48 @@ def test_full_generation_keeps_valid_draft_when_postprocess_returns_198_chars() 
     metadata = result.draft_master_script.llm_metadata
     assert metadata["postprocess_failure_preserved_valid_draft"] is True
     assert metadata["deferred_postprocess_phases"] == ["language_repair"]
+    assert metadata["first_model_pass_accepted"] is False
+    assert metadata["first_pass_accepted"] is False
     assert repair_adapter.stream_call_count == 1
     assert repair_adapter.structured_call_count == 1
+
+    # Older persisted checkpoints may carry the incorrect first-pass flag.
+    legacy_checkpoint = result.model_copy(update={
+        "draft_master_script": result.draft_master_script.model_copy(update={
+            "llm_metadata": {**metadata, "first_model_pass_accepted": True},
+        }),
+    })
+    finalized = service.finalize_pre_edit_draft(legacy_checkpoint)
+    assert finalized.draft_master_script.scenes == result.draft_master_script.scenes
+    assert finalized.draft_master_script.llm_metadata["first_model_pass_accepted"] is False
+    assert finalized.draft_master_script.llm_metadata["first_pass_accepted"] is False
+
+
+def test_failed_acceptance_repair_retains_original_length_and_duration_warnings() -> None:
+    original = _mainland_single_scene_payload(action="林夏把证物箱拖到灯下。")
+    service, _ = seed_dependencies(repair_llm_adapter=AlwaysMalformedPostprocessAdapter())
+    strategy = service._generation_strategy_repository.get(  # noqa: SLF001
+        "strategy.tiktok.service_generation.v1"
+    )
+    assert strategy is not None
+    result = service._ensure_mainland_draft_acceptance(  # noqa: SLF001
+        original_prompt="生成中国大陆正文。",
+        output={**original, "_meta": {"provider": "valid-initial-draft"}},
+        strategy=strategy,
+        target_characters=1600,
+        target_duration_seconds=90,
+    )
+    assert len(result["scenes"]) == len(original["scenes"])
+    for actual, source in zip(result["scenes"], original["scenes"]):
+        assert actual["character_actions"] == source["character_actions"]
+        assert actual["dialogues"] == source["dialogues"]
+    metadata = result["_meta"]
+    assert metadata["deferred_postprocess_phases"] == ["acceptance_repair"]
+    assert metadata["script_body_reference_characters"] == 1600
+    assert metadata["script_body_characters"] == sum(metadata["script_body_scene_characters"])
+    assert metadata["estimated_duration_seconds"] < 75
+    assert metadata["duration_window_seconds"] == [75, 115]
+    assert metadata["duration_warning"] is True
 
 
 def test_valid_draft_checkpoint_rejects_invalid_postprocess_candidate() -> None:
@@ -3070,6 +3237,7 @@ def test_mainland_acceptance_repairs_language_style_and_truncation_in_one_call()
     assert set(result["_meta"]["mainland_acceptance_repair_reasons"]) == {
         "screenplay_style",
         "truncation",
+        "body_scale",
         "production_counts",
     }
     assert result["_meta"]["script_body_characters"] >= 400
@@ -3078,6 +3246,35 @@ def test_mainland_acceptance_repairs_language_style_and_truncation_in_one_call()
     assert result["_meta"]["mainland_acceptance_policy"] == (
         "tiered_draft_with_production_counts_v3"
     )
+
+
+def test_client_scene_headings_preserve_location_names_and_complete_time_tokens() -> None:
+    cases = json.loads((Path(__file__).parent / "fixtures/client_scene_headings.json").read_text())
+    for source, expected in cases:
+        assert ScriptGenerationService._client_scene_heading(source) == expected
+
+
+def test_scene_heading_normalization_uses_formal_heading_and_preserves_setting_prose() -> None:
+    original = {
+        "scenes": [{
+            "scene_number": 1,
+            "slug": "INT. WORKSHOP - NIGHT",
+            "scene_heading": "INT. 临时工作间",
+            "setting": "临时工作间，台面铺着旧手机、纸质路径图和拆下的路由器。",
+            "content_manifest": {"location": "临时工作间", "time_of_day": "夜"},
+            "character_actions": ["林岚把旧手机交给周宁。"],
+        }],
+    }
+    preserved = deepcopy(original)
+    normalized = ScriptGenerationService._normalize_mainland_scene_slugs(original)
+    scene = normalized["scenes"][0]
+    assert scene["scene_heading"] == "INT. 临时工作间 夜"
+    assert scene["slug"] == "第1场 INT. 临时工作间 夜"
+    assert scene["setting"] == original["scenes"][0]["setting"]
+    assert scene["content_manifest"] == original["scenes"][0]["content_manifest"]
+    assert scene["character_actions"] == original["scenes"][0]["character_actions"]
+    assert original == preserved
+    assert ScriptGenerationService._normalize_mainland_scene_slugs(normalized) == normalized
 
 
 def test_mainland_acceptance_normalizes_english_scene_slug_without_model_call() -> None:
@@ -3740,6 +3937,87 @@ def test_empty_continuity_patch_fields_preserve_existing_ledgers_and_hook() -> N
         assert repaired[field_name] == original[field_name]
 
 
+def test_local_continuity_repair_cannot_erase_unrelated_storyline_progress():
+    def update(key, summary, scene):
+        return {"story_line_id": key, "status": "active", "progress_summary": summary,
+                "change_cause": "人物完成了当前场景中的具体行动。", "evidence_scene_numbers": [scene]}
+    original = _mainland_single_scene_payload(action="林夏把证物箱推到灯下。")
+    original["story_line_updates"] = [
+        update("line.receipt", "已经完成独立核验并保留证据。", 2),
+        update("line.choice", "林夏已经拒绝交换证据。", 2),
+        update("line.pressure", "对方以程序争议要求停止。", 1),
+    ]
+    report = ContinuityQCReport.model_validate({
+        "status": "blocked", "blocking_issue_count": 1,
+        "issues": [{"issue_id": "issue.pressure", "issue_type": "storyline_duty_scene_mismatch",
+                    "severity": "blocking", "entity_key": "line.pressure", "entity_name": "施压支线",
+                    "summary": "证据场次引用错位。", "scene_numbers": [1],
+                    "prior_state": "施压发生于第一场。", "current_evidence": "账本引用了错误的场次。",
+                    "suggested_action": "更正对应场次的证据引用。"}],
+    })
+    patch = LLMContinuityRepairPatch.model_validate({
+        "story_line_updates": [update("line.pressure", "对方的施压在第一场得到明确回应。", 1)],
+    })
+    repaired = ScriptGenerationService._apply_continuity_repair_patch(original, patch, report=report)
+    by_id = {item["story_line_id"]: item for item in repaired["story_line_updates"]}
+    assert set(by_id) == {"line.receipt", "line.choice", "line.pressure"}
+    assert by_id["line.receipt"] == original["story_line_updates"][0]
+    assert by_id["line.choice"] == original["story_line_updates"][1]
+    assert by_id["line.pressure"]["progress_summary"] != original["story_line_updates"][2]["progress_summary"]
+    assert original["story_line_updates"][2]["progress_summary"] == "对方以程序争议要求停止。"
+    # A complete replacement can still remove the implicated record; restoring
+    # it would resurrect the invalid fact the repair was intended to eliminate.
+    deletion_patch = LLMContinuityRepairPatch.model_validate({
+        "story_line_updates": [original["story_line_updates"][0]],
+    })
+    repaired = ScriptGenerationService._apply_continuity_repair_patch(original, deletion_patch, report=report)
+    assert {item["story_line_id"] for item in repaired["story_line_updates"]} == {"line.receipt", "line.choice"}
+
+
+def test_setup_identity_repair_does_not_restore_invalid_hashed_source():
+    from copy import deepcopy
+    from app.modules.script_engine.setup_payoff_provenance import stable_setup_payoff_id
+
+    def update(reference, source):
+        return {"setup_payoff_ref": reference, "source_ref": source, "action": "reinforce",
+                "status": "active", "progress_summary": "已保留原有证据，等待公开核验。",
+                "change_cause": "人物将留存记录放到核验台上。", "evidence_scene_numbers": [1]}
+
+    bad_source = "本集批准场景1-3"
+    original = _mainland_single_scene_payload(action="林夏把证物箱推到灯下。")
+    original["setup_payoff_updates"] = [
+        update(stable_setup_payoff_id(bad_source), bad_source),
+        update("setup.unrelated", "setup.unrelated"),
+    ]
+    before = deepcopy(original)
+    report = ContinuityQCReport.model_validate({
+        "status": "blocked", "blocking_issue_count": 1,
+        "issues": [{"issue_id": "issue.source", "issue_type": "unknown_setup_payoff",
+                    "severity": "blocking", "entity_key": bad_source, "entity_name": bad_source,
+                    "summary": "场景说明不是已登记的伏笔来源。", "scene_numbers": [1],
+                    "prior_state": "账本内存在真实伏笔身份。", "current_evidence": "正文错误引用场景说明。",
+                    "suggested_action": "改用账本中已保存的真实身份。"}],
+    })
+    patch = LLMContinuityRepairPatch.model_validate({
+        "setup_payoff_updates": [update("memory.setup-payoff.sl_main_responsibility", None)],
+    })
+    repaired = ScriptGenerationService._apply_continuity_repair_patch(original, patch, report=report)
+    assert [item["setup_payoff_ref"] for item in repaired["setup_payoff_updates"]] == [
+        "memory.setup-payoff.sl_main_responsibility", "setup.unrelated",
+    ]
+    assert repaired["setup_payoff_updates"][0]["source_ref"] is None
+    assert repaired["setup_payoff_updates"][1] == original["setup_payoff_updates"][1]
+    assert repaired["scenes"] == original["scenes"]
+    assert original == before
+    # A warning alone does not authorize removing an otherwise omitted row.
+    warning_data = report.model_dump(mode="json")
+    warning_data["issues"][0]["severity"] = "warning"
+    warning_data.update(status="warnings", blocking_issue_count=0, warning_count=1)
+    warning = ContinuityQCReport.model_validate(warning_data)
+    preserved = ScriptGenerationService._apply_continuity_repair_patch(original, patch, report=warning)
+    assert any(item["source_ref"] == bad_source for item in preserved["setup_payoff_updates"])
+
+
 def test_blocking_continuity_uses_dedicated_continuity_adapter() -> None:
     draft_adapter = StubRealScriptAdapter()
     continuity_adapter = ContinuityRepairAdapter()
@@ -4007,8 +4285,9 @@ def test_script_generation_service_uses_independent_fallback_after_gateway_failu
     assert metadata["model_repair_phases"] == ["generation_fallback"]
 
 
-def test_episode_reasoning_exhaustion_switches_to_compact_recovery_packet() -> None:
-    draft_adapter = ReasoningLengthExhaustedStreamAdapter()
+@pytest.mark.parametrize("adapter_class", [ReasoningLengthExhaustedStreamAdapter, GatewayFailingStreamAdapter])
+def test_episode_reasoning_exhaustion_switches_to_compact_recovery_packet(adapter_class) -> None:
+    draft_adapter = adapter_class()
     fallback_adapter = StrategyBudgetRecordingAdapter()
     service, content_spec_id = seed_dependencies(
         llm_adapter=draft_adapter,
@@ -4837,6 +5116,29 @@ def test_draft_contract_fragment_normalizes_string_knowledge_states() -> None:
     assert knowledge_state.status == "known"
 
 
+@pytest.mark.parametrize("summary_key", ["ending_hook_summary", "summary"])
+def test_nested_hook_patch_does_not_invent_empty_values_before_merge(summary_key) -> None:
+    from app.modules.script_engine import draft_contract
+
+    source = _mainland_single_scene_payload(action="林夏按住账本，追问同伴钥匙来自哪里。")
+    source["continuation_hook"] = {
+        "ending_hook_type": "因果压力", "ending_hook_summary": "",
+        "next_episode_obligation": "林夏必须核对钥匙与旧宅登记记录。",
+        "response_evidence_scene_numbers": [1],
+    }
+    source = ScriptGenerationService._normalize_mechanical_draft_contract(source)
+    fragment = ScriptGenerationService._normalize_draft_fragment_contract({
+        "continuation_hook": {summary_key: "钥匙编号指向已封存的旧宅登记。"},
+    })
+    assert "next_episode_obligation" not in fragment["continuation_hook"]
+    assert "ending_hook_type" not in fragment["continuation_hook"]
+    repaired = draft_contract.merge_contract_repair_fragment(source, fragment)
+    normalized = ScriptGenerationService._normalize_mechanical_draft_contract(repaired)
+    validated = LLMGeneratedDraftMasterScript.model_validate(draft_contract.without_metadata(normalized))
+    assert validated.continuation_hook.next_episode_obligation == source["continuation_hook"]["next_episode_obligation"]
+    assert validated.continuation_hook.ending_hook_summary == "钥匙编号指向已封存的旧宅登记。"
+
+
 def test_draft_contract_normalizes_observed_deepseek_ledger_aliases_locally() -> None:
     payload = _mainland_single_scene_payload(
         action="林夏按住账本，确认城内眼线已经开始集结。"
@@ -5256,8 +5558,8 @@ def test_script_generation_service_completes_body_below_truncation_floor() -> No
     assert result.draft_master_script.llm_metadata["script_body_expanded"] is True
     assert result.draft_master_script.llm_metadata["script_body_target_characters"] == 4800
     assert result.draft_master_script.llm_metadata["script_body_reference_characters"] == 4800
-    assert result.draft_master_script.llm_metadata["script_body_preferred_min_characters"] == 3360
-    assert result.draft_master_script.llm_metadata["script_body_preferred_max_characters"] == 6720
+    assert result.draft_master_script.llm_metadata["script_body_preferred_min_characters"] == 3840
+    assert result.draft_master_script.llm_metadata["script_body_preferred_max_characters"] == 5760
     assert result.draft_master_script.llm_metadata["script_body_truncation_floor_characters"] == 1200
     assert result.draft_master_script.llm_metadata["script_body_characters"] >= 1200
     assert len(result.draft_master_script.llm_metadata["script_body_scene_characters"]) == 3
@@ -5860,3 +6162,211 @@ def test_shadow_deepening_records_forbidden_drift_without_replacement() -> None:
     assert deepening.comparison_metadata is not None
     assert deepening.comparison_metadata.status.value == "unavailable"
     assert deepening.selected_draft_master_script_id == result.draft_master_script.id
+
+
+@pytest.mark.parametrize("output_language", ["en", "zh"])
+def test_ready_episode_executes_compact_packet_without_losing_author_or_memory_context(output_language):
+    from app.script_delivery_contract import OVERSEAS_DIALOGUE_VOICE_CONTRACT, SCREENPLAY_FIRST_PASS_CONTRACT, SCREENPLAY_EXECUTION_ORDER_CONTRACT
+    from app.modules.script_engine.screenplay_acting_guidance import _LEGACY_BLOCK
+    author_tail = "AUTHOR_BOUNDARY: No new deadlines, product types or payment terms."
+    decisions = [{
+        "decision_key": f"author.choice_{index}", "title": f"Author choice {index}",
+        "value": ("Established context. " * 40 + author_tail) if index == 0 else f"Keep choice {index}.",
+        "authority": "canonical", "status": "confirmed", "source": "user_input", "locked": True,
+    } for index in range(35)]
+    # Exercise a persisted frontend-generated scaffold alongside an author's
+    # explicit quoted-line requirement. Only the application scaffold migrates.
+    author_instruction = "AUTHOR: Do not destroy the paper. 台词原文和语义不得被改写。"
+    episode_instruction = author_instruction + "；" + _LEGACY_BLOCK
+    complete_bible = "Established canon. " * 450 + "BIBLE_TAIL: No witness may suddenly possess sealed evidence."
+    service, content_spec_id = seed_dependencies()
+    source = service.generate_draft(ScriptGenerationDraftRequest(
+        content_spec_id=content_spec_id,
+        generation_strategy_id="strategy.tiktok.service_generation.v1",
+        output_language=output_language, desired_scene_count=1,
+    ))
+    scene = dict(
+        scene_number=1, scene_heading="INT. 档案室 - 日", character_refs=["character.mara"],
+        scene_objective="保护已经取得的原件。", opposition="管理员要求交回材料。",
+        information_shift="原件的编号与目录不同。", choice_or_cost="玛拉选择留下接受检查。",
+        evidence_requirements=["纸张上的编号"], forbidden_changes=["原件已取得，不得重新取件"],
+        visible_action="玛拉把原件封入证物袋。", turn_or_reveal="编号差异得到确认。",
+        dialogue_objective="要求双方共同封存。", dialogue_line_target=30, shot_target=16,
+        exit_state="原件进入共同保管。",
+    )
+    plan = ApprovedEpisodePlanContext(
+        episode_number=2, planned_scene_count=1, execution_ready=True,
+        episode_goal="保护已经取得的纸质原件。", entry_state="玛拉持有原件等待核验。",
+        central_conflict="管理员要求立刻交回材料。", protagonist_decision="玛拉坚持共同封存。",
+        emotional_movement="急躁变为克制。", exit_state="原件已封存并由双方保管。",
+        cliffhanger="目录编号差异仍需要解释。", character_refs=["character.mara"],
+        scene_execution_plan=[scene],
+    )
+    captured = {}
+
+    class PromptCaptured(Exception):
+        pass
+
+    def capture(**kwargs):
+        captured.update(kwargs)
+        raise PromptCaptured()
+
+    service._generate_initial_draft_output = capture
+    with pytest.raises(PromptCaptured):
+        service.generate_draft(ScriptGenerationDraftRequest(
+            content_spec_id=content_spec_id,
+            generation_strategy_id="strategy.tiktok.service_generation.v1",
+            output_language=output_language, desired_scene_count=1,
+            target_script_body_characters=1200,
+            episode_context=EpisodeGenerationContext(
+                generation_mode=EpisodeGenerationMode.sequential, episode_number=2, total_episodes=10,
+                approved_episode_plan=plan, episode_instruction=episode_instruction,
+                creative_decisions=decisions,
+                story_bible_context=complete_bible,
+                previous_episode_handoff="HANDOFF: Mara already holds the paper.",
+                canonical_character_names={"character.mara": "玛拉"},
+            ),
+        ))
+    prompt = captured["prompt"]
+    assert (OVERSEAS_DIALOGUE_VOICE_CONTRACT in prompt) == (output_language == "en")
+    assert prompt.count(OVERSEAS_DIALOGUE_VOICE_CONTRACT) == (1 if output_language == "en" else 0)
+    assert "分集场次已经审核" in prompt
+    assert "【与验收相同的估时口径】" in prompt
+    assert "正文总字数包括动作，不是对白配额" in prompt
+    assert SCREENPLAY_FIRST_PASS_CONTRACT in prompt
+    assert "上一轮请求未完成" not in prompt
+    assert "AUTHOR: Do not destroy the paper." in prompt
+    assert SCREENPLAY_EXECUTION_ORDER_CONTRACT in prompt
+    assert author_instruction in prompt
+    assert _LEGACY_BLOCK not in prompt
+    assert "规划措辞不是必须保留的台词原文" in prompt
+    assert author_tail in prompt
+    assert complete_bible in prompt
+    assert "HANDOFF: Mara already holds the paper." in prompt
+    assert "玛拉把原件封入证物袋" in prompt
+    assert '"layer_contracts"' in prompt
+    assert '"canonical_character_names"' in prompt
+    assert "[structured_context]" not in prompt
+    assert "[story_planning:prompt.story_planning.service_generation]" in prompt
+    packet = json.JSONDecoder().raw_decode(prompt.split("紧凑写作包：\n", 1)[1])[0]
+    actual_decisions = packet["episode_execution"]["creative_decisions"]
+    assert {item["decision_key"] for item in actual_decisions} == {item["decision_key"] for item in decisions}
+    assert next(item for item in actual_decisions if item["decision_key"] == "author.choice_0")["value"] == decisions[0]["value"]
+    delivery = packet["delivery"]
+    assert delivery["body_character_reference"] == 1200
+    assert delivery["body_character_preferred_range"] == [960, 1440]
+    assert "首稿瞄准reference=1200" in prompt
+    assert "NFKC" in prompt
+    assert "不能以剧情已完整" in prompt
+    assert "character_actions" in delivery["production_count_fields"]["shot_unit_range"]
+    assert "dialogues" in delivery["production_count_fields"]["dialogue_line_range"]
+    rate = 4.2 if output_language == "zh" else 2.7
+    assert delivery["spoken_text_reference"] == {
+        "unit": "中文有效字" if output_language == "zh" else "英文单词",
+        "quantity": round((delivery["target_duration_seconds"] - 1.5) * rate),
+        "is_hard_quota": False,
+    }
+
+    # A whole-episode edit must use the same approved-scene packet and retain
+    # its source text without promoting generated diagnostic prose to canon.
+    original_draft = source.draft_master_script.model_copy(update={
+        "llm_metadata": {"diagnostic": "UNTRUSTED_GENERATED_DIAGNOSTIC"},
+    })
+    source = source.model_copy(update={
+        "episode_context": EpisodeGenerationContext(
+            generation_mode=EpisodeGenerationMode.sequential, episode_number=2, total_episodes=10,
+            approved_episode_plan=plan,
+            episode_instruction=episode_instruction, creative_decisions=decisions,
+            story_bible_context=complete_bible,
+            previous_episode_handoff="HANDOFF: Mara already holds the paper.",
+        ),
+        "draft_master_script": original_draft,
+    })
+    request = ScriptDraftModificationRequest(
+        source_generation_run=source,
+        source_draft_master_script=original_draft,
+        instruction="Rewrite the whole body using the approved scene, without invented prior facts.",
+    )
+    before = request.model_dump()
+    recorded = []
+
+    def capture_modification(prompt, **kwargs):
+        recorded.append(prompt)
+        raise PromptCaptured()
+
+    service._conversation_editor_llm_adapter = SimpleNamespace(generate_structured_output=capture_modification)
+    with pytest.raises(PromptCaptured):
+        service.modify_draft(request)
+    assert len(recorded) == 1
+    modified_prompt = recorded[0]
+    assert "[structured_context]" not in modified_prompt
+    assert "HANDOFF: Mara already holds the paper." in modified_prompt
+    assert "玛拉把原件封入证物袋" in modified_prompt
+    assert "UNTRUSTED_GENERATED_DIAGNOSTIC" not in modified_prompt
+    assert author_tail in modified_prompt
+    assert complete_bible in modified_prompt
+    assert author_instruction in modified_prompt
+    assert _LEGACY_BLOCK not in modified_prompt
+    assert modified_prompt.endswith(request.instruction)
+    assert SCREENPLAY_EXECUTION_ORDER_CONTRACT in modified_prompt
+    assert (OVERSEAS_DIALOGUE_VOICE_CONTRACT in modified_prompt) == (output_language == "en")
+    editable_json = modified_prompt.split("SourceDraftMasterScript (editable current episode): ", 1)[1]
+    editable = json.JSONDecoder().raw_decode(editable_json)[0]
+    assert editable["scenes"] == original_draft.model_dump(mode="json")["scenes"]
+    assert request.model_dump() == before
+
+    # An explicit request to rebuild from the approved plan must not seed the
+    # writer with the discarded body's invented facts or phrasing.
+    review_calls = []
+
+    def classify_reexecution(prompt, **kwargs):
+        review_calls.append(prompt)
+        assert "rewrite_scope" in kwargs["output_schema"]["required"]
+        return {"user_goal": request.instruction, "rewrite_scope": "reexecute_approved_plan", "conflicts": [], "options": []}
+
+    service._author_conflict_llm_adapter = SimpleNamespace(generate_structured_output=classify_reexecution)
+    recorded.clear()
+    with pytest.raises(PromptCaptured):
+        service.modify_draft(request)
+    assert len(recorded) == len(review_calls) == 1
+    reexecution_prompt = recorded[0]
+    assert "SourceDraftMasterScript (editable current episode): " not in reexecution_prompt
+    assert '"character_state_updates"' not in reexecution_prompt
+    assert "HANDOFF: Mara already holds the paper." in reexecution_prompt
+    assert author_tail in reexecution_prompt
+    assert complete_bible in reexecution_prompt
+    assert "author.choice_0" in reexecution_prompt
+    assert "author.choice_34" in reexecution_prompt
+    assert author_instruction in reexecution_prompt
+    assert _LEGACY_BLOCK not in reexecution_prompt
+    assert "玛拉把原件封入证物袋" in reexecution_prompt
+    assert SCREENPLAY_FIRST_PASS_CONTRACT in reexecution_prompt
+    assert reexecution_prompt.endswith(request.instruction)
+    assert request.model_dump() == before
+
+
+@pytest.mark.parametrize("body_only", [True, False])
+def test_mainland_duration_repair_has_same_spoken_budget_as_initial_execution(body_only):
+    from app.modules.script_engine.screenplay_duration import (
+        estimate_screenplay_duration, screenplay_runtime_prompt_guidance,
+    )
+
+    raw = _mainland_single_scene_payload(action="林夏把原件按在桌上，挡住伸过来的手。")
+    raw["target_duration_seconds"] = 95
+    output = LLMGeneratedDraftMasterScript.model_validate(raw)
+    kwargs = dict(
+        output=output, screenplay_issues=[], actual_characters=1000, guidance=None,
+        scene_characters=[1000], duration_estimate=estimate_screenplay_duration(output),
+        duration_issue=True, scene_count=1, dialogue_count=30, shot_count=17,
+    )
+    if body_only:
+        prompt = ScriptGenerationService._build_mainland_body_repair_prompt(**kwargs)
+    else:
+        prompt = ScriptGenerationService._build_mainland_acceptance_repair_prompt(
+            **kwargs, original_prompt="原批准剧情", language_issues=[],
+        )
+    guidance = screenplay_runtime_prompt_guidance(
+        target_duration_seconds=95, scene_count=1, chinese_dialogue=True,
+    )
+    assert guidance in prompt
+    assert "不得删除、合并、拆分对白轮次" in prompt

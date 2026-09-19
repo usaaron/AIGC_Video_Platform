@@ -10,6 +10,12 @@ import * as retry from "../lib/generation-retry.ts";
 import * as background from "../lib/script-generation-background.ts";
 import { userFacingError } from "../lib/api-error.ts";
 import { createGenerationResultCommitter } from "../lib/generation-result-committer.ts";
+import { storyboardHandoffHref } from "../lib/production-handoff.ts";
+import { storyQualityRejectionForEpisode } from "../lib/story-quality-gate.ts";
+import { episodeReadyStoryPlanLeaves } from "../lib/story-plan-tree-progress.ts";
+import { nextLeafBatchRange, targetScriptBodyCharacters } from "../lib/generation-planning.ts";
+import { contiguousEpisodeCoverageThrough, nextApprovedScriptLeafRange, allocateSeriesBodyReferences } from "../lib/episode-generation-planning.ts";
+import { calculateSeriesTextMetrics, calculateDraftTextMetrics } from "../lib/script-metrics.ts";
 
 const compiled = ts.transpileModule(readFileSync(new URL("../lib/script-generation-session.ts", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -319,6 +325,8 @@ const entryPoints = [];
 function collectEntryPoints(node) {
   if (ts.isFunctionDeclaration(node) && ["generateInitialBatch", "generateNextStage", "formatWorkflowError"].includes(node.name?.text)) {
     entryPoints.push(node.getText(workspaceAst));
+  } else if (ts.isVariableDeclaration(node) && node.name.getText(workspaceAst) === "retryGenerationEpisode") {
+    entryPoints.push(`const ${node.getText(workspaceAst)};\nglobalThis.retryGenerationEpisode = retryGenerationEpisode;`);
   } else ts.forEachChild(node, collectEntryPoints);
 }
 collectEntryPoints(workspaceAst);
@@ -326,19 +334,35 @@ const compiledEntries = ts.transpileModule(entryPoints.join("\n"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
-// Execute both actual workspace entry points with the real session and task runtime.
-// Planning/model adapters are fixed inputs; their own contracts have separate tests.
-async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCheckpoint = false, onGenerate = () => {}) {
+// Execute actual workspace entry points with the real session, metrics, and body
+// budget helpers. The approved planning inputs and model transport are fixtures.
+async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCheckpoint = false, onGenerate = () => {}, options = {}) {
   const run = harness(t);
   background.completeScriptGenerationTask(run.projectId);
-  const first = initial ? 1 : 2;
-  const range = { startEpisode: first, endEpisode: first + 1, totalEpisodes: 4 };
-  const draft = (number) => ({ id: `draft-${number}`, title: "Generated", synopsis: "A clue is found", characters: [], scenes: [] });
-  const existing = initial ? [] : [{ id: "original", episodeNumber: 1, generationRun: { draft_master_script: draft(1) } }];
-  run.project = { ...run.project, episodes: existing, storyBibleVersion: 1, episodePlansReadyThrough: 4,
-    generationSettings: { mode: "automatic", episodeCount: 4 }, generationBatches: initial ? [] : [{ id: "first", batchNumber: 1 }],
+  const first = options.firstEpisode ?? (initial ? 1 : 2);
+  const range = { startEpisode: first, endEpisode: first + (options.episodeCount ?? 2) - 1, totalEpisodes: options.totalEpisodes ?? 4 };
+  const draft = (number) => ({ id: `draft-${number}`, title: "Generated", synopsis: "A clue is found", characters: [],
+    scenes: [{ slug: "INT. ARCHIVE - DAY", character_actions: ["文".repeat(options.bodyCharacters ?? 500)], dialogues: [] }],
+  });
+  const existing = Array.from({ length: first - 1 }, (_, index) => ({
+    id: `original-${index + 1}`, episodeNumber: index + 1, generationRun: { draft_master_script: draft(index + 1) },
+  }));
+  const constraints = options.constraints ?? Array.from({ length: range.endEpisode - first + 1 }, (_, index) => ({ episodeNumber: first + index }));
+  run.project = { ...run.project, episodes: existing, storyBibleVersion: 1, episodePlansReadyThrough: range.totalEpisodes,
+    generationSettings: { mode: "automatic", episodeCount: range.totalEpisodes,
+      targetTotalCharacters: 100_000, preferredEpisodeDurationMinutes: 1.5, storyDensity: "balanced" },
+    generationBatches: initial ? [] : [{ id: "first", batchNumber: 1 }],
     creativePrompt: "Keep the approved story", characters: [], storyLines: [], characterRelationships: [],
   };
+  if (options.approvalFixture) run.project = { ...run.project,
+    episodeRoadmapRequired: true, planningRevisionEpoch: options.approvalFixture.epoch,
+    episodeRoadmaps: options.approvalFixture.roadmaps,
+    activeGenerationTask: options.approvalFixture.task,
+  };
+  if (options.retryEntry) run.project.activeGenerationTask = recovery.failGenerationRecoveryTask(
+    recovery.createGenerationRecoveryTask({ batchNumber: 2, startEpisode: first, endEpisode: range.endEpisode, episodePlanIds: [] }),
+    first, "Previously interrupted",
+  );
   if (failCheckpoint) run.behavior.persist = async (project) => !project.activeGenerationTask;
   const models = [], messages = [];
   let cleared = false;
@@ -346,27 +370,30 @@ async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCh
     ...recovery, ...background, crypto,
     currentProject: run.project, project: run.project, requestedLeafRange: range,
     getProject: () => run.project, updateProject: run.updateProject,
-    createScriptGenerationSession: run.createSession, createGenerationResultCommitter,
-    seriesTextMetrics: { scriptBodyCharacters: 0 },
+    createScriptGenerationSession: run.createSession, createGenerationResultCommitter, storyboardHandoffHref,
+    storyQualityRejectionForEpisode, episodeReadyStoryPlanLeaves,
+    seriesTextMetrics: calculateSeriesTextMetrics(existing.map((episode) => episode.generationRun.draft_master_script), 100_000, range.totalEpisodes),
+    streamBatch: [],
     setBusyAction() {}, setBusy() {}, setActiveEpisodeNumber() {}, setStreamBatch() {},
     setMessage: (value) => messages.push(value), setErrorMessage: (value) => messages.push(value),
     t: (key) => key, userFacingError,
     GenerationSessionError: run.SessionError, ScriptDraftSaveError: class extends Error {},
     onClearIntent: () => { cleared = true; },
-    contiguousEpisodeCoverageThrough: () => initial ? 0 : 1,
-    storyBibleIdForProject: () => "bible", loadActiveStoryPlanNodes: async () => [],
-    nextApprovedScriptLeafRange: () => ({ status: "ready", range }),
-    nextLeafBatchRange: () => ({ status: "ready", range }),
-    createEpisodeStreamBatch: () => [], targetScriptBodyCharacters: () => 1000,
+    contiguousEpisodeCoverageThrough: options.approvalFixture ? contiguousEpisodeCoverageThrough : () => first - 1,
+    storyBibleIdForProject: () => "bible", loadActiveStoryPlanNodes: async () => options.approvalFixture?.nodes ?? [],
+    nextApprovedScriptLeafRange: options.approvalFixture ? nextApprovedScriptLeafRange : () => ({ status: "ready", range }),
+    nextLeafBatchRange: options.approvalFixture ? nextLeafBatchRange : () => ({ status: "ready", range }),
+    createEpisodeStreamBatch: () => [], targetScriptBodyCharacters,
     loadStoryBible: async () => ({ status: "approved", creative_decisions: [] }),
     loadEpisodePlans: async () => [],
-    resolveEpisodeGenerationConstraints: () => [first, first + 1].map((episodeNumber) => ({ episodeNumber })),
+    resolveEpisodeGenerationConstraints: () => constraints,
     prepareEpisodeGenerationRuntime: async () => ({ strategy: "existing-runtime" }),
     synchronizeContinuity: () => ({}), resolveWorkingDraft: (episode) => episode.generationRun.draft_master_script,
-    calculateSeriesTextMetrics: () => ({ scriptBodyCharacters: 500 }), calculateDraftTextMetrics: () => ({ scriptBodyCharacters: 500 }),
-    episodeGenerationLedgerPlan: () => ({}), plannedEpisodeBodyReference: () => 1000, storySegmentBodyReference: () => 1000,
+    calculateSeriesTextMetrics, calculateDraftTextMetrics,
+    episodeGenerationLedgerPlan: () => ({}), allocateSeriesBodyReferences,
     plannedEpisodeDurationSeconds: () => 60, adaptiveEpisodeSceneCount: () => 3, plannedEpisodeShotCount: () => 0,
     episodeGenerationInstruction: (_constraint, instruction) => instruction,
+    episodeActingDirection: () => undefined,
     withAuthorIntentWorkflowRule: (instruction) => `author:${instruction}`,
     episodeGenerationCharacterRefs: () => [], storyNodeExecutionContext: () => ({}),
     episodeGenerationExecutionPlan: () => ({}), storyBibleEpisodeContext: () => ({}), generationPerformanceDetails: () => ({}),
@@ -380,8 +407,50 @@ async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCh
   };
   vm.runInNewContext(compiledEntries, context);
   if (initial) await context.generateInitialBatch();
+  else if (options.retryEntry) {
+    const generateNextStage = context.generateNextStage;
+    let operation;
+    context.generateNextStage = (...args) => { operation = generateNextStage(...args); return operation; };
+    context.retryGenerationEpisode(first);
+    assert.ok(operation, "The retry control must invoke the continuation entry point");
+    await operation;
+  }
   else await context.generateNextStage("Keep this direction", range);
   return { run, models, messages, cleared, existing };
+}
+
+for (const [entry, firstEpisode, episodeCount] of [["initial", 1, 8], ["continuation", 37, 2], ["retry", 71, 2]]) {
+  test(`${entry} requests retain approved body depth after ample earlier writing`, async (t) => {
+    const constraints = Array.from({ length: episodeCount }, (_, index) => ({
+      episodeNumber: firstEpisode + index,
+      episodePlan: { status: "approved", target_duration_seconds: index % 2 ? 105 : 85,
+        planned_shot_count: index % 2 ? 20 : 16 },
+      storyPlanNode: { planned_start_episode: firstEpisode, planned_end_episode: firstEpisode + episodeCount - 1,
+        estimated_script_body_characters: episodeCount * 1_500 },
+    }));
+    const original = structuredClone(constraints);
+    let interrupted = false;
+    const { run, models, messages } = await executeWorkspaceBatch(t, entry === "initial", undefined, false, (_run, number) => {
+      if (entry === "retry" && number === firstEpisode && !interrupted) {
+        interrupted = true;
+        throw Object.assign(new Error("connection reset"), { failureClass: "network" });
+      }
+    }, { firstEpisode, episodeCount, totalEpisodes: 72, bodyCharacters: 5_000, constraints, retryEntry: entry === "retry" });
+    assert.equal(background.getScriptGenerationTask(run.projectId).status, "completed", messages.join("\n"));
+    assert.equal(models.length, episodeCount + (entry === "retry" ? 1 : 0));
+    const allocated = allocateSeriesBodyReferences(run.project.generationSettings, constraints);
+    const approvedReferences = constraints.map((constraint) => allocated.get(constraint.episodeNumber));
+    assert.ok(approvedReferences[0] < approvedReferences[1], "Approved scene duration and load may differ naturally");
+    for (const { request } of models) {
+      assert.equal(request.targetScriptBodyCharacters, approvedReferences[request.episodeNumber - firstEpisode]);
+    }
+    if (entry === "retry") {
+      const repeated = models.filter(({ request }) => request.episodeNumber === firstEpisode);
+      assert.equal(repeated.length, 2);
+      assert.equal(repeated[0].request.agentRequestId, repeated[1].request.agentRequestId);
+    }
+    assert.deepEqual(constraints, original);
+  });
 }
 
 for (const initial of [true, false]) {
@@ -442,5 +511,81 @@ for (const initial of [true, false]) {
     const completedBatchWrite = result.run.calls.local.findIndex((patch) => patch.generationBatches?.at(-1)?.status === "completed");
     const completedTaskWrite = result.run.calls.local.findIndex((patch) => patch.activeGenerationTask?.status === "completed");
     assert.ok(completedBatchWrite < completedTaskWrite);
+  });
+}
+
+
+test('a planning epoch change blocks a returned body even when the task checkpoint is unchanged', async t=>{
+  const run=harness(t);await run.start();
+  const result=deferred();
+  const pending=run.session.generateEpisode(1,()=>result.promise);
+  await setImmediate();
+  run.project={...run.project,planningRevisionEpoch:1};
+  result.resolve({body:'old planning result'});
+  await assert.rejects(pending,{failureClass:'conflict'});
+});
+
+test('revision rejection cannot degrade to a local-only generation checkpoint',async t=>{
+  const run=harness(t);
+  run.behavior.save=async()=>{throw Object.assign(new Error('planning revision pending'),{status:409});};
+  await assert.rejects(run.start(),{failureClass:'conflict'});
+  assert.equal(run.calls.local.length,0);
+});
+
+test('revised planning changes request identity while ordinary checkpoint resume stays stable',()=>{
+  const task=recovery.createGenerationRecoveryTask({batchNumber:1,startEpisode:11,endEpisode:20,episodePlanIds:[],planningRevisionEpoch:2});
+  const id=recovery.episodeGenerationAgentRequestId(task,11);
+  assert.match(id,/planning-2$/);
+  assert.equal(recovery.episodeGenerationAgentRequestId({...task,jobRevision:19},11),id);
+  assert.notEqual(recovery.episodeGenerationAgentRequestId({...task,planningRevisionEpoch:3},11),id);
+  assert.throws(()=>recovery.reconcileGenerationRecoveryTask(task,{...task,planningRevisionEpoch:3}),/identity changed/);
+});
+
+
+function persistedSuffixRecoveryFixture() {
+  const leaf = { node_id: "story_plan.holdout.leaf", version: 5, story_bible_version: 1,
+    status: "approved", expansion_status: "episode_ready", planned_start_episode: 1, planned_end_episode: 10 };
+  const roadmaps = Array.from({ length: 10 }, (_, index) => ({ episode_number: index + 1, status: "approved",
+    source_node_id: leaf.node_id, source_node_version: leaf.version, story_bible_version: 1 }));
+  const task = recovery.failGenerationRecoveryTask(recovery.createGenerationRecoveryTask({
+    planningRevisionEpoch: 1, batchNumber: 2, startEpisode: 7, endEpisode: 10,
+    episodePlanIds: [7,8,9,10].map(number => `episode-plan.runtime.${number}`),
+  }), 7, "Previously interrupted at the post-edit step");
+  return { nodes: [leaf], roadmaps, task: { ...task, serverBacked: true }, epoch: 1 };
+}
+
+test("real continuation gate resumes a persisted 7–10 job inside approved leaf 1–10 with the original job id", async (t) => {
+  const fixture = persistedSuffixRecoveryFixture();
+  const { run, models, messages, existing } = await executeWorkspaceBatch(t, false, undefined, false, () => {}, {
+    firstEpisode: 7, episodeCount: 4, totalEpisodes: 10, approvalFixture: fixture,
+  });
+  assert.deepEqual(models.map(model => model.request.episodeNumber), [7,8,9,10], messages.join("\n"));
+  assert.ok(models.every(model => model.checkpoint.jobId === fixture.task.jobId));
+  assert.ok(models.every(model => model.checkpoint.batchId === fixture.task.batchId));
+  assert.ok(models.every(model => model.checkpoint.planningRevisionEpoch === 1));
+  assert.equal(models[0].checkpoint.startEpisode, 7);
+  assert.equal(models[0].checkpoint.endEpisode, 10);
+  assert.deepEqual(run.project.episodes.slice(0, 6), existing);
+});
+
+for (const invalid of ["no-task", "old-epoch", "local-only", "completed-task", "unsaved-checkpoint", "different-range", "unapproved-node", "stale-roadmap", "incomplete-leaf"]) {
+  test(`real continuation gate rejects ${invalid} suffix recovery before any model call or job replacement`, async (t) => {
+    const fixture = persistedSuffixRecoveryFixture();
+    if (invalid === "no-task") fixture.task = undefined;
+    else if (invalid === "old-epoch") fixture.task.planningRevisionEpoch = 0;
+    else if (invalid === "local-only") fixture.task.serverBacked = false;
+    else if (invalid === "completed-task") fixture.task.status = "completed";
+    else if (invalid === "unsaved-checkpoint") fixture.task.completedEpisodeNumbers = [7];
+    else if (invalid === "different-range") fixture.task.endEpisode = 9;
+    else if (invalid === "unapproved-node") fixture.nodes[0].status = "draft";
+    else if (invalid === "stale-roadmap") fixture.roadmaps[6].source_node_version = 4;
+    else fixture.roadmaps.pop();
+    const original = structuredClone(fixture.task);
+    const { run, models, messages } = await executeWorkspaceBatch(t, false, undefined, false, () => {}, {
+      firstEpisode: 7, episodeCount: 4, totalEpisodes: 10, approvalFixture: fixture,
+    });
+    assert.equal(models.length, 0);
+    assert.deepEqual(run.project.activeGenerationTask, original);
+    assert.ok(messages.includes("generation.episodePlansRequired"), messages.join("\n"));
   });
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { WorkspaceMissingProject } from "@/components/workspace-missing-project";
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -22,6 +24,9 @@ export function StoryStructureWorkspace() {
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadedBibleKey, setLoadedBibleKey] = useState<string | null>(null);
+  const bibleKey = project ? `${project.id}:${project.storyBibleVersion ?? "latest"}` : null;
   const planningAccessible = project
     ? workspaceSectionAccess(project).planning
     : false;
@@ -40,6 +45,7 @@ export function StoryStructureWorkspace() {
     let active = true;
     setLoading(true);
     setError(null);
+    setStoryBible(null);
     loadStoryBible(project.id, project.storyBibleVersion)
       .then((value) => {
         if (!active) return;
@@ -50,16 +56,19 @@ export function StoryStructureWorkspace() {
         if (active) setError(userFacingError(reason, t("storyStructure.loadFailed")));
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) {
+          setLoadedBibleKey(bibleKey);
+          setLoading(false);
+        }
       });
     return () => { active = false; };
-  }, [project?.id, project?.storyBibleStatus, project?.storyBibleVersion, t]);
+  }, [project?.id, project?.storyBibleStatus, project?.storyBibleVersion, t, loadAttempt]);
 
   if (!isReady) {
     return <main className="centered-state"><div className="loading-mark" /><p>{t("project.opening")}</p></main>;
   }
   if (!project) {
-    return <main className="centered-state"><h1>{t("project.missingTitle")}</h1><Link className="primary-action" href="/">{t("project.return")}</Link></main>;
+    return <WorkspaceMissingProject />;
   }
   if (!planningAccessible) {
     return <main className="centered-state"><div className="loading-mark" /></main>;
@@ -92,16 +101,17 @@ export function StoryStructureWorkspace() {
           <p>{t("storyStructure.lockedText")}</p>
           <Link className="primary-action" href={`/projects/${project.id}/planning`}>{t("storyStructure.openBible")}</Link>
         </section>
-      ) : loading ? (
+      ) : loading || loadedBibleKey !== bibleKey ? (
         <section className="story-structure-gate"><div className="loading-mark" /><p>{t("storyStructure.loading")}</p></section>
       ) : error || !storyBible ? (
         <section className="story-structure-gate is-error" role="alert">
           <h2>{t("storyStructure.loadFailed")}</h2>
           <p>{error ?? t("storyStructure.missingBible")}</p>
+          <button className="primary-action" onClick={() => setLoadAttempt(attempt => attempt + 1)} type="button">重新读取规划</button>
           <Link className="outline-action" href={`/projects/${project.id}/planning`}>{t("storyStructure.backToBible")}</Link>
         </section>
       ) : (
-        <StoryPlanNodePanel onProjectUpdate={update} project={project} storyBible={storyBible} />
+        <StoryPlanNodePanel key={project.id} onProjectUpdate={update} project={project} storyBible={storyBible} />
       )}
     </main>
   );

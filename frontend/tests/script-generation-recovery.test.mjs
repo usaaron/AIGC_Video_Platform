@@ -111,7 +111,7 @@ function harness(initialProject) {
 
 test("continuation cancels before launch, survives effect replay and starts once", () => {
   const run = harness(projectFixture());
-  run.render();
+  run.render({ browserTaskStatus: "completed" });
   assert.equal(run.timers.size, 1);
   assert.equal([...run.timers.values()][0].delay, 500);
   run.replayEffects();
@@ -126,6 +126,33 @@ test("continuation cancels before launch, survives effect replay and starts once
   run.fire();
   assert.equal(run.launches.length, 1);
 });
+
+test("completed screenplay batches wait for their storyboard handoff instead of starting more scripts", () => {
+  const run = harness({ ...projectFixture(), productionOutputMode: "script_and_storyboard" });
+  run.render({ browserTaskStatus: "completed" });
+  run.replayEffects();
+  run.fire();
+  assert.equal(run.launches.length, 0);
+  assert.equal(run.timers.size, 0);
+  // Changing the saved delivery choice re-enables script-only continuation.
+  run.project = { ...run.project, productionOutputMode: "script_only" };
+  run.render();
+  run.fire();
+  assert.equal(run.launches.length, 1);
+});
+
+for (const status of ["running", "partial", "failed"]) {
+  test(`a fresh observer does not take over a ${status} server task`, () => {
+    const run = harness(projectFixture(taskFixture({ status, lastError: "network timeout" })));
+    run.render();
+    run.replayEffects();
+    run.fire();
+    assert.equal(run.timers.size, 0);
+    assert.equal(run.launches.length, 0);
+    assert.equal(run.initialLaunches.length, 0);
+    assert.equal(run.saves.length, 0);
+  });
+}
 
 for (const blocked of [
   { scriptAccessible: false }, { generationIntent: true },
@@ -142,7 +169,7 @@ for (const [status, attemptCount, delay] of [["running", 1, 500], ["failed", 1, 
   test(`${status} recovery retains its original range and delay`, () => {
     const task = taskFixture({ status, attemptCount, lastError: "network timeout" });
     const run = harness(projectFixture(task));
-    run.render();
+    run.render({ browserTaskStatus: "failed" });
     assert.equal([...run.timers.values()][0].delay, delay);
     run.replayEffects();
     run.fire();
@@ -157,7 +184,7 @@ for (const [status, attemptCount, delay] of [["running", 1, 500], ["failed", 1, 
 test("an empty recovered project invokes the initial launcher only", () => {
   const task = taskFixture();
   const run = harness({ ...projectFixture(task), episodes: [] });
-  run.render();
+  run.render({ browserTaskStatus: "failed" });
   run.fire();
   assert.equal(run.initialLaunches[0], task);
   assert.equal(run.launches.length, 0);
@@ -166,7 +193,7 @@ test("an empty recovered project invokes the initial launcher only", () => {
 test("a same-length episode replacement rechecks missing coverage", () => {
   const task = taskFixture({ startEpisode: 2, endEpisode: 2, status: "completed" });
   const run = harness(projectFixture(task));
-  run.render();
+  run.render({ browserTaskStatus: "completed" });
   run.project = { ...run.project, episodes: [{ episodeNumber: 3 }] };
   run.render();
   run.fire();
@@ -180,7 +207,7 @@ test("a same-length episode replacement rechecks missing coverage", () => {
 test("switching projects and unmounting cancel pending recovery timers", () => {
   const task = taskFixture();
   const run = harness(projectFixture(task));
-  run.render();
+  run.render({ browserTaskStatus: "failed" });
   run.project = { ...projectFixture(task), id: "project.other" };
   run.render();
   assert.equal(run.timers.size, 1);

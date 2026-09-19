@@ -104,6 +104,24 @@ def test_unrecognized_fragment_cannot_replace_source(patch):
     assert source == {"title": "Keep this title"}
 
 
+def test_nested_root_repair_preserves_omitted_siblings_and_explicit_replacements():
+    source = {"continuation_hook": {
+        "ending_hook_summary": "", "next_episode_obligation": "Verify the sealed register.",
+        "response_evidence_scene_numbers": [1, 2], "hook_payoff_target_episode": 18,
+    }, "scenes": [{"scene_number": 1, "character_actions": ["Open the register."]}]}
+    before = deepcopy(source)
+    patch = {"continuation_hook": {"ending_hook_summary": "The register names a second witness.",
+                                    "response_evidence_scene_numbers": [2], "hook_payoff_target_episode": None}}
+    result = draft_contract.merge_contract_repair_fragment(source, patch)
+    assert result["continuation_hook"]["next_episode_obligation"] == source["continuation_hook"]["next_episode_obligation"]
+    assert result["continuation_hook"]["response_evidence_scene_numbers"] == [2]
+    assert result["continuation_hook"]["hook_payoff_target_episode"] is None
+    assert result["scenes"] == source["scenes"]
+    result["scenes"][0]["character_actions"].append("Wait.")
+    assert source == before
+    assert patch["continuation_hook"]["response_evidence_scene_numbers"] == [2]
+
+
 def test_body_and_style_locks_share_protected_fields_but_differ_on_dialogue():
     payload = build_draft_payload()
     payload["scenes"][0]["dialogues"] = [{

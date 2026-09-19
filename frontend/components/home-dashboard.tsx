@@ -12,7 +12,7 @@ import { useProjects } from "@/providers/project-provider";
 import { StudioIntro } from "@/components/studio-intro";
 
 export function HomeDashboard() {
-  const { projects, isReady, deleteProject } = useProjects();
+  const { projects, isReady, deleteProject, serverPersistenceAvailable, storageError } = useProjects();
   const { locale, t } = useLocale();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -21,6 +21,7 @@ export function HomeDashboard() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const pendingProject = projects.find(project => project.id === pendingDeleteId);
+  const loading = !isReady || (!projects.length && serverPersistenceAvailable === null && !storageError);
   const visibleProjects = useMemo(() => {
     const search = query.trim().toLocaleLowerCase(locale);
     return projects.filter(project => {
@@ -50,7 +51,7 @@ export function HomeDashboard() {
     <header className="library-page-header">
       <div><span className="library-kicker">{t("nav.scriptMaster")}</span>
         <h1>{t("nav.projectLibrary")}</h1>
-        <p>{isReady ? projects.length : "..."} {t("library.projects")}</p>
+        <p>{loading ? "..." : projects.length} {t("library.projects")}</p>
       </div>
       <Link className="primary-action" href="/projects/new"><Plus size={17} />{t("nav.create")}</Link>
     </header>
@@ -75,9 +76,13 @@ export function HomeDashboard() {
         </div>
       </div>
 
-      {!isReady ? <div className="library-loading" aria-label={t("nav.loading")} role="status">
+      {!loading && (serverPersistenceAvailable === false || storageError) && <div className="inline-notice is-error" role="alert">
+        <p>{locale === "zh" ? "项目列表可能不完整，请检查网络或浏览器存储后重试。" : "The project list may be incomplete. Check your connection or browser storage and retry."}</p>
+        <button className="outline-action" type="button" onClick={() => window.location.reload()}>{locale === "zh" ? "重新加载" : "Reload"}</button>
+      </div>}
+      {loading ? <div className="library-loading" aria-label={t("nav.loading")} role="status">
         {[0, 1, 2].map(index => <div key={index}><span /><span /><span /></div>)}
-      </div> : !projects.length ? <div className="library-empty">
+      </div> : !projects.length && (serverPersistenceAvailable === false || storageError) ? null : !projects.length ? <div className="library-empty">
         <FolderOpen aria-hidden="true" size={32} /><h2>{t("home.emptyTitle")}</h2>
         <Link className="primary-action" href="/projects/new"><Plus size={17} />{t("nav.create")}</Link>
       </div> : !visibleProjects.length ? <div className="library-empty">
@@ -89,7 +94,7 @@ export function HomeDashboard() {
         </div>
         {visibleProjects.map((project, index) => {
           const tag = projectTagLabel(project, project.selectedTagIds[0] ?? "", locale);
-          const episodeCount = project.episodes.filter(episode => episode.status !== "framework").length;
+          const episodeCount = project.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length;
           const target = project.generationSettings.episodeCount;
           return <article className="library-project-row" key={project.id}>
             <Link className="library-project-link" href={currentWorkspaceHref(project)}>

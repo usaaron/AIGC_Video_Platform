@@ -1,0 +1,597 @@
+{
+  "source": "R104 original project saved roadmaps after leaf revision; generated prose unchanged",
+  "episodeRoadmaps": [
+    {
+      "episode_number": 53,
+      "ending_mode": "serial_hook",
+      "episode_title": "THE UNSIGNED PAGE｜未签字的一页",
+      "synopsis": "知微在临时工作间把完整证据链逐项绑定，确认它能证明陆沉舟未篡改，却会同时暴露其五年前删除记录。陆沉舟拒绝让知微以保护他为由稀释证据，要求她面对证据公开的完整代价。顾岚在律所会议室以证据保管缺失和律所存续为由要求知微立即做出选择，知微拒绝交出证据链。知微和陆沉舟在旧城街口观察投资方和地方中介的活动，确认他们准备用舆论证词围堵。回到临时工作间，知微把三份压力并排，选择空间被压缩到临界点。",
+      "locations": [
+        "临时工作间",
+        "律所会议室",
+        "旧城街口"
+      ],
+      "target_duration_seconds": 95,
+      "planned_scene_count": 3,
+      "planned_shot_count": 18,
+      "planned_dialogue_line_count": 30,
+      "episode_goal": "把知微推向最终选择：在公开真相与保护陆沉舟之间作出不可逆决定，选择结果留到公开听证会前。",
+      "entry_state": "知微确认陆沉舟拒绝沉默交换，顾岚用证据保管缺失反将一军，选择空间被压缩到公开真相与保护陆沉舟之间的临界点。",
+      "central_conflict": "知微必须在公开真相与保护陆沉舟之间作出不可逆选择，但陆沉舟拒绝沉默交换，顾岚用证据保管缺失反施压，投资方和地方中介准备用舆论证词围堵。",
+      "protagonist_decision": "知微选择不把保护陆沉舟当作稀释证据的理由，继续面对互斥选项。",
+      "reveal": "知微确认完整证据链能洗清陆沉舟未篡改系统，却会同时暴露其五年前删除记录，公开与保护已经互斥。",
+      "emotional_movement": "知微从试图寻找中间路径到确认互斥选项，情绪从挣扎转向临界点的清醒。",
+      "stage_opposition": "顾岚以证据保管缺失和律所存续反施压，陆沉舟拒绝沉默交换，投资方和地方中介准备用舆论证词围堵。",
+      "episode_payoff": "观众看到知微把陆沉舟翻开的签字页与顾岚的合规审查函并排，确认删节会让纸档失去证明力，而完整证据链会同时洗清未篡改和暴露五年前删除，互斥从判断变成可指认的纸面事实。",
+      "pressure_escalation": "顾岚的合规审查函和证据保管缺失记录让证据链在听证会前面临失效风险，知微拒绝交出证据链，必须承担效力存疑的后果。",
+      "dramatic_units": [
+        {
+          "trigger": "陆沉舟拒绝让知微以保护他为由稀释证据，要求她面对证据公开的完整代价。",
+          "choice": "知微选择不再拆分证据链，承认公开与保护已经互斥。",
+          "visible_consequence": "知微确认完整证据链能洗清陆沉舟未篡改系统，却会同时暴露其五年前删除记录。",
+          "change_type": "信息",
+          "evidence_hint": "陆沉舟把原始纸档翻到签字页，指出任何删节都会让纸档失去证明力。"
+        },
+        {
+          "trigger": "顾岚以证据保管缺失和律所存续为由要求知微立即做出选择。",
+          "choice": "知微拒绝交出证据链，选择承担证据效力存疑的风险。",
+          "visible_consequence": "顾岚的反制让证据链在听证会前面临失效风险。",
+          "change_type": "资源",
+          "evidence_hint": "顾岚出示合规审查函和证据保管缺失记录。"
+        },
+        {
+          "trigger": "投资方和地方中介在旧城街口准备用舆论证词围堵。",
+          "choice": "知微选择不回应舆论证词，继续保留证据链的完整性。",
+          "visible_consequence": "知微确认舆论证词会把删除记录固化为听证会唯一可核验的个人责任结论。",
+          "change_type": "信息",
+          "evidence_hint": "旧城街口可见投资方和地方中介人员向居民发放材料。"
+        }
+      ],
+      "protagonist_cost": "知微拒绝交出证据链，承担证据效力存疑的风险，并继续面对公开真相与保护陆沉舟的互斥选项。",
+      "setup_refs": [],
+      "payoff_refs": [],
+      "exit_state": "知微确认完整证据链能洗清陆沉舟未篡改系统，却会同时暴露其五年前删除记录，公开与保护已经互斥，选择空间被压缩到临界点。",
+      "cliffhanger": "旧城街口的舆论证词材料已经发放，知微确认删除记录将被固化为听证会唯一可核验的个人责任结论，而她仍未作出选择。",
+      "character_refs": [
+        "character.protagonist",
+        "character.deuteragonist",
+        "character.antagonist"
+      ],
+      "story_line_refs": [
+        "sl_main_responsibility",
+        "sl_lu_deletion",
+        "sl_zhiwei_arc",
+        "sl_gulan_backlash"
+      ],
+      "continuity_requirements": [
+        "陆沉舟拒绝再以沉默交换自保，要求知微不要以保护他为由稀释证据。",
+        "顾岚以证据保管缺失和律所存续反施压，威胁让证据链在听证会上失效。",
+        "投资方和地方中介准备在听证会上用舆论证词围堵。",
+        "原始纸档、系统日志和回执复印件仍由知微保管。",
+        "知微尚未决定公开或隐瞒完整证据链。"
+      ],
+      "source_turning_points": [],
+      "source_unit_story_beats": [],
+      "ending_hook_type": "纸面互斥",
+      "next_episode_obligation": "知微必须从这一临界选择进入公开听证会，提交决定将立刻转化为职业、情感和追责代价。",
+      "hook_payoff_target_episode": 54,
+      "scene_execution_plan": [
+        {
+          "scene_number": 1,
+          "scene_heading": "INT. 临时工作间",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微试图在保护陆沉舟与保留完整证据之间寻找中间路径，陆沉舟拒绝任何以保护他为由的删节。",
+          "opposition": "陆沉舟主动阻止知微拆分证据链，坚持完整公开的代价必须被面对。",
+          "information_shift": "知微确认任何删节都会让原始纸档失去证明力，完整证据链同时洗清未篡改并暴露五年前删除记录。",
+          "choice_or_cost": "知微选择不再拆分证据链，承认公开与保护已经互斥。",
+          "evidence_requirements": [
+            "陆沉舟把原始纸档翻到签字页，指出删节会让纸档失去证明力。"
+          ],
+          "forbidden_changes": [
+            "不得改变陆沉舟五年前真实删除过报警异常记录的事实。",
+            "不得让陆沉舟同意以沉默交换自保。",
+            "不得让知微在本场做出最终公开或隐瞒决定。"
+          ],
+          "visible_action": "知微把三份材料并排放在桌面，陆沉舟按住签字页阻止她抽出其中一份。",
+          "turn_or_reveal": "知微从寻找中间路径转向确认互斥选项，情绪从挣扎转向临界点的清醒。",
+          "dialogue_objective": "让陆沉舟明确拒绝被保护为稀释证据的理由，让知微确认删节会破坏证明力。",
+          "dialogue_line_target": 12,
+          "shot_target": 7,
+          "exit_state": "知微确认完整证据链能洗清陆沉舟未篡改系统，却会同时暴露其五年前删除记录，公开与保护已经互斥。"
+        },
+        {
+          "scene_number": 2,
+          "scene_heading": "INT. 律所会议室",
+          "character_refs": [
+            "character.protagonist",
+            "character.antagonist"
+          ],
+          "scene_objective": "顾岚以证据保管缺失和律所存续为由要求知微立即交出证据链，知微拒绝并承担效力存疑的风险。",
+          "opposition": "顾岚出示合规审查函和证据保管缺失记录，用律所存续反施压。",
+          "information_shift": "知微确认顾岚的反制让证据链在听证会前面临失效风险。",
+          "choice_or_cost": "知微拒绝交出证据链，选择承担证据效力存疑的风险。",
+          "evidence_requirements": [
+            "顾岚出示合规审查函和证据保管缺失记录。"
+          ],
+          "forbidden_changes": [
+            "不得让知微交出证据链。",
+            "不得让顾岚成为终极黑手或掌握全部证据。",
+            "不得改变证据链仍由知微保管的事实。"
+          ],
+          "visible_action": "顾岚把合规审查函推到知微面前，知微将文件推回并合上自己的档案夹。",
+          "turn_or_reveal": "知微从被动应对顾岚施压转向主动承担证据效力存疑的后果。",
+          "dialogue_objective": "让顾岚明确威胁证据链在听证会上失效，让知微明确拒绝交出证据链。",
+          "dialogue_line_target": 10,
+          "shot_target": 6,
+          "exit_state": "知微拒绝交出证据链，承担证据效力存疑的风险，顾岚的反制让证据链在听证会前面临失效风险。"
+        },
+        {
+          "scene_number": 3,
+          "scene_heading": "EXT. 旧城街口",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微和陆沉舟观察投资方和地方中介发放舆论证词材料，确认删除记录将被固化为听证会唯一可核验的个人责任结论。",
+          "opposition": "投资方和地方中介人员向旧城居民发放材料，准备用舆论证词围堵。",
+          "information_shift": "知微确认舆论证词会把删除记录固化为听证会唯一可核验的个人责任结论。",
+          "choice_or_cost": "知微选择不回应舆论证词，继续保留证据链的完整性。",
+          "evidence_requirements": [
+            "旧城街口可见投资方和地方中介人员向居民发放材料。"
+          ],
+          "forbidden_changes": [
+            "不得让知微在本场做出最终公开或隐瞒决定。",
+            "不得让投资方或地方中介直接接触知微和陆沉舟。",
+            "不得改变舆论证词材料已经发放的事实。"
+          ],
+          "visible_action": "知微和陆沉舟站在街口，看着投资方和地方中介人员向居民发放材料，知微把档案夹抱在胸前。",
+          "turn_or_reveal": "知微确认删除记录将被固化为听证会唯一可核验的个人责任结论，而她仍未作出选择。",
+          "dialogue_objective": "让陆沉舟和知微共同确认舆论证词的威胁，让知微明确选择不回应并保留证据链完整性。",
+          "dialogue_line_target": 8,
+          "shot_target": 5,
+          "exit_state": "知微确认完整证据链能洗清陆沉舟未篡改系统，却会同时暴露其五年前删除记录，公开与保护已经互斥，选择空间被压缩到临界点。"
+        }
+      ],
+      "execution_ready": true,
+      "layer_contracts": {
+        "schema_version": "episode_three_layer_contract.v1",
+        "pacing": {
+          "duration_seconds": 95,
+          "scene_count": 3,
+          "shot_count": 18,
+          "dialogue_line_count": 30,
+          "average_shot_interval_seconds": 5.28,
+          "dialogue_lines_per_minute": 18.95,
+          "information_progression_count": 8,
+          "information_progression_per_minute": 5.05,
+          "meets_contract": true
+        },
+        "hook": {
+          "category": "强制选择",
+          "ending_hook_count": 1,
+          "planned_hook_beat_count": 6,
+          "planned_hook_beats_per_minute": 3.79,
+          "has_next_episode_obligation": true,
+          "payoff_target_episode": 54,
+          "meets_contract": true
+        },
+        "story": {
+          "causal_step_count": 5,
+          "distinct_causal_step_count": 5,
+          "continuity_anchor_count": 5,
+          "character_count": 3,
+          "story_line_count": 4,
+          "local_resolution_planned": true,
+          "escalation_planned": true,
+          "causal_chain_complete": true,
+          "meets_contract": true
+        },
+        "meets_contract": true
+      },
+      "source_node_id": "story_plan.7ba0653a-cf7e-49d7-bb36-5e2c4bb3d1d0.child.37e9fb25f7c7.2",
+      "source_node_version": 2,
+      "story_bible_version": 2,
+      "status": "approved"
+    },
+    {
+      "episode_number": 54,
+      "ending_mode": "serial_hook",
+      "episode_title": "PURGE BEFORE HEARING｜听证前清空",
+      "synopsis": "听证会前，知微在临时工作间核对证据链提交路径，发现在线证据已被责任网络抢先清空，只剩本地备份盘。她前往律所会议室向顾岚确认程序，顾岚却用合规审查函把公开听证压缩成对陆沉舟个人操作的审查，排除系统规则。知微拒绝接受压缩后的范围，回到临时工作间与陆沉舟评估提交路径，确认只有启用陆启明原始纸档、旧手机回执和沈砚变更日志才能恢复物证闭环，但陆沉舟的删除记录会一起进入公开程序。",
+      "locations": [
+        "临时工作间",
+        "律所会议室"
+      ],
+      "target_duration_seconds": 92,
+      "planned_scene_count": 3,
+      "planned_shot_count": 17,
+      "planned_dialogue_line_count": 29,
+      "episode_goal": "确认在线证据被清空，并决定启用原始纸档恢复物证闭环。",
+      "entry_state": "知微持有完整证据链，陆沉舟拒绝沉默交换，顾岚以证据保管缺失反施压，选择空间被压缩到公开真相与保护陆沉舟之间的临界点。",
+      "central_conflict": "责任网络在听证会前抢先清理在线证据，用合规程序把公开听证压缩成对陆沉舟个人操作的审查。",
+      "protagonist_decision": "知微决定启用陆启明原始纸档、旧手机回执和沈砚变更日志，恢复物证闭环。",
+      "reveal": "在线证据被责任网络抢先清空，听证会被压缩为个人操作审查。",
+      "emotional_movement": "从证据链完整的确定感转向在线证据被清空的紧迫感，知微被迫面对启用原始纸档会暴露陆沉舟删除记录的代价。",
+      "stage_opposition": "责任网络抢先清理在线证据，顾岚用合规程序压缩听证范围。",
+      "episode_payoff": "观众看到责任网络在听证会前抢先清空在线证据，知微确认必须启用原始纸档恢复物证闭环。",
+      "pressure_escalation": "在线证据被清空，提交路径被压缩，知微必须启用会暴露陆沉舟删除记录的原始纸档。",
+      "dramatic_units": [
+        {
+          "trigger": "在线证据被清空，提交页面提示证据已删除。",
+          "choice": "知微切换为本地备份盘提交，陆沉舟提醒本地盘可能被标记为孤证。",
+          "visible_consequence": "知微确认在线证据被清空，提交路径被压缩。",
+          "change_type": "信息",
+          "evidence_hint": "屏幕上显示“证据已清空”提示。"
+        },
+        {
+          "trigger": "顾岚拿出合规审查函，把听证范围限定为个人操作审查。",
+          "choice": "知微拒绝接受压缩后的审查范围，要求顾岚书面确认提交路径。",
+          "visible_consequence": "顾岚坚持听证范围已定，知微确认程序被压缩。",
+          "change_type": "关系",
+          "evidence_hint": "顾岚手指点在“个人操作”字样上。"
+        },
+        {
+          "trigger": "陆沉舟指出本地备份盘无法单独证明系统规则被修改。",
+          "choice": "知微决定启用原始纸档，陆沉舟提醒会暴露删除记录。",
+          "visible_consequence": "知微确认必须合并三类物证恢复闭环，但删除记录会一起进入公开程序。",
+          "change_type": "信息",
+          "evidence_hint": "原始纸档、旧手机回执和沈砚变更日志并排放在桌上。"
+        }
+      ],
+      "protagonist_cost": "知微启用原始纸档会同时暴露陆沉舟的删除记录，她必须承担公开真相与保护陆沉舟之间不可逆选择的压力。",
+      "setup_refs": [],
+      "payoff_refs": [],
+      "exit_state": "知微确认在线证据被清空，听证会被压缩为个人操作审查，她决定启用原始纸档恢复物证闭环，但陆沉舟的删除记录会一起进入公开程序。",
+      "cliffhanger": "知微把原始纸档、旧手机回执和沈砚变更日志并排，陆沉舟的删除记录日志被推到中间，公开程序即将暴露他的隐瞒。",
+      "character_refs": [
+        "character.protagonist",
+        "character.deuteragonist",
+        "character.antagonist"
+      ],
+      "story_line_refs": [
+        "sl_main_responsibility",
+        "sl_lu_deletion",
+        "sl_gulan_backlash"
+      ],
+      "continuity_requirements": [
+        "在线证据已被责任网络清空，只剩本地备份盘。",
+        "顾岚用合规程序把听证会压缩为对陆沉舟个人操作的审查。",
+        "知微决定启用陆启明原始纸档、旧手机回执和沈砚变更日志恢复物证闭环。",
+        "陆沉舟的删除记录会一起进入公开程序。",
+        "知微尚未公开提交证据链。"
+      ],
+      "source_turning_points": [
+        "听证会前，责任网络抢先清理在线证据，用合规程序把公开听证压缩成对陆沉舟个人操作的审查。"
+      ],
+      "source_unit_story_beats": [
+        "证据清空与合规封锁触发：听证会前，在线记录被删除，审查程序被指向个人操作。"
+      ],
+      "ending_hook_type": "证据清空与合规封锁",
+      "next_episode_obligation": "知微和陆沉舟必须启用原始纸档、旧手机回执和沈砚变更日志，恢复物证闭环。",
+      "hook_payoff_target_episode": 55,
+      "scene_execution_plan": [
+        {
+          "scene_number": 1,
+          "scene_heading": "INT. 临时工作间",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微和陆沉舟在听证会前最后核对证据链的在线备份，确认提交路径。",
+          "opposition": "知微打开听证会证据提交页面时，系统提示在线证据已被清空，只剩本地备份盘。",
+          "information_shift": "在线证据被责任网络抢先删除，证据链的公开提交路径被切断。",
+          "choice_or_cost": "知微选择立即切换为本地备份盘提交，陆沉舟提醒她本地盘也可能被标记为孤证。",
+          "evidence_requirements": [
+            "屏幕上显示“证据已清空”提示；知微手中备份盘插入接口；陆沉舟皱眉查看页面。"
+          ],
+          "forbidden_changes": [
+            "不得恢复在线证据",
+            "不得让知微放弃提交",
+            "不得提前出现顾岚"
+          ],
+          "visible_action": "知微把备份盘插入电脑，页面弹出“证据已清空”红色提示，陆沉舟伸手按住备份盘。",
+          "turn_or_reveal": "责任网络在听证会前抢先清理在线证据，把知微逼向本地孤证提交。",
+          "dialogue_objective": "知微确认在线证据被清空，陆沉舟指出这是责任网络的合规封锁。",
+          "dialogue_line_target": 10,
+          "shot_target": 6,
+          "exit_state": "知微和陆沉舟确认在线证据被清空，只剩本地备份盘，提交路径被压缩。"
+        },
+        {
+          "scene_number": 2,
+          "scene_heading": "INT. 律所会议室",
+          "character_refs": [
+            "character.protagonist",
+            "character.antagonist"
+          ],
+          "scene_objective": "知微向顾岚确认听证会程序，试图争取公开提交完整证据链的空间。",
+          "opposition": "顾岚拿出合规审查函，告知知微听证会已被压缩为对陆沉舟个人操作的审查。",
+          "information_shift": "顾岚用合规程序把听证范围限定为陆沉舟个人操作，排除系统规则审查。",
+          "choice_or_cost": "知微拒绝接受压缩后的审查范围，要求顾岚书面确认证据链提交路径。",
+          "evidence_requirements": [
+            "顾岚手中的合规审查函；知微把备份盘放在桌上；顾岚手指点在“个人操作”字样上。"
+          ],
+          "forbidden_changes": [
+            "不得让顾岚承认参与清空证据",
+            "不得让知微交出备份盘",
+            "不得让陆沉舟在场"
+          ],
+          "visible_action": "顾岚把审查函推到知微面前，知微没有接，反而把备份盘按在函件上。",
+          "turn_or_reveal": "顾岚以合规程序把公开听证压缩成对陆沉舟个人操作的审查。",
+          "dialogue_objective": "顾岚强调听证范围已定，知微拒绝接受个人操作审查。",
+          "dialogue_line_target": 11,
+          "shot_target": 6,
+          "exit_state": "知微确认听证会被压缩为个人操作审查，顾岚要求她按合规程序提交证据。"
+        },
+        {
+          "scene_number": 3,
+          "scene_heading": "INT. 临时工作间",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微和陆沉舟评估被清空在线证据后的提交路径，决定是否启用原始纸档。",
+          "opposition": "陆沉舟指出本地备份盘无法单独证明系统规则被修改，必须启用原始纸档。",
+          "information_shift": "知微确认需要启用陆启明原始纸档、旧手机回执和沈砚变更日志才能恢复物证闭环。",
+          "choice_or_cost": "知微决定启用原始纸档，陆沉舟提醒这会暴露他的删除记录。",
+          "evidence_requirements": [
+            "备份盘、原始纸档、旧手机回执和沈砚变更日志并排放在桌上；陆沉舟手指点在删除记录日志上。"
+          ],
+          "forbidden_changes": [
+            "不得让知微放弃启用原始纸档",
+            "不得让陆沉舟否认删除记录",
+            "不得提前公开证据"
+          ],
+          "visible_action": "知微把原始纸档、旧手机回执和沈砚变更日志依次排开，陆沉舟把删除记录日志推到中间。",
+          "turn_or_reveal": "知微确认只有合并三类物证才能恢复物证闭环，但陆沉舟的删除记录会同时进入公开程序。",
+          "dialogue_objective": "知微决定启用原始纸档，陆沉舟确认删除记录会一起被看见。",
+          "dialogue_line_target": 8,
+          "shot_target": 5,
+          "exit_state": "知微和陆沉舟确认必须合并三类物证恢复闭环，但删除记录会一起进入公开程序。"
+        }
+      ],
+      "execution_ready": true,
+      "layer_contracts": {
+        "schema_version": "episode_three_layer_contract.v1",
+        "pacing": {
+          "duration_seconds": 92,
+          "scene_count": 3,
+          "shot_count": 17,
+          "dialogue_line_count": 29,
+          "average_shot_interval_seconds": 5.41,
+          "dialogue_lines_per_minute": 18.91,
+          "information_progression_count": 10,
+          "information_progression_per_minute": 6.52,
+          "meets_contract": true
+        },
+        "hook": {
+          "category": "危机升级",
+          "ending_hook_count": 1,
+          "planned_hook_beat_count": 6,
+          "planned_hook_beats_per_minute": 3.91,
+          "has_next_episode_obligation": true,
+          "payoff_target_episode": 55,
+          "meets_contract": true
+        },
+        "story": {
+          "causal_step_count": 5,
+          "distinct_causal_step_count": 5,
+          "continuity_anchor_count": 7,
+          "character_count": 3,
+          "story_line_count": 3,
+          "local_resolution_planned": true,
+          "escalation_planned": true,
+          "causal_chain_complete": true,
+          "meets_contract": true
+        },
+        "meets_contract": true
+      },
+      "source_node_id": "story_plan.7ba0653a-cf7e-49d7-bb36-5e2c4bb3d1d0.child.18ff3e3c9e44.1",
+      "source_node_version": 4,
+      "story_bible_version": 2,
+      "status": "draft",
+      "source_revision_review": {
+        "previous_version": 3,
+        "current_version": 4
+      }
+    },
+    {
+      "episode_number": 55,
+      "ending_mode": "serial_hook",
+      "episode_title": "PAPER TRAIL RESTORED｜纸档复原",
+      "synopsis": "知微在临时工作间启用陆启明原始纸档，确认纸档能证明陆沉舟未篡改系统，但删除记录仍然存在。她和陆沉舟前往旧城街口观察责任网络的活动，确认投资方和地方中介准备用舆论证词围堵，把陆沉舟的删除记录解释为全部责任。回到临时工作间，知微把旧手机回执、原始纸档与沈砚变更日志合并为完整证据链，陆沉舟选择不作切割，删除记录进入公开程序。",
+      "locations": [
+        "临时工作间",
+        "旧城街口"
+      ],
+      "target_duration_seconds": 98,
+      "planned_scene_count": 3,
+      "planned_shot_count": 18,
+      "planned_dialogue_line_count": 31,
+      "episode_goal": "启用原始纸档、旧手机回执和沈砚变更日志，恢复物证闭环。",
+      "entry_state": "知微确认在线证据被清空，听证会被压缩为个人操作审查，她决定启用原始纸档恢复物证闭环，但陆沉舟的删除记录会一起进入公开程序。",
+      "central_conflict": "知微必须合并三类物证恢复物证闭环，但陆沉舟的删除记录无法切割，责任网络准备用舆论证词围堵。",
+      "protagonist_decision": "知微决定把旧手机回执、原始纸档与沈砚变更日志合并为完整证据链。",
+      "reveal": "原始纸档能证明陆沉舟未篡改系统，但删除记录仍然存在，证据链无法切割。",
+      "emotional_movement": "从证据链被清空的紧迫感转向物证闭环恢复的确定感，但知微和陆沉舟都清楚删除记录会一起进入公开程序。",
+      "stage_opposition": "责任网络准备用舆论证词围堵，把陆沉舟的删除记录解释为全部责任。",
+      "episode_payoff": "观众看到知微把三类物证合并为完整证据链，陆沉舟选择不作切割，删除记录进入公开程序。",
+      "pressure_escalation": "物证闭环恢复，但删除记录无法切割，责任网络的舆论证词围堵让公开程序的风险增加。",
+      "dramatic_units": [
+        {
+          "trigger": "知微启用原始纸档，陆沉舟提醒纸档不能消除删除记录。",
+          "choice": "知微选择把原始纸档作为证据链第一环，陆沉舟没有阻止。",
+          "visible_consequence": "知微确认纸档能证明未篡改，但删除记录仍然存在。",
+          "change_type": "信息",
+          "evidence_hint": "原始纸档摊开，签字页可见。"
+        },
+        {
+          "trigger": "旧城街口责任网络向居民发放材料，把删除记录解释为全部责任。",
+          "choice": "知微选择不直接对质，回到临时工作间继续整理证据链。",
+          "visible_consequence": "知微确认责任网络准备用舆论证词围堵。",
+          "change_type": "关系",
+          "evidence_hint": "投资方和地方中介的人向居民发放材料。"
+        },
+        {
+          "trigger": "陆沉舟指出旧手机回执和沈砚变更日志会暴露删除记录。",
+          "choice": "知微选择合并三类物证，陆沉舟选择不作切割。",
+          "visible_consequence": "知微把三类物证合并为完整证据链，删除记录进入公开程序。",
+          "change_type": "关系",
+          "evidence_hint": "旧手机回执、沈砚变更日志和原始纸档并排。"
+        }
+      ],
+      "protagonist_cost": "知微合并完整证据链会同时暴露陆沉舟的删除记录，她必须承担公开真相与保护陆沉舟之间不可逆选择的压力。",
+      "setup_refs": [],
+      "payoff_refs": [],
+      "exit_state": "知微把旧手机回执、原始纸档与沈砚变更日志合并为完整证据链，陆沉舟选择不作切割，删除记录进入公开程序。",
+      "cliffhanger": "知微把三类物证合并为完整证据链，陆沉舟的删除记录日志被推到中间，公开程序即将暴露他的隐瞒。",
+      "character_refs": [
+        "character.protagonist",
+        "character.deuteragonist"
+      ],
+      "story_line_refs": [
+        "sl_main_responsibility",
+        "sl_lu_deletion",
+        "sl_elder_receipt"
+      ],
+      "continuity_requirements": [
+        "原始纸档能证明陆沉舟未篡改系统，但删除记录仍然存在。",
+        "旧手机回执与沈砚变更日志能恢复物证闭环。",
+        "责任网络准备用舆论证词围堵，把陆沉舟的删除记录解释为全部责任。",
+        "知微把三类物证合并为完整证据链，陆沉舟选择不作切割。",
+        "知微尚未公开提交证据链。"
+      ],
+      "source_turning_points": [],
+      "source_unit_story_beats": [],
+      "ending_hook_type": "物证闭环恢复",
+      "next_episode_obligation": "知微必须决定是否公开包含陆沉舟删除记录在内的完整证据链。",
+      "hook_payoff_target_episode": 56,
+      "scene_execution_plan": [
+        {
+          "scene_number": 1,
+          "scene_heading": "INT. 临时工作间",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微和陆沉舟启用陆启明原始纸档，确认纸档能证明陆沉舟未篡改系统。",
+          "opposition": "陆沉舟提醒知微，纸档只能证明他未篡改，不能消除他五年前删除报警异常记录的事实。",
+          "information_shift": "知微确认原始纸档能证明陆沉舟未篡改系统，但删除记录仍然存在。",
+          "choice_or_cost": "知微选择把原始纸档作为证据链第一环，陆沉舟没有阻止。",
+          "evidence_requirements": [
+            "原始纸档摊开，签字页可见；陆沉舟手指点在删除记录日志上；知微把纸档按时间线排列。"
+          ],
+          "forbidden_changes": [
+            "不得让纸档消除删除记录",
+            "不得让陆沉舟否认删除",
+            "不得让知微放弃使用纸档"
+          ],
+          "visible_action": "知微把原始纸档摊开，陆沉舟把删除记录日志放在纸档旁边，知微没有移开。",
+          "turn_or_reveal": "原始纸档证明陆沉舟未篡改系统，但删除记录仍然存在，证据链无法切割。",
+          "dialogue_objective": "知微确认纸档证明力，陆沉舟强调删除记录无法消除。",
+          "dialogue_line_target": 10,
+          "shot_target": 6,
+          "exit_state": "知微确认原始纸档能证明陆沉舟未篡改系统，但删除记录仍然存在。"
+        },
+        {
+          "scene_number": 2,
+          "scene_heading": "INT. 旧城街口",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微和陆沉舟在旧城街口观察责任网络的活动，确认投资方和地方中介准备用舆论证词围堵。",
+          "opposition": "投资方和地方中介的人在旧城街口向居民发放材料，试图把陆沉舟的删除记录解释为全部责任。",
+          "information_shift": "知微确认责任网络准备用舆论证词围堵，把陆沉舟的删除记录解释为全部责任。",
+          "choice_or_cost": "知微选择不直接对质，而是回到临时工作间继续整理证据链。",
+          "evidence_requirements": [
+            "旧城街口可见投资方和地方中介的人向居民发放材料；知微和陆沉舟在远处观察。"
+          ],
+          "forbidden_changes": [
+            "不得让知微和陆沉舟直接对质",
+            "不得让责任网络发现他们",
+            "不得让居民参与冲突"
+          ],
+          "visible_action": "知微和陆沉舟站在旧城街口，远处投资方和地方中介的人向居民发放材料。",
+          "turn_or_reveal": "责任网络准备用舆论证词围堵，把陆沉舟的删除记录解释为全部责任。",
+          "dialogue_objective": "知微确认舆论证词围堵，陆沉舟指出这是责任网络的切割策略。",
+          "dialogue_line_target": 9,
+          "shot_target": 6,
+          "exit_state": "知微和陆沉舟确认责任网络准备用舆论证词围堵，把陆沉舟的删除记录解释为全部责任。"
+        },
+        {
+          "scene_number": 3,
+          "scene_heading": "INT. 临时工作间",
+          "character_refs": [
+            "character.protagonist",
+            "character.deuteragonist"
+          ],
+          "scene_objective": "知微和陆沉舟合并旧手机回执与沈砚变更日志，恢复物证闭环。",
+          "opposition": "陆沉舟指出旧手机回执和沈砚变更日志能证明系统规则被修改，但会同时暴露他的删除记录。",
+          "information_shift": "知微确认旧手机回执与沈砚变更日志能恢复物证闭环，但删除记录无法切割。",
+          "choice_or_cost": "知微选择把三类物证合并为完整证据链，陆沉舟选择不作切割。",
+          "evidence_requirements": [
+            "旧手机回执、沈砚变更日志和原始纸档并排；知微把三类物证按时间线排列；陆沉舟点头。"
+          ],
+          "forbidden_changes": [
+            "不得让知微切割删除记录",
+            "不得让陆沉舟阻止合并",
+            "不得提前公开证据"
+          ],
+          "visible_action": "知微把旧手机回执、沈砚变更日志和原始纸档按时间线排列，陆沉舟点头。",
+          "turn_or_reveal": "知微把三类物证合并为完整证据链，陆沉舟选择不作切割，删除记录进入公开程序。",
+          "dialogue_objective": "知微确认物证闭环恢复，陆沉舟确认不作切割。",
+          "dialogue_line_target": 12,
+          "shot_target": 6,
+          "exit_state": "知微把旧手机回执、原始纸档与沈砚变更日志合并为完整证据链，陆沉舟选择不作切割。"
+        }
+      ],
+      "execution_ready": true,
+      "layer_contracts": {
+        "schema_version": "episode_three_layer_contract.v1",
+        "pacing": {
+          "duration_seconds": 98,
+          "scene_count": 3,
+          "shot_count": 18,
+          "dialogue_line_count": 31,
+          "average_shot_interval_seconds": 5.44,
+          "dialogue_lines_per_minute": 18.98,
+          "information_progression_count": 8,
+          "information_progression_per_minute": 4.9,
+          "meets_contract": true
+        },
+        "hook": {
+          "category": "危机升级",
+          "ending_hook_count": 1,
+          "planned_hook_beat_count": 6,
+          "planned_hook_beats_per_minute": 3.67,
+          "has_next_episode_obligation": true,
+          "payoff_target_episode": 56,
+          "meets_contract": true
+        },
+        "story": {
+          "causal_step_count": 5,
+          "distinct_causal_step_count": 5,
+          "continuity_anchor_count": 5,
+          "character_count": 2,
+          "story_line_count": 3,
+          "local_resolution_planned": true,
+          "escalation_planned": true,
+          "causal_chain_complete": true,
+          "meets_contract": true
+        },
+        "meets_contract": true
+      },
+      "source_node_id": "story_plan.7ba0653a-cf7e-49d7-bb36-5e2c4bb3d1d0.child.18ff3e3c9e44.1",
+      "source_node_version": 4,
+      "story_bible_version": 2,
+      "status": "draft",
+      "source_revision_review": {
+        "previous_version": 3,
+        "current_version": 4
+      }
+    }
+  ]
+}

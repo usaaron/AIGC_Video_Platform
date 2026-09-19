@@ -1,5 +1,7 @@
 # Script Master 独立生产部署
 
+2026-09-20 本地新版候选尚未发布；新前后端需要配套更新，详见 [新版 final2 融合记录](UPSTREAM_REFRESH_2026-09-20.md)。本文中的命令不是已执行的发布记录。
+
 宿主是 SEQORA，生产路径为 `https://xumutv.com/script-master`。此目录包含
 `final2` 的完整独立前后端部署入口，不应仅发布宿主的功能栈按钮。
 

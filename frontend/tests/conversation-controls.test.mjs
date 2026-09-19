@@ -24,6 +24,7 @@ test("the shared screenplay conversation uses send, running, pause, edit, and co
 
 test("story bible, planning, and screenplay conversations abort their active model request", async () => {
   const bible = await source("components/story-bible-panel.tsx");
+  const synopsis = await source("components/story-synopsis-panel.tsx");
   const inspirationEditor = await source("components/story-inspiration-editor.tsx");
   const planning = await source("components/story-plan-node-panel.tsx");
   const script = await source("components/script-workspace.tsx");
@@ -32,25 +33,24 @@ test("story bible, planning, and screenplay conversations abort their active mod
   const generationClient = await source("lib/generation-client.ts");
   const apiError = await source("lib/api-error.ts");
 
-  for (const component of [bible, planning, authorWorkflow]) {
+  for (const component of [planning, authorWorkflow]) {
     assert.match(component, /new AbortController\(\)/);
     assert.match(component, /\.abort\(\)/);
     assert.match(component, /isRequestAborted/);
     assert.match(component, /已暂停本次思考/);
   }
+  assert.match(synopsis, /new AbortController\(\)/);
+  assert.match(synopsis, /abort\(\)/);
   for (const component of [bible, planning, script]) {
     assert.match(component, /onEditMessage=/);
     assert.match(component, /onPause=/);
   }
-  assert.match(bible, /editInspirationMessage/);
-  assert.match(bible, /pauseInspirationThinking/);
-  assert.match(bible, /inspirationTurnStartedAt/);
+  assert.match(synopsis, /sendMessage/);
+  assert.match(synopsis, /abortRef/);
   assert.match(inspirationEditor, /requestBusy && <div aria-live="polite"/);
   assert.match(inspirationEditor, /Math\.floor\(thinkingElapsedMs \/ 1000\)/);
-  assert.match(bible, /storyInspirationSessionNeedsTurn/);
-  assert.match(bible, /本轮没有返回可回答的问题/);
-  assert.match(bible, /重新加载本轮/);
-  assert.match(inspirationEditor, /!session\.readyToGenerate && !busy/);
+  assert.match(synopsis, /generateStoryInspirationTurn/);
+  assert.match(synopsis, /完成对话并重新整理/);
   assert.doesNotMatch(bible, /onClick=\{busy \? onPause : undefined\}/);
   assert.doesNotMatch(bible, /aria-label=\{busy \? "暂停当前思考" : "发送"\}/);
   assert.match(planningClient, /signal\?: AbortSignal/);
@@ -66,31 +66,20 @@ test("story bible, planning, and screenplay conversations abort their active mod
 
 test("editing a sent user message replaces its later conversation branch before resubmission", async () => {
   const bible = await source("components/story-bible-panel.tsx");
+  const synopsis = await source("components/story-synopsis-panel.tsx");
   const inspirationEditor = await source("components/story-inspiration-editor.tsx");
   const planning = await source("components/story-plan-node-panel.tsx");
   const authorWorkflow = await source("components/use-script-author-workflow.ts");
 
-  for (const component of [bible, planning]) {
+  for (const component of [planning]) {
     assert.match(component, /findIndex\(\(item\) => item\.id === messageId\)/);
     assert.match(component, /current\.slice\(0, messageIndex\)/);
   }
   assert.match(authorWorkflow, /findIndex\(\(item\) => item\.id === messageId\)/);
   assert.match(authorWorkflow, /current\.messages\.slice\(0, index\)/);
-  assert.match(bible, /replaceMessageId/);
-  assert.match(bible, /normalizedSession\.messages\.slice\(0, replaceMessageIndex\)/);
-  assert.match(bible, /brief: \{[\s\S]*\.\.\.EMPTY_INSPIRATION_BRIEF/);
-  assert.match(bible, /readyToGenerate: false/);
-  assert.match(bible, /const nextSession: StoryInspirationSession[\s\S]*await persistInspirationSession\(nextSession\)/);
+  assert.match(synopsis, /nextMessages/);
+  assert.match(synopsis, /saveSynopsis/);
+  assert.match(synopsis, /setMessages/);
   assert.match(inspirationEditor, /creation-question/);
-  assert.match(bible, /确认并继续/);
-  assert.match(bible, /storyInspirationRoundNavigation\(activeQuestions, roundAnswers, activeQuestionIndex\)/);
-  assert.doesNotMatch(bible, />提交本轮答案</);
-  assert.match(bible, /briefCheckpoint\?: StoryInspirationBrief/);
-  assert.match(bible, /previewStoryInspirationBrief\(inspirationSession\.brief,[\s\S]*roundAnswers/);
-  assert.match(bible, /mergeStoryInspirationBrief\(baseSession\.brief, result\.brief\)/);
-  assert.match(inspirationEditor, /你的想法/);
-  assert.match(bible, /暂时跳过/);
-  assert.doesNotMatch(bible, /采用这项建议/);
-  assert.match(bible, /!currentAnswerComplete/);
-  assert.match(bible, /join\("\\n"\)\.slice\(0, 7_500\)/);
+  assert.match(synopsis, /完成对话并重新整理/);
 });

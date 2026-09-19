@@ -101,11 +101,77 @@ def _episode(prompt: str, number: int, *, previous: dict[str, Any] | None = None
     ).model_dump(mode="json")
 
 
+def _decomposition(prompt: str) -> dict[str, Any]:
+    """Offline transport fixture; production ranges must be model-authored."""
+    match = re.search(r"Parent range: episodes (\d+)-(\d+)", prompt)
+    if match is None:
+        raise ValueError("Mock decomposition needs a parent range")
+    start, end = map(int, match.groups())
+    span = end - start + 1
+    count = next(count for count in (4, 3, 2) if all(
+        8 <= size <= 12 or size >= 16
+        for size in [span // count, (span + count - 1) // count]
+    ))
+    ranges = []
+    cursor = start
+    for index in range(count):
+        size = span // count + (index < span % count)
+        ranges.append((cursor, cursor + size - 1))
+        cursor += size
+    turning_points = _json_after(prompt, "Parent turning points whose facts must be preserved:", [])
+    characters = _line(prompt, "Allowed character_refs:").split("、")
+    lines = _line(prompt, "Allowed story_line_refs:").split("、")
+    bridge = "离线演示：原件与复印件的差异已记录，合作方同意核查经手过程。"
+    movements = [
+        ("原件核对", "主角取出保存的原件与复印件逐页核对，发现一页记录被遗漏；合作方要求保留原始装订，双方将差异单独登记并签字。", bridge,
+         ["主角带着原件开始核验。", "复印件缺页使核对中断。", "双方保留原装订并另记差异。", "差异表签字后转查经手过程。"]),
+        ("经手追溯", "双方走访资料经手人，核对交接登记和存放位置；经手人找到缺页的独立存档，补齐交接说明，主角公布核查结果并关闭当前争议。", _line(prompt, "Parent exit state:"),
+         ["合作方出示交接登记寻找经手人。", "存放位置与记录不一致，引出独立存档。", "缺页找到，经手人补齐交接说明。", "主角公布核查结果并关闭当前争议。"]),
+    ]
+    movements.extend([
+        ("证言复核", "资料保管人提出另一份签收说明，主角邀请双方共同复查口述与书面记录；一处时间差得到解释，但保管责任仍需当面确认。", "离线演示：证言时间差已澄清，双方等待保管责任确认。",
+         ["资料保管人出示签收说明。", "口述与书面时间不一致。", "双方共同复查并解释时间差。", "说明留档，转入保管责任确认。"]),
+        ("结果交付", "主角召集各方逐项确认核查结论，将遗漏的材料归档并交还原件；合作方签收结果，双方约定后续保管方式，本轮核验正式结束。", _line(prompt, "Parent exit state:"),
+         ["主角召集各方核对结论。", "遗漏材料需要重新归档。", "原件交还，合作方签收结果。", "各方确定保管方式并结束核验。"]),
+    ])
+    children = []
+    first_entry = (
+        "离线演示：主角带着来源尚未核实的材料来到资料室。"
+        if "technical root has no authored entry event" in prompt
+        else _line(prompt, "Parent entry state:")
+    )
+    for index, ((first, last), (title, synopsis, result, beats)) in enumerate(zip(ranges, movements)):
+        children.append({
+            "title": f"离线演示：{title}", "narrative_purpose": f"离线演示：完成{title}。",
+            "synopsis": synopsis, "entry_state": first_entry if index == 0 else children[-1]["exit_state"],
+            "central_conflict": beats[1], "turning_points": [*(turning_points if index == 0 else []), beats[2]],
+            "emotional_direction": "离线演示：从疑问转为有边界的合作。", "exit_state": _line(prompt, "Parent exit state:") if index == count - 1 else result,
+            "unit_story_beats": beats, "unit_resolution": result, "handoff_pressure": beats[-1],
+            "character_refs": characters, "story_line_refs": lines, "setup_refs": [], "payoff_refs": [],
+            "estimated_episode_count": last - first + 1, "estimated_script_body_characters": 300 + index * 100,
+            "planned_start_episode": first, "planned_end_episode": last,
+            "decomposition_reason": "离线测试固定分段，仅验证流程，不代表正式作品的叙事容量。",
+            "recommended_next_step": "episode_ready" if last - first + 1 <= 12 else "expand",
+        })
+    return {"children": children}
+
+
 def planning_mock_output(prompt: str, schema: dict[str, Any]) -> dict[str, Any] | None:
     if schema.get("title") == "AuthorConflictAssessment":
-        return {"user_goal": "离线演示：按作者要求调整表达。", "conflicts": [], "options": []}
+        return {"user_goal": "离线演示：按作者要求调整表达。", "rewrite_scope": "preserve_unaffected_text", "conflicts": [], "options": []}
     if schema.get("title") == "StoryBibleGenerationOutput":
         return _bible(prompt)
+    if schema.get("title") == "StoryPlanNodeDecompositionOutput":
+        return _decomposition(prompt)
+    if schema.get("title") == "StoryPlanQualityModelOutput":
+        return {
+            "overall_summary": "离线演示检查完成；此结果仅验证流程，不构成作品内容质量认可。",
+            "evaluations": [{
+                "node_id": match[1], "node_version": int(match[2]),
+                "status": "pass", "summary": "离线演示节点，供操作流程验证。",
+                "issue_codes": [], "repair_instruction": None,
+            } for match in re.finditer(r"^NODE (\S+) v(\d+) \[", prompt, re.MULTILINE)],
+        }
     if "SINGLE EPISODE ROADMAP CONTRACT\n" in prompt:
         match = re.search(r"Create only Episode (\d+) of", prompt)
         if match:
@@ -122,7 +188,12 @@ def planning_mock_output(prompt: str, schema: dict[str, Any]) -> dict[str, Any] 
             item = _episode(prompt, number, previous=previous)
             index = all_numbers.index(number)
             item["source_turning_points"] = [value for offset, value in enumerate(turning_points) if offset * len(all_numbers) // max(1, len(turning_points)) == index]
-            item["source_unit_story_beats"] = [value for offset, value in enumerate(beats) if offset * len(all_numbers) // max(1, len(beats)) == index]
+            # Offline fixture only: the closing event belongs to the leaf end.
+            item["source_unit_story_beats"] = [
+                value for offset, value in enumerate(beats)
+                if (len(all_numbers) - 1 if offset == len(beats) - 1
+                    else offset * len(all_numbers) // max(1, len(beats))) == index
+            ]
             plans.append(item)
             previous = item
         return {"episode_plans": plans}

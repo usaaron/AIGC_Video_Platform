@@ -186,7 +186,8 @@ export function layoutRelationshipNodes(
   const column = (columnIds: string[], x: number) => columnIds.map((id, index) => ({
     id,
     x,
-    y: Math.round(120 + ((620 - 240) * (index + 1)) / (columnIds.length + 1)),
+    // Leave room beneath each avatar for its name and role.
+    y: columnIds.length === 1 ? 310 : Math.round(70 + 430 * index / (columnIds.length - 1)),
   }));
   return [
     { id: focalId, x: 500, y: 310 },

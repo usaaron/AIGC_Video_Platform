@@ -1,0 +1,674 @@
+{
+  "provenance": "Actual R102 domestic episode 1 candidate, 2026-09-17; provider metadata omitted.",
+  "draft": {
+    "content_spec_id": "d87d4bcf-b72c-467e-9cfd-692b85e17977",
+    "generation_strategy_id": "strategy.cn_mainland.longform_knowledge_candidate.v2",
+    "title": "回执之前 第1集",
+    "logline": "沈知微在顾岚质疑下重新上电老人的旧手机，手机突然自行新增回执并收到陌生接口响应；她立即拔卡断网，保存时间证据，也让接收端身份成为悬置的追踪目标。",
+    "language": "zh",
+    "target_audience": "悬疑剧、都市情感剧观众",
+    "target_platform": "中国大陆短剧平台",
+    "tone": "suspenseful",
+    "hook": "旧手机在无人操作时自行发出回执并收到响应，接收端的身份尚未揭晓。",
+    "synopsis": "律所档案工作台前，顾岚轻看旧手机里的空白回执，沈知微拒绝把“未知”等同于没有价值。她重新上电以固定当前状态，手机却在无人触碰时新增回执并收到接口响应。沈知微立即拔卡断网，拍下本地响应页，并把历史回执与本次新增条目分栏，明确新增由自己上电触发。顾岚未阻止她固定证据，也没有代她下结论，但接收端身份仍无人能答。",
+    "episode_cast": [
+      "沈知微",
+      "顾岚"
+    ],
+    "locations": [
+      "律所档案工作台"
+    ],
+    "episode_goal": "固定旧手机已有回执，并在突发自动通信后保存本次响应的可追查时间依据。",
+    "target_duration_seconds": 85,
+    "ending_mode": "serial_hook",
+    "characters": [
+      {
+        "name": "沈知微",
+        "role": "遗嘱调查律师",
+        "description": "追查哥哥沈砚火灾死亡五年的遗嘱调查律师，面对空白回执坚持保存可追查的证据。",
+        "motivation": "证明哥哥之死并非电路故障，把眼前空白回执变成可公开核验的物证链。",
+        "acting_profile": {
+          "speech": "短促，句末少拖音，反驳时先指实体再下结论。",
+          "gesture": "动手稳，先固定证据再回应。",
+          "temper": "外硬内紧，不安不显在脸上。"
+        }
+      },
+      {
+        "name": "顾岚",
+        "role": "律所合伙人",
+        "description": "用合规和专业质疑牵制沈知微的律所合伙人，依据现场所见判断证据价值。",
+        "motivation": "以律所存续和业务安全为先，避免沈知微因私人执念把案子引向不可控。",
+        "acting_profile": {
+          "speech": "先追问定义，再给结论，偶尔讥诮。",
+          "gesture": "少碰物证，用指节和笔尖施压。",
+          "temper": "冷静，带着合伙人的距离感。"
+        }
+      }
+    ],
+    "character_state_updates": [
+      {
+        "character_name": "沈知微",
+        "current_goal": "追踪响应接收端，同时保有已保存的断网证据。",
+        "emotional_state": "紧绷但清醒，不把未知解释成结论。",
+        "belief_or_attitude": "相信未知响应值得追查，不承认空白等于无价值。",
+        "life_status": "alive",
+        "physical_state": "双手稳定，操作手机和记录纸。",
+        "location": "律所档案工作台旁。",
+        "knowledge_changes": [
+          "确认旧手机在重新上电后无人发送会新增回执并收到接口响应",
+          "确认本次新增由自己重新上电触发",
+          "确认接收端身份与本集操作无关，暂未核实"
+        ],
+        "knowledge_states": null,
+        "health_conditions": null,
+        "action_capabilities": [
+          "可以断网拍照并分栏记录",
+          "可以保存本地页面但不能再接收新响应"
+        ],
+        "lasting_marks": null,
+        "active_constraints": [
+          "已断网，不再继续观察在线响应",
+          "接收端身份未核实，不能下结论"
+        ],
+        "personality_change": null,
+        "change_summary": "从被质疑动机到亲手固定记录并承认自己触发变化，取得可追查的时间依据。",
+        "change_cause": "顾岚质疑空白记录的证明价值；重新上电后旧手机自动新增回执并收到响应。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      },
+      {
+        "character_name": "顾岚",
+        "current_goal": "确认沈知微分得清当下证据与私人推断的边界。",
+        "emotional_state": "冷而警觉，不阻拦但不停追问。",
+        "belief_or_attitude": "认为眼前页面只能证明设备动过，仍不能证明谁在接收。",
+        "life_status": "alive",
+        "physical_state": "站立工作台另一侧，身体前倾。",
+        "location": "律所档案工作台旁。",
+        "knowledge_changes": [
+          "亲眼看到无人操作新增回执和接口响应抵达",
+          "获知沈知微承认新增由本次上电触发",
+          "仍无法得知接收端身份"
+        ],
+        "knowledge_states": null,
+        "health_conditions": null,
+        "action_capabilities": [
+          "能依据现场页面质问来源",
+          "不接触或扣留物证"
+        ],
+        "lasting_marks": null,
+        "active_constraints": [
+          "未行使叫停调查权力",
+          "未替知微下结论"
+        ],
+        "personality_change": null,
+        "change_summary": "她从怀疑空白记录的价值，转变为迫使知微承认新增来源，但仍未阻止证据固定。",
+        "change_cause": "亲眼看到手机自行发送并收到响应；知微断网后分栏承认触发责任。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      }
+    ],
+    "relationship_state_updates": [
+      {
+        "source_character_name": "沈知微",
+        "target_character_name": "顾岚",
+        "relationship_type": "律所合伙人之间的对抗性合作",
+        "source_to_target": "沈知微不接受顾岚用“未知”否定证据，要求顾岚看实际响应。",
+        "target_to_source": "顾岚质疑沈知微的判断，但未阻止她固定证据，也未扣留材料。",
+        "current_state": "两人现场互不退让，但调查仍由沈知微控制，顾岚未行使叫停。",
+        "change_summary": "争执从抽象怀疑转向已发生通信的责任归属。",
+        "change_cause": "旧手机自动新增回执并收到响应后，二人就新增来源与保存价值展开交锋。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      }
+    ],
+    "continuity_state_updates": [
+      {
+        "entity_key": "item.old_phone",
+        "entity_type": "item",
+        "entity_name": "失踪老人旧手机",
+        "state_domain": "condition",
+        "transition": "changed",
+        "current_state": "留下新的自动回执与接口响应时间，随后被拔卡断网，本地保留响应页。",
+        "persistence": "ongoing",
+        "future_constraint": "下一集不得重演一次上电突发通信作为新发现。",
+        "change_cause": "沈知微重新上电触发自动通信后拔卡断网。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      },
+      {
+        "entity_key": "item.old_phone_sim",
+        "entity_type": "item",
+        "entity_name": "旧手机卡",
+        "state_domain": "possession",
+        "transition": "moved",
+        "current_state": "被沈知微取出放在记录纸旁，与手机分离。",
+        "persistence": "temporary",
+        "future_constraint": "后续如继续调查，须先确认卡与手机、记录纸三者对应关系。",
+        "change_cause": "沈知微为防止继续产生通信而立即拔出手机卡。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      },
+      {
+        "entity_key": "item.receipt_log_sheet",
+        "entity_type": "item",
+        "entity_name": "记录纸",
+        "state_domain": "condition",
+        "transition": "changed",
+        "current_state": "原有回执与新增条目分栏，新增条目旁注明“本次重新上电触发”。",
+        "persistence": "ongoing",
+        "future_constraint": "后续核对时间与接口标识时以此纸和手机页面照片为依据。",
+        "change_cause": "沈知微记录重新上电、观察到响应、拔卡断网的现场时间并完成分栏。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      }
+    ],
+    "story_line_updates": [
+      {
+        "story_line_id": "sl_main_responsibility",
+        "status": "active",
+        "progress_summary": "本集将静态空白回执变为可记录时间的本地响应，确认隐藏系统仍可响应，但系统身份未知且未涉及沈砚项目。",
+        "contribution_type": "progress",
+        "planned_beat_ref": "旧手机重新上电自动通信并产生接口响应",
+        "planned_alignment": "aligned",
+        "alignment_note": "仅推进到可追查响应，不提前揭示系统归属。",
+        "next_required_step": "结合遗嘱材料与通信位置判断接收端性质。",
+        "change_cause": "沈知微重新上电触发自动发送，随后收到接口响应，拔卡保存时间依据。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      },
+      {
+        "story_line_id": "sl_elder_receipt",
+        "status": "active",
+        "progress_summary": "将老人旧手机的历史空白回执固定为可追查通信，新增条目与历史记录分栏，避免将新通信误认为老人新近发送。",
+        "contribution_type": "progress",
+        "planned_beat_ref": "新增回执由沈知微重新上电触发并留下时间记录",
+        "planned_alignment": "aligned",
+        "alignment_note": "保持历史回执与新增条目分离，未补造老人发送新消息的事实。",
+        "next_required_step": "下一集调取遗嘱材料与通信位置，判断反复发送的性质。",
+        "change_cause": "沈知微重新上电后手机自行新增回执并收到响应，随即拔卡并分栏记录。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      }
+    ],
+    "setup_payoff_updates": [
+      {
+        "setup_payoff_ref": "knowledge.story.causal_sequence.v1",
+        "source_ref": "knowledge.story.causal_sequence.v1",
+        "action": "reinforce",
+        "status": "active",
+        "progress_summary": "空白回执从静态记录升级为刚发生的通信：无人操作新增回复并获得接口响应，时间依据被固定。",
+        "next_required_step": "用本地照片与记录纸继续核验接收端位置和用途，不得再演突发通信。",
+        "target_payoff_episode": 2,
+        "change_cause": "第1集重新上电触发自动通信，沈知微立即拔卡并分栏保存。",
+        "evidence_scene_numbers": [
+          1
+        ]
+      }
+    ],
+    "continuation_hook": {
+      "responds_to_episode": null,
+      "previous_hook_response": null,
+      "response_evidence_scene_numbers": [],
+      "ending_hook_type": "信号去向",
+      "ending_hook_summary": "拔出的手机卡放在记录纸旁，屏幕保留着刚收到的响应：老人已经失踪，究竟是什么仍在接收这部手机的信号？",
+      "next_episode_obligation": "承接已保存的新增回执与响应时间，调取老人的遗嘱材料及通信位置，判断反复发送的性质；不得再演一次上电突发通信作为新发现。",
+      "target_payoff_episode": 2
+    },
+    "scenes": [
+      {
+        "scene_number": 1,
+        "slug": "旧手机自动回执与现场取证分歧",
+        "scene_heading": "INT. 律所档案工作台 - 夜",
+        "purpose": "让顾岚承认眼前确有值得保存的异常，同时由沈知微切断自己上电触发的新通信，不把未解事实说过头。",
+        "setting_hint": "律所档案工作台夜间",
+        "beat_summary": "顾岚质疑空白回执的证明价值，沈知微重新上电后旧手机在无人操作下新增回执并收到接口响应；沈知微立即拔卡断网，拍照并分栏记录，最终把新条目归入自己操作，未知接收端成为追查目标。",
+        "emotional_shift": "从被质疑后的硬顶转为骤然的惊惧，随后转为清醒却不肯松手的紧张。",
+        "emotional_objective": "以可见的断网取证与责任承认，压住顾岚的轻视，同时保留未知问题而不是把它说成答案。",
+        "character_refs": [
+          "character.protagonist",
+          "character.antagonist"
+        ],
+        "character_actions": [
+          "沈知微把旧手机平放在工作台记录纸旁，机身卡槽朝上，屏幕停在旧的无正文回执列表末端；手机卡在机，无线局域网图标关闭。顾岚站在对面，看一眼页面。",
+          "顾岚俯身，用指尖点住屏幕末条空白记录，顺手在记录纸上的一行数字下敲了敲。",
+          "沈知微抽回记录纸，把历史回执栏转到两人中间，随后按下手机电源键重新上电。",
+          "手机屏幕亮起，顶部移动网络标识由灰转亮，无线局域网图标仍关闭。",
+          "沈知微双手离开台面，与顾岚同时看向屏幕；列表末端在无人触碰下新增一条回执，正文区域为空，发送状态随即变为成功。",
+          "页面下方展开一条响应详情，显示该条时间、一段不含机构名称的接口标识和响应时间，状态为已收到。",
+          "沈知微立即拿起卡针，弹出卡托，拔出手机卡；屏幕顶部的移动网络标识随之消失。",
+          "她把拔出的卡放在记录纸旁边，随后用手机拍下仍留在本地屏幕的完整响应页面。",
+          "顾岚的手伸向新增记录一侧，指尖停在半空，没有触碰屏幕。",
+          "沈知微拿过记录纸，在新增条目旁写下“本次重新上电触发”，并把原有回执与新增条目分成上下两栏。",
+          "沈知微把记录纸的历史回执栏推到顾岚那侧，再用笔尖点住新增栏，抬头看她。",
+          "顾岚抽走沈知微手里的笔，笔尖在新增栏下方轻轻一点，没有写字，又把笔推回。",
+          "沈知微接住笔，别在记录纸上，随后把手机与记录纸并排摆在自己手边。",
+          "沈知微把拔出的卡推到手机旁，手掌按在记录纸边缘，不再触碰手机。",
+          "顾岚直起身，双臂抱在胸前，目光从屏幕上的响应页移向记录纸。",
+          "沈知微最后按灭手机屏幕，把手机、手机卡和记录纸归拢到一起，页面未再刷新。"
+        ],
+        "body_order": [
+          "action:0",
+          "dialogue:0",
+          "action:1",
+          "dialogue:1",
+          "dialogue:2",
+          "dialogue:3",
+          "action:2",
+          "dialogue:4",
+          "dialogue:5",
+          "action:3",
+          "action:4",
+          "dialogue:6",
+          "dialogue:7",
+          "dialogue:8",
+          "action:5",
+          "dialogue:9",
+          "dialogue:10",
+          "action:6",
+          "dialogue:11",
+          "dialogue:12",
+          "action:7",
+          "dialogue:13",
+          "dialogue:14",
+          "dialogue:15",
+          "action:8",
+          "dialogue:16",
+          "action:9",
+          "dialogue:17",
+          "dialogue:18",
+          "dialogue:19",
+          "action:10",
+          "dialogue:20",
+          "action:11",
+          "dialogue:21",
+          "dialogue:22",
+          "action:12",
+          "dialogue:23",
+          "action:13",
+          "dialogue:24",
+          "action:14",
+          "action:15"
+        ],
+        "turning_point": "手机在沈知微双手离屏时自行新增回执并收到响应，迫使争执从“空白有没有价值”变成“谁触发了这条新记录”。",
+        "scene_causality": {
+          "goal": "让顾岚承认眼前确有值得保存的异常，同时及时切断沈知微自己上电触发的新通信，不把未知事实说过头。",
+          "conflict": "顾岚要沈知微分清“看见变化”与“证明是谁做的”；突发通信使争执马上变成行动选择。",
+          "outcome": "手机断网，响应页面与记录纸分栏保留；顾岚未阻止，沈知微当面承认新增条目由自己上电触发。",
+          "caused_by_scene_number": null,
+          "causal_link": null
+        },
+        "cliffhanger": true,
+        "dialogue_prompts": [
+          "这就是你坚持要留的物证？一条空白页。",
+          "空白本来就是事实。没有正文，但有时间。",
+          "时间只能说明它动过，不能说明谁让它动。",
+          "所以我现在不猜谁。先把当前状态钉死再说。",
+          "那你最好能分清楚，哪条是你想看，哪条是它本来就做。",
+          "上电之前卡在机，无线局域网络关闭。这就是状态。"
+        ],
+        "dialogues": [
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "手指仍停在页面旁，语气克制但压着不信。",
+            "text": "这就是你坚持要留的物证？一条空白页。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "看住顾岚手指，声量稳，不闪躲。",
+            "text": "空白本来就是事实。没有正文，但有时间。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "直起身，把问题抛回来。",
+            "text": "时间只能说明它动过，不能说明谁让它动。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "把手移到电源键上方。",
+            "text": "所以我现在不猜谁。先把当前状态钉死再说。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "敲了一下记录纸。",
+            "text": "那你最好能分清楚，哪条是你想看，哪条是它本来就做。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "按下电源键。",
+            "text": "上电之前卡在机，无线局域网络关闭。这就是状态。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "压低声音，紧盯新增条目。",
+            "text": "看。双手离屏，没人点发送。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "俯身看屏幕，语气变尖。",
+            "text": "你上了电，不能说没人动。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "手指指向屏幕，不触碰。",
+            "text": "上电不等于发送。这条发送状态自己变成功。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "指向响应详情。",
+            "text": "那响应呢？它现在收到谁了？",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "手已经摸到卡针。",
+            "text": "先别说谁。我要马上切断，不再让它继续收。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "把卡拍在纸旁，呼吸略重。",
+            "text": "卡拔了，断网。页面还留在本地屏幕。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "没有接卡，目光停在响应页上。",
+            "text": "这只能说明你打断之后没死机。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "拍完照，把手机放下。",
+            "text": "也说明它在无人发送的情况下收到响应。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "等她拍完，逼近一步。",
+            "text": "响应是谁发的？你告诉我。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "把照片调出放到记录纸边。",
+            "text": "我不知道。所以我没继续试探，也没有把未知说成已知。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "指着刚拍的照片，带点讥诮。",
+            "text": "不知道还要留？这能算什么进展？",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "拿笔在新栏写下触发标注。",
+            "text": "不知道不等于没价值。它至少证明这条时间可以追。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "按住记录纸边。",
+            "text": "那这条新增算谁的？",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "笔尖点住新增栏，抬头看顾岚。",
+            "text": "算我的。本次重新上电触发，我单独列。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "抽走笔，又推回。",
+            "text": "你倒是承认得很快。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "把历史栏推到她面前。",
+            "text": "我不能把新条目混进老人原来的记录里。那会变成我在替他发。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "不接纸，只看着她。",
+            "text": "你怕我停你调查，才先认。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "沈知微",
+            "chinese_character_name": null,
+            "intent": "把卡推到手机旁，手按纸边。",
+            "text": "你今晚还没停，就说明你清楚这里有问题。",
+            "chinese_translation": null
+          },
+          {
+            "character_name": "顾岚",
+            "chinese_character_name": null,
+            "intent": "抱臂，直身，句末稍低。",
+            "text": "我看到的是，真正的接收端还在。你只是暂时没胆子再看下去。",
+            "chinese_translation": null
+          }
+        ],
+        "supporting_asset_ids": [],
+        "content_manifest": {
+          "location": "律所档案工作台",
+          "time_of_day": "夜",
+          "character_refs": [],
+          "objective": "固定旧手机已有回执，并在突发自动通信后保存本次响应的可追查时间依据。",
+          "conflict": "顾岚质疑空白记录与沈知微的判断；沈知微要保住调查依据，同时承认自己上电触发新增记录。",
+          "turning_point": "无人发送时新增回执，随后接口响应到达；沈知微立即拔卡。",
+          "outcome": "手机断网，本地屏幕保留响应详情；记录纸把历史回执与新增条目分列，新增条目注明来源于本次重新上电。",
+          "props": [
+            "旧手机",
+            "手机卡",
+            "卡针",
+            "记录纸",
+            "笔"
+          ],
+          "entry_state": "旧手机停在原有空白回执列表，已由沈知微掌握；顾岚同场质疑。",
+          "exit_state": "旧手机留下新的自动回执与接口响应时间，沈知微确认它仍在向未知系统发送信号。"
+        }
+      }
+    ],
+    "next_episode_question": "老人已经失踪，究竟是什么仍在接收这部手机的信号？",
+    "qa_notes": [
+      "Draft generated by RealLLMAdapter structured output.",
+      "Story QC and revision loop must still review platform fit and consistency."
+    ],
+    "id": "ccef349a-c4d6-4570-90a5-d7acb8f63c73",
+    "created_at": "2026-09-17T06:34:39.752908Z",
+    "updated_at": "2026-09-17T06:34:39.752916Z"
+  },
+  "context": {
+    "generation_mode": "full",
+    "episode_number": 1,
+    "total_episodes": 72,
+    "approved_episode_plan": {
+      "episode_number": 1,
+      "ending_mode": "serial_hook",
+      "target_duration_seconds": 85,
+      "planned_scene_count": 1,
+      "planned_shot_count": 16,
+      "planned_dialogue_line_count": 25,
+      "episode_goal": "固定旧手机已有回执，并在突发自动通信后保存本次响应的可追查时间依据。",
+      "entry_state": "沈知微代理失踪独居老人遗嘱调查，在旧手机中发现死前反复发送的无正文回执；哥哥沈砚五年前火灾死亡仍被官方认定为电路故障，知微缺少公开证据。",
+      "central_conflict": "顾岚质疑空白记录与知微的判断，知微要保住调查的具体依据；设备突然自动通信又使她必须在立即止变与继续观察之间选择，并正面承担自己触发新增记录的责任。",
+      "protagonist_decision": "立即拔卡，优先固定已经出现的响应与操作时间，不继续联网试探。",
+      "reveal": "旧手机无需人工发送便会产生新的空白回执，并获得陌生接口响应。",
+      "emotional_movement": "从知微被质疑动机后的硬顶，骤转为手机自行通信的惊惧；断网后她不接受顾岚把未知等同于没有价值，却当面承认自己触发的变化，紧张落在未获回答的接收端。",
+      "stage_opposition": "自动通信使取证本身改变对象；顾岚以新增记录来源追问知微的判断，但没有阻止她固定证据，也没有行使暂停调查的权力。",
+      "episode_payoff": "观众亲眼看到无人点击发送仍新增回执，随后收到响应；空白记录由静态谜面变成可记录时间的现实信号。",
+      "pressure_escalation": "本次上电已经改变通信记录，知微必须区分历史回执与自己操作触发的新记录；断网保住现场，也暂时中止继续观察。",
+      "dramatic_units": [
+        {
+          "trigger": "顾岚质疑空白页面的证明价值，旧手机在知微重新上电后自行发送并收到响应。",
+          "choice": "知微立即拔卡，以行动中止新通信，再当面承担本次新增由自己触发的事实。",
+          "visible_consequence": "手机断网，页面保留；历史与新增记录分栏，两人对证据价值的争执落到可追查响应上。",
+          "change_type": "行动与判断",
+          "evidence_hint": "双手离屏时新增、立即拔卡、操作来源单列，三者均可见。"
+        }
+      ],
+      "protagonist_cost": "她为阻止设备继续产生通信记录，主动舍弃观察后续在线响应的机会。",
+      "setup_refs": [
+        "空白回执与旧手机在开头作为悬疑信号出现",
+        "最后作为系统低优先级测试与存活心跳的物证闭环。"
+      ],
+      "payoff_refs": [],
+      "exit_state": "旧手机留下新的自动回执与接口响应时间，知微确认它仍在向隐藏系统发送信号。",
+      "cliffhanger": "拔出的手机卡放在记录纸旁，屏幕保留着刚收到的响应：老人已经失踪，究竟是什么仍在接收这部手机的信号？",
+      "character_refs": [
+        "character.protagonist",
+        "character.antagonist"
+      ],
+      "story_line_refs": [
+        "sl_main_responsibility",
+        "sl_elder_receipt"
+      ],
+      "continuity_requirements": [
+        "主线本集以重新上电、自动发送、接口响应与拔卡获得主要场景资源；推进到隐藏系统仍可响应，但尚不知道系统身份。",
+        "老人回执支线的局部目标是固定既有记录；同场以新增条目及时间记录将其变成可追查通信，下一集须结合遗嘱材料与通信位置判断性质。",
+        "旧手机和历史空白回执在开场已经由知微掌握，不得重新演成发现或取得手机。",
+        "本集新增回执由知微重新上电触发；记录时须保留这一因果，不能归为老人新近发送。",
+        "本集只有现场页面及时间记录，不等于完成旧手机全盘镜像留存。",
+        "沈砚的死亡仍维持官方电路故障结论，知微尚未发现手机与哥哥项目的联系。",
+        "陆沉舟的删除与纸档、顾岚压证前史及知微复仇弧线本集不承担新增事件；顾岚的现场质疑不视为第八集的合规阻碍已经发生。",
+        "空白回执的心跳用途、系统归属及低优先级意义均未揭示，相关伏笔保持未兑现。",
+        "本集现在时只有沈知微与顾岚。顾岚以既有律所合伙人关系处于工作台对谈中；不另设来访原因、任务指令或新委托。争执形成职业与私人压力，未产生调查被禁止或证据被扣留的结果。",
+        "顾岚只能看到知微当场展示的证据与本集结论；她不能凭空掌握接收端内幕。她的质疑不构成正式第三方鉴定、授权或对知微的信任承诺。",
+        "短句可以激烈、抢断、讥讽、反诘；每轮须有具体争夺对象或判断变化，不要求每句新增案情，不削减批准的25行预算。情绪不得代替可见的取证动作。"
+      ],
+      "source_turning_points": [],
+      "source_unit_story_beats": [
+        "沈知微为固定证据给旧手机重新上电，旧手机突然自动向外发送空白回执并收到测试接口响应，她立即拔卡并记录响应时间。"
+      ],
+      "ending_hook_type": "信号去向",
+      "next_episode_obligation": "承接已保存的新增回执与响应时间，调取老人的遗嘱材料及通信位置，判断反复发送的性质；不得再演一次上电突发通信作为新发现。",
+      "hook_payoff_target_episode": 2,
+      "scene_execution_plan": [
+        {
+          "scene_number": 1,
+          "scene_heading": "INT. 律所档案工作台 - 夜",
+          "character_refs": [
+            "character.protagonist",
+            "character.antagonist"
+          ],
+          "scene_objective": "知微要让顾岚承认眼前确有值得保存的异常，同时及时切断自己上电触发的新通信，不把未知事实说过头。",
+          "opposition": "顾岚要知微分清“看见变化”与“证明是谁做的”，知微拒绝因暂时无法解释就轻视证据；突发通信迫使这场争执马上变成行动选择。",
+          "information_shift": "已有的无正文历史记录变成当场发生的通信：重新上电后，手机在无人发送的情况下新增回执并收到接口响应。知微获得可追查的页面与时间依据，但尚不能判断接收端身份或通信用途。",
+          "choice_or_cost": "知微在出现响应后立即拔卡，失去继续观察后续响应的机会；她还必须当面写明新增条目由自己上电触发，不能借老人失踪的疑点替自己的操作背书。",
+          "evidence_requirements": [
+            "开场呈现已经放在工作台上的旧手机、既有空白回执页面留存及记录纸；留存图可辨认原列表末条的时间和无正文状态，供上电后比较，不重演取得手机。",
+            "上电前可见手机卡在机、无线局域网关闭；上电后移动网络标识出现。列表末端新增一条晚于原末条的回执，正文区域仍为空，发送状态随后显示成功；新增发生时沈知微双手离开屏幕，未触碰任何发送控件。",
+            "新增回执之后出现对应响应详情，至少显示该条目的时间、接口标识、响应时间及收到响应的状态；接口标识仅用不含机构或用途名称的字符呈现，不能出现城市应急、心跳、低优先级或沈砚相关字样。",
+            "拔卡后手机显示无卡或无移动网络，无线局域网仍关闭；响应详情继续停留在本地屏幕上，支持她在断网状态拍照留存，不能表现为断网后继续收到新响应。",
+            "记录纸分别列出重新上电、观察到响应、拔卡断网的现场时间；页面自带的回执和响应时间另栏照录，不默认设备时钟已经校准。照片保留完整响应页面，并与记录纸对应。",
+            "记录纸将原有回执与此次新增条目分列，在新增条目旁注明由本次重新上电触发；这一可见标注排除将新通信误认成老人刚刚主动发送。",
+            "顾岚的质疑必须指向本场可见材料，并随证据改变；知微的回答伴随指认、分栏或核对，不由两人轮流背诵独白完成。争论结束后材料仍由知微控制，调查未被叫停。"
+          ],
+          "forbidden_changes": [
+            "旧手机和历史回执在开场已经由沈知微掌握，不新增寻找、交接或首次发现手机的事件。",
+            "新增回执必须由此次重新上电触发，不得出现知微点击发送、老人远程操作或不明人物即时控制手机。",
+            "不得揭示接口所属系统、测试用途、存活心跳、低优先级规则或手机与沈砚项目的联系。",
+            "不得把页面拍照及时间登记写成完整镜像、原始日志提取或已经完成公开核验。",
+            "不得新增顾岚实际阻挠、陆沉舟介入、陆启明纸档、匿名消息、遗嘱材料调取或通信位置判断。",
+            "不得让沈砚或老人作为现在时在场人物发言，不新增死者录音或回忆证词。",
+            "不得将系统拟人化，不推定接收端知道知微身份，不改变沈砚死亡的现有官方结论。",
+            "顾岚只与知微争论眼前证据能支持什么及她是否受私人期待驱使，不限制调查行动，不扣留手机或材料，不下令停工、结案、送鉴暂停或禁止扩大调查；第八集首次实际叫停外部鉴定的事件不得提前。",
+            "不得以顾岚的在场新增她掌握系统内幕、火灾真相或已知回执用途的事实；她的具体判断只能来自本场看见的材料，不主动送来线索，不泄露压证前史，不被写成认可知微的盟友。",
+            "陆沉舟保持第五集首次接触，不出现通话、短信、远程指导或代为解释；不新增其他发言者、匿名线报、死者录音或回忆证词。",
+            "保留本集原批准时长、镜头数与25行对白；全部对白用于两人当面改变对方的判断或行动，不能录音凑数、拆分同一句话凑行数、逐项朗读表格或向观众讲课。自动通信与切断连接等即时动作不得为完成台词而延迟。"
+          ],
+          "visible_action": "两人分站工作台两侧，顾岚指向既有空白回执，知微将手机置于可观察位置，完成必要状态记录后重新上电。新增条目在她双手离屏时出现，响应随即到达，她立刻取卡断网。顾岚要她正视这条记录由谁触发，知微先拍下仍留在本地屏幕的完整响应，把现场操作时间与页面时间分开，随后亲手将新增条目列入自己操作栏。争执中，顾岚的手停在新增记录一侧，知微将历史栏推到两人之间，迫使争论回到确实存在且尚待解释的对象。最后她把拔出的卡放在记录旁，停止进一步试探；顾岚没有拿走材料或代她下结论。",
+          "turn_or_reveal": "手机在无人发送时自行新增回执并收到响应，先击穿“只是空白页面”的轻视；新增记录又明确是知微重新上电触发，使她必须承担操作影响。保存价值成立，接收端身份仍未知。",
+          "dialogue_objective": "25行双人当面对谈，约四轮：5行争取固定空白记录的理由与知微的判断是否先入为主；突发响应和拔卡完全由动作完成，随后6行争夺新增记录来源的准确说法；8行由顾岚追问责任、知微承认自己的操作并反击“无法解释就不值追查”的判断，迫使彼此指向实际页面；最后6行分清已保住什么、仍不知道什么，知微以追查接收端的态度收尾。顾岚不发布停工命令；知微不把重复追问未知对象当成台词内容。",
+          "dialogue_line_target": 25,
+          "shot_target": 16,
+          "exit_state": "旧手机留下新的自动回执与接口响应时间，知微确认它仍在向隐藏系统发送信号。"
+        }
+      ],
+      "execution_ready": true,
+      "layer_contracts": {
+        "schema_version": "episode_three_layer_contract.v1",
+        "pacing": {
+          "duration_seconds": 85,
+          "scene_count": 1,
+          "shot_count": 16,
+          "dialogue_line_count": 25,
+          "average_shot_interval_seconds": 5.31,
+          "dialogue_lines_per_minute": 17.65,
+          "information_progression_count": 7,
+          "information_progression_per_minute": 4.94,
+          "meets_contract": true
+        },
+        "hook": {
+          "category": "危机升级",
+          "ending_hook_count": 1,
+          "planned_hook_beat_count": 4,
+          "planned_hook_beats_per_minute": 2.82,
+          "has_next_episode_obligation": true,
+          "payoff_target_episode": 2,
+          "meets_contract": true
+        },
+        "story": {
+          "causal_step_count": 5,
+          "distinct_causal_step_count": 5,
+          "continuity_anchor_count": 14,
+          "character_count": 2,
+          "story_line_count": 2,
+          "local_resolution_planned": true,
+          "escalation_planned": true,
+          "causal_chain_complete": true,
+          "meets_contract": true
+        },
+        "meets_contract": true
+      }
+    },
+    "planned_setup_refs": [
+      "空白回执与旧手机在开头作为悬疑信号出现",
+      "最后作为系统低优先级测试与存活心跳的物证闭环。"
+    ],
+    "planned_payoff_refs": []
+  }
+}

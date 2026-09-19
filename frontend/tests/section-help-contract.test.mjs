@@ -27,7 +27,6 @@ test("help is present across creation, planning, script, navigation, and detail 
     "components/script-workspace.tsx",
     "components/project-continuity-panel.tsx",
     "components/character-relationship-network.tsx",
-    "components/story-line-timeline.tsx",
   ];
 
   for (const file of files) {
@@ -45,12 +44,12 @@ test("script progress does not expose repair counts or raw generation diagnostic
   assert.doesNotMatch(tree, /该节点不能继续单独拆分|父层与相邻分支协调/);
 });
 
-test("the script reference view exposes only character cards, relationships, and story lines", async () => {
+test("the script reference view exposes character cards and relationships without the removed timeline", async () => {
   const panel = await source("components/project-continuity-panel.tsx");
 
   assert.match(panel, /<CharacterCard/);
   assert.match(panel, /\/relationships/);
-  assert.match(panel, /\/storylines/);
+  assert.doesNotMatch(panel, /\/storylines/);
   assert.doesNotMatch(panel, /continuity\.setupPayoffs/);
   assert.doesNotMatch(panel, /continuity\.hooks/);
   assert.doesNotMatch(panel, /continuity\.worldStates/);

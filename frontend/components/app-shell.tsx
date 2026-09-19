@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         preferredEpisodeDurationMinutes: context?.episodeDurationSeconds
           ? context.episodeDurationSeconds / 60 : DEFAULT_GENERATION_SETTINGS.preferredEpisodeDurationMinutes },
     }).then((created) => {
-      router.replace(`/projects/${created.id}/planning`);
+      router.replace(currentWorkspaceHref(created));
     }).catch(() => {
       hostBootstrapRef.current = null;
       setHostBootstrapError("暂时无法准备网剧创作，已保存内容保留，请重试。");
@@ -191,7 +191,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <LanguageToggle compact />
         </header>}
         {showHostReturn && currentProject && <section className="series-production-bar" aria-label="网剧制作流程">
-          {embedded ? <ProjectSteps project={currentProject} /> : <div><strong>网剧创作 · {currentProject.title}</strong><span>设定 → 全剧规划 → 正文与分镜 → 资产与视频制作</span></div>}
+          {embedded ? <ProjectSteps project={currentProject} /> : <div><strong>网剧创作 · {currentProject.title}</strong><span>梗概 → 总纲 → 全剧规划 → 正文与分镜 → 资产与视频制作</span></div>}
           {embedded && <BackgroundGenerationStatus />}
           {hostDeliveryConfigured() && <button className="primary-action" type="button" onClick={() => setHostImportOpen(true)}>同步到制作</button>}
         </section>}

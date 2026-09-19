@@ -116,6 +116,30 @@ export function parseInputReadinessResponse(
 const FACT_FIELDS = new Set(["story_promise", "protagonist_and_goal", "core_obstacle", "stakes",
   "relationship_direction", "reveal_or_twist", "ending_direction", "tone_and_pacing", "world_setting"]);
 
+interface InputSourceFactGroup {
+  field: InputSourceFact["field"];
+  sources: { sourceId: string; sourceName: string; facts: InputSourceFact[] }[];
+}
+
+/** Group for display only; distinct passages and their source attribution stay intact. */
+export function groupInputSourceFacts(facts: readonly InputSourceFact[]): InputSourceFactGroup[] {
+  const groups = new Map<InputSourceFact["field"], InputSourceFactGroup>();
+  for (const fact of facts) {
+    let group = groups.get(fact.field);
+    if (!group) {
+      group = { field: fact.field, sources: [] };
+      groups.set(fact.field, group);
+    }
+    let source = group.sources.find((item) => item.sourceId === fact.sourceId);
+    if (!source) {
+      source = { sourceId: fact.sourceId, sourceName: fact.sourceName, facts: [] };
+      group.sources.push(source);
+    }
+    if (!source.facts.some((item) => item.quote === fact.quote)) source.facts.push(fact);
+  }
+  return [...groups.values()].sort((a, b) => [...FACT_FIELDS].indexOf(a.field) - [...FACT_FIELDS].indexOf(b.field));
+}
+
 function parseSourceFacts(value: unknown): InputSourceFact[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item): InputSourceFact[] => {

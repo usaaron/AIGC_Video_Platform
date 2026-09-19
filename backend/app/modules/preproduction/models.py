@@ -11,6 +11,39 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ActingDirection(Contract):
+    """Observable scene-specific performance guidance derived from the script."""
+
+    objective: str = Field(default="", max_length=240)
+    obstacle: str = Field(default="", max_length=300)
+    stakes: str = Field(default="", max_length=240)
+    tactic: str = Field(default="", max_length=240)
+    beat_changes: list[str] = Field(default_factory=list, max_length=4)
+    subtext: str = Field(default="", max_length=300)
+    business: str = Field(default="", max_length=240)
+    listening_reaction: str = Field(default="", max_length=300)
+    physical_state: str = Field(default="", max_length=300)
+    line_delivery: str = Field(default="", max_length=300)
+    emphasis_and_pause: str = Field(default="", max_length=300)
+    status_change: str = Field(default="", max_length=300)
+
+
+class PromptPlan(Contract):
+    """Machine-readable controls used to compile a production video prompt."""
+
+    active_references: list[str] = Field(default_factory=list, max_length=20)
+    scene_map: str = Field(default="", max_length=1000)
+    first_frame: str = Field(default="", max_length=1000)
+    format_mode: str = Field(default="单一连续镜头", max_length=120)
+    optics: str = Field(default="", max_length=500)
+    lighting: str = Field(default="", max_length=1000)
+    timing: list[str] = Field(default_factory=list, max_length=30)
+    physical_constraints: list[str] = Field(default_factory=list, max_length=20)
+    dialogue_rules: list[str] = Field(default_factory=list, max_length=12)
+    positive_locks: list[str] = Field(default_factory=list, max_length=20)
+    negative_locks: list[str] = Field(default_factory=list, max_length=12)
+
+
 class ShotContent(Contract):
     source_refs: list[str] = Field(min_length=1, max_length=60)
     purpose: str = Field(min_length=1, max_length=500)
@@ -21,9 +54,13 @@ class ShotContent(Contract):
     sound: str = Field(default="", max_length=1000)
     continuity_in: str = Field(min_length=1, max_length=1000)
     continuity_out: str = Field(min_length=1, max_length=1000)
+    acting_direction: ActingDirection = Field(default_factory=ActingDirection)
 
 
 class StoryboardShot(ShotContent):
+    # Compiled from the accepted shot and source; never ask the model to write
+    # a second set of instructions that the compiler would immediately replace.
+    prompt_plan: PromptPlan = Field(default_factory=PromptPlan)
     shot_id: str = Field(default_factory=lambda: f"shot.{uuid4()}", min_length=3, max_length=80)
     locked: bool = False
     dialogue: list[str] = Field(default_factory=list, max_length=60)
@@ -36,6 +73,8 @@ class SceneDesign(Contract):
     spatial_layout: str = Field(min_length=1, max_length=1000)
     action_rhythm: str = Field(min_length=1, max_length=1000)
     transition: str = Field(min_length=1, max_length=500)
+    audience_effect: str = Field(default="", max_length=500)
+    status_change: str = Field(default="", max_length=500)
 
 
 class SceneProposal(Contract):

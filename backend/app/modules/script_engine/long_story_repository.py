@@ -66,6 +66,38 @@ class LongStoryRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def get_completed_future_roadmap_rebuild(self, project_id: str, run_id: str) -> dict | None:
+        record = self._session.get(AgentRunRecordTable, run_id)
+        if (record is None or record.project_id != project_id
+                or record.agent_name != "episode_roadmap_chunk" or record.status != "completed"
+                or not isinstance(record.result_payload, dict)):
+            return None
+        return record.result_payload
+
+    def has_completed_quality_audit(self, project_id: str, audit: dict) -> bool:
+        """Completion must use an actual server result, not client-made scope flags."""
+        from app.modules.script_engine.long_story_models import StoryPlanQualityAudit
+        try:
+            expected = StoryPlanQualityAudit.model_validate({
+                key: value for key, value in audit.items() if key in StoryPlanQualityAudit.model_fields
+            }).model_dump(mode="json")
+        except (ValueError, TypeError):
+            return False
+        records = self._session.exec(select(AgentRunRecordTable).where(
+            AgentRunRecordTable.project_id == project_id,
+            AgentRunRecordTable.agent_name == "story_quality",
+            AgentRunRecordTable.status == "completed",
+        )).all()
+        for record in records:
+            payload = record.result_payload or {}
+            stored = payload.get("audit", payload)
+            try:
+                if StoryPlanQualityAudit.model_validate(stored).model_dump(mode="json") == expected:
+                    return True
+            except (ValueError, TypeError):
+                continue
+        return False
+
     def save_project(self, project: StoryProject) -> StoryProject:
         payload = project.model_dump(mode="json")
         record = self._session.get(StoryProjectRecord, project.project_id)
@@ -116,12 +148,38 @@ class LongStoryRepository:
         return self._from_payload(StoryProject, record)
 
     def get_project_for_update(self, project_id: str) -> StoryProject | None:
+        if self._session.get_bind().dialect.name == "sqlite":
+            # SQLite ignores SELECT FOR UPDATE. Acquire its writer lock before
+            # reading the workspace/Agent state used by a revision transition.
+            self._session.exec(update(StoryProjectRecord).where(
+                StoryProjectRecord.project_id == project_id,
+            ).values(revision=StoryProjectRecord.revision))
         record = self._session.exec(
             select(StoryProjectRecord)
             .where(StoryProjectRecord.project_id == project_id)
             .with_for_update()
         ).first()
         return self._from_payload(StoryProject, record)
+
+    def has_running_project_work(self, project_id: str) -> bool:
+        running_agent = self._session.exec(select(AgentRunRecordTable.run_id).where(
+            AgentRunRecordTable.project_id == project_id,
+            AgentRunRecordTable.status == "running",
+        ).limit(1)).first()
+        if running_agent is not None:
+            return True
+        return self._session.exec(select(GenerationJobCheckpointRecord.job_id).join(
+            GenerationBatchPlanRecord,
+            GenerationJobCheckpointRecord.batch_id == GenerationBatchPlanRecord.batch_id,
+        ).where(
+            GenerationBatchPlanRecord.story_project_id == project_id,
+            GenerationJobCheckpointRecord.status.in_(["queued", "running"]),
+        ).limit(1)).first() is not None
+
+    def max_saved_episode_number(self, project_id: str) -> int:
+        return self._session.exec(select(func.max(EpisodeArtifactVersionRecord.episode_number)).where(
+            EpisodeArtifactVersionRecord.story_project_id == project_id,
+        )).one() or 0
 
     def list_projects(
         self,

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   adaptiveEpisodeSceneCount,
+  episodeActingDirection,
   approvedDirectScriptCoverageThrough,
   buildStorylineDuties,
   episodeRoadmapCoverageThrough,
@@ -27,8 +28,9 @@ import {
   storyModuleHandoff,
   storyNodeExecutionContext,
   storySegmentBodyReference,
+  allocateSeriesBodyReferences,
 } from "../lib/episode-generation-planning.ts";
-import { nextLeafBatchRange } from "../lib/generation-planning.ts";
+import { nextLeafBatchRange, targetScriptBodyCharacters } from "../lib/generation-planning.ts";
 
 test("completed script sections expose the next planned episode without requiring approval", () => {
   assert.equal(
@@ -114,6 +116,112 @@ test("roadmap production values carry scene, dialogue, and shot execution budget
   assert.ok(plannedEpisodeBodyReference(constraint, 1000) > 1000);
 });
 
+test("execution budgets preserve silent scenes while adjusting speaking scenes", () => {
+  for (const field of ["episodeRoadmap", "episodePlan"]) {
+    for (const [targets, total, expected] of [
+      [[0, 20], 20, [0, 25]],
+      [[20, 0], 25, [25, 0]],
+      [[0, 30], 35, [0, 35]],
+      [[0, 35], 25, [0, 25]],
+      [[undefined, 20], 25, [0, 25]],
+    ]) {
+      const constraint = dialogueBudgetConstraint(targets, total, field);
+      const original = structuredClone(constraint);
+      const execution = episodeGenerationExecutionPlan(constraint);
+
+      assert.deepEqual(execution.scene_execution_plan.map((scene) => scene.dialogue_line_target), expected);
+      assert.equal(execution.planned_dialogue_line_count, expected.reduce((sum, count) => sum + count, 0));
+      assert.deepEqual(constraint, original);
+    }
+  }
+});
+
+test("wholly silent plans fail before a screenplay request can be constructed", () => {
+  for (const field of ["episodeRoadmap", "episodePlan"]) {
+    for (const zero of [0, 0.0, "0"]) {
+      const constraint = dialogueBudgetConstraint([zero, zero], 25, field);
+      constraint[field].execution_ready = true;
+
+      assert.throws(() => episodeGenerationExecutionPlan(constraint), {
+        message: "第4集分集规划的全部场景均未安排对白，与整集25句对白预算冲突。请先调整分集规划中的对白安排，再生成正文。",
+      });
+      assert.deepEqual(constraint[field].scene_execution_plan.map((scene) => scene.dialogue_line_target), [zero, zero]);
+    }
+  }
+});
+
+test("legacy undeclared scene dialogue budgets remain compatible", () => {
+  const execution = episodeGenerationExecutionPlan(dialogueBudgetConstraint([undefined, undefined], 25));
+
+  assert.equal(execution.scene_execution_plan.reduce((sum, scene) => sum + scene.dialogue_line_target, 0), 25);
+  assert.ok(execution.scene_execution_plan.every((scene) => scene.dialogue_line_target > 0));
+});
+
+function dialogueBudgetConstraint(targets, total, field = "episodeRoadmap") {
+  return {
+    episodeNumber: 4,
+    [field]: {
+      ...episodePlan(4),
+      planned_scene_count: targets.length,
+      planned_dialogue_line_count: total,
+      scene_execution_plan: targets.map((target, index) => ({
+        scene_number: index + 1,
+        scene_heading: `INT. 档案室 - ${index ? "夜" : "日"}`,
+        character_refs: ["character.mara"],
+        scene_objective: "比对原始记录中的差异。",
+        visible_action: "主角并排展开两份记录。",
+        turn_or_reveal: "记录显示封存时间存在差异。",
+        dialogue_objective: target === 0 ? "通过无声观察发现差异。" : "向管理员核实差异。",
+        ...(target == null ? {} : { dialogue_line_target: target }),
+        shot_target: 8,
+        exit_state: "主角保留差异，继续查证来源。",
+      })),
+    },
+  };
+}
+
+test("episode acting direction compiles character state into visible performance tasks", () => {
+  const direction = episodeActingDirection({
+    characters: [{
+      id: "character.mara",
+      name: "玛拉",
+      motivation: "保护弟弟",
+      dynamicState: {
+        currentGoal: "拿到钥匙",
+        physicalState: "左肩受伤",
+        actionCapabilities: ["可以奔跑", "不能抬高手臂"],
+        activeConstraints: ["不能暴露身份"],
+      },
+    }],
+  }, {
+    episodeNumber: 1,
+    episodeRoadmap: {
+      ...episodePlan(1),
+      character_refs: ["character.mara"],
+      scene_execution_plan: [{
+        scene_number: 1,
+        scene_objective: "拿到钥匙",
+        opposition: "看守突然回头",
+        visible_action: "玛拉用受伤的左肩挡住抽屉并换手取钥匙",
+        dialogue_objective: "掩饰自己的真实目的",
+        turn_or_reveal: "钥匙不在抽屉里",
+        dialogue_line_target: 2,
+        shot_target: 3,
+        exit_state: "玛拉被迫改变路线",
+      }],
+    },
+  });
+
+  assert.match(direction, /目标驱动的可见行动/);
+  assert.match(direction, /玛拉/);
+  assert.match(direction, /左肩受伤/);
+  assert.match(direction, /有因果的策略变化/);
+  assert.match(direction, /不为凑节拍重复手势/);
+  assert.match(direction, /钥匙不在抽屉里/);
+  assert.doesNotMatch(direction, /台词原文和语义不得被改写/);
+  assert.match(direction, /根据批准的对白任务创作/);
+});
+
 test("roadmap three-layer contract is handed to screenplay generation unchanged", () => {
   const layerContracts = {
     schema_version: "episode_three_layer_contract.v1",
@@ -131,6 +239,35 @@ test("roadmap three-layer contract is handed to screenplay generation unchanged"
   });
 
   assert.strictEqual(executionPlan?.layer_contracts, layerContracts);
+});
+
+test("acting instructions include bible-imported character profiles and exclude unrelated cast", () => {
+  const direction = episodeActingDirection({ characters: [
+    {
+      id: "story-bible-character.protagonist", name: "沈知微", motivation: "查明兄长死因",
+      actingProfile: { voice: "短句，重音落在问题末尾", pressureResponse: "先收笔，再问对方的依据" },
+      dynamicState: { currentGoal: "拿到原始记录", activeConstraints: ["尚未获得调阅权限"] },
+    },
+    { id: "story-bible-character.antagonist", name: "顾岚", motivation: "未出场人物的保密目标" },
+  ] }, {
+    episodeNumber: 1,
+    episodeRoadmap: { ...episodePlan(1), character_refs: ["character.protagonist"] },
+  });
+  assert.match(direction, /沈知微/);
+  assert.match(direction, /短句，重音落在问题末尾/);
+  assert.match(direction, /先收笔，再问对方的依据/);
+  assert.match(direction, /尚未获得调阅权限/);
+  assert.doesNotMatch(direction, /顾岚|未出场人物的保密目标/);
+});
+
+test("screenplay handoff preserves preparation status and keeps legacy plans unprepared", () => {
+  for (const readiness of [true, false, undefined]) {
+    const executionPlan = episodeGenerationExecutionPlan({
+      episodeNumber: 1,
+      episodeRoadmap: { ...episodePlan(1), execution_ready: readiness },
+    });
+    assert.equal(executionPlan.execution_ready, readiness === true);
+  }
 });
 
 test("legacy and cleared dramatic fields keep the existing generation budget", () => {
@@ -272,6 +409,52 @@ test("story-segment depth sets the reference without becoming an episode quota",
   assert.equal(storySegmentBodyReference(undefined, 1797), 1797);
 });
 
+test("approved episode weighting preserves the series body target instead of multiplying it away", () => {
+  const settings = { episodeCount: 72, targetTotalCharacters: 100_000,
+    preferredEpisodeDurationMinutes: 1.25, storyDensity: "compact" };
+  const constraints = Array.from({ length: 72 }, (_, index) => ({
+    episodeNumber: index + 1,
+    episodePlan: { ...episodePlan(index + 1), target_duration_seconds: index % 2 ? 115 : 75,
+      planned_shot_count: index % 2 ? 20 : 15 },
+    storyPlanNode: { ...storyNode(1, 72), estimated_script_body_characters: 100_000 },
+  }));
+  const before = structuredClone(constraints);
+  const references = allocateSeriesBodyReferences(settings, constraints);
+  const total = [...references.values()].reduce((sum, value) => sum + value, 0);
+  assert.ok(total >= 100_000 && total < 100_072);
+  assert.ok(references.get(1) < references.get(2));
+  assert.equal(references.get(1), references.get(71));
+  assert.deepEqual(constraints, before);
+});
+
+test("later body references keep approved load differences after an abundant opening", () => {
+  const settings = {
+    episodeCount: 72, targetTotalCharacters: 100_000,
+    preferredEpisodeDurationMinutes: 1.5, storyDensity: "balanced",
+  };
+  const baseline = targetScriptBodyCharacters(settings);
+  const references = [];
+  for (const [duration, shots, segmentCharacters] of [[85, 16, 10_000], [105, 20, 20_000]]) {
+    const constraint = {
+      episodeNumber: 65,
+      episodeRoadmap: { ...episodePlan(65), target_duration_seconds: duration, planned_shot_count: shots },
+      storyPlanNode: { ...storyNode(65, 72), estimated_script_body_characters: segmentCharacters },
+    };
+    const original = structuredClone(constraint);
+    const reference = (bodyTarget) => plannedEpisodeBodyReference(constraint,
+      storySegmentBodyReference(constraint, bodyTarget, bodyTarget / baseline));
+    const approvedReference = reference(baseline);
+    references.push(approvedReference);
+    for (const generatedEpisodeCount of [3, 36, 64, 71]) {
+      assert.equal(reference(targetScriptBodyCharacters(settings, {
+        generatedEpisodeCount, generatedBodyCharacters: generatedEpisodeCount * 5_000,
+      })), approvedReference);
+    }
+    assert.deepEqual(constraint, original);
+  }
+  assert.ok(references[0] < references[1]);
+});
+
 test("direct-script instructions assign distinct duties across one leaf", () => {
   const node = storyNode(1, 10);
   assert.match(
@@ -368,6 +551,55 @@ test("storyline duties enforce approved work while quiet lines remain review rem
   assert.match(relationship.defer_reason, /不自动生成剧情/);
 });
 
+test("an unassigned main line defers without forcing a new scene or invalidating the request", () => {
+  const duties = buildStorylineDuties({ storyLines: [{
+    id: "storyline.main", title: "调查主线", type: "main", summary: "主角调查旧案。",
+    currentState: "线索尚待核实。", status: "active", characterIds: [], episodeBeats: [],
+    userEdited: false,
+  }] }, 1, ["storyline.receipt"], 3);
+  const main = duties.find((duty) => duty.story_line_id === "storyline.main");
+  assert.equal(main.must_progress, false);
+  assert.equal(main.can_defer, true);
+  assert.deepEqual(main.assigned_scene_numbers, []);
+  assert.equal(main.defer_until_episode, 3);
+  assert.ok(main.defer_reason);
+  assert.equal(duties.find((duty) => duty.story_line_id === "storyline.receipt").must_progress, true);
+});
+
+test("approved scenes take precedence over mechanical storyline scene allocation", () => {
+  const duties = buildStorylineDuties(
+    { storyLines: [] }, 5, ["storyline.decision", "storyline.receipt", "storyline.partner"],
+    2, null, [1, 2],
+  );
+  for (const duty of duties) {
+    assert.equal(duty.must_progress, true);
+    // The partner confrontation is in scene 1, the receipt comparison in 2.
+    // The client has no approved mapping that can narrow either requirement.
+    assert.deepEqual(duty.assigned_scene_numbers, [1, 2]);
+  }
+});
+
+test("an approved blueprint determines current work while prior next-step notes remain available", () => {
+  const priorStep = "再次到窗口提交同一份暂停上线申请。";
+  const project = { storyLines: [{
+    id: "storyline.main", title: "调查主线", type: "main", summary: "核对证据来源。",
+    currentState: "申请已经提交，证人线索尚待核对。", nextRequiredStep: priorStep,
+    lastProgressedEpisode: 6, status: "active", characterIds: [], episodeBeats: [], userEdited: false,
+  }] };
+  const before = structuredClone(project);
+  const [duty] = buildStorylineDuties(project, 7, ["storyline.main"], 3, null, [1, 2, 3]);
+  assert.equal(duty.must_progress, true);
+  assert.equal(duty.next_required_step, priorStep);
+  assert.match(duty.required_progress, /以批准蓝图为准/);
+  assert.ok(!duty.objective.includes(priorStep));
+  assert.ok(!duty.required_progress.includes(priorStep));
+  assert.deepEqual(duty.assigned_scene_numbers, [1, 2, 3]);
+  assert.deepEqual(project, before);
+
+  const [legacy] = buildStorylineDuties(project, 7, ["storyline.main"], 3);
+  assert.ok(legacy.required_progress.includes(priorStep));
+});
+
 test("episode context carries approved global rules and only relevant story constraints", () => {
   const node = {
     ...storyNode(1, 10),
@@ -438,6 +670,19 @@ test("episode context carries approved global rules and only relevant story cons
   assert.doesNotMatch(context, /短剧升级阶梯/);
   assert.match(context, /总纲只负责全剧不变方向/);
   assert.ok(context.length <= 2_180);
+  const longBible = {
+    ...storyBible,
+    core_premise: "长篇背景。".repeat(100),
+    central_conflict: "尚待解释的冲突。".repeat(100),
+    locked_facts: Array.from({ length: 15 }, (_, n) => `锁定事实${n}：${"有明确来源的材料保持原来的持有人。".repeat(8)}`),
+    world_rules: Array.from({ length: 12 }, (_, n) => `世界规则${n}：已确认事实不因人物愿望改变。`),
+    avoid_patterns: Array.from({ length: 12 }, (_, n) => `禁止事项${n}：不得凭空添加付款期限或新的责任条款。`),
+  };
+  const longContext = storyBibleEpisodeContext(longBible, { episodeNumber: 5, storyPlanNode: node });
+  for (const rule of [...longBible.locked_facts, ...longBible.world_rules, ...longBible.avoid_patterns]) {
+    assert.ok(longContext.includes(rule), `Truncated approved rule: ${rule}`);
+  }
+  assert.match(longContext, /总纲只负责全剧不变方向/);
 });
 
 test("approved per-episode roadmap refs override broad node refs", () => {
@@ -501,6 +746,7 @@ test("approved per-episode roadmap refs override broad node refs", () => {
       next_episode_obligation: "下一集必须保护证人",
       hook_payoff_target_episode: 5,
       scene_execution_plan: [],
+      execution_ready: false,
     },
   );
 });
@@ -914,4 +1160,23 @@ test("generation defaults to strict single-episode windows", () => {
     buildEpisodeGenerationWindows([1, 2], new Map(), 2),
     [[1], [2]],
   );
+});
+
+test('preproduction detail edits retain later content as drafts only within unchanged fixed boundaries', () => {
+  const item = (n, bible = 2) => ({source_node_id: n < 31 ? 'leaf.a' : 'leaf.b', source_node_version: 3,
+    story_bible_version: bible, episode_number: n, status: 'approved', entry_state: '原件仍在证人手中。',
+    exit_state: '原件仍由证人控制，只形成核验记录。', source_turning_points: [], source_unit_story_beats: ['当面查看原件。'],
+    character_refs: ['witness', 'investigator'], story_line_refs: ['evidence'], setup_refs: [], payoff_refs: [],
+    synopsis: `第${n}集保留的具体剧情。`});
+  const before = [item(21), item(22), item(23), item(31), item(32, 1)];
+  const fixed = {...item(22), synopsis: '补齐当面获知位置的过程，原件仍由证人控制。'};
+  const kept = replaceEpisodeRoadmapItem(before, fixed, {retainDependentDrafts: true});
+  assert.deepEqual(kept.map(p=>[p.episode_number,p.status]), [[21,'approved'],[22,'draft'],[23,'draft'],[31,'draft'],[32,'approved']]);
+  assert.equal(kept.find(p=>p.episode_number===31).synopsis, before[3].synopsis);
+  assert.equal(before[2].status, 'approved');
+  for (const patch of [{exit_state:'原件已交给调查者。'}, {entry_state:'原件已遗失。'},
+    {source_unit_story_beats:['改为交接原件。']}, {source_node_version:4}, {character_refs:['investigator']}]) {
+    const changed = replaceEpisodeRoadmapItem(before, {...fixed,...patch}, {retainDependentDrafts:true});
+    assert.equal(changed.some(p=>p.story_bible_version===2&&p.episode_number>22),false);
+  }
 });

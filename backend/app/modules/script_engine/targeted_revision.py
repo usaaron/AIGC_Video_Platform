@@ -9,6 +9,7 @@ import re
 from pydantic import ValidationError
 
 from app.modules.content_spec.models import ContentSpec
+from app.modules.script_engine.author_instructions import effective_modification_instruction
 from app.modules.master_script.models import DraftMasterScript, LLMTargetedScriptTextPatch
 from app.modules.script_engine.models import (
     ScriptDraftModificationRequest,
@@ -177,7 +178,7 @@ def build_targeted_modification_prompt(
         f"Release region: {source_run.release_region.value}\n"
         f"Target path: {target_path}\n"
         "UserDirectedModificationContract:\n"
-        f"User instruction: {payload.instruction}\n"
+        f"User instruction: {effective_modification_instruction(payload)}\n"
         "DocumentSelectionContext:\n"
         + json.dumps(selection.model_dump(mode="json"), ensure_ascii=False)
         + "\nCurrent complete target field:\n"

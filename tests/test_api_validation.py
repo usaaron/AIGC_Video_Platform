@@ -91,6 +91,18 @@ def test_generation_retry_metadata_separates_transient_and_deterministic_failure
     assert planning_transient.value.headers == script_transient.value.headers
 
 
+def test_planning_deadline_is_visible_without_replaying_the_full_request() -> None:
+    with pytest.raises(HTTPException) as captured:
+        _raise_planning_upstream_unavailable(
+            LLMRequestError("private route deadline", category="deadline"),
+            artifact="story_bible", project_id="project.deadline",
+        )
+    assert captured.value.status_code == 503
+    assert "响应超时" in captured.value.detail
+    assert "private" not in captured.value.detail
+    assert captured.value.headers["X-Generation-Retryable"] == "false"
+
+
 def test_missing_model_configuration_is_never_automatically_retried() -> None:
     with pytest.raises(HTTPException) as captured:
         _raise_llm_configuration_unavailable(
@@ -294,3 +306,29 @@ async def test_planning_gateway_error_hides_provider_diagnostics() -> None:
         "剧情规划模型服务暂时未完成请求，已保存的规划内容不会丢失，请重试当前部分。"
     )
     assert private_diagnostic not in response.text
+
+
+def test_saved_language_candidate_exposes_recovery_without_internal_paths():
+    from app.api.routes.story_projects import _story_bible_draft_response
+    from app.modules.script_engine.long_story_models import StoryBibleDraftRequest
+    from app.modules.script_engine.story_planning_service import StoryBibleLanguageRepairPendingError
+
+    class PendingService:
+        def generate_story_bible_draft(self, payload):
+            raise StoryBibleLanguageRepairPendingError(
+                "The Story Bible contains unresolved quality conflicts: non-Chinese field: escalation_stages.4.stage_opposition"
+            )
+    with pytest.raises(HTTPException) as captured:
+        _story_bible_draft_response(
+            "project.language-pending",
+            StoryBibleDraftRequest(
+                story_project_id="project.language-pending",
+                generation_strategy_id="strategy.test", creative_prompt="作者已经确认这段故事。",
+            ),
+            PendingService(), None,
+        )
+    assert captured.value.status_code == 422
+    assert "已保留生成进度" in captured.value.detail
+    assert "escalation_stages" not in captured.value.detail
+    assert captured.value.headers["X-Generation-Retryable"] == "false"
+    assert captured.value.headers["X-Generation-Error-Type"] == "language_repair_pending"

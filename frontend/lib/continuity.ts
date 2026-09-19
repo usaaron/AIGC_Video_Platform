@@ -14,6 +14,8 @@ import type {
 } from "@/lib/types";
 import type { StoryBible } from "@/lib/story-planning-client";
 import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
+import { withoutEpisodeCharacterState } from "./character-reference.ts";
+import { sameEpisodeSetupPayoffRefsForRun } from "./setup-payoff-provenance.ts";
 
 const PROJECT_CONTINUITY_SUMMARY_MAX_CHARACTERS = 7000;
 const CRITICAL_CONTINUITY_DOMAINS = new Set([
@@ -36,13 +38,15 @@ interface ContinuityEpisodeDraft {
   plannedStoryLineRefs: string[];
   plannedSetupRefs: string[];
   plannedPayoffRefs: string[];
+  sameEpisodeSetupPayoffRefs: Set<string>;
   plannedStoryBeat?: string;
   blockedStoryLineIds: string[];
 }
 
 interface CharacterIdentityRegistry {
   aliasesByKey: Map<string, string[]>;
-  chineseNameByKey: Map<string, string>;
+  canonicalNameByKey: Map<string, string>;
+  preferEnglishNames?: boolean;
 }
 
 export function synchronizeContinuity(
@@ -60,7 +64,29 @@ export function synchronizeContinuity(
   setupPayoffs: PlotSetupPayoffRecord[];
   continuityStates: ContinuityStateRecord[];
 } {
+  const pendingFrom = Math.min(...episodes.filter(episode => episode.sourceAmendment).map(episode => episode.episodeNumber));
+  if (Number.isFinite(pendingFrom)) {
+    existingStoryLines = existingStoryLines.map(line => (line.lastProgressedEpisode ?? 0) < pendingFrom ? line : {
+      ...line, status: "setup", currentState: undefined, lastProgressedEpisode: undefined,
+      nextRequiredStep: undefined, episodeBeats: [], warnings: [], health: "on_track",
+    });
+    existingRelationships = existingRelationships.flatMap(relationship => {
+      if ((relationship.lastUpdatedEpisode ?? 0) < pendingFrom) return [relationship];
+      const history = relationship.episodeChanges.filter(change => change.episodeNumber < pendingFrom);
+      const last = history.at(-1);
+      return last?.currentState ? [{ ...relationship, currentState: last.currentState,
+        lastUpdatedEpisode: last.episodeNumber, episodeChanges: history }] : [];
+    });
+    existingContinuityStates = existingContinuityStates.flatMap(state => {
+      const history = state.history.filter(change => change.episodeNumber < pendingFrom);
+      const last = history.at(-1);
+      return last ? [{ ...state, currentState: last.currentState, persistence: last.persistence,
+        futureConstraint: last.futureConstraint, lastUpdatedEpisode: last.episodeNumber, history }]
+        : state.lastUpdatedEpisode < pendingFrom ? [state] : [];
+    });
+  }
   const drafts = episodes
+    .filter(episode => episode.episodeNumber < pendingFrom)
     .slice()
     .sort((left, right) => left.episodeNumber - right.episodeNumber)
     .map((episode): ContinuityEpisodeDraft => {
@@ -72,6 +98,7 @@ export function synchronizeContinuity(
         plannedStoryLineRefs: run.episode_context?.planned_story_line_refs ?? [],
         plannedSetupRefs: run.episode_context?.planned_setup_refs ?? [],
         plannedPayoffRefs: run.episode_context?.planned_payoff_refs ?? [],
+        sameEpisodeSetupPayoffRefs: sameEpisodeSetupPayoffRefsForRun(episode),
         blockedStoryLineIds: run.episode_context?.storyline_duties?.length
           ? (run.continuity_qc_report?.issues ?? [])
             .filter((issue) => issue.severity === "blocking")
@@ -331,7 +358,11 @@ export function storyBibleProjectCharacters(
 ): CharacterDraft[] {
   const characters = deduplicateCharacterCards(existingCharacters);
   for (const registry of storyBible.character_registry) {
-    if (characters.some((item) => characterNameKey(item.name) === characterNameKey(registry.name))) {
+    const existingIndex = characters.findIndex((item) => characterNameKey(item.name) === characterNameKey(registry.name));
+    if (existingIndex >= 0) {
+      if (registry.acting_profile) {
+        characters[existingIndex] = { ...characters[existingIndex], actingProfile: { ...registry.acting_profile } };
+      }
       continue;
     }
     const arc = storyBible.character_arc_targets.find(
@@ -347,6 +378,7 @@ export function storyBibleProjectCharacters(
       appearance: "",
       description: arc?.starting_state ?? registry.role,
       motivation: arc?.external_goal,
+      ...(registry.acting_profile ? { actingProfile: { ...registry.acting_profile } } : {}),
       source: "generated",
     });
   }
@@ -405,7 +437,13 @@ export function storyBibleProjectRelationships(
   const canonicalIds = new Set(canonical.map((item) => item.id));
   return [
     ...canonical,
-    ...existingRelationships.filter((item) => item.userEdited && !canonicalIds.has(item.id)),
+    // An approved bible describes the initial relationship set. Relationships
+    // established in saved episodes must survive reseeding even when they were
+    // not part of that initial set; their history is already-written evidence.
+    ...existingRelationships.filter((item) => (
+      !canonicalIds.has(item.id)
+      && (item.userEdited || item.episodeChanges.length > 0 || Boolean(item.lastUpdatedEpisode))
+    )),
   ];
 }
 
@@ -556,13 +594,18 @@ function synchronizeSetupPayoffs(
     draft,
     plannedSetupRefs,
     plannedPayoffRefs,
+    sameEpisodeSetupPayoffRefs,
   } of drafts) {
     const updates = new Map(
-      (draft.setup_payoff_updates ?? []).map((update) => [update.setup_payoff_ref, update]),
+      (draft.setup_payoff_updates ?? []).map((update) => [update.source_ref || update.setup_payoff_ref, update]),
     );
+    const sceneNumbers = new Set(draft.scenes.map(scene => scene.scene_number));
+    const hasSceneEvidence = (update: NonNullable<typeof draft.setup_payoff_updates>[number]) =>
+      update.evidence_scene_numbers.length > 0 && update.evidence_scene_numbers.every(number => sceneNumbers.has(number));
     for (const plannedRef of plannedSetupRefs) {
       const update = updates.get(plannedRef);
-      if (update && ["setup", "reinforce"].includes(update.action)) continue;
+      if (update && (["setup", "reinforce"].includes(update.action)
+        || (sameEpisodeSetupPayoffRefs.has(plannedRef) && update.action === "payoff" && hasSceneEvidence(update)))) continue;
       const previous = records.get(plannedRef);
       const warning = `第${episodeNumber}集计划铺设或强化该伏笔，但正文没有对应场景证据。`;
       records.set(plannedRef, {
@@ -597,17 +640,20 @@ function synchronizeSetupPayoffs(
       });
     }
     for (const update of draft.setup_payoff_updates ?? []) {
-      const previous = records.get(update.setup_payoff_ref);
+      const reference = update.source_ref || update.setup_payoff_ref;
+      const previous = records.get(reference);
       const paidOff = update.action === "payoff" || update.status === "paid_off";
       const warning = update.action === "defer"
         ? `第${episodeNumber}集将原计划动作推迟，需要同步调整后续回收安排。`
         : undefined;
-      records.set(update.setup_payoff_ref, {
-        ref: update.setup_payoff_ref,
+      records.set(reference, {
+        ref: reference,
         description: update.progress_summary.trim(),
         status: paidOff ? "paid_off" : "open",
         setupEpisode: previous?.setupEpisode
-          ?? (["setup", "reinforce"].includes(update.action) ? episodeNumber : undefined),
+          ?? (["setup", "reinforce"].includes(update.action)
+            || (sameEpisodeSetupPayoffRefs.has(reference) && paidOff && hasSceneEvidence(update))
+            ? episodeNumber : undefined),
         lastUpdatedEpisode: episodeNumber,
         targetPayoffEpisode: update.target_payoff_episode
           ?? previous?.targetPayoffEpisode
@@ -659,10 +705,9 @@ function synchronizeCharacterCards(
     existingCharacters,
     identityRegistry,
   ).map((character) => ({
-    ...character,
-    name: chineseCharacterCardName(character.name, identityRegistry),
-    dynamicState: drafts.length ? undefined : character.dynamicState,
-    stateHistory: drafts.length ? [] : character.stateHistory,
+    ...(drafts.length ? character : withoutEpisodeCharacterState(character)),
+    name: canonicalCharacterCardName(character.name, identityRegistry),
+    ...(drafts.length ? { dynamicState: undefined, stateHistory: [], lastUpdatedEpisode: undefined } : {}),
   }));
   const charactersByName = new Map(
     characters.flatMap((character) => characterIdentityKeys(character.name, identityRegistry)
@@ -680,7 +725,7 @@ function synchronizeCharacterCards(
         existing.motivation ||= generated.motivation;
         continue;
       }
-      const cardName = chineseCharacterCardName(generated.name, identityRegistry);
+      const cardName = canonicalCharacterCardName(generated.name, identityRegistry);
       const created: CharacterDraft = {
         id: generatedCharacterId(cardName),
         name: cardName,
@@ -742,12 +787,12 @@ export function deduplicateCharacterCards(
   characters: CharacterDraft[],
   identityRegistry: CharacterIdentityRegistry = {
     aliasesByKey: new Map(),
-    chineseNameByKey: new Map(),
+    canonicalNameByKey: new Map(),
   },
 ): CharacterDraft[] {
   const byKey = new Map<string, CharacterDraft>();
   for (const candidate of characters) {
-    const name = chineseCharacterCardName(candidate.name, identityRegistry);
+    const name = canonicalCharacterCardName(candidate.name, identityRegistry);
     const keys = characterIdentityKeys(candidate.name, identityRegistry);
     const key = keys[0];
     if (!key) continue;
@@ -763,7 +808,7 @@ export function deduplicateCharacterCards(
     const secondary = preferred === candidate ? existing : candidate;
     const merged = {
       ...mergeCharacterCards(preferred, secondary),
-      name: chineseCharacterCardName(preferred.name || secondary.name, identityRegistry),
+      name: canonicalCharacterCardName(preferred.name || secondary.name, identityRegistry),
     };
     [...new Set([...keys, ...characterIdentityKeys(existing.name, identityRegistry)])]
       .forEach((candidateKey) => byKey.set(candidateKey, merged));
@@ -775,6 +820,7 @@ function buildCharacterIdentityRegistry(
   drafts: Array<{ draft: GeneratedDraft }>,
   existingCharacters: CharacterDraft[],
 ): CharacterIdentityRegistry {
+  const preferEnglishNames = drafts.some(({ draft }) => (draft.language ?? "").toLowerCase().startsWith("en"));
   const groups: Array<{ keys: Set<string>; chineseName: string }> = [];
   const registerAliases = (keys: Set<string>, chineseName: string) => {
     if (!keys.size) return;
@@ -803,7 +849,7 @@ function buildCharacterIdentityRegistry(
         ? alias
         : null;
     if (!chineseName) continue;
-    registerAliases(new Set(characterNameKeys(character.name)), chineseName);
+    registerAliases(new Set(characterNameKeys(character.name)), preferEnglishNames ? (primaryChinese ? alias : primary) : chineseName);
   }
   for (const { draft } of drafts) {
     for (const scene of draft.scenes ?? []) {
@@ -815,20 +861,23 @@ function buildCharacterIdentityRegistry(
           ...characterNameKeys(chineseName),
         ]);
         if (!keys.size) continue;
-        registerAliases(keys, chineseName);
+        const englishName = dialogue.character_name.replace(/\s*[（(](?:V\.O\.|O\.S\.|CONTINUED|PRE[- ]?LAP)[）)]/i, "").trim();
+        const stableName = existingCharacters.find(character => !/[\u3400-\u9fff]/.test(character.name)
+          && characterNameKeys(character.name).some(key => keys.has(key)))?.name ?? englishName;
+        registerAliases(keys, preferEnglishNames && /[A-Za-z]/.test(stableName) ? stableName : chineseName);
       }
     }
   }
   const aliasesByKey = new Map<string, string[]>();
-  const chineseNameByKey = new Map<string, string>();
+  const canonicalNameByKey = new Map<string, string>();
   for (const group of groups) {
     const aliases = [...group.keys];
     for (const key of aliases) {
       aliasesByKey.set(key, aliases);
-      chineseNameByKey.set(key, group.chineseName);
+      canonicalNameByKey.set(key, group.chineseName);
     }
   }
-  return { aliasesByKey, chineseNameByKey };
+  return { aliasesByKey, canonicalNameByKey, preferEnglishNames };
 }
 
 function characterIdentityKeys(
@@ -842,13 +891,13 @@ function characterIdentityKeys(
   ])];
 }
 
-function chineseCharacterCardName(
+function canonicalCharacterCardName(
   value: string,
   registry: CharacterIdentityRegistry,
 ): string {
   const directKeys = characterNameKeys(value);
   const registered = directKeys
-    .map((key) => registry.chineseNameByKey.get(key))
+    .map((key) => registry.canonicalNameByKey.get(key))
     .find(Boolean);
   if (registered) return registered;
   const match = value.trim().match(/^(.+?)\s*[（(](.+?)[）)]$/);
@@ -859,8 +908,8 @@ function chineseCharacterCardName(
   const aliasChinese = /[\u3400-\u9fff]/.test(alias);
   const primaryLatin = /[A-Za-z]/.test(primary);
   const aliasLatin = /[A-Za-z]/.test(alias);
-  if (primaryChinese && aliasLatin && !aliasChinese) return primary;
-  if (aliasChinese && primaryLatin && !primaryChinese) return alias;
+  if (primaryChinese && aliasLatin && !aliasChinese) return registry.preferEnglishNames ? alias : primary;
+  if (aliasChinese && primaryLatin && !primaryChinese) return registry.preferEnglishNames ? primary : alias;
   return value.trim();
 }
 
@@ -948,10 +997,13 @@ function applyCharacterStateUpdate(
     lastingMarks: update.lasting_marks == null
       ? previous?.lastingMarks
       : uniqueRecent(update.lasting_marks, 12),
+    // An explicitly supplied empty list is a meaningful state transition
+    // (for example, a healed injury clears the prior constraint). Preserve
+    // the previous value only for legacy payloads that omit the field.
     activeConstraints: uniqueRecent(
-      update.active_constraints?.length
-        ? update.active_constraints
-        : previous?.activeConstraints ?? [],
+      update.active_constraints == null
+        ? previous?.activeConstraints ?? []
+        : update.active_constraints,
       20,
     ),
     personalityDevelopment: cleanOptional(update.personality_change)

@@ -1,0 +1,86 @@
+{
+  "provenance": "Read-only saved R166 parent v3. Lossless semicolon split below is a synthetic contract counterexample, not failed model raw output or accepted episode planning.",
+  "parent": {
+    "schema_version": "v1",
+    "node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.2",
+    "story_project_id": "56336cc7-e8d8-4515-a671-d144077e211c",
+    "story_bible_id": "story_bible.56336cc7-e8d8-4515-a671-d144077e211c.main",
+    "story_bible_version": 3,
+    "version": 3,
+    "parent_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.root",
+    "parent_node_version": 1,
+    "predecessor_node_id": "story_plan.56336cc7-e8d8-4515-a671-d144077e211c.child.de2e8ad6f0f1.1",
+    "predecessor_node_version": 1,
+    "sequence_order": 2,
+    "title": "魔巢奇袭与边境救世",
+    "narrative_purpose": "Lane从被动守堡转向主动进攻，依托魔域资源建立工业军力，攻占魔巢并驰援主城，成为边境救世主。",
+    "synopsis": "高阶梦魇以蔽日魔阵制造永夜，Lane在大战前侦查浅层魔巢时探明煤、石油和幽能矿石。Abyss Lord双线分兵，Lane先以现有紫外火种与钛合金军队守堡歼敌，再趁魔巢空虚攻占资源，随后驰援主城、击溃围城诡潮。Marquis Claude清醒并立下继承规则后，Viola才与Abyss Lord交易，把Lane调至死地。Lane在战场为Lina解围并收留她，以她的能量转化、法阵理论配合现代工业设计，依靠魔巢能源和梦魇核心解锁机床、列装热武器，歼灭边境诡潮主力。Cole见证功绩一度臣服，Morton外拓火种贸易；Viola仍不甘失败，为开城叛国埋下压力。",
+    "entry_state": "Lane在废弃碉堡建成巨型紫外火种塔，新型复合火种、加固防线与紫外附魔钛合金军队成型；Eira因获救与受尊重而深爱追随，Eileen以牧师身份加入并因Lane善待流民而倾心，公主身份尚未公开；Morton已忠诚并规划火种外销。碉堡成为沦陷区安全信号，高阶梦魇忌惮并准备升级诡潮压力。",
+    "central_conflict": "Lane必须先用既有紫外火种与钛合金军队应对双线诡潮，夺取资源并救主城；侯爵立下继承规则后，Viola通敌调度至死地与议会压迫Lina形成新阻力，Lane需要保护Lina、完成合作研发以击败边境主力。",
+    "turning_points": [
+      "探子回报魔物主力出征、巢穴空虚，Lane亲率精锐长途奔袭，苦战攻占魔巢，完整掌控煤、石油和高阶魔晶等战略资源。",
+      "Lane依托魔巢补给驰援主城，以紫外火种开路、钛合金部队冲锋，击溃围城诡潮，成为边境救世主。",
+      "Viola长期投喂的慢性虚弱药剂失效，Marquis Claude清醒；他见证惨状与Lane功绩，公开立下平定诡潮者继承侯爵爵位的规则。",
+      "Lane在凶险战场为遭议会当众羞辱的Lina解围并收留她；她因研究魔法器械融合被斥为叛徒，祖传戒指持续抽取魔力，尚未恢复实力。",
+      "Lina提供能量转化和法阵理论，Lane提供现代工业设计；结合魔巢煤油和高阶梦魇核心，系统解锁精密机床，研发破诡步枪与紫外魔炮，全军完成热武器列装。",
+      "全域魔物主力总攻，Lane的热武器部队歼灭边境诡潮主力；Cole见证实力与救世功绩，认清差距并愿主动放弃继承权。"
+    ],
+    "emotional_direction": "从守堡转向主动反击和技术合作，既有信任在并肩战斗中加深；Cole由争夺继承权转为一度臣服，Viola则在失败后继续走向叛国。",
+    "exit_state": "Lane完成守堡歼敌、攻占魔巢和主城解围；侯爵已立继承规则，Viola已通敌并把Lane调往死地。Lane收留Lina后合作研发热武器、歼灭边境诡潮主力，Cole一度臣服并愿放弃继承权；Lina戒指仍吸食魔力，Morton已开拓火种贸易，Viola不甘失败而酝酿开城放魔物。",
+    "unit_story_beats": [
+      "高阶梦魇发动蔽日魔阵制造人工永夜；大战前夕，Lane侦查浅层魔巢，探明魔域富集煤、石油与幽能矿石，为后续工业研发找到资源方向。",
+      "Abyss Lord将主力派往主城、分兵围剿碉堡；Lane依托加固城墙、巨型火种塔和钛合金军队守堡，全歼来犯分兵。",
+      "探子回报魔物主力出征、巢穴空虚，Lane亲率精锐长途奔袭，苦战攻占魔巢，完整掌控煤、石油和高阶魔晶等战略资源。",
+      "Lane依托魔巢补给驰援主城，以紫外火种开路、钛合金部队冲锋，击溃围城诡潮，成为边境救世主。",
+      "Viola长期投喂的慢性虚弱药剂失效，Marquis Claude清醒；他见证惨状与Lane功绩，公开立下平定诡潮者继承侯爵爵位的规则。",
+      "Viola不愿Cole失去继承权，才与Abyss Lord达成扶持Cole为傀儡统治者的交易，利用调度权把Lane部队分配至魔物最密集的死地。",
+      "Lane在凶险战场为遭议会当众羞辱的Lina解围并收留她；她因研究魔法器械融合被斥为叛徒，祖传戒指持续抽取魔力，尚未恢复实力。",
+      "Lina提供能量转化和法阵理论，Lane提供现代工业设计；结合魔巢煤油和高阶梦魇核心，系统解锁精密机床，研发破诡步枪与紫外魔炮，全军完成热武器列装。",
+      "全域魔物主力总攻，Lane的热武器部队歼灭边境诡潮主力；Cole见证实力与救世功绩，认清差距并愿主动放弃继承权。",
+      "Eira与Lane多次共渡生死、独处意外接吻但坚守分寸；Eileen认定他的善良与格局，Lina因合作中的担当心生好感。",
+      "Morton携新型火种样品前往周边领地开拓贸易，积累财富和后勤储备；Viola仍不甘失败，内部叛国危机尚未解除。"
+    ],
+    "episode_developments": [],
+    "unit_resolution": "魔巢资源到手、主城第一次解围，侯爵继承规则激化Viola通敌；Lina入队提供理论，热武器研发与边境歼敌完成，Cole一度臣服，Viola的叛国风险仍在。",
+    "handoff_pressure": "Viola不甘军事与继承权争夺失败，将联络残余魔物并打开主城防御缺口；Lane即将面对屠城、侯爵之死和兄弟亲情撕裂。",
+    "character_refs": [
+      "character.lane_claude",
+      "character.eira",
+      "character.morton",
+      "character.marquis_claude",
+      "character.viola",
+      "character.abyss_lord",
+      "character.eileen",
+      "character.lina",
+      "character.cole"
+    ],
+    "story_line_refs": [
+      "line.main_uv_rise",
+      "line.arc_eira",
+      "line.arc_morton",
+      "line.subplot_viola_treason",
+      "line.subplot_cole_betrayal",
+      "line.subplot_lina_ring",
+      "line.arc_eileen",
+      "line.arc_lina"
+    ],
+    "setup_refs": [
+      "魔域地层富集煤、石油和幽能矿石，后续解锁机床与热武器研发。",
+      "Viola长期给Marquis Claude投喂慢性虚弱药剂，并勾结Abyss Lord。",
+      "Lina祖传戒指持续吸食魔力，战后将查明器灵与灾变起源。"
+    ],
+    "payoff_refs": [
+      "Lane依靠现代光学知识与想象造物系统开创人工紫外灭诡体系。",
+      "Lane全歼分兵、攻占魔巢、击溃围城诡潮，成为边境救世主。"
+    ],
+    "estimated_episode_count": 26,
+    "estimated_script_body_characters": 21774,
+    "planned_start_episode": 25,
+    "planned_end_episode": 50,
+    "expansion_status": "expanded",
+    "decomposition_reason": "在25–50集和21774字预算内依次展开资源侦查、双线守堡、攻魔巢、救主城、继承规则、Viola通敌调度、收留Lina、合作研发和边境歼敌；热武器须在资源与Lina理论到位后出现，不能提前量产或用新增魔巢救Eira替代其已确认转折。",
+    "status": "approved",
+    "created_at": "2026-09-19T04:43:11.176840Z",
+    "approved_at": "2026-09-19T05:58:29.535000Z"
+  }
+}

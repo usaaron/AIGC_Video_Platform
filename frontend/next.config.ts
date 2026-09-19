@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   turbopack: { root: __dirname },
   outputFileTracingRoot: __dirname,
   allowedDevOrigins: ["localhost", "127.0.0.1"],
+  devIndicators: false,
   reactStrictMode: true,
   // Scene generation returns after a bounded model call and database commit.
   experimental: { proxyTimeout: 660_000 },

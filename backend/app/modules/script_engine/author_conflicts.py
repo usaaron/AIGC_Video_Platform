@@ -4,6 +4,10 @@ import hashlib
 import json
 
 from app.document_repository import DocumentRepository
+from app.modules.script_engine.author_instructions import (
+    effective_modification_instruction,
+    prior_author_instruction_payload,
+)
 from app.modules.script_engine.author_conflict_models import (
     AuthorConflictAssessment,
     AuthorConflictReview,
@@ -20,12 +24,18 @@ class AuthorConflictReviewRepository(DocumentRepository[StoredAuthorConflictRevi
     model_type = StoredAuthorConflictReview
 
 
-def source_packet(payload) -> dict:
-    draft = payload.source_draft_master_script.model_dump(mode="json")
+def editable_draft_packet(source_draft) -> dict:
+    """Keep editable story content without recycling generated diagnostics as canon."""
+    draft = source_draft.model_dump(mode="json")
     for field in ("llm_metadata", "created_at", "updated_at"):
         draft.pop(field, None)
+    return draft
+
+
+def source_packet(payload) -> dict:
+    draft = editable_draft_packet(payload.source_draft_master_script)
     context = payload.source_generation_run.episode_context
-    return {
+    packet = {
         "story_project_id": payload.source_generation_run.story_project_id,
         "source_draft_master_script": draft,
         "episode_context": context.model_dump(mode="json") if context else None,
@@ -33,6 +43,11 @@ def source_packet(payload) -> dict:
         "source_story_bible_version": payload.source_story_bible_version,
         "selection_context": payload.selection_context.model_dump(mode="json") if payload.selection_context else None,
     }
+    prior = prior_author_instruction_payload(payload)
+    if prior:
+        # Keep fingerprints of legacy/no-history requests byte-for-byte stable.
+        packet["prior_author_instructions"] = prior
+    return packet
 
 
 def source_fingerprint(payload) -> str:
@@ -42,11 +57,19 @@ def source_fingerprint(payload) -> str:
 
 
 def review_prompt(payload) -> str:
+    packet = source_packet(payload)
+    # Render the very same intent used by targeted and full writers, once.
+    packet.pop("prior_author_instructions", None)
+    packet["instruction"] = effective_modification_instruction(payload)
     return """你负责作者修改要求的冲突审阅，只返回结构化审阅结果，暂不改写正文。
 以用户本次明确要求为调整目标。平台审美、常用剧情套路、反转偏好不能成为否决依据。
 先区分普通润色、用户明确改变旧设定、模型原稿自身错误。只有本次要求与可定位的既有事实、
 人物知情或动机存在实质冲突时才返回 conflicts；不能因要求新颖、节奏安静或缺少反转而报冲突。
 普通表达修改及符合既定人物发展的行为返回 conflicts=[]、options=[]，直接进入原有候选流程。
+必须返回rewrite_scope字段，不得省略后依赖默认值。只有作者明确要求舍弃本集旧正文、以批准场景规划整体重新执行时，
+填写reexecute_approved_plan；润色、局部修改或保留旧正文事实只重写表达时，填写preserve_unaffected_text。
+重执行模式保留批准的人物、场景、事件和此前历史，旧稿自行增加的事实不作为新稿的依据。
+这只是落实已明确的修改范围，不授权更改上游设定，也不免除实质冲突审阅。
 
 每条冲突的 source_ref 是输入JSON里的点分隔路径（数组用零基数字），established_fact 必须是该
 路径字符串中的原文摘录。路径只能来自 source_draft_master_script 或 episode_context，
@@ -64,7 +87,7 @@ requested_change 解释用户希望改变什么，impact 解释会影响哪些�
 只返回符合schema的JSON，不输出正文、不操作任何保存或确认状态。
 
 输入：
-""" + json.dumps(source_packet(payload), ensure_ascii=False, separators=(",", ":"))
+""" + json.dumps(packet, ensure_ascii=False, separators=(",", ":"))
 
 
 def make_review(payload, assessment: AuthorConflictAssessment) -> AuthorConflictReview:

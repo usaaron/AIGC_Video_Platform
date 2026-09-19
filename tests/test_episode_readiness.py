@@ -36,3 +36,28 @@ def test_quiet_episode_still_needs_scene_evidence_and_explicit_readiness():
         "execution_ready_false",
         "scene_execution_plan.1.evidence_requirements_missing",
     ]
+
+
+def test_complete_cloned_scene_is_rejected_but_changed_outcome_is_valid():
+    plan = quiet_episode_plan()
+    first = plan.scene_execution_plan[0]
+    plan.planned_scene_count = 2
+    second = SimpleNamespace(**{**vars(first), "scene_number": 2})
+    plan.scene_execution_plan.append(second)
+    assert episode_execution_readiness_issues(plan) == [
+        "scene_execution_plan.duplicate_scene_beat",
+    ]
+    second.exit_state = "女儿独自留下，决定把票根交给失散的亲人。"
+    assert episode_execution_readiness_issues(plan) == []
+
+
+def test_production_evidence_todo_is_not_execution_ready_but_story_uncertainty_is_valid():
+    plan = quiet_episode_plan()
+    plan.scene_execution_plan[0].evidence_requirements = ["用动作表达疏离；具体动作与触发话题待定，该缺口影响对白落点。"]
+    assert episode_execution_readiness_issues(plan) == ["scene_execution_plan.1.evidence_requirements_unresolved"]
+    plan.scene_execution_plan[0].evidence_requirements = ["父亲说还不知道是否离开，女儿把车票放回抽屉；两人暂不决定。"]
+    assert episode_execution_readiness_issues(plan) == []
+    plan.scene_execution_plan[0].evidence_requirements = ["她答复具体日期待定，父亲没有追问。"]
+    assert episode_execution_readiness_issues(plan) == []
+    plan.scene_execution_plan[0].visible_action = "两人交换物件，具体操作待定，只锁定交付的先后因果。"
+    assert episode_execution_readiness_issues(plan) == ["scene_execution_plan.1.visible_action_unresolved"]

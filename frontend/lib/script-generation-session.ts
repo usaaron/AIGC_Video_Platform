@@ -38,6 +38,7 @@ const snapshot = (task?: GenerationRecoveryTask) => JSON.stringify(task ?? null)
 export function createScriptGenerationSession({
   projectId, getProject, updateProject, onPauseChange, onAutomaticRetry,
 }: SessionOptions) {
+  const sourceEpoch = getProject(projectId)?.planningRevisionEpoch ?? 0;
   let task: GenerationRecoveryTask | undefined;
   let expectedCheckpoint = snapshot(getProject(projectId)?.activeGenerationTask);
   let writes: Promise<void> = Promise.resolve();
@@ -45,7 +46,9 @@ export function createScriptGenerationSession({
   let closed = false;
 
   function isCurrent(project: ScriptProject | undefined) {
-    return !closed && project && snapshot(project.activeGenerationTask) === expectedCheckpoint;
+    return !closed && project && project.planningRevision?.status !== "active"
+      && (project.planningRevisionEpoch ?? 0) === sourceEpoch
+      && snapshot(project.activeGenerationTask) === expectedCheckpoint;
   }
 
   function changedError() {
@@ -63,9 +66,13 @@ export function createScriptGenerationSession({
       if (typeof update === "function" && !task) return;
       if (!isCurrent(getProject(projectId))) throw changedError();
       const next = typeof update === "function" ? update(task!) : update;
+      if ((next.planningRevisionEpoch ?? 0) !== sourceEpoch) throw changedError();
       let savedTask;
       try { savedTask = await saveGenerationTaskOnServer(projectId, next); }
-      catch { savedTask = { ...next, serverBacked: false }; }
+      catch (error) {
+        if (typeof error === "object" && error !== null && "status" in error && error.status === 409) throw changedError();
+        savedTask = { ...next, serverBacked: false };
+      }
       let applied = false;
       const saved = await updateProject(projectId, (current) => {
         if (!isCurrent(current)) return {};

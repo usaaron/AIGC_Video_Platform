@@ -18,6 +18,9 @@ export type PlanningCanvasMessage = {
   role: "assistant" | "user";
   text: string;
   quote?: StoryBibleSelectionContext | null;
+  episodeId?: string;
+  createdAt?: string;
+  withdrawnAt?: string;
 };
 
 const ACTIONS: PlanningCanvasQuickAction[] = [
@@ -31,13 +34,17 @@ const ACTIONS: PlanningCanvasQuickAction[] = [
 export function PlanningCanvasCopilot({
   busy,
   disabled,
+  disabledReason = "当前内容已锁定，需先创建可编辑版本后才能修改。",
   instruction,
+  instructionMaxLength = 1_000,
   messages,
   onClearSelection,
   onEditMessage,
+  onWithdrawMessage,
   onInstructionChange,
   onPause,
   onQuickAction,
+  allowQuickActionsWithoutSelection = false,
   onSubmit,
   quickActions = ACTIONS,
   selection,
@@ -48,13 +55,17 @@ export function PlanningCanvasCopilot({
 }: {
   busy: boolean;
   disabled: boolean;
+  disabledReason?: string;
   instruction: string;
+  instructionMaxLength?: number;
   messages: PlanningCanvasMessage[];
   onClearSelection: () => void;
   onEditMessage?: (messageId: string, text: string, quote?: StoryBibleSelectionContext | null) => void;
+  onWithdrawMessage?: (messageId: string) => void;
   onInstructionChange: (value: string) => void;
   onPause?: () => void;
   onQuickAction: (action: PlanningCanvasAction, instruction: string) => void;
+  allowQuickActionsWithoutSelection?: boolean;
   onSubmit: () => void;
   quickActions?: PlanningCanvasQuickAction[];
   selection: StoryBibleSelectionContext | null;
@@ -67,14 +78,17 @@ export function PlanningCanvasCopilot({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState("");
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   async function copyMessage(message: PlanningCanvasMessage) {
+    setCopyError(null);
     try {
       await navigator.clipboard.writeText(message.text);
       setCopiedMessageId(message.id);
       window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1_500);
     } catch {
       setCopiedMessageId(null);
+      setCopyError("暂时无法复制，请选中消息文字后手动复制。");
     }
   }
 
@@ -85,7 +99,7 @@ export function PlanningCanvasCopilot({
 
   function submitEditedMessage(message: PlanningCanvasMessage) {
     const nextText = editingMessageText.trim();
-    if (!nextText || busy || !onEditMessage) return;
+    if (!nextText || busy || disabled || !onEditMessage) return;
     setEditingMessageId(null);
     setEditingMessageText("");
     onEditMessage(message.id, nextText, message.quote);
@@ -95,7 +109,7 @@ export function PlanningCanvasCopilot({
       {quickActions.map((action) => (
         <button
           className="planning-canvas-action"
-          disabled={disabled || busy || (action.id !== "continue" && !selection)}
+          disabled={disabled || busy || (!allowQuickActionsWithoutSelection && action.id !== "continue" && !selection)}
           key={action.id}
           onClick={() => onQuickAction(action.id, action.instruction)}
           title={action.id === "continue" && !selection ? "未选中文字时，将按当前规划补充内容" : action.label}
@@ -127,6 +141,8 @@ export function PlanningCanvasCopilot({
           </>
         )}
       </div>
+      {onWithdrawMessage ? <p className="muted">本集已发送的要求会持续生效。放弃候选不撤回要求；编辑旧消息会撤回该消息及后续要求，再保存新的要求。</p> : null}
+      {copyError ? <p className="inline-notice" role="alert">{copyError}</p> : null}
       {variant === "node" ? actionBar : null}
       <div className="story-bible-chat-thread">
         <div className="story-bible-chat-bubble is-assistant">
@@ -146,16 +162,20 @@ export function PlanningCanvasCopilot({
                 >
                   {copiedMessageId === item.id ? <Check aria-hidden="true" size={13} /> : <Copy aria-hidden="true" size={13} />}
                 </button>
-                {item.role === "user" && onEditMessage ? (
+                {item.role === "user" && !item.withdrawnAt && onEditMessage ? (
                   <button
                     aria-label="编辑并重新发送消息"
-                    disabled={busy}
+                    disabled={busy || disabled}
                     onClick={() => beginEditingMessage(item)}
                     title="编辑并重新发送"
                     type="button"
                   >
                     <Pencil aria-hidden="true" size={13} />
                   </button>
+                ) : null}
+                {item.role === "user" && onWithdrawMessage ? (
+                  item.withdrawnAt ? <span>已撤回</span> : <button aria-label="撤回这条作者要求" disabled={busy || disabled}
+                    onClick={() => onWithdrawMessage(item.id)} type="button">撤回要求</button>
                 ) : null}
               </span>
             </div>
@@ -164,7 +184,7 @@ export function PlanningCanvasCopilot({
                 <textarea
                   aria-label="编辑已发送消息"
                   autoFocus
-                  maxLength={1_000}
+                  maxLength={instructionMaxLength}
                   onChange={(event) => setEditingMessageText(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") {
@@ -183,7 +203,7 @@ export function PlanningCanvasCopilot({
                     setEditingMessageId(null);
                     setEditingMessageText("");
                   }} type="button">取消</button>
-                  <button className="conversation-message-edit-submit" disabled={!editingMessageText.trim()} onClick={() => submitEditedMessage(item)} type="button">发送</button>
+                  <button className="conversation-message-edit-submit" disabled={busy || disabled || !editingMessageText.trim()} onClick={() => submitEditedMessage(item)} type="button">发送</button>
                 </div>
               </div>
             ) : <p>{item.text}</p>}
@@ -210,7 +230,7 @@ export function PlanningCanvasCopilot({
             <p><span className="story-bible-thinking-dots" aria-hidden="true"><i /><i /><i /></span>正在思考并检查上下文</p>
           </div>
         ) : null}
-        {disabled ? <div className="story-bible-chat-bubble is-assistant"><p>当前内容已锁定，需先创建可编辑版本后才能修改。</p></div> : null}
+        {disabled ? <div className="story-bible-chat-bubble is-assistant"><p>{disabledReason}</p></div> : null}
       </div>
       {variant === "document" ? actionBar : null}
       <div className="story-bible-chat-composer">
@@ -219,15 +239,15 @@ export function PlanningCanvasCopilot({
           <textarea
             aria-label={`回复${title}`}
             disabled={disabled}
-            maxLength={1_000}
+            maxLength={instructionMaxLength}
             onChange={(event) => onInstructionChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
-                if (!busy && instruction.trim()) onSubmit();
+                if (!busy && !disabled && instruction.trim()) onSubmit();
               }
             }}
-            placeholder={selection ? "例如：我对这段情节不满意，请重写，并确保前后因果一致。" : "例如：补充当前节点的下一步发展，并承接已有交接压力。"}
+            placeholder={selection ? "例如：请重写这段情节，并保持前后因果一致。" : `告诉我你想怎样调整${scopeLabel}…`}
             rows={variant === "document" ? 4 : 5}
             value={instruction}
           />
@@ -239,7 +259,7 @@ export function PlanningCanvasCopilot({
           <button
             aria-label={isThinking ? "暂停当前思考" : "发送修改指令"}
             className={`primary-action story-bible-copilot-submit${isThinking ? " is-running" : ""}`}
-            disabled={isThinking ? !onPause : disabled || !instruction.trim()}
+            disabled={isThinking ? !onPause : busy || disabled || !instruction.trim()}
             onClick={isThinking ? onPause : onSubmit}
             title={isThinking ? "暂停" : "发送"}
             type="button"

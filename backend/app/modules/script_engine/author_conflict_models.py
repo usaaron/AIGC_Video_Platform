@@ -3,6 +3,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+from app.script_delivery_contract import SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH
+
 class AuthorConflictEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -26,6 +28,14 @@ class AuthorConflictAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_goal: str = Field(min_length=3, max_length=500)
+    rewrite_scope: Literal["preserve_unaffected_text", "reexecute_approved_plan"] = Field(
+        default="preserve_unaffected_text",
+        description=(
+            "Use reexecute_approved_plan only when the author explicitly asks to discard the current "
+            "episode body and rebuild it from the approved scene plan. Ordinary polishing, dialogue "
+            "changes and local revisions preserve unaffected source text."
+        ),
+    )
     conflicts: list[AuthorConflictEvidence] = Field(default_factory=list, max_length=8)
     options: list[AuthorConflictOption] = Field(default_factory=list, max_length=4)
 
@@ -41,7 +51,7 @@ class AuthorConflictAssessment(BaseModel):
 class AuthorConflictReview(AuthorConflictAssessment):
     review_id: str = Field(min_length=3, max_length=120)
     source_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
-    instruction: str = Field(min_length=3, max_length=500)
+    instruction: str = Field(min_length=3, max_length=SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH)
     source_story_bible_version: int | None = Field(default=None, ge=1)
 
 

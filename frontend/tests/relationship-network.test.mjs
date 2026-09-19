@@ -16,6 +16,10 @@ test("relationship graph gives every character one stable visible node", () => {
   assert.equal(new Set(positions.map((item) => `${item.x}:${item.y}`)).size, ids.length);
   assert.ok(positions.every((item) => item.x >= 0 && item.x <= 1000));
   assert.ok(positions.every((item) => item.y >= 0 && item.y <= 620));
+  for (const x of [220, 780]) {
+    const column = positions.filter(item => item.x === x).sort((a, b) => a.y - b.y);
+    assert.ok(column.every((item, index) => !index || item.y - column[index - 1].y >= 134), "avatars must not cover the previous character name and role");
+  }
 });
 
 test("relationship graph remains unavailable until every planned episode has readable script content", () => {

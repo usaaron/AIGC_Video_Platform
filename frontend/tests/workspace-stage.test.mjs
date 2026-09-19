@@ -24,7 +24,8 @@ function project(overrides = {}) {
 test("workspace sections appear only after their planning checkpoint", () => {
   assert.deepEqual(workspaceSectionAccess(project()), {
     phase: "creative_intent",
-    storyBible: true,
+    storySynopsis: true,
+    storyBible: false,
     planning: false,
     script: false,
     storyboard: false,
@@ -38,6 +39,21 @@ test("workspace sections appear only after their planning checkpoint", () => {
   assert.equal(workspaceSectionAccess(project({
     planningSession: { phase: "script", status: "active" },
   })).script, true);
+});
+
+test("the selected delivery mode controls storyboard access", () => {
+  const scriptOnly = project({
+    planningSession: { phase: "script", status: "approved" },
+    productionOutputMode: "script_only",
+  });
+  const directStoryboard = project({
+    planningSession: { phase: "script", status: "approved" },
+    productionOutputMode: "script_and_storyboard",
+  });
+
+  assert.equal(workspaceSectionAccess(scriptOnly).script, true);
+  assert.equal(workspaceSectionAccess(scriptOnly).storyboard, false);
+  assert.equal(workspaceSectionAccess(directStoryboard).storyboard, true);
 });
 
 test("approved legacy roadmap sessions remain able to enter script without starting generation", () => {
@@ -62,6 +78,19 @@ test("legacy projects infer access only when no planning session exists", () => 
   assert.equal(currentWorkspaceHref(completed), "/projects/project.stage/workspace");
 });
 
+test("deployed total-outline drafts remain accessible before the synopsis step existed", () => {
+  for (const planningSession of [undefined, { phase: "creative_intent", status: "active" }, { phase: "story_bible", status: "awaiting_review" }]) {
+    const legacy = project({ storyBibleStatus: "draft", storyBibleVersion: 2, planningSession });
+    assert.equal(workspaceSectionAccess(legacy).storyBible, true);
+    assert.equal(currentWorkspaceHref(legacy), "/projects/project.stage/planning");
+    assert.equal(workspaceSectionAccess(legacy).planning, false);
+  }
+  assert.equal(currentWorkspaceHref(project()), "/projects/project.stage/synopsis");
+  const newDraft = project({ storySynopsis: { status: "draft", text: "New unconfirmed synopsis" } });
+  assert.equal(workspaceSectionAccess(newDraft).storyBible, false);
+  assert.equal(currentWorkspaceHref(newDraft), "/projects/project.stage/synopsis");
+});
+
 test("navigation repairs an interrupted session transition from durable project data", () => {
   const approvedBible = project({
     storyBibleStatus: "approved",
@@ -80,11 +109,12 @@ test("navigation repairs an interrupted session transition from durable project 
 });
 
 test("page transitions and route guards share the planning session boundary", async () => {
-  const [storyBible, storyBibleWorkspace, structureWorkspace, scriptWorkspace, planningPanel, appShell, home, sidebar, editor] = await Promise.all([
+  const [storyBible, storyBibleWorkspace, structureWorkspace, scriptWorkspace, storyboardWorkspace, planningPanel, appShell, home, sidebar, editor] = await Promise.all([
     source("components/story-bible-panel.tsx"),
     source("components/story-planning-workspace.tsx"),
     source("components/story-structure-workspace.tsx"),
     source("components/script-workspace.tsx"),
+    source("components/storyboard-workspace.tsx"),
     source("components/story-plan-node-panel.tsx"),
     source("components/app-shell.tsx"),
     source("components/home-dashboard.tsx"),
@@ -97,9 +127,17 @@ test("page transitions and route guards share the planning session boundary", as
   assert.doesNotMatch(storyBibleWorkspace, /router\.(?:push|replace)\([^)]*planning\/structure/);
   assert.match(structureWorkspace, /workspaceSectionAccess\(project\)\.planning/);
   assert.match(scriptWorkspace, /workspaceSectionAccess\(project\)\.script/);
-  assert.match(scriptWorkspace, /router\.replace\(`\/projects\/\$\{project\.id\}\/workspace\?generate=1`\)/);
+  assert.match(scriptWorkspace, /router\.replace\(recovery[\s\S]*?workspace\?generate=1&start=\$\{recovery\.startEpisode\}&end=\$\{recovery\.endEpisode\}/);
   assert.match(planningPanel, /phase:\s*"script"/);
-  assert.match(planningPanel, /router\.push\([^)]*workspace`/);
+  assert.match(planningPanel, /productionOutputMode: outputMode/);
+  assert.match(planningPanel, /confirmPlanning\("script_only"\)/);
+  assert.match(planningPanel, /confirmPlanning\("script_and_storyboard"\)/);
+  assert.match(planningPanel, /router\.push\([^)]*workspace\?generate=1/);
+  assert.match(scriptWorkspace, /storyboardHandoffHref\([\s\S]*?currentProject, recoveryTask/);
+  assert.match(scriptWorkspace, /onComplete=\{\(\) => \{/);
+  assert.match(scriptWorkspace, /storyboardHandoffHref\(project, requestedLeafRange\)/);
+  assert.match(storyboardWorkspace, /autoEndEpisode/);
+  assert.match(storyboardWorkspace, /episode \+ 1.*autostart=1/);
   for (const navigationSource of [appShell, home, sidebar, editor]) {
     assert.match(navigationSource, /currentWorkspaceHref\((?:project|currentProject)\)/);
     assert.doesNotMatch(navigationSource, /project\.episodes\.length\s*\?\s*`\/projects/);

@@ -145,11 +145,15 @@ test("probe projection seeds approved canon without changing author identities o
   assert.equal(eve.description, "Author description");
   assert.equal(eve.role, "Author role");
   assert.equal(eve.source, "user");
+  assert.equal(eve.name, "Eve Hart");
+  // Legacy Chinese updates still resolve to the author's original identity;
+  // English screenplay checkpoints use that identity's English display name.
+  assert.equal(eve.dynamicState.currentGoal, "Preserve the evidence.");
   assert.equal(eve.stateHistory[0].status, "provisional");
   assert.equal(checkpoint.version, "provisional");
   assert.equal(checkpoint.through_episode_number, 1);
   assert.equal(checkpoint.character_states[0].character_ref, "character.eve");
-  assert.ok(checkpoint.entity_aliases.some((item) => item.canonical_entity_key === "character.eve" && item.alias === EVE));
+  assert.ok(checkpoint.entity_aliases.some((item) => item.canonical_entity_key === "character.eve" && item.alias === "Eve Hart"));
   const canonical = result.workspace.storyLines.find((item) => item.id === "storyline.evidence");
   assert.deepEqual(canonical.characterIds, ["eve", "adam"]);
   assert.equal(canonical.currentState, "Verified record 1.");

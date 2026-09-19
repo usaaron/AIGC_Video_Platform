@@ -54,22 +54,23 @@ export function normalizeScreenplayBodyOrder(
   ]);
   const requested = scene.body_order;
   if (Array.isArray(requested)) {
-    const normalized = requested.map((item) => item.trim());
-    const kinds = normalized.map((item) => item.split(":", 1)[0]);
-    const groupedByKind = [
-      ...Array.from({ length: scene.character_actions.length }, () => "action"),
-      ...Array.from({ length: scene.dialogues.length }, () => "dialogue"),
-    ].every((kind, index) => kinds[index] === kind)
-      || [
-        ...Array.from({ length: scene.dialogues.length }, () => "dialogue"),
-        ...Array.from({ length: scene.character_actions.length }, () => "action"),
-      ].every((kind, index) => kinds[index] === kind);
+    let normalized = requested.map((item) => item.trim());
+    const oneBased = new Set([
+      ...scene.character_actions.map((_, index) => `action_${index + 1}`),
+      ...scene.dialogues.map((_, index) => `dialogue_${index + 1}`),
+    ]);
+    if (normalized.length === expected.size && new Set(normalized).size === expected.size
+      && normalized.every(item => oneBased.has(item))) {
+      normalized = normalized.map(item => {
+        const [kind, index] = item.split("_");
+        return `${kind}:${Number(index) - 1}`;
+      });
+    }
     if (
       normalized.length === expected.size
       && new Set(normalized).size === normalized.length
       && normalized.every((item) => BODY_REFERENCE_PATTERN.test(item))
       && normalized.every((item) => expected.has(item as ScreenplayBodyReference))
-      && !(scene.character_actions.length > 1 && scene.dialogues.length > 1 && groupedByKind)
     ) {
       return normalized as ScreenplayBodyReference[];
     }

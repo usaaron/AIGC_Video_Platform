@@ -21,6 +21,7 @@ test("server rendering stays on the auth waiting page without evaluating workspa
     require(name) {
       if (name === "react") return React;
       if (name === "react/jsx-runtime") return jsxRuntime;
+      if (name === "next/navigation") return { usePathname: () => "/" };
       return new Proxy({}, { get() { return () => assert.fail("SSR must not invoke host auth or project storage"); } });
     },
   };
@@ -32,7 +33,7 @@ test("server rendering stays on the auth waiting page without evaluating workspa
   assert.doesNotMatch(html, /role="alert"/);
 });
 
-function harness(t, { scope = null, local = [], remote = [] } = {}) {
+function harness(t, { scope = null, local = [], remote = [], remoteGate } = {}) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const login = deferred();
   const page = browser("https://studio.test/script-master" + (scope ? `?host_project_id=${scope}` : ""));
@@ -41,7 +42,7 @@ function harness(t, { scope = null, local = [], remote = [] } = {}) {
   let hostResponse = () => login.promise;
   let now = NOW;
   const session = createHostSession({ browser: () => page, launchUrl: () => "/api/v1/script-master/launch", required: () => true, now: () => now, fetch: () => hostResponse() });
-  const calls = { reads: 0, syncs: [], saves: [] };
+  const calls = { reads: 0, syncs: [], saves: [], hydration: null };
   const slots = [];
   const effects = [];
   let cursor = 0;
@@ -69,6 +70,7 @@ function harness(t, { scope = null, local = [], remote = [] } = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
+      if (name === "next/navigation") return { usePathname: () => "/" };
       if (name === "@/lib/types") return types;
       if (name === "@/lib/host-session") return {
         ensureHostToken: session.ensureHostToken, hostProjectId: session.hostProjectId,
@@ -80,7 +82,11 @@ function harness(t, { scope = null, local = [], remote = [] } = {}) {
         saveStoredProject: async (project) => { session.assertActive(); calls.saves.push(project); },
       };
       if (name === "@/lib/project-sync") return {
-        loadServerProjects: async () => ({ available: true, projects: remote }),
+        loadServerProjects: async (options) => {
+          calls.hydration = options;
+          await remoteGate;
+          return { available: true, projects: remote };
+        },
         queueProjectServerSync: async (project) => { session.assertActive(); calls.syncs.push(project); return { status: "synced" }; },
       };
       throw new Error(`Unexpected dependency: ${name}`);
@@ -129,6 +135,46 @@ test("empty scoped entry creates only the host project and reuses it without res
   assert.equal(duplicate.title, "Scoped story");
   assert.equal(app.context().projects.length, 1);
   assert.ok(app.calls.syncs.every((project) => project.id === "host-project"));
+});
+
+test("scoped hydration never publishes another host project's workspace, including incremental callbacks", async (t) => {
+  const project = (id) => ({ id, title: id, updatedAt: "2026-09-15T00:00:00Z", serverSync: { status: "synced" } });
+  const own = project("host-project"), other = project("other-project");
+  const gate = deferred();
+  const app = harness(t, { scope: own.id, local: [own, other], remote: [own, other], remoteGate: gate.promise });
+  app.login.resolve(launchResponse());
+  await setImmediate();
+  app.render();
+  assert.deepEqual(Array.from(app.context().projects, value => value.id), [own.id]);
+  app.calls.hydration.onProject(other);
+  app.render();
+  assert.deepEqual(Array.from(app.context().projects, value => value.id), [own.id]);
+  app.calls.hydration.onProject({ ...own, title: "Hydrated own project", updatedAt: "2026-09-16T00:00:00Z" });
+  app.render();
+  assert.equal(app.context().projects[0].title, "Hydrated own project");
+  gate.resolve();
+  await setImmediate();
+  app.render();
+  assert.deepEqual(Array.from(app.context().projects, value => value.id), [own.id]);
+  assert.ok(app.calls.saves.every(value => value.id === own.id));
+});
+
+test("account changes discard late incremental hydration and its final response", async (t) => {
+  const own = { id: "host-project", title: "Account A project", updatedAt: "2026-09-15T00:00:00Z" };
+  const gate = deferred();
+  const app = harness(t, { scope: own.id, local: [own], remote: [own], remoteGate: gate.promise });
+  app.login.resolve(launchResponse());
+  await setImmediate();
+  app.render();
+  app.changeAccount();
+  await assert.rejects(app.session.ensureHostToken(true));
+  app.calls.hydration.onProject(own);
+  gate.resolve();
+  await setImmediate();
+  const tree = app.render();
+  assert.equal(tree.props.children.props.role, "alert");
+  assert.equal(app.context().projects.length, 0);
+  assert.equal(app.calls.saves.length, 0);
 });
 
 test("initial host outage shows a retry action and loads no cache until that retry validates login", async (t) => {

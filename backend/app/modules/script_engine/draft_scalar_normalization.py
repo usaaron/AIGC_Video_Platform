@@ -215,6 +215,7 @@ def normalize_draft_scalar_contracts(
     output: dict[str, object],
     *,
     ending_mode: EndingMode | str | None = None,
+    partial: bool = False,
 ) -> None:
     """Normalize fields in place, preserving the legacy order for partial patches."""
 
@@ -235,7 +236,7 @@ def normalize_draft_scalar_contracts(
     _normalize_scene_fields(output)
     scene_number_map = _normalize_scene_numbers(output)
     _normalize_ledger_fields(output, scene_number_map)
-    _normalize_hook(output, resolved_ending_mode, scene_number_map)
+    _normalize_hook(output, resolved_ending_mode, scene_number_map, partial=partial)
 
 
 def _parse_int(value: object) -> int | None:
@@ -947,25 +948,29 @@ def _normalize_ledger_fields(
                 setup_payoff_ref = str(
                     item.get("setup_payoff_ref") or ""
                 ).strip()
-                if setup_payoff_ref and not re.fullmatch(
-                    r"[a-zA-Z0-9_.:-]+",
+                source_ref = str(item.get("source_ref") or "").strip()
+                annotated_identifier = re.fullmatch(
+                    r"((?:ep\d+|(?:setup|payoff)[._-][a-zA-Z0-9_.-]+))[:：](.+)",
                     setup_payoff_ref,
-                ):
-                    identifier = re.match(
-                        r"[a-zA-Z0-9_.:-]+",
-                        setup_payoff_ref,
-                    )
-                    if identifier is not None:
-                        normalized_ref = identifier.group().rstrip(".:-")
-                        if len(normalized_ref) >= 3:
-                            item["setup_payoff_ref"] = normalized_ref
+                ) if not source_ref else None
+                if annotated_identifier:
+                    # Older provider output used an explicit ID followed by
+                    # its display annotation. Preserve that established ID.
+                    item["setup_payoff_ref"] = annotated_identifier.group(1)
+                if not source_ref and setup_payoff_ref and not re.fullmatch(
+                    r"[a-zA-Z0-9_.:-]+", setup_payoff_ref,
+                ) and not annotated_identifier:
+                    source_ref = setup_payoff_ref
+                if source_ref:
+                    # Keep the exact authored reference alongside its technical
+                    # identity; Chinese/mixed prose must never become a new,
+                    # untraceable setup merely because it cannot be an ID.
+                    item["source_ref"] = source_ref
+                    if re.fullmatch(r"[a-zA-Z0-9_.:-]{3,120}", source_ref):
+                        item["setup_payoff_ref"] = source_ref
                     else:
-                        digest = hashlib.sha256(
-                            setup_payoff_ref.encode("utf-8")
-                        ).hexdigest()[:12]
-                        item["setup_payoff_ref"] = (
-                            f"generated.setup_payoff.{digest}"
-                        )
+                        digest = hashlib.sha256(source_ref.encode("utf-8")).hexdigest()[:12]
+                        item["setup_payoff_ref"] = f"generated.setup_payoff.{digest}"
                 target_episode = _parse_int(item.get("target_payoff_episode"))
                 if target_episode is not None:
                     item["target_payoff_episode"] = target_episode
@@ -975,6 +980,8 @@ def _normalize_hook(
     output: dict[str, object],
     resolved_ending_mode: EndingMode,
     scene_number_map: dict[int, int],
+    *,
+    partial: bool = False,
 ) -> None:
     hook = output.get("continuation_hook")
     if isinstance(hook, str) and hook.strip():
@@ -1029,6 +1036,7 @@ def _normalize_hook(
             "next_episode_hook",
             "next_episode_promise",
             "obligation",
+            "next_required_step",
         )
         legacy_evidence = pop_first_hook_alias("response_evidence")
         legacy_evidence_numbers = pop_first_hook_alias(
@@ -1038,17 +1046,18 @@ def _normalize_hook(
         legacy_target_episode = pop_first_hook_alias(
             "target_episode",
             "payoff_episode",
+            "payoff_target_episode",
         )
         hook.pop("source_episode", None)
-        if not str(hook.get("ending_hook_type") or "").strip():
+        if not str(hook.get("ending_hook_type") or "").strip() and (not partial or legacy_hook_type is not None):
             hook["ending_hook_type"] = (
                 str(legacy_hook_type or "").strip() or "因果压力"
             )
-        if not str(hook.get("ending_hook_summary") or "").strip():
+        if not str(hook.get("ending_hook_summary") or "").strip() and (not partial or legacy_summary is not None or legacy_evidence is not None):
             hook["ending_hook_summary"] = (
                 str(legacy_summary or legacy_evidence or "").strip()
             )
-        if not str(hook.get("next_episode_obligation") or "").strip():
+        if not str(hook.get("next_episode_obligation") or "").strip() and (not partial or legacy_obligation is not None):
             hook["next_episode_obligation"] = str(
                 legacy_obligation or ""
             ).strip()

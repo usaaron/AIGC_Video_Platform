@@ -56,7 +56,7 @@ _CONTRACTS = {
         # ``output_language`` stays English because the established overseas
         # screenplay contract uses English dialogue for the audience-facing
         # delivery while keeping actions and intent in Chinese.
-        language_name="Simplified Chinese (zh-CN)",
+        language_name="Simplified Chinese (zh-CN), with stable English character names",
         cultural_context=(
             "English-language overseas/international cultural context by default; "
             "do not assume a specific country until a country profile is selected."
@@ -67,9 +67,15 @@ _CONTRACTS = {
             "episode roadmap, labels, and review text, in Simplified Chinese so the "
             "Chinese-speaking author can review them. Preserve the established partner "
             "screenplay delivery template: actions, visual descriptions, and performance "
-            "intent remain Simplified Chinese; only the internal stable dialogue speaker ID "
-            "and spoken dialogue use natural English for the English-speaking audience. "
-            "Character cards and their visible names remain Simplified Chinese. Follow the default "
+            "intent remain Simplified Chinese. Every character name, including names within Chinese "
+            "actions, performance cues, translations, character cards and planning, stays in its "
+            "stable English spelling; spoken dialogue uses natural English. Do not translate names "
+            "or display Chinese aliases. When adapting Chinese source material, establish each "
+            "character's English name once in the character registry and apply it consistently "
+            "throughout every newly authored field, especially ending_direction, locked_facts, "
+            "entry_state and exit_state. Do not copy Chinese source names back into those fields "
+            "after assigning English registry names. Preserve original uploaded documents and "
+            "historical versions unchanged. Follow the default "
             "English-language overseas/international cultural context. Do not assume a "
             "specific country; country-specific profiles will be added later. Do not "
             "apply Chinese-mainland cultural assumptions. "

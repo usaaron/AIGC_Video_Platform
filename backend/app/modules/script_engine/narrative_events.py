@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any
+from app.modules.script_engine.setup_payoff_provenance import stable_setup_payoff_id
 
 from app.modules.script_engine.long_story_models import (
     EpisodeArtifact,
@@ -15,7 +16,7 @@ from app.modules.script_engine.long_story_models import (
 )
 
 
-EXTRACTOR_POLICY_VERSION = "structured_continuity.v1"
+EXTRACTOR_POLICY_VERSION = "structured_continuity.v2"
 
 
 def build_narrative_event_set(artifact: EpisodeArtifact) -> tuple[NarrativeEventSet, list[NarrativeEvent]]:
@@ -132,7 +133,8 @@ def build_narrative_event_set(artifact: EpisodeArtifact) -> tuple[NarrativeEvent
             )
 
     for update in _dict_list(payload.get("setup_payoff_updates")):
-        setup_payoff_id = _text(update.get("setup_payoff_id"))
+        source_ref = _text(update.get("source_ref")) or _text(update.get("setup_payoff_ref")) or _text(update.get("setup_payoff_id"))
+        setup_payoff_id = stable_setup_payoff_id(source_ref) if source_ref else None
         summary = (
             _text(update.get("description"))
             or _text(update.get("progress_summary"))
@@ -144,7 +146,7 @@ def build_narrative_event_set(artifact: EpisodeArtifact) -> tuple[NarrativeEvent
                 f"{setup_payoff_id}: {summary or 'status updated.'}",
                 entity_refs=[setup_payoff_id],
                 scene_numbers=_int_list(update.get("evidence_scene_numbers")),
-                state_mutation=dict(update),
+                state_mutation={**update, "setup_payoff_ref": setup_payoff_id, "source_ref": source_ref if source_ref != setup_payoff_id else update.get("source_ref")},
             )
 
     hook = payload.get("continuation_hook")

@@ -101,6 +101,88 @@
         "title": "AcceptanceDecision",
         "type": "object"
       },
+      "ActingDirection": {
+        "additionalProperties": false,
+        "description": "Observable scene-specific performance guidance derived from the script.",
+        "properties": {
+          "beat_changes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Beat Changes",
+            "type": "array"
+          },
+          "business": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Business",
+            "type": "string"
+          },
+          "emphasis_and_pause": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Emphasis And Pause",
+            "type": "string"
+          },
+          "line_delivery": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Line Delivery",
+            "type": "string"
+          },
+          "listening_reaction": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Listening Reaction",
+            "type": "string"
+          },
+          "objective": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Objective",
+            "type": "string"
+          },
+          "obstacle": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Obstacle",
+            "type": "string"
+          },
+          "physical_state": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Physical State",
+            "type": "string"
+          },
+          "stakes": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Stakes",
+            "type": "string"
+          },
+          "status_change": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Status Change",
+            "type": "string"
+          },
+          "subtext": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Subtext",
+            "type": "string"
+          },
+          "tactic": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Tactic",
+            "type": "string"
+          }
+        },
+        "title": "ActingDirection",
+        "type": "object"
+      },
       "AgentRunListResponse": {
         "properties": {
           "data": {
@@ -224,6 +306,12 @@
               }
             ],
             "title": "Owner Instance Id"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "policy": {
             "$ref": "#/components/schemas/AgentRunPolicy"
@@ -1353,7 +1441,7 @@
             "type": "array"
           },
           "instruction": {
-            "maxLength": 500,
+            "maxLength": 4000,
             "minLength": 3,
             "title": "Instruction",
             "type": "string"
@@ -1370,6 +1458,16 @@
             "maxLength": 120,
             "minLength": 3,
             "title": "Review Id",
+            "type": "string"
+          },
+          "rewrite_scope": {
+            "default": "preserve_unaffected_text",
+            "description": "Use reexecute_approved_plan only when the author explicitly asks to discard the current episode body and rebuild it from the approved scene plan. Ordinary polishing, dialogue changes and local revisions preserve unaffected source text.",
+            "enum": [
+              "preserve_unaffected_text",
+              "reexecute_approved_plan"
+            ],
+            "title": "Rewrite Scope",
             "type": "string"
           },
           "source_fingerprint": {
@@ -1414,7 +1512,7 @@
             "type": "integer"
           },
           "instruction": {
-            "maxLength": 500,
+            "maxLength": 4000,
             "minLength": 1,
             "title": "Instruction",
             "type": "string"
@@ -1987,6 +2085,62 @@
         "title": "BudgetLevel",
         "type": "string"
       },
+      "CharacterActingProfile": {
+        "additionalProperties": false,
+        "description": "Stable, reviewable performance identity; current state belongs to memory.",
+        "properties": {
+          "bodyLanguage": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Bodylanguage",
+            "type": "string"
+          },
+          "gazeAndAttention": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Gazeandattention",
+            "type": "string"
+          },
+          "habitualActions": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Habitualactions",
+            "type": "string"
+          },
+          "movement": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Movement",
+            "type": "string"
+          },
+          "permanentVoicePrompt": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Permanentvoiceprompt",
+            "type": "string"
+          },
+          "pressureResponse": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Pressureresponse",
+            "type": "string"
+          },
+          "relationshipBehavior": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Relationshipbehavior",
+            "type": "string"
+          },
+          "voice": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Voice",
+            "type": "string"
+          }
+        },
+        "title": "CharacterActingProfile",
+        "type": "object"
+      },
       "CharacterArcTarget": {
         "additionalProperties": false,
         "properties": {
@@ -2180,7 +2334,7 @@
           },
           "name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -2217,7 +2371,13 @@
             "type": "string"
           },
           "status": {
-            "pattern": "^(known|believed|suspected|disproved|forgotten)$",
+            "enum": [
+              "known",
+              "believed",
+              "suspected",
+              "disproved",
+              "forgotten"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -2233,6 +2393,20 @@
       "CharacterProfile": {
         "additionalProperties": false,
         "properties": {
+          "acting_profile": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting Profile"
+          },
           "description": {
             "maxLength": 300,
             "minLength": 10,
@@ -2247,7 +2421,7 @@
           },
           "name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -2321,7 +2495,7 @@
           },
           "character_name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Character Name",
             "type": "string"
           },
@@ -5895,7 +6069,7 @@
         "properties": {
           "character_name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Character Name",
             "type": "string"
           },
@@ -5910,6 +6084,7 @@
                 "type": "null"
               }
             ],
+            "description": "Legacy Chinese identity alias, readable for historical drafts. For new output use null; overseas characters keep their stable English names in every field.",
             "title": "Chinese Character Name"
           },
           "chinese_translation": {
@@ -5923,15 +6098,18 @@
                 "type": "null"
               }
             ],
+            "description": "For overseas English dialogue, translate the final text line into natural Simplified Chinese with exactly the same facts, time reference, negation, degree, condition and speaker intent. Keep established English character names unchanged inside the Chinese translation. Do not add information from the scene or explain subtext. Write text first, then this translation. For Chinese dialogue, use null.",
             "title": "Chinese Translation"
           },
           "intent": {
+            "description": "简短可表演的语气或动作提示，不写编导目的、程序说明或对潜台词的解释。",
             "maxLength": 120,
             "minLength": 3,
             "title": "Intent",
             "type": "string"
           },
           "text": {
+            "description": "The original spoken line in the requested dialogue language. For English, write idiomatic spoken English directly, responding to the other person's immediate move in this character's established voice. Prefer familiar verbs and contractions over translated planning terminology. Enact the scene's dialogue objective without reciting it. Preserve the approved facts; do not invent amounts, dates or conditions.",
             "maxLength": 280,
             "minLength": 2,
             "title": "Text",
@@ -6483,6 +6661,12 @@
             "title": "Payload Size Bytes",
             "type": "integer"
           },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
+          },
           "schema_version": {
             "default": "v1",
             "pattern": "^v\\d+$",
@@ -6591,6 +6775,12 @@
                 "type": "null"
               }
             ]
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "schema_version": {
             "default": "v1",
@@ -6714,6 +6904,62 @@
           "consequences"
         ],
         "title": "EpisodeContinuitySummary",
+        "type": "object"
+      },
+      "EpisodeDevelopment": {
+        "additionalProperties": false,
+        "description": "An authored episode boundary, established before scene-level expansion.",
+        "properties": {
+          "entry_state": {
+            "maxLength": 1500,
+            "minLength": 5,
+            "title": "Entry State",
+            "type": "string"
+          },
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "exit_state": {
+            "maxLength": 1500,
+            "minLength": 5,
+            "title": "Exit State",
+            "type": "string"
+          },
+          "source_turning_points": {
+            "description": "Exact values from the ENCLOSING output node's own turning_points, not an ancestor or sibling; assign each value once across this node's episodes.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Source Turning Points",
+            "type": "array"
+          },
+          "source_unit_story_beats": {
+            "description": "Exact values from the ENCLOSING output node's own unit_story_beats, not an ancestor or technical root; assign each value once across this node's episodes.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Source Unit Story Beats",
+            "type": "array"
+          },
+          "synopsis": {
+            "maxLength": 600,
+            "minLength": 20,
+            "title": "Synopsis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "episode_number",
+          "synopsis",
+          "entry_state",
+          "exit_state"
+        ],
+        "title": "EpisodeDevelopment",
         "type": "object"
       },
       "EpisodeDramaticUnit": {
@@ -7018,7 +7264,7 @@
           "story_bible_context": {
             "anyOf": [
               {
-                "maxLength": 7000,
+                "maxLength": 64000,
                 "type": "string"
               },
               {
@@ -7456,6 +7702,22 @@
         "additionalProperties": false,
         "description": "Generate a bounded EpisodePlan batch from one approved episode-ready leaf.",
         "properties": {
+          "draft_handoffs": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanningDraftHandoff"
+            },
+            "maxItems": 6,
+            "title": "Draft Handoffs",
+            "type": "array"
+          },
+          "execution_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanExecutionRequirement"
+            },
+            "maxItems": 12,
+            "title": "Execution Requirements",
+            "type": "array"
+          },
           "generation_strategy_id": {
             "maxLength": 120,
             "minLength": 3,
@@ -7472,6 +7734,12 @@
                 "type": "null"
               }
             ]
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "source_node_id": {
             "maxLength": 120,
@@ -7821,11 +8089,32 @@
             ],
             "title": "Agent Request Id"
           },
+          "draft_handoffs": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanningDraftHandoff"
+            },
+            "maxItems": 6,
+            "title": "Draft Handoffs",
+            "type": "array"
+          },
           "episode_number": {
             "maximum": 2000.0,
             "minimum": 1.0,
             "title": "Episode Number",
             "type": "integer"
+          },
+          "execution_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanExecutionRequirement"
+            },
+            "maxItems": 12,
+            "title": "Execution Requirements",
+            "type": "array"
+          },
+          "future_rebuild": {
+            "default": false,
+            "title": "Future Rebuild",
+            "type": "boolean"
           },
           "generation_strategy_id": {
             "maxLength": 120,
@@ -7843,6 +8132,12 @@
                 "type": "null"
               }
             ]
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "predecessor_plan": {
             "anyOf": [
@@ -7912,11 +8207,32 @@
           "current_plan": {
             "$ref": "#/components/schemas/EpisodePlanGenerationItem"
           },
+          "draft_handoffs": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanningDraftHandoff"
+            },
+            "maxItems": 6,
+            "title": "Draft Handoffs",
+            "type": "array"
+          },
           "episode_number": {
             "maximum": 2000.0,
             "minimum": 1.0,
             "title": "Episode Number",
             "type": "integer"
+          },
+          "execution_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanExecutionRequirement"
+            },
+            "maxItems": 12,
+            "title": "Execution Requirements",
+            "type": "array"
+          },
+          "future_rebuild": {
+            "default": false,
+            "title": "Future Rebuild",
+            "type": "boolean"
           },
           "generation_strategy_id": {
             "maxLength": 120,
@@ -7940,6 +8256,12 @@
                 "type": "null"
               }
             ]
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "predecessor_plan": {
             "anyOf": [
@@ -7994,6 +8316,125 @@
           "current_plan"
         ],
         "title": "EpisodePlanItemModificationRequest",
+        "type": "object"
+      },
+      "EpisodePlanItemPreparationRequest": {
+        "additionalProperties": false,
+        "description": "Complete scene execution details without changing the reviewed episode.",
+        "properties": {
+          "accepted_plans": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanGenerationItem"
+            },
+            "maxItems": 11,
+            "title": "Accepted Plans",
+            "type": "array"
+          },
+          "agent_request_id": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Request Id"
+          },
+          "current_plan": {
+            "$ref": "#/components/schemas/EpisodePlanGenerationItem"
+          },
+          "draft_handoffs": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanningDraftHandoff"
+            },
+            "maxItems": 6,
+            "title": "Draft Handoffs",
+            "type": "array"
+          },
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "execution_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanExecutionRequirement"
+            },
+            "maxItems": 12,
+            "title": "Execution Requirements",
+            "type": "array"
+          },
+          "future_rebuild": {
+            "default": false,
+            "title": "Future Rebuild",
+            "type": "boolean"
+          },
+          "generation_strategy_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Generation Strategy Id",
+            "type": "string"
+          },
+          "planning_memory": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpisodePlanningContinuityMemory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
+          },
+          "predecessor_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpisodePlanGenerationItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_node_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "source_node_version": {
+            "minimum": 1.0,
+            "title": "Source Node Version",
+            "type": "integer"
+          },
+          "story_project_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Story Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "story_project_id",
+          "source_node_id",
+          "source_node_version",
+          "generation_strategy_id",
+          "episode_number",
+          "current_plan"
+        ],
+        "title": "EpisodePlanItemPreparationRequest",
         "type": "object"
       },
       "EpisodePlanListResponse": {
@@ -8921,6 +9362,71 @@
         "title": "EpisodePlanningContinuityMemory",
         "type": "object"
       },
+      "EpisodePlanningDraftHandoff": {
+        "additionalProperties": false,
+        "description": "Provisional continuity context; never a confirmed memory or execution approval.",
+        "properties": {
+          "continuity_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Continuity Requirements",
+            "type": "array"
+          },
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "exit_state": {
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Exit State",
+            "type": "string"
+          },
+          "scene_execution_facts": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanningSceneFact"
+            },
+            "maxItems": 5,
+            "title": "Scene Execution Facts",
+            "type": "array"
+          },
+          "source_node_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "source_node_version": {
+            "minimum": 1.0,
+            "title": "Source Node Version",
+            "type": "integer"
+          },
+          "story_bible_version": {
+            "minimum": 1.0,
+            "title": "Story Bible Version",
+            "type": "integer"
+          },
+          "synopsis": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Synopsis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_node_id",
+          "source_node_version",
+          "story_bible_version",
+          "episode_number",
+          "exit_state"
+        ],
+        "title": "EpisodePlanningDraftHandoff",
+        "type": "object"
+      },
       "EpisodePlanningOpenHook": {
         "additionalProperties": false,
         "description": "One unresolved roadmap obligation carried across planning leaves.",
@@ -8963,6 +9469,36 @@
           "obligation"
         ],
         "title": "EpisodePlanningOpenHook",
+        "type": "object"
+      },
+      "EpisodePlanningSceneFact": {
+        "additionalProperties": false,
+        "properties": {
+          "exit_state": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Exit State",
+            "type": "string"
+          },
+          "scene_number": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Scene Number",
+            "type": "integer"
+          },
+          "visible_action": {
+            "maxLength": 800,
+            "minLength": 5,
+            "title": "Visible Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scene_number",
+          "visible_action",
+          "exit_state"
+        ],
+        "title": "EpisodePlanningSceneFact",
         "type": "object"
       },
       "EpisodePlanningStateHandoff": {
@@ -9011,6 +9547,16 @@
             },
             "title": "Data",
             "type": "array"
+          },
+          "rebuild_receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FutureRoadmapRebuildReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -9510,6 +10056,180 @@
         "title": "FinalMasterScriptLineage",
         "type": "object"
       },
+      "FutureRoadmapBudget": {
+        "additionalProperties": false,
+        "properties": {
+          "planned_dialogue_line_count": {
+            "minimum": 0.0,
+            "title": "Planned Dialogue Line Count",
+            "type": "integer"
+          },
+          "planned_scene_count": {
+            "minimum": 1.0,
+            "title": "Planned Scene Count",
+            "type": "integer"
+          },
+          "planned_shot_count": {
+            "minimum": 1.0,
+            "title": "Planned Shot Count",
+            "type": "integer"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/FutureRoadmapSceneBudget"
+            },
+            "title": "Scenes",
+            "type": "array"
+          },
+          "target_duration_seconds": {
+            "minimum": 1.0,
+            "title": "Target Duration Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_duration_seconds",
+          "planned_scene_count",
+          "planned_shot_count",
+          "planned_dialogue_line_count",
+          "scenes"
+        ],
+        "title": "FutureRoadmapBudget",
+        "type": "object"
+      },
+      "FutureRoadmapRebuildReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_request_id": {
+            "title": "Agent Request Id",
+            "type": "string"
+          },
+          "agent_run_id": {
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/FutureRoadmapBudget"
+          },
+          "candidate_signature": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Signature",
+            "type": "string"
+          },
+          "ending_mode": {
+            "$ref": "#/components/schemas/EndingMode",
+            "default": "serial_hook"
+          },
+          "episode_number": {
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "evidence_signature": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Evidence Signature",
+            "type": "string"
+          },
+          "planning_revision_epoch": {
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
+          },
+          "revision_id": {
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "source_evidence": {
+            "$ref": "#/components/schemas/FutureRoadmapSourceEvidence"
+          },
+          "source_node_id": {
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "source_node_version": {
+            "minimum": 1.0,
+            "title": "Source Node Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "planning_revision_epoch",
+          "revision_id",
+          "source_node_id",
+          "source_node_version",
+          "episode_number",
+          "evidence_signature",
+          "candidate_signature",
+          "agent_request_id",
+          "agent_run_id",
+          "source_evidence",
+          "budget"
+        ],
+        "title": "FutureRoadmapRebuildReceipt",
+        "type": "object"
+      },
+      "FutureRoadmapSceneBudget": {
+        "additionalProperties": false,
+        "properties": {
+          "dialogue_line_target": {
+            "minimum": 0.0,
+            "title": "Dialogue Line Target",
+            "type": "integer"
+          },
+          "scene_number": {
+            "minimum": 1.0,
+            "title": "Scene Number",
+            "type": "integer"
+          },
+          "shot_target": {
+            "minimum": 1.0,
+            "title": "Shot Target",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scene_number",
+          "dialogue_line_target",
+          "shot_target"
+        ],
+        "title": "FutureRoadmapSceneBudget",
+        "type": "object"
+      },
+      "FutureRoadmapSourceEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "entry_state": {
+            "title": "Entry State",
+            "type": "string"
+          },
+          "exit_state": {
+            "title": "Exit State",
+            "type": "string"
+          },
+          "source_turning_points": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Turning Points",
+            "type": "array"
+          },
+          "source_unit_story_beats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Unit Story Beats",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entry_state",
+          "exit_state",
+          "source_turning_points",
+          "source_unit_story_beats"
+        ],
+        "title": "FutureRoadmapSourceEvidence",
+        "type": "object"
+      },
       "GenerationBatchContext": {
         "additionalProperties": false,
         "description": "Optional lineage for one bounded stage of a longer serialized project.",
@@ -9612,6 +10332,12 @@
               }
             ],
             "title": "Instruction"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "revision": {
             "default": 1,
@@ -11734,6 +12460,14 @@
         "additionalProperties": false,
         "description": "A bounded, source-linked memory selected for one generation task.",
         "properties": {
+          "action_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Action Capabilities",
+            "type": "array"
+          },
           "active_constraints": {
             "items": {
               "type": "string"
@@ -11745,6 +12479,18 @@
           "authority": {
             "$ref": "#/components/schemas/MemoryAuthority",
             "default": "derived"
+          },
+          "belief_or_attitude": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Belief Or Attitude"
           },
           "capsule_id": {
             "maxLength": 160,
@@ -11780,6 +12526,14 @@
             "title": "Evidence Refs",
             "type": "array"
           },
+          "health_conditions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Health Conditions",
+            "type": "array"
+          },
           "knowledge_states": {
             "items": {
               "$ref": "#/components/schemas/ContinuityKnowledgeState"
@@ -11788,6 +12542,38 @@
             "title": "Knowledge States",
             "type": "array"
           },
+          "lasting_marks": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Lasting Marks",
+            "type": "array"
+          },
+          "life_status": {
+            "anyOf": [
+              {
+                "pattern": "^(alive|dead|missing|unknown)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Life Status"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
           "mandatory": {
             "default": false,
             "title": "Mandatory",
@@ -11795,6 +12581,30 @@
           },
           "memory_type": {
             "$ref": "#/components/schemas/MemoryCapsuleType"
+          },
+          "personality_development": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Personality Development"
+          },
+          "physical_state": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physical State"
           },
           "priority": {
             "default": 50,
@@ -11900,6 +12710,14 @@
             },
             "maxItems": 60,
             "title": "Required Refs",
+            "type": "array"
+          },
+          "same_episode_setup_payoffs": {
+            "items": {
+              "$ref": "#/components/schemas/SameEpisodeSetupPayoffSource"
+            },
+            "maxItems": 20,
+            "title": "Same Episode Setup Payoffs",
             "type": "array"
           },
           "schema_version": {
@@ -12539,6 +13357,35 @@
         "title": "OrchestrationStatus",
         "type": "string"
       },
+      "ParentEventBinding": {
+        "additionalProperties": false,
+        "description": "Versioned parent provenance for this child's atomic event table.",
+        "properties": {
+          "child_event_indices": {
+            "items": {
+              "maximum": 12.0,
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Child Event Indices",
+            "type": "array"
+          },
+          "parent_event_index": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Parent Event Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parent_event_index",
+          "child_event_indices"
+        ],
+        "title": "ParentEventBinding",
+        "type": "object"
+      },
       "PlanningApprovalStatus": {
         "enum": [
           "draft",
@@ -12703,6 +13550,12 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Client Instance Id",
             "type": "string"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "project_id": {
             "maxLength": 120,
@@ -13406,6 +14259,40 @@
           "source_signature"
         ],
         "title": "PreproductionStoryboard",
+        "type": "object"
+      },
+      "PriorAuthorInstruction": {
+        "additionalProperties": false,
+        "description": "An active earlier user requirement for this same episode, not a fact.",
+        "properties": {
+          "id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "instruction": {
+            "maxLength": 4000,
+            "minLength": 3,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "selection_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoryBibleSelectionContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "instruction"
+        ],
+        "title": "PriorAuthorInstruction",
         "type": "object"
       },
       "ProfileRule": {
@@ -14990,6 +15877,92 @@
         "title": "PromptLibraryItemResponse",
         "type": "object"
       },
+      "PromptPlan": {
+        "additionalProperties": false,
+        "description": "Machine-readable controls used to compile a production video prompt.",
+        "properties": {
+          "active_references": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Active References",
+            "type": "array"
+          },
+          "dialogue_rules": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Dialogue Rules",
+            "type": "array"
+          },
+          "first_frame": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "First Frame",
+            "type": "string"
+          },
+          "format_mode": {
+            "default": "单一连续镜头",
+            "maxLength": 120,
+            "title": "Format Mode",
+            "type": "string"
+          },
+          "lighting": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Lighting",
+            "type": "string"
+          },
+          "negative_locks": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Negative Locks",
+            "type": "array"
+          },
+          "optics": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Optics",
+            "type": "string"
+          },
+          "physical_constraints": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Physical Constraints",
+            "type": "array"
+          },
+          "positive_locks": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Positive Locks",
+            "type": "array"
+          },
+          "scene_map": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Scene Map",
+            "type": "string"
+          },
+          "timing": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Timing",
+            "type": "array"
+          }
+        },
+        "title": "PromptPlan",
+        "type": "object"
+      },
       "PromptRetrievalRequest": {
         "additionalProperties": false,
         "properties": {
@@ -15412,7 +16385,7 @@
           },
           "source_character_name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Source Character Name",
             "type": "string"
           },
@@ -15424,7 +16397,7 @@
           },
           "target_character_name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Target Character Name",
             "type": "string"
           },
@@ -16280,6 +17253,49 @@
         "title": "RevisionTargetType",
         "type": "string"
       },
+      "SameEpisodeSetupPayoffSource": {
+        "additionalProperties": false,
+        "description": "Claim about approved timing; the server must verify its durable source.",
+        "properties": {
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "setup_payoff_ref": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "title": "Setup Payoff Ref",
+            "type": "string"
+          },
+          "source_node_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "source_node_version": {
+            "minimum": 1.0,
+            "title": "Source Node Version",
+            "type": "integer"
+          },
+          "story_bible_version": {
+            "minimum": 1.0,
+            "title": "Story Bible Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "setup_payoff_ref",
+          "episode_number",
+          "source_node_id",
+          "source_node_version",
+          "story_bible_version"
+        ],
+        "title": "SameEpisodeSetupPayoffSource",
+        "type": "object"
+      },
       "SceneBlueprint": {
         "additionalProperties": false,
         "properties": {
@@ -16370,7 +17386,7 @@
               "$ref": "#/components/schemas/DialogueLine"
             },
             "maxItems": 35,
-            "minItems": 1,
+            "minItems": 0,
             "title": "Dialogues",
             "type": "array"
           },
@@ -16613,6 +17629,12 @@
             "title": "Action Rhythm",
             "type": "string"
           },
+          "audience_effect": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Audience Effect",
+            "type": "string"
+          },
           "purpose": {
             "maxLength": 1000,
             "minLength": 1,
@@ -16629,6 +17651,12 @@
             "maxLength": 1000,
             "minLength": 1,
             "title": "Spatial Layout",
+            "type": "string"
+          },
+          "status_change": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Status Change",
             "type": "string"
           },
           "transition": {
@@ -16791,10 +17819,25 @@
         "additionalProperties": false,
         "properties": {
           "instruction": {
-            "maxLength": 500,
+            "maxLength": 4000,
             "minLength": 3,
             "title": "Instruction",
             "type": "string"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
+          },
+          "prior_author_instructions": {
+            "description": "Active prior author requirements for this same project and episode, oldest first; exclude the current instruction and all assistant/candidate content. Current and prior instruction/selection strings together must not exceed 32000 characters.",
+            "items": {
+              "$ref": "#/components/schemas/PriorAuthorInstruction"
+            },
+            "maxItems": 32,
+            "title": "Prior Author Instructions",
+            "type": "array"
           },
           "resolution": {
             "anyOf": [
@@ -16879,7 +17922,7 @@
             ]
           },
           "instruction": {
-            "maxLength": 500,
+            "maxLength": 4000,
             "minLength": 3,
             "title": "Instruction",
             "type": "string"
@@ -16903,6 +17946,12 @@
         "properties": {
           "draft_master_script": {
             "$ref": "#/components/schemas/DraftMasterScript"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "source_generation_run": {
             "$ref": "#/components/schemas/ScriptGenerationDraftRun"
@@ -16977,6 +18026,12 @@
             "minLength": 2,
             "title": "Output Language",
             "type": "string"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "release_region": {
             "$ref": "#/components/schemas/ScriptReleaseRegion",
@@ -17453,6 +18508,19 @@
             "title": "Setup Payoff Id",
             "type": "string"
           },
+          "source_ref": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ref"
+          },
           "status": {
             "$ref": "#/components/schemas/SetupPayoffStatus",
             "default": "planned"
@@ -17527,6 +18595,19 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Setup Payoff Ref",
             "type": "string"
+          },
+          "source_ref": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ref"
           },
           "status": {
             "pattern": "^(setup|active|paid_off)$",
@@ -18070,6 +19151,16 @@
         "additionalProperties": false,
         "description": "Authoring context supplied when drafting a Story Bible.",
         "properties": {
+          "acting_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CharacterActingProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "character_ref": {
             "maxLength": 120,
             "minLength": 3,
@@ -18091,7 +19182,7 @@
           },
           "name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -18114,6 +19205,16 @@
         "additionalProperties": false,
         "description": "Canonical identity used to keep narrative references stable.",
         "properties": {
+          "acting_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CharacterActingProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "character_ref": {
             "maxLength": 120,
             "minLength": 3,
@@ -18123,7 +19224,7 @@
           },
           "name": {
             "maxLength": 80,
-            "minLength": 2,
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -18160,6 +19261,12 @@
             "maxItems": 20,
             "title": "Characters",
             "type": "array"
+          },
+          "confirmed_synopsis": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Confirmed Synopsis",
+            "type": "string"
           },
           "content_spec_id": {
             "anyOf": [
@@ -18232,6 +19339,16 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Story Project Id",
             "type": "string"
+          },
+          "synopsis_review_notes": {
+            "items": {
+              "maxLength": 3000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 160,
+            "title": "Synopsis Review Notes",
+            "type": "array"
           },
           "target_episode_count": {
             "default": 300,
@@ -18867,6 +19984,12 @@
           "current_brief": {
             "$ref": "#/components/schemas/StoryInspirationBrief"
           },
+          "current_synopsis": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Current Synopsis",
+            "type": "string"
+          },
           "generation_strategy_id": {
             "maxLength": 120,
             "minLength": 3,
@@ -19236,6 +20359,81 @@
         "title": "StoryLineType",
         "type": "string"
       },
+      "StoryPlanExecutionHandoff": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "instruction": {
+            "maxLength": 600,
+            "minLength": 5,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "node_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_version": {
+            "minimum": 1.0,
+            "title": "Node Version",
+            "type": "integer"
+          },
+          "source_event_index": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Source Event Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "episode_number",
+          "source_event_index",
+          "instruction",
+          "node_id",
+          "node_version"
+        ],
+        "title": "StoryPlanExecutionHandoff",
+        "type": "object"
+      },
+      "StoryPlanExecutionRequirement": {
+        "additionalProperties": false,
+        "description": "A feasible execution detail owned by an already allocated story event.",
+        "properties": {
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "instruction": {
+            "maxLength": 600,
+            "minLength": 5,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "source_event_index": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Source Event Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "episode_number",
+          "source_event_index",
+          "instruction"
+        ],
+        "title": "StoryPlanExecutionRequirement",
+        "type": "object"
+      },
       "StoryPlanExpansionStatus": {
         "description": "Lifecycle of one recursively decomposable narrative segment.",
         "enum": [
@@ -19245,6 +20443,59 @@
         ],
         "title": "StoryPlanExpansionStatus",
         "type": "string"
+      },
+      "StoryPlanFutureRevisionReview": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary_status": {
+            "$ref": "#/components/schemas/StoryPlanQualityStatus"
+          },
+          "end_episode": {
+            "minimum": 1.0,
+            "title": "End Episode",
+            "type": "integer"
+          },
+          "evidence_signature": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Evidence Signature",
+            "type": "string"
+          },
+          "planning_revision_epoch": {
+            "minimum": 1.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
+          },
+          "revision_id": {
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "start_episode": {
+            "minimum": 1.0,
+            "title": "Start Episode",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StoryPlanQualityStatus"
+          },
+          "summary": {
+            "maxLength": 2000,
+            "minLength": 2,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "planning_revision_epoch",
+          "start_episode",
+          "end_episode",
+          "evidence_signature",
+          "status",
+          "boundary_status",
+          "summary"
+        ],
+        "title": "StoryPlanFutureRevisionReview",
+        "type": "object"
       },
       "StoryPlanNode": {
         "additionalProperties": false,
@@ -19305,6 +20556,14 @@
             "minLength": 5,
             "title": "Entry State",
             "type": "string"
+          },
+          "episode_developments": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeDevelopment"
+            },
+            "maxItems": 12,
+            "title": "Episode Developments",
+            "type": "array"
           },
           "estimated_episode_count": {
             "anyOf": [
@@ -19368,6 +20627,14 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Node Id",
             "type": "string"
+          },
+          "parent_event_bindings": {
+            "items": {
+              "$ref": "#/components/schemas/ParentEventBinding"
+            },
+            "maxItems": 12,
+            "title": "Parent Event Bindings",
+            "type": "array"
           },
           "parent_node_id": {
             "anyOf": [
@@ -19599,6 +20866,21 @@
             "title": "Max Episode Ready Span",
             "type": "integer"
           },
+          "operation_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 3,
+                "pattern": "^[a-zA-Z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable decomposition operation identity, reused across HTTP retries.",
+            "title": "Operation Id"
+          },
           "parent_node_id": {
             "maxLength": 120,
             "minLength": 3,
@@ -19609,6 +20891,12 @@
           "parent_node_version": {
             "minimum": 1.0,
             "title": "Parent Node Version",
+            "type": "integer"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
             "type": "integer"
           },
           "requested_child_count": {
@@ -19685,6 +20973,12 @@
               }
             ],
             "title": "Parent Node Version"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "predecessor_node_id": {
             "anyOf": [
@@ -19800,6 +21094,12 @@
             "title": "Node Version",
             "type": "integer"
           },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
+          },
           "revision_mode": {
             "$ref": "#/components/schemas/PlanningRevisionMode",
             "default": "targeted"
@@ -19857,6 +21157,14 @@
             "title": "Created At",
             "type": "string"
           },
+          "execution_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanExecutionHandoff"
+            },
+            "maxItems": 120,
+            "title": "Execution Requirements",
+            "type": "array"
+          },
           "findings": {
             "items": {
               "$ref": "#/components/schemas/StoryPlanQualityFinding"
@@ -19864,6 +21172,16 @@
             "maxItems": 24,
             "title": "Findings",
             "type": "array"
+          },
+          "future_revision_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoryPlanFutureRevisionReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "node_refs": {
             "items": {
@@ -19878,6 +21196,29 @@
             "pattern": "^[a-f0-9]{64}$",
             "title": "Node Signature",
             "type": "string"
+          },
+          "reviewed_source_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Source Fingerprint"
+          },
+          "reviewed_source_signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Source Signature"
           },
           "schema_version": {
             "default": "v1",
@@ -19936,7 +21277,7 @@
       },
       "StoryPlanQualityAuditRequest": {
         "additionalProperties": false,
-        "description": "Audit the active episode-ready leaf lineage without mutating the tree.",
+        "description": "Audit the current draft or approved tree frontier without mutating it.",
         "properties": {
           "agent_request_id": {
             "maxLength": 240,
@@ -19944,6 +21285,22 @@
             "pattern": "^[a-zA-Z0-9_.:-]+$",
             "title": "Agent Request Id",
             "type": "string"
+          },
+          "episode_plans": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanQualityEpisode"
+            },
+            "maxItems": 2000,
+            "title": "Episode Plans",
+            "type": "array"
+          },
+          "execution_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanExecutionHandoff"
+            },
+            "maxItems": 120,
+            "title": "Execution Requirements",
+            "type": "array"
           },
           "generation_strategy_id": {
             "maxLength": 120,
@@ -19960,6 +21317,12 @@
             "minItems": 1,
             "title": "Node Refs",
             "type": "array"
+          },
+          "planning_revision_epoch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Revision Epoch",
+            "type": "integer"
           },
           "story_bible_id": {
             "maxLength": 120,
@@ -20002,6 +21365,113 @@
           "data"
         ],
         "title": "StoryPlanQualityAuditResponse",
+        "type": "object"
+      },
+      "StoryPlanQualityEpisode": {
+        "additionalProperties": false,
+        "description": "Actual roadmap content, distinct from the source node's promised outcome.",
+        "properties": {
+          "continuity_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Continuity Requirements",
+            "type": "array"
+          },
+          "dramatic_units": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeDramaticUnit"
+            },
+            "maxItems": 7,
+            "title": "Dramatic Units",
+            "type": "array"
+          },
+          "episode_number": {
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "episode_payoff": {
+            "maxLength": 2000,
+            "title": "Episode Payoff",
+            "type": "string"
+          },
+          "exit_state": {
+            "maxLength": 2000,
+            "title": "Exit State",
+            "type": "string"
+          },
+          "planned_dialogue_line_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Dialogue Line Count"
+          },
+          "protagonist_decision": {
+            "maxLength": 2000,
+            "title": "Protagonist Decision",
+            "type": "string"
+          },
+          "scene_execution_plan": {
+            "items": {
+              "$ref": "#/components/schemas/StoryPlanQualityScene"
+            },
+            "maxItems": 100,
+            "title": "Scene Execution Plan",
+            "type": "array"
+          },
+          "source_node_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "source_node_version": {
+            "minimum": 1.0,
+            "title": "Source Node Version",
+            "type": "integer"
+          },
+          "source_turning_points": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Source Turning Points",
+            "type": "array"
+          },
+          "source_unit_story_beats": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Source Unit Story Beats",
+            "type": "array"
+          },
+          "synopsis": {
+            "maxLength": 6000,
+            "title": "Synopsis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_node_id",
+          "source_node_version",
+          "episode_number",
+          "synopsis",
+          "protagonist_decision",
+          "episode_payoff",
+          "exit_state"
+        ],
+        "title": "StoryPlanQualityEpisode",
         "type": "object"
       },
       "StoryPlanQualityFinding": {
@@ -20093,6 +21563,82 @@
           "node_version"
         ],
         "title": "StoryPlanQualityNodeRef",
+        "type": "object"
+      },
+      "StoryPlanQualityScene": {
+        "additionalProperties": false,
+        "description": "Execution and speech evidence needed to assess the planned scene.",
+        "properties": {
+          "character_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Character Refs",
+            "type": "array"
+          },
+          "dialogue_line_target": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dialogue Line Target"
+          },
+          "dialogue_objective": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dialogue Objective"
+          },
+          "evidence_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Evidence Requirements",
+            "type": "array"
+          },
+          "exit_state": {
+            "maxLength": 2000,
+            "title": "Exit State",
+            "type": "string"
+          },
+          "forbidden_changes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Forbidden Changes",
+            "type": "array"
+          },
+          "scene_number": {
+            "minimum": 1.0,
+            "title": "Scene Number",
+            "type": "integer"
+          },
+          "visible_action": {
+            "maxLength": 2000,
+            "title": "Visible Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scene_number",
+          "visible_action",
+          "exit_state"
+        ],
+        "title": "StoryPlanQualityScene",
         "type": "object"
       },
       "StoryPlanQualityStatus": {
@@ -20961,6 +22507,176 @@
         "title": "StoryStagePlanResponse",
         "type": "object"
       },
+      "StorySynopsisDraftOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "review": {
+            "$ref": "#/components/schemas/StorySynopsisReview"
+          },
+          "text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "review"
+        ],
+        "title": "StorySynopsisDraftOutput",
+        "type": "object"
+      },
+      "StorySynopsisDraftRequest": {
+        "additionalProperties": false,
+        "description": "Synthesize the current author draft without approving or persisting it.",
+        "properties": {
+          "content_spec_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Spec Id"
+          },
+          "creative_prompt": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "Creative Prompt",
+            "type": "string"
+          },
+          "current_brief": {
+            "$ref": "#/components/schemas/StoryInspirationBrief"
+          },
+          "current_text": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Current Text",
+            "type": "string"
+          },
+          "generation_strategy_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Generation Strategy Id",
+            "type": "string"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/StoryInspirationMessage"
+            },
+            "maxItems": 30,
+            "title": "Messages",
+            "type": "array"
+          },
+          "reference_materials": {
+            "items": {
+              "$ref": "#/components/schemas/CreativeReferenceMaterial"
+            },
+            "maxItems": 8,
+            "title": "Reference Materials",
+            "type": "array"
+          },
+          "selected_tag_labels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Selected Tag Labels",
+            "type": "array"
+          },
+          "story_project_id": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_.:-]+$",
+            "title": "Story Project Id",
+            "type": "string"
+          },
+          "target_episode_count": {
+            "default": 300,
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Target Episode Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "story_project_id",
+          "generation_strategy_id"
+        ],
+        "title": "StorySynopsisDraftRequest",
+        "type": "object"
+      },
+      "StorySynopsisDraftResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StorySynopsisDraftOutput"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "StorySynopsisDraftResponse",
+        "type": "object"
+      },
+      "StorySynopsisReview": {
+        "additionalProperties": false,
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/StorySynopsisReviewIssue"
+            },
+            "maxItems": 124,
+            "title": "Issues",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "complete"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StorySynopsisReview",
+        "type": "object"
+      },
+      "StorySynopsisReviewIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "causality",
+              "conflict",
+              "unresolved",
+              "proposal"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 3000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "StorySynopsisReviewIssue",
+        "type": "object"
+      },
       "StoryboardEditRequest": {
         "additionalProperties": false,
         "properties": {
@@ -21082,6 +22798,9 @@
       "StoryboardShot": {
         "additionalProperties": false,
         "properties": {
+          "acting_direction": {
+            "$ref": "#/components/schemas/ActingDirection"
+          },
           "action_sequence": {
             "items": {
               "type": "string"
@@ -21139,6 +22858,9 @@
             "maxLength": 20000,
             "title": "Prompt",
             "type": "string"
+          },
+          "prompt_plan": {
+            "$ref": "#/components/schemas/PromptPlan"
           },
           "purpose": {
             "maxLength": 500,
@@ -27425,6 +29147,116 @@
         ]
       }
     },
+    "/story-projects/{project_id}/plan-nodes/{node_id}/episode-plans/{episode_number}/prepare": {
+      "post": {
+        "operationId": "prepare_episode_plan_item_story_projects__project_id__plan_nodes__node_id__episode_plans__episode_number__prepare_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "episode_number",
+            "required": true,
+            "schema": {
+              "title": "Episode Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpisodePlanItemPreparationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeRoadmapItemDraftResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Prepare Episode Plan Item",
+        "tags": [
+          "Long Story Planning"
+        ]
+      }
+    },
     "/story-projects/{project_id}/plan-nodes/{node_id}/modify": {
       "post": {
         "operationId": "modify_story_plan_node_story_projects__project_id__plan_nodes__node_id__modify_post",
@@ -27566,6 +29398,17 @@
               "pattern": "^(invalidate|rebase)$",
               "title": "Descendant Policy",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "planning_revision_epoch",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Planning Revision Epoch",
+              "type": "integer"
             }
           }
         ],
@@ -28340,6 +30183,98 @@
           }
         },
         "summary": "Generate Story Bible Interactive Step",
+        "tags": [
+          "Long Story Planning"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/story-bibles/synopsis-draft": {
+      "post": {
+        "operationId": "generate_story_synopsis_draft_story_projects__project_id__story_bibles_synopsis_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorySynopsisDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorySynopsisDraftResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LongStoryErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Generate Story Synopsis Draft",
         "tags": [
           "Long Story Planning"
         ]

@@ -28,7 +28,10 @@ export function createGenerationResultCommitter({
     let applied = false;
     let conflict = "生成任务或规划版本已变化，请从当前任务继续。";
     const saved = await updateProject(projectId, (project) => {
-      if (checkpointSnapshot(project.activeGenerationTask) !== expectedCheckpoint
+      if (project.planningRevision?.status === "active"
+        || (project.planningRevisionEpoch ?? 0) !== (source.planningRevisionEpoch ?? 0)
+        || (task && (task.planningRevisionEpoch ?? 0) !== (project.planningRevisionEpoch ?? 0))
+        || checkpointSnapshot(project.activeGenerationTask) !== expectedCheckpoint
         || project.storyBibleVersion !== source.storyBibleVersion) return {};
 
       let episodes = project.episodes;

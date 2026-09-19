@@ -41,11 +41,12 @@ export function draftMetadataBoolean(
 
 export function episodeDurationSeconds(draft: GeneratedDraft): number {
   const estimated = draftMetadataCoercedNumber(draft, "estimated_duration_seconds") ?? Number.NaN;
-  if (Number.isFinite(estimated) && estimated >= 75 && estimated <= 115) {
+  // Exports must preserve the actual estimate even outside the planning window.
+  if (Number.isFinite(estimated) && estimated > 0) {
     return Math.round(estimated);
   }
   const target = Number(draft.target_duration_seconds);
-  return Number.isFinite(target) && target >= 75 && target <= 115
+  return Number.isFinite(target) && target > 0
     ? Math.round(target)
     : 90;
 }

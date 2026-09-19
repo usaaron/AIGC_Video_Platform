@@ -7,54 +7,34 @@ async function source(path) {
 }
 
 test("creation settings guide ideas, decisions and explicit generation review", async () => {
-  const workspace = await source("components/story-planning-workspace.tsx");
-  const bible = await source("components/story-bible-panel.tsx");
+  const workspace = await source("components/story-synopsis-workspace.tsx");
+  const bible = await source("components/story-synopsis-panel.tsx");
   const client = await source("lib/story-planning-client.ts");
 
   assert.doesNotMatch(workspace, /CreativeDirectionPanel/);
-  assert.match(bible, /创作设定/);
-  assert.match(bible, /补充想法/);
-  assert.match(bible, /确认方向/);
-  assert.match(bible, /检查生成/);
-  assert.match(bible, /creation-steps/);
-  assert.match(bible, /保存草稿/);
-  assert.match(bible, /inspirationRoundState/);
-  assert.doesNotMatch(bible, /先提交本轮/);
-  assert.match(bible, /INSPIRATION_ROUND_DRAFT_KEY/);
-  assert.match(bible, /inspirationRoundDraftFromSections/);
-  assert.match(bible, /storyInspirationRoundNavigation/);
-  assert.match(bible, /skipCreationQuestion/);
-  assert.match(bible, /creationBriefWithInput/);
-  assert.doesNotMatch(bible, /onFrontierStateChange/);
-  assert.match(bible, /生成故事总纲/);
-  assert.doesNotMatch(bible, /定制你的剧本/);
-  assert.doesNotMatch(bible, /返回定制剧本/);
-  assert.match(bible, /ensurePlanningProject/);
-  assert.match(bible, /prepareStoryPlanningProject/);
-  assert.match(bible, /syncProjectSnapshot/);
-  assert.match(bible, /preparedProject\.storyBibleAuthorInstruction/);
-  assert.match(bible, /storyBibleSections/);
-  assert.match(bible, /finalGenerationRequestInFlightRef/);
-  assert.match(bible, /story-bible-generation-transition/);
-  assert.doesNotMatch(bible, /dialog\.showModal\(\)/);
-  assert.match(bible, /CreationSettingSummary/);
-  assert.match(bible, /StoryInspirationEditor/);
-  assert.match(bible, /step === "questions" && recommendedHighCompletionInput/);
-  assert.match(bible, /creationOpen/);
-  assert.match(bible, /creationStep === "questions"/);
-  assert.match(bible, /hasDirectDirection = creationStep === "review"/);
-  assert.match(bible, /\|\| creationStep !== "review"/);
-  const directSettingAction = bible.match(
-    /function continueCreationIdea\(\)[\s\S]*?\n  }\n\n  const inspirationNeedsTurn/,
-  )?.[0] ?? "";
-  assert.ok(directSettingAction);
-  assert.match(directSettingAction, /requestInspirationTurn\(value, \{ directSetting: true, briefCheckpoint: creationBrief \}\)/);
-  assert.match(bible, /const completed = await generateStoryBibleDraft\([\s\S]*?void persistInspirationSession\(completedSession, authorInstruction\)/);
-  assert.match(client, /story-bibles\/interactive-step/);
-  assert.match(client, /story-bibles\/interactive-complete/);
-  assert.match(client, /author_instruction: authorInstruction\.trim\(\)/);
-  assert.match(client, /planning-session/);
-  assert.match(client, /planningSessionSaveQueues/);
+  assert.match(bible, /故事梗概/);
+  assert.match(bible, /主动修改/);
+  assert.match(bible, /寻找灵感/);
+  assert.match(bible, /完成对话并重新整理/);
+  assert.match(bible, /确认梗概，进入总纲/);
+  assert.match(bible, /story-bible-panel is-canvas-mode story-synopsis-panel/);
+  assert.match(bible, /PlanningCanvasCopilot/);
+  assert.doesNotMatch(bible, /story-synopsis-workspace/);
+  assert.match(bible, /generateStoryInspirationTurn/);
+  assert.match(bible, /storySynopsis/);
+  assert.match(workspace, /StorySynopsisPanel/);
+  assert.match(client, /story-bibles\/inspiration-chat/);
+});
+
+test("author-facing screens hide framework developer indicators", async () => {
+  const config = await source("next.config.ts");
+  const plan = await source("components/story-plan-node-panel.tsx");
+  const amendment = await source("components/produced-plan-amendment-panel.tsx");
+
+  assert.match(config, /devIndicators: false/);
+  assert.doesNotMatch(plan, /来源审计记录/);
+  assert.doesNotMatch(plan, /物料化预览失败/);
+  assert.doesNotMatch(amendment, /执行规划修订已采用并留档/);
 });
 
 test("story-tree generation exposes one top-level workflow control", async () => {
@@ -73,4 +53,31 @@ test("story-tree generation exposes one top-level workflow control", async () =>
   assert.match(client, /shouldApplyImportedPlanningConstraints\(project\) \? importedPlanningInstruction\(\) : ""/);
   assert.match(client, /savePlanningSession/);
   assert.match(models, /author_instruction: str = Field\(/);
+});
+
+test("Story Bible uses the readable chapter structure and keeps each chapter editable", async () => {
+  const panel = await source("components/story-bible-panel.tsx");
+  const expectedChapters = [
+    "story-bible-positioning",
+    "story-bible-overview",
+    "story-bible-characters",
+    "story-bible-relationships",
+    "story-bible-lines",
+    "story-bible-conflicts",
+    "story-bible-development",
+    "story-bible-climax-ending",
+    "story-bible-principles",
+  ];
+
+  for (const chapter of expectedChapters) assert.match(panel, new RegExp(`id=\\"${chapter}\\"`));
+  assert.match(panel, /function StoryBibleChapterHeading/);
+  assert.match(panel, /updateField\("central_conflict"/);
+  assert.match(panel, /updateCharacterArc\(/);
+  assert.match(panel, /updateRelationship\(/);
+  assert.match(panel, /updateStoryLine\(/);
+  assert.match(panel, /updateEscalationStage\(/);
+  assert.match(panel, /人物内在压力/);
+  assert.match(panel, /高潮方向/);
+  assert.match(panel, /const climaxStage/);
+  assert.doesNotMatch(panel, /id=\\"story-bible-settings\\"/);
 });

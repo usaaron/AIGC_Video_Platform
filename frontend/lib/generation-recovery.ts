@@ -1,6 +1,7 @@
 import type {
   GenerationRecoveryStatus,
   GenerationRecoveryTask,
+  ProjectOutputMode,
 } from "@/lib/types";
 
 export const MAX_AUTOMATIC_RECOVERY_ATTEMPTS = 3;
@@ -8,6 +9,7 @@ export const MAX_AUTOMATIC_RECOVERY_ATTEMPTS = 3;
 const TRANSIENT_RECOVERY_ERROR = /(?:failed to fetch|fetch failed|load failed|network(?:error| request)?|connection\s+(?:reset|closed|refused)|connect(?:ion)?(?:error| failed)|socket|broken pipe|peer closed|eof|stream (?:disconnected|terminated|ended)|timed out|timeout|gateway|upstream|rate.?limit|too many requests|(?:^|\D)(?:408|429|502|503|504|524)(?:\D|$)|网关|上游|网络|连接.*(?:中断|断开|失败)|超时|暂时不可用|仍在处理|处理中|正文终审|恢复标识.*不一致|原始输入不一致)/i;
 
 export function createGenerationRecoveryTask(input: {
+  planningRevisionEpoch?: number;
   batchNumber: number;
   startEpisode: number;
   endEpisode: number;
@@ -16,6 +18,7 @@ export function createGenerationRecoveryTask(input: {
 }): GenerationRecoveryTask {
   const now = new Date().toISOString();
   return {
+    planningRevisionEpoch: input.planningRevisionEpoch ?? 0,
     batchId: `generation-batch.${crypto.randomUUID()}`,
     batchRevision: 1,
     jobId: `generation-job.${crypto.randomUUID()}`,
@@ -52,7 +55,7 @@ export function episodeGenerationAgentRequestId(
   // Job revisions are persistence checkpoints, not new creative inputs. Keep
   // the request stable so a manual resume can reuse the validated pre-edit
   // episode and continue at GPT finalization.
-  return `agent-request.${task.jobId}.episode-${episodeNumber}`;
+  return `agent-request.${task.jobId}.episode-${episodeNumber}${task.planningRevisionEpoch ? `.planning-${task.planningRevisionEpoch}` : ""}`;
 }
 
 export function pauseGenerationRecoveryTask(
@@ -149,6 +152,11 @@ export function shouldAutoResumeGenerationRecovery(
   planningStatus?: string,
 ): task is GenerationRecoveryTask {
   if (!task || task.status === "paused" || task.status === "completed") return false;
+  // A server checkpoint does not prove this browser owns the job. Opening a
+  // second window must not take over an active request or rewrite its status.
+  // Fresh windows keep the explicit resume control; the owning browser may
+  // still recover its own transient failure automatically.
+  if (!browserTaskStatus) return false;
   // A phase/script session that was left in awaiting_review/active by a
   // partial client transition must not restart a generation task on refresh.
   // Keep the argument optional for legacy projects that never persisted a
@@ -173,6 +181,7 @@ export function automaticGenerationRecoveryDelayMs(
 }
 
 export function shouldAutomaticallyContinueScriptGeneration(input: {
+  productionOutputMode?: ProjectOutputMode;
   planningPhase?: string;
   planningStatus?: string;
   existingEpisodeCount: number;
@@ -183,6 +192,9 @@ export function shouldAutomaticallyContinueScriptGeneration(input: {
   recoveryTaskStatus?: GenerationRecoveryStatus;
 }): boolean {
   return input.planningPhase === "script"
+    // A completed script batch must hand off to its storyboards first. The
+    // callback owns that navigation; a timer must not race it into another batch.
+    && input.productionOutputMode !== "script_and_storyboard"
     // Keep callers that predate durable planning-session status compatible;
     // the workspace passes the status whenever it has one, which blocks a
     // malformed active/awaiting_review session from auto-starting.
@@ -191,7 +203,7 @@ export function shouldAutomaticallyContinueScriptGeneration(input: {
     && input.nextReadyEpisode !== null
     && !input.generationIntent
     && !input.busy
-    && (!input.browserTaskStatus || input.browserTaskStatus === "completed")
+    && input.browserTaskStatus === "completed"
     && (!input.recoveryTaskStatus || input.recoveryTaskStatus === "completed");
 }
 
@@ -200,7 +212,8 @@ export function reconcileGenerationRecoveryTask(
   requested: GenerationRecoveryTask,
 ): GenerationRecoveryTask {
   if (
-    remote.jobId !== requested.jobId
+    (remote.planningRevisionEpoch ?? 0) !== (requested.planningRevisionEpoch ?? 0)
+    || remote.jobId !== requested.jobId
     || remote.batchId !== requested.batchId
     || remote.startEpisode !== requested.startEpisode
     || remote.endEpisode !== requested.endEpisode

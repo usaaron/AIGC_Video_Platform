@@ -129,3 +129,40 @@ def test_episode_relationship_updates_are_projected_into_the_next_checkpoint() -
     assert updated.relationship_states[0].relationship_id == "relationship.mara_adrian"
     assert updated.relationship_states[0].last_changed_episode == 2
     assert "Adrian->Mara" in updated.relationship_states[0].current_state
+
+
+def test_explicit_empty_active_constraints_clear_prior_state() -> None:
+    story_bible = _story_bible_with_relationship()
+    source = build_episode_artifact()
+    first = source.model_copy(update={
+        "content_payload": {
+            "title": "Episode 1",
+            "character_state_updates": [{
+                "character_name": "Mara",
+                "current_goal": "Survive",
+                "emotional_state": "Tense",
+                "active_constraints": ["Cannot run"],
+            }],
+        }
+    })
+    ledger = project_episode_artifact_to_ledger(
+        artifact=first, story_bible=story_bible, previous=None,
+    )
+    second = source.model_copy(update={
+        "artifact_id": "artifact.mainland_demo.episode_002.draft.initial",
+        "episode_number": 2,
+        "content_payload": {
+            "title": "Episode 2",
+            "character_state_updates": [{
+                "character_name": "Mara",
+                "current_goal": "Survive",
+                "emotional_state": "Calm",
+                "active_constraints": [],
+            }],
+        },
+    })
+    updated = project_episode_artifact_to_ledger(
+        artifact=second, story_bible=story_bible, previous=ledger,
+    )
+    mara = next(item for item in updated.character_states if item.character_ref == "character.mara")
+    assert mara.active_constraints == []

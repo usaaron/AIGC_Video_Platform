@@ -11,8 +11,10 @@ import {
   requestPlanningPause,
   resolveTrackedPlanningTask,
   resumePlanningTasks,
+  setPlanningTaskWorkerCount,
   waitForPlanningTaskResume,
 } from "../lib/story-planning-background.ts";
+import { runAdaptiveDependencyQueue } from "../lib/adaptive-dependency-queue.ts";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -443,14 +445,14 @@ test("top-level and full-tree tasks also leave transient retry ownership to thei
   }
 });
 
-test("planning pause waits for the current checkpoint and resumes without rerunning it", async () => {
+for (const kind of ["episode_roadmap", "full_tree"]) test(`${kind} pause waits for the current checkpoint and resumes without rerunning it`, async () => {
   const projectId = `project.pause.${crypto.randomUUID()}`;
   const key = `${projectId}:roadmap:leaf`;
   let releaseCheckpoint;
   let completedSteps = 0;
   const queued = enqueuePlanningTask({
     key,
-    kind: "episode_roadmap",
+    kind,
     projectId,
     run: async () => {
       await new Promise((resolve) => { releaseCheckpoint = resolve; });
@@ -486,6 +488,7 @@ test("a full-tree task remains pausing while another internal worker is in fligh
     kind: "full_tree",
     projectId,
     run: async () => {
+      setPlanningTaskWorkerCount(key, 2);
       await Promise.all([
         (async () => {
           await new Promise((resolve) => { releaseCheckpoint = resolve; });
@@ -509,5 +512,44 @@ test("a full-tree task remains pausing while another internal worker is in fligh
   resumePlanningTasks(projectId);
   releaseInFlightWorker();
   assert.equal(await queued.promise, "done");
+  assert.equal(getPlanningPauseState(projectId), "running");
+});
+
+test("parallel tree pause waits for saves, then reports paused when every worker is waiting", async () => {
+  const projectId = `project.parallel-pause.${crypto.randomUUID()}`;
+  const key = `${projectId}:full-tree`;
+  const releases = {};
+  let releaseSave;
+  let saved = false;
+  const queued = enqueuePlanningTask({
+    key, kind: "full_tree", projectId,
+    run: () => runAdaptiveDependencyQueue({
+      initialValues: ["waiting", "saving", "next"], initialConcurrency: 2, maximumConcurrency: 2,
+      onActiveWorkersChange: (count) => setPlanningTaskWorkerCount(key, count),
+      process: async ({ value }) => {
+        if (value !== "next") await new Promise((resolve) => { releases[value] = resolve; });
+        if (value !== "saving") await waitForPlanningTaskResume(key);
+        return [];
+      },
+      onProgress: async ({ item }) => {
+        if (item.value !== "saving") return;
+        await new Promise((resolve) => { releaseSave = resolve; });
+        saved = true;
+      },
+    }),
+  });
+  await tick();
+  requestPlanningPause(projectId);
+  releases.waiting();
+  releases.saving();
+  await tick();
+  assert.equal(getPlanningPauseState(projectId), "pausing");
+  assert.equal(saved, false);
+  releaseSave();
+  await tick();
+  assert.equal(saved, true);
+  assert.equal(getPlanningPauseState(projectId), "paused");
+  resumePlanningTasks(projectId);
+  await queued.promise;
   assert.equal(getPlanningPauseState(projectId), "running");
 });

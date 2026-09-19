@@ -61,6 +61,8 @@ class AgentRunRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    planning_revision_epoch: int = Field(default=0, ge=0)
+
     run_id: str = Field(default_factory=lambda: f"agent-run.{uuid4()}")
     agent_name: str = Field(min_length=3, max_length=80)
     subject_ref: str = Field(min_length=1, max_length=240)

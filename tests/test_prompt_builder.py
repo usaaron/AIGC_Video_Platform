@@ -335,12 +335,13 @@ def test_template_prompt_builder_injects_flexible_script_body_range() -> None:
 
     assert "ScriptBodyLengthContract:" in result.prompt_text
     assert "TargetScriptBodyCharacters: 1797" in result.prompt_text
-    assert "reference midpoint" in result.prompt_text
-    assert "1258-2516 effective characters" in result.prompt_text
-    assert "There is no per-scene character quota" in result.prompt_text
-    assert "plot movement" in result.prompt_text
-    assert "character_actions and dialogues.text" in result.prompt_text
-    assert "Do not add or repeat content to reach the midpoint" in result.prompt_text
+    assert "首稿瞄准reference=1797" in result.prompt_text
+    assert "1438-2156" in result.prompt_text
+    assert "NFKC规范化后计Unicode字母和数字" in result.prompt_text
+    assert "scenes.character_actions与dialogues.text" in result.prompt_text
+    assert "不设逐场或逐句配额" in result.prompt_text
+    assert "口播字数、正文有效字数和成片时长是不同约束" in result.prompt_text
+    assert "不能以剧情已完整" in result.prompt_text
 
 
 def test_template_prompt_builder_requires_mainland_production_script_body() -> None:
@@ -531,6 +532,7 @@ def test_partner_delivery_contract_uses_author_selected_rhythm_profile() -> None
 
 
 def test_partner_delivery_contract_localizes_only_overseas_dialogue_path() -> None:
+    from app.script_delivery_contract import OVERSEAS_DIALOGUE_VOICE_CONTRACT, SCREENPLAY_FIRST_PASS_CONTRACT
     builder = TemplatePromptBuilder(builder_version="v0.3-test")
     prompt = PromptLibraryItem.model_validate(build_prompt_item())
     strategy = GenerationStrategy.model_validate(build_strategy())
@@ -557,20 +559,29 @@ def test_partner_delivery_contract_localizes_only_overseas_dialogue_path() -> No
     )
 
     assert "PartnerScreenplayDeliveryContract:" in result.prompt_text
-    assert "所有可见叙事字段统一使用简体中文" in result.prompt_text
-    assert "动作中提到人物时只用对应中文名" in result.prompt_text
-    assert "character_name使用稳定英文名" in result.prompt_text
-    assert "中文名（ENGLISH NAME）" in result.prompt_text
-    assert "dialogues.text使用自然英文" in result.prompt_text
+    assert "其余创作者可见叙事文字" in result.prompt_text
+    assert "所有正式人物名只使用已确认的稳定英文名" in result.prompt_text
+    assert "characters.name、dialogues.character_name" in result.prompt_text
+    assert "不音译、不加中文名或中英双名" in result.prompt_text
+    assert "dialogues.text使用自然、简洁、可表演的英文" in result.prompt_text
+    assert OVERSEAS_DIALOGUE_VOICE_CONTRACT in result.prompt_text
+    assert SCREENPLAY_FIRST_PASS_CONTRACT in result.prompt_text
     assert "dialogues.chinese_translation" in result.prompt_text
-    assert "OutputLanguage=en仅表示dialogues.text使用英文" in result.prompt_text
-    assert "dialogues.chinese_character_name写该说话人的稳定中文名" in result.prompt_text
+    assert "OutputLanguage=en表示" in result.prompt_text
+    assert "dialogues.chinese_character_name是旧数据兼容字段" in result.prompt_text
     assert "在同一次输出中写该句准确、自然的简体中文对照" in result.prompt_text
     assert "中英对白逐句保留动作主体、对象或受益人、因果、否定、时态与确定程度" in result.prompt_text
     assert "不得增补原句没有的动作或事实" in result.prompt_text
-    assert "characters中的name、role、description、motivation全部只用简体中文" in result.prompt_text
-    assert "绝不能据此新建重复人物" in result.prompt_text
+    assert "中文动作、表演intent、叙事与中文译文里提到的人名" in result.prompt_text
+    assert "不据此新建人物" in result.prompt_text
     assert "写完整的竖屏短剧执行稿" in result.prompt_text
     assert "对白采用短剧所需的短句" in result.prompt_text
     assert "TargetDurationSeconds: 108" in result.prompt_text
     assert "不得少于75秒、不得超过115秒" in result.prompt_text
+    mainland = context.model_copy(update={
+        "platform_profile_id": "cn_mainland_v1",
+        "extra_variables": {"output_language": "zh", "target_duration_seconds": "108"},
+    })
+    mainland_result = builder.build_master_prompt(prompts=[prompt], context=mainland, strategy=strategy)
+    assert OVERSEAS_DIALOGUE_VOICE_CONTRACT not in mainland_result.prompt_text
+    assert SCREENPLAY_FIRST_PASS_CONTRACT in mainland_result.prompt_text

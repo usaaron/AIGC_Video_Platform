@@ -1381,6 +1381,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/story-projects/{project_id}/plan-nodes/{node_id}/episode-plans/{episode_number}/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Episode Plan Item */
+        post: operations["prepare_episode_plan_item_story_projects__project_id__plan_nodes__node_id__episode_plans__episode_number__prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/story-projects/{project_id}/plan-nodes/{node_id}/modify": {
         parameters: {
             query?: never;
@@ -1559,6 +1576,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/story-projects/{project_id}/story-bibles/synopsis-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Story Synopsis Draft */
+        post: operations["generate_story_synopsis_draft_story_projects__project_id__story_bibles_synopsis_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/story-projects/{project_id}/story-bibles/{story_bible_id}": {
         parameters: {
             query?: never;
@@ -1727,6 +1761,69 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /**
+         * ActingDirection
+         * @description Observable scene-specific performance guidance derived from the script.
+         */
+        ActingDirection: {
+            /** Beat Changes */
+            beat_changes?: string[];
+            /**
+             * Business
+             * @default
+             */
+            business: string;
+            /**
+             * Emphasis And Pause
+             * @default
+             */
+            emphasis_and_pause: string;
+            /**
+             * Line Delivery
+             * @default
+             */
+            line_delivery: string;
+            /**
+             * Listening Reaction
+             * @default
+             */
+            listening_reaction: string;
+            /**
+             * Objective
+             * @default
+             */
+            objective: string;
+            /**
+             * Obstacle
+             * @default
+             */
+            obstacle: string;
+            /**
+             * Physical State
+             * @default
+             */
+            physical_state: string;
+            /**
+             * Stakes
+             * @default
+             */
+            stakes: string;
+            /**
+             * Status Change
+             * @default
+             */
+            status_change: string;
+            /**
+             * Subtext
+             * @default
+             */
+            subtext: string;
+            /**
+             * Tactic
+             * @default
+             */
+            tactic: string;
+        };
         /** AgentRunListResponse */
         AgentRunListResponse: {
             /** Data */
@@ -1775,6 +1872,11 @@ export interface components {
             input_fingerprint: string;
             /** Owner Instance Id */
             owner_instance_id?: string | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             policy: components["schemas"]["AgentRunPolicy"];
             /** Project Id */
             project_id?: string | null;
@@ -2155,6 +2257,13 @@ export interface components {
             options?: components["schemas"]["AuthorConflictOption"][];
             /** Review Id */
             review_id: string;
+            /**
+             * Rewrite Scope
+             * @description Use reexecute_approved_plan only when the author explicitly asks to discard the current episode body and rebuild it from the approved scene plan. Ordinary polishing, dialogue changes and local revisions preserve unaffected source text.
+             * @default preserve_unaffected_text
+             * @enum {string}
+             */
+            rewrite_scope: "preserve_unaffected_text" | "reexecute_approved_plan";
             /** Source Fingerprint */
             source_fingerprint: string;
             /** Source Story Bible Version */
@@ -2361,6 +2470,52 @@ export interface components {
          * @enum {string}
          */
         BudgetLevel: "low" | "medium" | "high";
+        /**
+         * CharacterActingProfile
+         * @description Stable, reviewable performance identity; current state belongs to memory.
+         */
+        CharacterActingProfile: {
+            /**
+             * Bodylanguage
+             * @default
+             */
+            bodyLanguage: string;
+            /**
+             * Gazeandattention
+             * @default
+             */
+            gazeAndAttention: string;
+            /**
+             * Habitualactions
+             * @default
+             */
+            habitualActions: string;
+            /**
+             * Movement
+             * @default
+             */
+            movement: string;
+            /**
+             * Permanentvoiceprompt
+             * @default
+             */
+            permanentVoicePrompt: string;
+            /**
+             * Pressureresponse
+             * @default
+             */
+            pressureResponse: string;
+            /**
+             * Relationshipbehavior
+             * @default
+             */
+            relationshipBehavior: string;
+            /**
+             * Voice
+             * @default
+             */
+            voice: string;
+        };
         /** CharacterArcTarget */
         CharacterArcTarget: {
             /** Character Ref */
@@ -2418,11 +2573,18 @@ export interface components {
             knowledge_key: string;
             /** Statement */
             statement: string;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "known" | "believed" | "suspected" | "disproved" | "forgotten";
         };
         /** CharacterProfile */
         CharacterProfile: {
+            /** Acting Profile */
+            acting_profile?: {
+                [key: string]: string;
+            } | null;
             /** Description */
             description: string;
             /** Motivation */
@@ -3591,13 +3753,25 @@ export interface components {
         DialogueLine: {
             /** Character Name */
             character_name: string;
-            /** Chinese Character Name */
+            /**
+             * Chinese Character Name
+             * @description Legacy Chinese identity alias, readable for historical drafts. For new output use null; overseas characters keep their stable English names in every field.
+             */
             chinese_character_name: string | null;
-            /** Chinese Translation */
+            /**
+             * Chinese Translation
+             * @description For overseas English dialogue, translate the final text line into natural Simplified Chinese with exactly the same facts, time reference, negation, degree, condition and speaker intent. Keep established English character names unchanged inside the Chinese translation. Do not add information from the scene or explain subtext. Write text first, then this translation. For Chinese dialogue, use null.
+             */
             chinese_translation: string | null;
-            /** Intent */
+            /**
+             * Intent
+             * @description 简短可表演的语气或动作提示，不写编导目的、程序说明或对潜台词的解释。
+             */
             intent: string;
-            /** Text */
+            /**
+             * Text
+             * @description The original spoken line in the requested dialogue language. For English, write idiomatic spoken English directly, responding to the other person's immediate move in this character's established voice. Prefer familiar verbs and contractions over translated planning terminology. Enact the scene's dialogue objective without reciting it. Preserve the approved facts; do not invent amounts, dates or conditions.
+             */
             text: string;
         };
         /** DraftMasterScript */
@@ -3782,6 +3956,11 @@ export interface components {
             /** Payload Size Bytes */
             payload_size_bytes: number;
             /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
+            /**
              * Schema Version
              * @default v1
              */
@@ -3820,6 +3999,11 @@ export interface components {
             };
             memory_layer?: components["schemas"]["MemoryLayer"] | null;
             /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
+            /**
              * Schema Version
              * @default v1
              */
@@ -3855,6 +4039,30 @@ export interface components {
             exit_state: string;
             /** New Fact Ids */
             new_fact_ids?: string[];
+        };
+        /**
+         * EpisodeDevelopment
+         * @description An authored episode boundary, established before scene-level expansion.
+         */
+        EpisodeDevelopment: {
+            /** Entry State */
+            entry_state: string;
+            /** Episode Number */
+            episode_number: number;
+            /** Exit State */
+            exit_state: string;
+            /**
+             * Source Turning Points
+             * @description Exact values from the ENCLOSING output node's own turning_points, not an ancestor or sibling; assign each value once across this node's episodes.
+             */
+            source_turning_points?: string[];
+            /**
+             * Source Unit Story Beats
+             * @description Exact values from the ENCLOSING output node's own unit_story_beats, not an ancestor or technical root; assign each value once across this node's episodes.
+             */
+            source_unit_story_beats?: string[];
+            /** Synopsis */
+            synopsis: string;
         };
         /**
          * EpisodeDramaticUnit
@@ -4059,9 +4267,18 @@ export interface components {
          * @description Generate a bounded EpisodePlan batch from one approved episode-ready leaf.
          */
         EpisodePlanBatchDraftRequest: {
+            /** Draft Handoffs */
+            draft_handoffs?: components["schemas"]["EpisodePlanningDraftHandoff"][];
+            /** Execution Requirements */
+            execution_requirements?: components["schemas"]["StoryPlanExecutionRequirement"][];
             /** Generation Strategy Id */
             generation_strategy_id: string;
             planning_memory?: components["schemas"]["EpisodePlanningContinuityMemory"] | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /** Source Node Id */
             source_node_id: string;
             /** Source Node Version */
@@ -4180,11 +4397,25 @@ export interface components {
             accepted_plans?: components["schemas"]["EpisodePlanGenerationItem"][];
             /** Agent Request Id */
             agent_request_id?: string | null;
+            /** Draft Handoffs */
+            draft_handoffs?: components["schemas"]["EpisodePlanningDraftHandoff"][];
             /** Episode Number */
             episode_number: number;
+            /** Execution Requirements */
+            execution_requirements?: components["schemas"]["StoryPlanExecutionRequirement"][];
+            /**
+             * Future Rebuild
+             * @default false
+             */
+            future_rebuild: boolean;
             /** Generation Strategy Id */
             generation_strategy_id: string;
             planning_memory?: components["schemas"]["EpisodePlanningContinuityMemory"] | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             predecessor_plan?: components["schemas"]["EpisodePlanGenerationItem"] | null;
             /** Source Node Id */
             source_node_id: string;
@@ -4203,8 +4434,17 @@ export interface components {
             /** Agent Request Id */
             agent_request_id?: string | null;
             current_plan: components["schemas"]["EpisodePlanGenerationItem"];
+            /** Draft Handoffs */
+            draft_handoffs?: components["schemas"]["EpisodePlanningDraftHandoff"][];
             /** Episode Number */
             episode_number: number;
+            /** Execution Requirements */
+            execution_requirements?: components["schemas"]["StoryPlanExecutionRequirement"][];
+            /**
+             * Future Rebuild
+             * @default false
+             */
+            future_rebuild: boolean;
             /** Generation Strategy Id */
             generation_strategy_id: string;
             /**
@@ -4213,10 +4453,52 @@ export interface components {
              */
             instruction: string;
             planning_memory?: components["schemas"]["EpisodePlanningContinuityMemory"] | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             predecessor_plan?: components["schemas"]["EpisodePlanGenerationItem"] | null;
             /** @default targeted */
             revision_mode: components["schemas"]["PlanningRevisionMode"];
             selection_context?: components["schemas"]["StoryBibleSelectionContext"] | null;
+            /** Source Node Id */
+            source_node_id: string;
+            /** Source Node Version */
+            source_node_version: number;
+            /** Story Project Id */
+            story_project_id: string;
+        };
+        /**
+         * EpisodePlanItemPreparationRequest
+         * @description Complete scene execution details without changing the reviewed episode.
+         */
+        EpisodePlanItemPreparationRequest: {
+            /** Accepted Plans */
+            accepted_plans?: components["schemas"]["EpisodePlanGenerationItem"][];
+            /** Agent Request Id */
+            agent_request_id?: string | null;
+            current_plan: components["schemas"]["EpisodePlanGenerationItem"];
+            /** Draft Handoffs */
+            draft_handoffs?: components["schemas"]["EpisodePlanningDraftHandoff"][];
+            /** Episode Number */
+            episode_number: number;
+            /** Execution Requirements */
+            execution_requirements?: components["schemas"]["StoryPlanExecutionRequirement"][];
+            /**
+             * Future Rebuild
+             * @default false
+             */
+            future_rebuild: boolean;
+            /** Generation Strategy Id */
+            generation_strategy_id: string;
+            planning_memory?: components["schemas"]["EpisodePlanningContinuityMemory"] | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
+            predecessor_plan?: components["schemas"]["EpisodePlanGenerationItem"] | null;
             /** Source Node Id */
             source_node_id: string;
             /** Source Node Version */
@@ -4528,6 +4810,31 @@ export interface components {
             unresolved_setup_refs?: string[];
         };
         /**
+         * EpisodePlanningDraftHandoff
+         * @description Provisional continuity context; never a confirmed memory or execution approval.
+         */
+        EpisodePlanningDraftHandoff: {
+            /** Continuity Requirements */
+            continuity_requirements?: string[];
+            /** Episode Number */
+            episode_number: number;
+            /** Exit State */
+            exit_state: string;
+            /** Scene Execution Facts */
+            scene_execution_facts?: components["schemas"]["EpisodePlanningSceneFact"][];
+            /** Source Node Id */
+            source_node_id: string;
+            /** Source Node Version */
+            source_node_version: number;
+            /** Story Bible Version */
+            story_bible_version: number;
+            /**
+             * Synopsis
+             * @default
+             */
+            synopsis: string;
+        };
+        /**
          * EpisodePlanningOpenHook
          * @description One unresolved roadmap obligation carried across planning leaves.
          */
@@ -4540,6 +4847,15 @@ export interface components {
             source_episode: number;
             /** Target Episode */
             target_episode?: number | null;
+        };
+        /** EpisodePlanningSceneFact */
+        EpisodePlanningSceneFact: {
+            /** Exit State */
+            exit_state: string;
+            /** Scene Number */
+            scene_number: number;
+            /** Visible Action */
+            visible_action: string;
         };
         /**
          * EpisodePlanningStateHandoff
@@ -4559,6 +4875,7 @@ export interface components {
         EpisodeRoadmapDraftResponse: {
             /** Data */
             data: components["schemas"]["EpisodePlanGenerationItem"][];
+            rebuild_receipt?: components["schemas"]["FutureRoadmapRebuildReceipt"] | null;
         };
         /** EpisodeRoadmapItemDraftResponse */
         EpisodeRoadmapItemDraftResponse: {
@@ -4719,6 +5036,64 @@ export interface components {
             /** Speaker Name Cycle */
             speaker_name_cycle: string[];
         };
+        /** FutureRoadmapBudget */
+        FutureRoadmapBudget: {
+            /** Planned Dialogue Line Count */
+            planned_dialogue_line_count: number;
+            /** Planned Scene Count */
+            planned_scene_count: number;
+            /** Planned Shot Count */
+            planned_shot_count: number;
+            /** Scenes */
+            scenes: components["schemas"]["FutureRoadmapSceneBudget"][];
+            /** Target Duration Seconds */
+            target_duration_seconds: number;
+        };
+        /** FutureRoadmapRebuildReceipt */
+        FutureRoadmapRebuildReceipt: {
+            /** Agent Request Id */
+            agent_request_id: string;
+            /** Agent Run Id */
+            agent_run_id: string;
+            budget: components["schemas"]["FutureRoadmapBudget"];
+            /** Candidate Signature */
+            candidate_signature: string;
+            /** @default serial_hook */
+            ending_mode: components["schemas"]["EndingMode"];
+            /** Episode Number */
+            episode_number: number;
+            /** Evidence Signature */
+            evidence_signature: string;
+            /** Planning Revision Epoch */
+            planning_revision_epoch: number;
+            /** Revision Id */
+            revision_id: string;
+            source_evidence: components["schemas"]["FutureRoadmapSourceEvidence"];
+            /** Source Node Id */
+            source_node_id: string;
+            /** Source Node Version */
+            source_node_version: number;
+        };
+        /** FutureRoadmapSceneBudget */
+        FutureRoadmapSceneBudget: {
+            /** Dialogue Line Target */
+            dialogue_line_target: number;
+            /** Scene Number */
+            scene_number: number;
+            /** Shot Target */
+            shot_target: number;
+        };
+        /** FutureRoadmapSourceEvidence */
+        FutureRoadmapSourceEvidence: {
+            /** Entry State */
+            entry_state: string;
+            /** Exit State */
+            exit_state: string;
+            /** Source Turning Points */
+            source_turning_points: string[];
+            /** Source Unit Story Beats */
+            source_unit_story_beats: string[];
+        };
         /**
          * GenerationBatchContext
          * @description Optional lineage for one bounded stage of a longer serialized project.
@@ -4752,6 +5127,11 @@ export interface components {
             episode_plan_ids: string[];
             /** Instruction */
             instruction?: string | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /**
              * Revision
              * @default 1
@@ -5509,10 +5889,14 @@ export interface components {
          * @description A bounded, source-linked memory selected for one generation task.
          */
         MemoryCapsule: {
+            /** Action Capabilities */
+            action_capabilities?: string[];
             /** Active Constraints */
             active_constraints?: string[];
             /** @default derived */
             authority: components["schemas"]["MemoryAuthority"];
+            /** Belief Or Attitude */
+            belief_or_attitude?: string | null;
             /** Capsule Id */
             capsule_id: string;
             /** Conflict Note */
@@ -5521,14 +5905,26 @@ export interface components {
             entity_refs?: string[];
             /** Evidence Refs */
             evidence_refs?: string[];
+            /** Health Conditions */
+            health_conditions?: string[];
             /** Knowledge States */
             knowledge_states?: components["schemas"]["ContinuityKnowledgeState"][];
+            /** Lasting Marks */
+            lasting_marks?: string[];
+            /** Life Status */
+            life_status?: string | null;
+            /** Location */
+            location?: string | null;
             /**
              * Mandatory
              * @default false
              */
             mandatory: boolean;
             memory_type: components["schemas"]["MemoryCapsuleType"];
+            /** Personality Development */
+            personality_development?: string | null;
+            /** Physical State */
+            physical_state?: string | null;
             /**
              * Priority
              * @default 50
@@ -5567,6 +5963,8 @@ export interface components {
             omitted_records?: string[];
             /** Required Refs */
             required_refs?: string[];
+            /** Same Episode Setup Payoffs */
+            same_episode_setup_payoffs?: components["schemas"]["SameEpisodeSetupPayoffSource"][];
             /**
              * Schema Version
              * @default memory_recall.v1
@@ -5820,6 +6218,16 @@ export interface components {
          */
         OrchestrationStatus: "ready" | "blocked";
         /**
+         * ParentEventBinding
+         * @description Versioned parent provenance for this child's atomic event table.
+         */
+        ParentEventBinding: {
+            /** Child Event Indices */
+            child_event_indices: number[];
+            /** Parent Event Index */
+            parent_event_index: number;
+        };
+        /**
          * PlanningApprovalStatus
          * @enum {string}
          */
@@ -5893,6 +6301,11 @@ export interface components {
         PlanningSessionSave: {
             /** Client Instance Id */
             client_instance_id: string;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /** Project Id */
             project_id: string;
             /**
@@ -6169,6 +6582,17 @@ export interface components {
              * @default
              */
             visual_direction: string;
+        };
+        /**
+         * PriorAuthorInstruction
+         * @description An active earlier user requirement for this same episode, not a fact.
+         */
+        PriorAuthorInstruction: {
+            /** Id */
+            id: string;
+            /** Instruction */
+            instruction: string;
+            selection_context?: components["schemas"]["StoryBibleSelectionContext"] | null;
         };
         /** ProfileRule */
         ProfileRule: {
@@ -6628,6 +7052,49 @@ export interface components {
         PromptLibraryItemResponse: {
             data: components["schemas"]["PromptLibraryItem"];
         };
+        /**
+         * PromptPlan
+         * @description Machine-readable controls used to compile a production video prompt.
+         */
+        PromptPlan: {
+            /** Active References */
+            active_references?: string[];
+            /** Dialogue Rules */
+            dialogue_rules?: string[];
+            /**
+             * First Frame
+             * @default
+             */
+            first_frame: string;
+            /**
+             * Format Mode
+             * @default 单一连续镜头
+             */
+            format_mode: string;
+            /**
+             * Lighting
+             * @default
+             */
+            lighting: string;
+            /** Negative Locks */
+            negative_locks?: string[];
+            /**
+             * Optics
+             * @default
+             */
+            optics: string;
+            /** Physical Constraints */
+            physical_constraints?: string[];
+            /** Positive Locks */
+            positive_locks?: string[];
+            /**
+             * Scene Map
+             * @default
+             */
+            scene_map: string;
+            /** Timing */
+            timing?: string[];
+        };
         /** PromptRetrievalRequest */
         PromptRetrievalRequest: {
             /** Generation Strategy Id */
@@ -7042,6 +7509,22 @@ export interface components {
          * @enum {string}
          */
         RevisionTargetType: "hook" | "scene_structure" | "character" | "emotion" | "conflict" | "dialogue" | "pacing" | "commercial" | "cliffhanger" | "localization";
+        /**
+         * SameEpisodeSetupPayoffSource
+         * @description Claim about approved timing; the server must verify its durable source.
+         */
+        SameEpisodeSetupPayoffSource: {
+            /** Episode Number */
+            episode_number: number;
+            /** Setup Payoff Ref */
+            setup_payoff_ref: string;
+            /** Source Node Id */
+            source_node_id: string;
+            /** Source Node Version */
+            source_node_version: number;
+            /** Story Bible Version */
+            story_bible_version: number;
+        };
         /** SceneBlueprint */
         SceneBlueprint: {
             /** Purpose */
@@ -7136,12 +7619,22 @@ export interface components {
         SceneDesign: {
             /** Action Rhythm */
             action_rhythm: string;
+            /**
+             * Audience Effect
+             * @default
+             */
+            audience_effect: string;
             /** Purpose */
             purpose: string;
             /** Reveal Order */
             reveal_order: string;
             /** Spatial Layout */
             spatial_layout: string;
+            /**
+             * Status Change
+             * @default
+             */
+            status_change: string;
             /** Transition */
             transition: string;
         };
@@ -7191,6 +7684,16 @@ export interface components {
         ScriptDraftModificationRequest: {
             /** Instruction */
             instruction: string;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
+            /**
+             * Prior Author Instructions
+             * @description Active prior author requirements for this same project and episode, oldest first; exclude the current instruction and all assistant/candidate content. Current and prior instruction/selection strings together must not exceed 32000 characters.
+             */
+            prior_author_instructions?: components["schemas"]["PriorAuthorInstruction"][];
             resolution?: components["schemas"]["AuthorConflictResolution"] | null;
             selection_context?: components["schemas"]["StoryBibleSelectionContext"] | null;
             source_draft_master_script: components["schemas"]["DraftMasterScript"];
@@ -7214,6 +7717,11 @@ export interface components {
         /** ScriptDraftReviewRequest */
         ScriptDraftReviewRequest: {
             draft_master_script: components["schemas"]["DraftMasterScript"];
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             source_generation_run: components["schemas"]["ScriptGenerationDraftRun"];
         };
         /** ScriptDraftReviewResponse */
@@ -7236,6 +7744,11 @@ export interface components {
             generation_strategy_id: string;
             /** Output Language */
             output_language: string;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /** @default cn_mainland */
             release_region: components["schemas"]["ScriptReleaseRegion"];
             resolved_creative_context?: components["schemas"]["ResolvedCreativeContext"] | null;
@@ -7361,6 +7874,8 @@ export interface components {
             setup_episode?: number | null;
             /** Setup Payoff Id */
             setup_payoff_id: string;
+            /** Source Ref */
+            source_ref?: string | null;
             /** @default planned */
             status: components["schemas"]["SetupPayoffStatus"];
             /** Target Payoff Episode */
@@ -7383,6 +7898,8 @@ export interface components {
             progress_summary: string;
             /** Setup Payoff Ref */
             setup_payoff_ref: string;
+            /** Source Ref */
+            source_ref?: string | null;
             /** Status */
             status: string;
             /** Target Payoff Episode */
@@ -7561,6 +8078,7 @@ export interface components {
          * @description Authoring context supplied when drafting a Story Bible.
          */
         StoryBibleCharacterInput: {
+            acting_profile?: components["schemas"]["CharacterActingProfile"] | null;
             /** Character Ref */
             character_ref: string;
             /** Description */
@@ -7578,6 +8096,7 @@ export interface components {
          * @description Canonical identity used to keep narrative references stable.
          */
         StoryBibleCharacterRegistryEntry: {
+            acting_profile?: components["schemas"]["CharacterActingProfile"] | null;
             /** Character Ref */
             character_ref: string;
             /** Name */
@@ -7601,6 +8120,11 @@ export interface components {
             author_instruction: string;
             /** Characters */
             characters?: components["schemas"]["StoryBibleCharacterInput"][];
+            /**
+             * Confirmed Synopsis
+             * @default
+             */
+            confirmed_synopsis: string;
             /** Content Spec Id */
             content_spec_id?: string | null;
             /** Creative Decisions */
@@ -7624,6 +8148,8 @@ export interface components {
             selected_tag_labels?: string[];
             /** Story Project Id */
             story_project_id: string;
+            /** Synopsis Review Notes */
+            synopsis_review_notes?: string[];
             /**
              * Target Episode Count
              * @default 300
@@ -7879,6 +8405,11 @@ export interface components {
              */
             creative_prompt: string;
             current_brief?: components["schemas"]["StoryInspirationBrief"];
+            /**
+             * Current Synopsis
+             * @default
+             */
+            current_synopsis: string;
             /** Generation Strategy Id */
             generation_strategy_id: string;
             /** Messages */
@@ -7998,12 +8529,54 @@ export interface components {
          * @enum {string}
          */
         StoryLineType: "main" | "subplot" | "character_arc";
+        /** StoryPlanExecutionHandoff */
+        StoryPlanExecutionHandoff: {
+            /** Episode Number */
+            episode_number: number;
+            /** Instruction */
+            instruction: string;
+            /** Node Id */
+            node_id: string;
+            /** Node Version */
+            node_version: number;
+            /** Source Event Index */
+            source_event_index: number;
+        };
+        /**
+         * StoryPlanExecutionRequirement
+         * @description A feasible execution detail owned by an already allocated story event.
+         */
+        StoryPlanExecutionRequirement: {
+            /** Episode Number */
+            episode_number: number;
+            /** Instruction */
+            instruction: string;
+            /** Source Event Index */
+            source_event_index: number;
+        };
         /**
          * StoryPlanExpansionStatus
          * @description Lifecycle of one recursively decomposable narrative segment.
          * @enum {string}
          */
         StoryPlanExpansionStatus: "unexpanded" | "expanded" | "episode_ready";
+        /** StoryPlanFutureRevisionReview */
+        StoryPlanFutureRevisionReview: {
+            boundary_status: components["schemas"]["StoryPlanQualityStatus"];
+            /** End Episode */
+            end_episode: number;
+            /** Evidence Signature */
+            evidence_signature: string;
+            /** Planning Revision Epoch */
+            planning_revision_epoch: number;
+            /** Revision Id */
+            revision_id: string;
+            /** Start Episode */
+            start_episode: number;
+            status: components["schemas"]["StoryPlanQualityStatus"];
+            /** Summary */
+            summary: string;
+        };
         /**
          * StoryPlanNode
          * @description One level-free node in a recursively decomposed long-story plan.
@@ -8026,6 +8599,8 @@ export interface components {
             emotional_direction: string;
             /** Entry State */
             entry_state: string;
+            /** Episode Developments */
+            episode_developments?: components["schemas"]["EpisodeDevelopment"][];
             /** Estimated Episode Count */
             estimated_episode_count?: number | null;
             /**
@@ -8043,6 +8618,8 @@ export interface components {
             narrative_purpose: string;
             /** Node Id */
             node_id: string;
+            /** Parent Event Bindings */
+            parent_event_bindings?: components["schemas"]["ParentEventBinding"][];
             /** Parent Node Id */
             parent_node_id?: string | null;
             /** Parent Node Version */
@@ -8114,10 +8691,20 @@ export interface components {
              * @default 12
              */
             max_episode_ready_span: number;
+            /**
+             * Operation Id
+             * @description Stable decomposition operation identity, reused across HTTP retries.
+             */
+            operation_id?: string | null;
             /** Parent Node Id */
             parent_node_id: string;
             /** Parent Node Version */
             parent_node_version: number;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /**
              * Requested Child Count
              * @description Optional creator override. When omitted, the model chooses 2-12 narratively distinct children according to the parent content.
@@ -8143,6 +8730,11 @@ export interface components {
             parent_node_id?: string | null;
             /** Parent Node Version */
             parent_node_version?: number | null;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /** Predecessor Node Id */
             predecessor_node_id?: string | null;
             /** Predecessor Node Version */
@@ -8185,6 +8777,11 @@ export interface components {
             node_id: string;
             /** Node Version */
             node_version: number;
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /** @default targeted */
             revision_mode: components["schemas"]["PlanningRevisionMode"];
             selection_context?: components["schemas"]["StoryBibleSelectionContext"] | null;
@@ -8204,12 +8801,19 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+            /** Execution Requirements */
+            execution_requirements?: components["schemas"]["StoryPlanExecutionHandoff"][];
             /** Findings */
             findings?: components["schemas"]["StoryPlanQualityFinding"][];
+            future_revision_review?: components["schemas"]["StoryPlanFutureRevisionReview"] | null;
             /** Node Refs */
             node_refs: components["schemas"]["StoryPlanQualityNodeRef"][];
             /** Node Signature */
             node_signature: string;
+            /** Reviewed Source Fingerprint */
+            reviewed_source_fingerprint?: string | null;
+            /** Reviewed Source Signature */
+            reviewed_source_signature?: string | null;
             /**
              * Schema Version
              * @default v1
@@ -8229,15 +8833,24 @@ export interface components {
         };
         /**
          * StoryPlanQualityAuditRequest
-         * @description Audit the active episode-ready leaf lineage without mutating the tree.
+         * @description Audit the current draft or approved tree frontier without mutating it.
          */
         StoryPlanQualityAuditRequest: {
             /** Agent Request Id */
             agent_request_id: string;
+            /** Episode Plans */
+            episode_plans?: components["schemas"]["StoryPlanQualityEpisode"][];
+            /** Execution Requirements */
+            execution_requirements?: components["schemas"]["StoryPlanExecutionHandoff"][];
             /** Generation Strategy Id */
             generation_strategy_id: string;
             /** Node Refs */
             node_refs: components["schemas"]["StoryPlanQualityNodeRef"][];
+            /**
+             * Planning Revision Epoch
+             * @default 0
+             */
+            planning_revision_epoch: number;
             /** Story Bible Id */
             story_bible_id: string;
             /** Story Bible Version */
@@ -8248,6 +8861,38 @@ export interface components {
         /** StoryPlanQualityAuditResponse */
         StoryPlanQualityAuditResponse: {
             data: components["schemas"]["StoryPlanQualityAudit"];
+        };
+        /**
+         * StoryPlanQualityEpisode
+         * @description Actual roadmap content, distinct from the source node's promised outcome.
+         */
+        StoryPlanQualityEpisode: {
+            /** Continuity Requirements */
+            continuity_requirements?: string[];
+            /** Dramatic Units */
+            dramatic_units?: components["schemas"]["EpisodeDramaticUnit"][];
+            /** Episode Number */
+            episode_number: number;
+            /** Episode Payoff */
+            episode_payoff: string;
+            /** Exit State */
+            exit_state: string;
+            /** Planned Dialogue Line Count */
+            planned_dialogue_line_count?: number | null;
+            /** Protagonist Decision */
+            protagonist_decision: string;
+            /** Scene Execution Plan */
+            scene_execution_plan?: components["schemas"]["StoryPlanQualityScene"][];
+            /** Source Node Id */
+            source_node_id: string;
+            /** Source Node Version */
+            source_node_version: number;
+            /** Source Turning Points */
+            source_turning_points?: string[];
+            /** Source Unit Story Beats */
+            source_unit_story_beats?: string[];
+            /** Synopsis */
+            synopsis: string;
         };
         /** StoryPlanQualityFinding */
         StoryPlanQualityFinding: {
@@ -8274,6 +8919,28 @@ export interface components {
             node_id: string;
             /** Node Version */
             node_version: number;
+        };
+        /**
+         * StoryPlanQualityScene
+         * @description Execution and speech evidence needed to assess the planned scene.
+         */
+        StoryPlanQualityScene: {
+            /** Character Refs */
+            character_refs?: string[];
+            /** Dialogue Line Target */
+            dialogue_line_target?: number | null;
+            /** Dialogue Objective */
+            dialogue_objective?: string | null;
+            /** Evidence Requirements */
+            evidence_requirements?: string[];
+            /** Exit State */
+            exit_state: string;
+            /** Forbidden Changes */
+            forbidden_changes?: string[];
+            /** Scene Number */
+            scene_number: number;
+            /** Visible Action */
+            visible_action: string;
         };
         /**
          * StoryPlanQualityStatus
@@ -8602,6 +9269,70 @@ export interface components {
         StoryStagePlanResponse: {
             data: components["schemas"]["StoryStagePlan"];
         };
+        /** StorySynopsisDraftOutput */
+        StorySynopsisDraftOutput: {
+            review: components["schemas"]["StorySynopsisReview"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * StorySynopsisDraftRequest
+         * @description Synthesize the current author draft without approving or persisting it.
+         */
+        StorySynopsisDraftRequest: {
+            /** Content Spec Id */
+            content_spec_id?: string | null;
+            /**
+             * Creative Prompt
+             * @default
+             */
+            creative_prompt: string;
+            current_brief?: components["schemas"]["StoryInspirationBrief"];
+            /**
+             * Current Text
+             * @default
+             */
+            current_text: string;
+            /** Generation Strategy Id */
+            generation_strategy_id: string;
+            /** Messages */
+            messages?: components["schemas"]["StoryInspirationMessage"][];
+            /** Reference Materials */
+            reference_materials?: components["schemas"]["CreativeReferenceMaterial"][];
+            /** Selected Tag Labels */
+            selected_tag_labels?: string[];
+            /** Story Project Id */
+            story_project_id: string;
+            /**
+             * Target Episode Count
+             * @default 300
+             */
+            target_episode_count: number;
+        };
+        /** StorySynopsisDraftResponse */
+        StorySynopsisDraftResponse: {
+            data: components["schemas"]["StorySynopsisDraftOutput"];
+        };
+        /** StorySynopsisReview */
+        StorySynopsisReview: {
+            /** Issues */
+            issues?: components["schemas"]["StorySynopsisReviewIssue"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "complete";
+        };
+        /** StorySynopsisReviewIssue */
+        StorySynopsisReviewIssue: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "causality" | "conflict" | "unresolved" | "proposal";
+            /** Message */
+            message: string;
+        };
         /** StoryboardEditRequest */
         StoryboardEditRequest: {
             /**
@@ -8651,6 +9382,7 @@ export interface components {
         };
         /** StoryboardShot */
         StoryboardShot: {
+            acting_direction?: components["schemas"]["ActingDirection"];
             /** Action Sequence */
             action_sequence: string[];
             /** Camera */
@@ -8675,6 +9407,7 @@ export interface components {
              * @default
              */
             prompt: string;
+            prompt_plan?: components["schemas"]["PromptPlan"];
             /** Purpose */
             purpose: string;
             /** Shot Id */
@@ -13034,6 +13767,79 @@ export interface operations {
             };
         };
     };
+    prepare_episode_plan_item_story_projects__project_id__plan_nodes__node_id__episode_plans__episode_number__prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                node_id: string;
+                episode_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EpisodePlanItemPreparationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodeRoadmapItemDraftResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+        };
+    };
     modify_story_plan_node_story_projects__project_id__plan_nodes__node_id__modify_post: {
         parameters: {
             query?: never;
@@ -13110,6 +13916,7 @@ export interface operations {
         parameters: {
             query?: {
                 descendant_policy?: string;
+                planning_revision_epoch?: number;
             };
             header?: never;
             path: {
@@ -13637,6 +14444,77 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+        };
+    };
+    generate_story_synopsis_draft_story_projects__project_id__story_bibles_synopsis_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StorySynopsisDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorySynopsisDraftResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

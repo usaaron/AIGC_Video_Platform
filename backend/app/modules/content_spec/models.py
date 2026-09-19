@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.character_identity import CharacterName
+
 
 class ContentSpecStatus(str, Enum):
     draft = "draft"
@@ -89,7 +91,7 @@ class CharacterContext(BaseModel):
         max_length=120,
         pattern=r"^[a-zA-Z0-9_.-]+$",
     )
-    name: str = Field(min_length=2, max_length=80)
+    name: CharacterName
     role: str = Field(min_length=2, max_length=80)
     description: str | None = Field(default=None, min_length=5, max_length=500)
     motivation: str | None = Field(default=None, min_length=5, max_length=500)

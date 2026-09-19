@@ -10,6 +10,7 @@ import {
   toEpisodePlainText,
 } from "../lib/episode-export.ts";
 import { createScreenplayDocxBlob } from "../lib/episode-docx.ts";
+import { characterReferenceNames, resolveDraftCharacterReferences } from "../lib/character-reference.ts";
 import JSZip from "jszip";
 
 function buildDraft(language = "zh-CN") {
@@ -57,6 +58,32 @@ test("Markdown episode export keeps screenplay headings and readable scene struc
   assert.match(content, /FADE OUT \/ 淡出。/);
 });
 
+test("project character references resolve consistently in all delivery formats without rewriting the source", async () => {
+  const draft = buildDraft();
+  draft.episode_cast = ["character.lead", "character.guard"];
+  draft.scenes[0].character_refs = [...draft.episode_cast];
+  draft.scenes[0].content_manifest = {
+    character_refs: [...draft.episode_cast], objective: "找到证据", conflict: "守卫挡住入口",
+    outcome: "拿到证据", props: ["手电筒"], location: "旧仓库",
+  };
+  const original = JSON.stringify(draft);
+  const characters = [{ id: "story-bible-character.lead", name: "林夏" }, { id: "character.guard", name: "守卫" }];
+  assert.deepEqual(characterReferenceNames(["character.lead", "林夏", "character.unknown"], characters), ["林夏", "character.unknown"]);
+  const presentation = resolveDraftCharacterReferences(draft, characters);
+  const word = await createScreenplayDocxBlob("逆光而行", [{ episodeNumber: 12, draft: presentation }]);
+  const zip = await JSZip.loadAsync(await word.arrayBuffer());
+  const xml = await zip.file("word/document.xml").async("string");
+  for (const content of [toEpisodeMarkdown(presentation, 12), toEpisodePlainText(presentation, 12), xml]) {
+    assert.match(content, /林夏/);
+    assert.match(content, /守卫/);
+    assert.doesNotMatch(content, /character\.lead|character\.guard/);
+  }
+  assert.deepEqual(presentation.scenes[0].body_order, draft.scenes[0].body_order);
+  assert.deepEqual(presentation.scenes[0].character_actions, draft.scenes[0].character_actions);
+  assert.deepEqual(presentation.scenes[0].dialogues, draft.scenes[0].dialogues);
+  assert.equal(JSON.stringify(draft), original);
+});
+
 test("plain text episode export contains no Markdown formatting markers", () => {
   const content = toEpisodePlainText(buildDraft(), 12);
 
@@ -100,9 +127,9 @@ test("overseas export presents English dialogue first with Chinese below", () =>
   };
   const content = toEpisodePlainText(draft, 12, view);
 
-  assert.match(content, /林夏（LENA HART）[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
+  assert.match(content, /LENA HART[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
   assert.doesNotMatch(content, /Truth Behind the Door/);
-  assert.match(content, /△ 林夏推开铁门。/);
+  assert.match(content, /△ LENA HART推开铁门。/);
 });
 
 test("overseas English draft export adds Chinese below without replacing English", () => {
@@ -139,9 +166,9 @@ test("overseas English draft export adds Chinese below without replacing English
 
   const content = toEpisodePlainText(draft, 12, view);
 
-  assert.match(content, /林夏（LENA HART）[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
-  assert.match(content, /△ 林夏推开铁门。/);
-  assert.doesNotMatch(content, /△ LENA HART推开铁门。/);
+  assert.match(content, /LENA HART[\s\S]*Who's there\?[\s\S]*中文：谁在那里？/);
+  assert.match(content, /△ LENA HART推开铁门。/);
+  assert.doesNotMatch(content, /△ 林夏推开铁门。/);
   assert.doesNotMatch(content, /中文：Who's there\?/);
 });
 
@@ -209,8 +236,8 @@ test("overseas Word export keeps Chinese action but uses bilingual dialogue", as
   const documentArchive = await JSZip.loadAsync(await documentBlob.arrayBuffer());
   const documentXml = await documentArchive.file("word/document.xml").async("string");
 
-  assert.match(documentXml, /林夏推开铁门/);
-  assert.match(documentXml, /林夏（LENA HART）/);
+  assert.match(documentXml, /LENA HART推开铁门/);
+  assert.match(documentXml, /LENA HART/);
   assert.match(documentXml, /Who&apos;s there\?/);
   assert.match(documentXml, /中文：谁在那里？/);
 });
@@ -255,6 +282,31 @@ test("full Word collection adds the client cover and honest runtime", async () =
   assert.match(documentXml, /75–115秒/);
   assert.match(documentXml, /预计总时长约3分钟/);
   assert.match(documentXml, /△ 标注人物对白之外/);
+});
+
+test("all delivery formats retain duration estimates outside the preferred window", async () => {
+  for (const [estimate, target, expected] of [
+    [138, 98, 138], [52, 90, 52], ["129", 105, 129], [0, 130, 130], [Infinity, 98, 98], [null, 0, 90],
+  ]) {
+    const draft = { ...buildDraft(), target_duration_seconds: target,
+      llm_metadata: { estimated_duration_seconds: estimate } };
+    const original = structuredClone(draft);
+    const label = `预计时长：${expected}秒`;
+    assert.ok(toEpisodeMarkdown(draft, 1).includes(label));
+    assert.ok(toEpisodePlainText(draft, 1).includes(label));
+    const blob = await createScreenplayDocxBlob("测试剧", [{ episodeNumber: 1, draft }]);
+    const archive = await JSZip.loadAsync(await blob.arrayBuffer());
+    assert.ok((await archive.file("word/document.xml").async("string")).includes(label));
+    assert.deepEqual(draft, original);
+  }
+  const episodes = [105, 129, 138].map((seconds, index) => ({
+    episodeNumber: index + 1,
+    draft: { ...buildDraft(), target_duration_seconds: 90,
+      llm_metadata: { estimated_duration_seconds: seconds } },
+  }));
+  const blob = await createScreenplayDocxBlob("测试剧", episodes, { includeCover: true });
+  const archive = await JSZip.loadAsync(await blob.arrayBuffer());
+  assert.match(await archive.file("word/document.xml").async("string"), /预计总时长约6分钟/);
 });
 
 test("episode ZIP stores Word files in a separate directory", async () => {

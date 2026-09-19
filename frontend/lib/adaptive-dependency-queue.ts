@@ -24,9 +24,16 @@ export async function runAdaptiveDependencyQueue<T>(input: {
   successesBeforeIncrease?: number;
   slowTaskThresholdMs?: number;
   breadthFirst?: boolean;
+  /** A breadth-first barrier; no work in this layer starts until it succeeds. */
+  beforeLayer?: (depth: number) => Promise<void> | void;
   shouldReduceConcurrencyOnError?: (error: unknown) => boolean;
   onProgress?: (progress: DependencyQueueProgress<T>) => Promise<void> | void;
+  /** Active workers, including the outcome currently being checkpointed. */
+  onActiveWorkersChange?: (count: number) => void;
 }): Promise<void> {
+  if (input.beforeLayer && !input.breadthFirst) {
+    throw new Error("Layer checkpoints require breadth-first scheduling.");
+  }
   const minimumConcurrency = Math.max(1, Math.floor(input.minimumConcurrency ?? 1));
   const maximumConcurrency = Math.max(
     minimumConcurrency,
@@ -84,9 +91,11 @@ export async function runAdaptiveDependencyQueue<T>(input: {
           }),
         );
       active.set(taskId, task);
+      input.onActiveWorkersChange?.(active.size);
     }
   };
 
+  if (pending.length) await input.beforeLayer?.(activeDepth);
   launchAvailable();
   while (active.size) {
     const outcome = await Promise.race(active.values());
@@ -148,13 +157,18 @@ export async function runAdaptiveDependencyQueue<T>(input: {
       depthScheduled: scheduledByDepth.get(outcome.item.depth) ?? 0,
       ...(!outcome.ok ? { error: outcome.error } : {}),
     });
+    input.onActiveWorkersChange?.(active.size);
     if (
       input.breadthFirst
       && active.size === 0
       && pending.length
       && pending[0]?.depth !== activeDepth
     ) {
+      // Successful siblings remain checkpointed, but an incomplete layer must
+      // not promote any of its children through a content-review barrier.
+      if (hasFailure && input.beforeLayer) throw firstFailure;
       activeDepth = pending[0]?.depth ?? activeDepth;
+      await input.beforeLayer?.(activeDepth);
     }
     launchAvailable();
   }

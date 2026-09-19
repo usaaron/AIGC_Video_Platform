@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.modules.script_engine.overseas_identity import (
+    identity_aliases, replace_identity_aliases, without_known_english_names, english_identity,
+)
+
 import json
 from concurrent.futures import Future
 import re
@@ -117,6 +121,7 @@ class BilingualScriptViewService:
                 f"GenerationStrategy '{payload.generation_strategy_id}' was not found."
             )
 
+        character_name_map = identity_aliases(payload.draft_master_script.model_dump(), payload.character_name_map)
         source_items = _collect_translatable_text(
             payload.draft_master_script,
             target_language=payload.target_language,
@@ -143,25 +148,12 @@ class BilingualScriptViewService:
                         ],
                     )
                 elif (
-                    (
-                        _is_chinese_dialogue_target(payload.target_language)
-                        or _is_overseas_chinese_presentation_target(
-                            payload.target_language
-                        )
-                    )
+                    (_is_chinese_dialogue_target(payload.target_language)
+                     or _is_overseas_chinese_presentation_target(payload.target_language))
                     and _is_character_name_path(path)
                 ):
-                    source_name = _character_name_base(source_text)
-                    source_key = source_name.casefold()
-                    translated_by_path[path] = (
-                        source_name
-                        if _CJK_RE.search(source_name)
-                        else mock_chinese_names.setdefault(
-                            source_key,
-                            _MOCK_CHINESE_NAMES[
-                                len(mock_chinese_names) % len(_MOCK_CHINESE_NAMES)
-                            ],
-                        )
+                    translated_by_path[path] = replace_identity_aliases(
+                        source_text, identity_aliases(payload.draft_master_script.model_dump(), payload.character_name_map), exact=True,
                     )
                 else:
                     translated_by_path[path] = f"{mock_prefix} {source_text}"
@@ -170,7 +162,7 @@ class BilingualScriptViewService:
             ]
         else:
             translated_by_path: dict[str, str] = {}
-            prompt_character_name_map = dict(payload.character_name_map)
+            prompt_character_name_map = dict(character_name_map)
             for batch in _translation_batches(source_items):
                 raw_output = self._llm_adapter.generate_structured_output(
                     _build_translation_prompt(
@@ -202,24 +194,24 @@ class BilingualScriptViewService:
             _validate_american_character_names(
                 source_items=source_items,
                 translated_by_path=translated_by_path,
-                character_name_map=payload.character_name_map,
+                character_name_map=character_name_map,
             )
         elif _is_chinese_dialogue_target(payload.target_language):
-            _normalize_chinese_character_names(
+            _preserve_overseas_character_names(
                 source_items=source_items,
                 translated_by_path=translated_by_path,
-                character_name_map=payload.character_name_map,
+                character_name_map=character_name_map,
             )
         elif _is_overseas_chinese_presentation_target(payload.target_language):
-            _normalize_chinese_character_names(
+            _preserve_overseas_character_names(
                 source_items=source_items,
                 translated_by_path=translated_by_path,
-                character_name_map=payload.character_name_map,
+                character_name_map=character_name_map,
             )
             _replace_character_aliases_in_chinese_presentation(
                 source_items=source_items,
                 translated_by_path=translated_by_path,
-                character_name_map=payload.character_name_map,
+                character_name_map=character_name_map,
             )
 
         expected_paths = [path for path, _source_text in source_items]
@@ -233,6 +225,7 @@ class BilingualScriptViewService:
         if _is_overseas_chinese_presentation_target(payload.target_language):
             _validate_chinese_presentation_translations(
                 translated_by_path=translated_by_path,
+                known_names=tuple(value for path, value in translated_by_path.items() if _is_character_name_path(path)),
             )
 
         return BilingualScriptView(
@@ -511,11 +504,11 @@ def _build_translation_prompt(
                 f"Market path: {market_path}",
                 "你是海外竖屏短剧的中文工作稿编辑。输入是英文剧本，除对白外的所有叙述、场景、动作、人物资料和结构字段都要翻译成自然、准确的简体中文。",
                 "对白字段也返回中文翻译，系统会把英文原句放在上方、中文翻译放在下方；不得改写或替换英文原句。",
-                "人物名必须转换成稳定、自然的中文名；同一个英文人物名始终对应同一个中文名，不要使用拼音、英文名或解释。",
+                "所有人物名都保留稳定英文名，包括中文叙事与译文里的人名；不得音译、显示中文别名或中英双名。",
                 "不得改变剧情事实、人物意图、关系、信息量、语气强弱、剧情顺序或结尾钩子；不得增删、概括、审查或续写剧情。",
                 "每个输入path必须原样返回且只能返回一次。只填写translated_text，不要解释，不要返回Markdown或排版说明。",
                 "",
-                "STABLE CHINESE CHARACTER NAMES:",
+                "LEGACY CHARACTER ALIASES (English identity -> historical Chinese alias):",
                 json.dumps(stable_names, ensure_ascii=False, indent=2),
                 "",
                 "SOURCE ITEMS:",
@@ -532,16 +525,16 @@ def _build_translation_prompt(
             [
                 f"Market path: {market_path}",
                 "你现在是剧本大师和语言大师。输入内容是已经完成终审的美国短剧英文对白。",
-                "把每句英文对白翻译成自然、准确、适合剧本阅读的简体中文，供系统显示在英文原句下方；同时把人物英文名转换成稳定的中文名。",
+                "把每句英文对白翻译成自然、准确、适合剧本阅读的简体中文，供系统显示在英文原句下方；人物名在中文译文中也保留稳定英文名。",
                 "不得改变剧情内容、人物意图、事实、关系、信息量、语气强弱、剧情顺序或结尾钩子；不得增删、概括、审查或续写剧情。",
                 "保留原句的潜台词、打断、反击、俚语语气和情绪力度，但不要在中文里生硬逐字直译。",
-                "character_name和characters.*.name只返回简体中文人物名，不附英文名、拼音、标签或解释；同一英文名必须始终对应同一中文名。",
-                "如果下方STABLE CHINESE CHARACTER NAMES已经指定映射，必须逐字复用对应中文名；人物名后的O.S.、V.O.、continued等对白标记由系统保留。",
+                "character_name和characters.*.name逐字保留稳定英文名，不翻译、不音译、不附中文名或解释。",
+                "如果下方LEGACY CHARACTER ALIASES指定旧中文别名与英文名的映射，正式姓名只使用对应英文名；O.S.、V.O.、continued等对白标记由系统保留。",
                 "英文原文已经由上一环节按照美国短剧习惯润色，本环节不得改写英文原文，只返回对应的中文翻译。",
                 "每个输入path必须原样返回且只能返回一次。只填写translated_text，不要解释。",
                 "不要返回Markdown、字体、字号、颜色或排版说明；系统会按partner_screenplay.v1统一生成英文在上、中文在下的字体与格式。",
                 "",
-                "STABLE CHINESE CHARACTER NAMES:",
+                "LEGACY CHARACTER ALIASES (English identity -> historical Chinese alias):",
                 json.dumps(stable_names, ensure_ascii=False, indent=2),
                 "",
                 "SOURCE ITEMS:",
@@ -644,6 +637,16 @@ def _validate_american_character_names(
         target_owners[translated_name.casefold()] = source_key
 
 
+def _preserve_overseas_character_names(
+    *, source_items: list[tuple[str, str]], translated_by_path: dict[str, str],
+    character_name_map: dict[str, str],
+) -> None:
+    aliases = {alias: english for alias, english in character_name_map.items() if english_identity(english)}
+    for path, source_text in source_items:
+        if _is_character_name_path(path):
+            translated_by_path[path] = replace_identity_aliases(source_text, aliases, exact=True)
+
+
 def _normalize_chinese_character_names(
     *,
     source_items: list[tuple[str, str]],
@@ -707,6 +710,7 @@ def _is_character_name_path(path: str) -> bool:
 def _validate_chinese_presentation_translations(
     *,
     translated_by_path: dict[str, str],
+    known_names: tuple[str, ...] = (),
 ) -> None:
     """Reject a v4 view whose non-name translations are still English."""
 
@@ -718,7 +722,7 @@ def _validate_chinese_presentation_translations(
             raise InvalidBilingualViewOutputError(
                 f"Chinese presentation field '{path}' did not return Chinese text."
             )
-        latin_count = len(_LATIN_RE.findall(translated_text))
+        latin_count = len(_LATIN_RE.findall(without_known_english_names(translated_text, known_names) or ""))
         chinese_count = len(_CJK_RE.findall(translated_text))
         if latin_count >= max(4, round(chinese_count * 0.25)):
             raise InvalidBilingualViewOutputError(
@@ -732,30 +736,8 @@ def _replace_character_aliases_in_chinese_presentation(
     translated_by_path: dict[str, str],
     character_name_map: dict[str, str],
 ) -> None:
-    """Keep stable English aliases out of Chinese narrative sentences."""
-
-    aliases: dict[str, str] = {
-        _character_name_base(english): _character_name_base(chinese)
-        for chinese, english in character_name_map.items()
-        if _character_name_base(chinese) and _character_name_base(english)
-    }
-    for path, source_text in source_items:
+    """Resolve legacy aliases to stable English names in translated prose."""
+    aliases = {chinese: english for chinese, english in character_name_map.items() if english_identity(english)}
+    for path, translated in list(translated_by_path.items()):
         if not _is_character_name_path(path):
-            continue
-        translated_name = translated_by_path.get(path, "")
-        source_name = _character_name_base(source_text)
-        chinese_name = _character_name_base(translated_name)
-        if source_name and chinese_name and _CJK_RE.search(chinese_name):
-            aliases[source_name] = chinese_name
-    for path, value in list(translated_by_path.items()):
-        if _is_character_name_path(path) or not value:
-            continue
-        normalized = value
-        for english, chinese in sorted(aliases.items(), key=lambda item: len(item[0]), reverse=True):
-            normalized = re.sub(
-                rf"(?<![A-Za-z]){re.escape(english)}(?![A-Za-z])",
-                chinese,
-                normalized,
-                flags=re.IGNORECASE,
-            )
-        translated_by_path[path] = normalized
+            translated_by_path[path] = replace_identity_aliases(translated, aliases)

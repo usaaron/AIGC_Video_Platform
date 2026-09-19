@@ -1,3 +1,7 @@
+import type { AuthorModificationInstruction } from "./author-modification-instructions";
+import type { ProducedBodyResolutionRequest, ProducedBodyResolutionReceipt } from "./produced-body-resolution";
+import type { EpisodeExecutionPlan, StoryNodeExecutionContext } from "./episode-generation-planning";
+import type { MemoryRecall } from "./memory-recall";
 import type { EpisodePlanImportDraft } from "./episode-plan-import-adapter";
 
 export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "deepened" | "final";
@@ -29,6 +33,8 @@ export type MemoryLayer = "canonical" | "derived" | "provisional";
 
 export type ProjectTitleSource = "derived" | "user" | "generated";
 export type ProjectMarketProfile = "cn_mainland" | "overseas_tiktok" | "legacy_unknown";
+/** Author-selected delivery path after episode planning is approved. */
+export type ProjectOutputMode = "script_only" | "script_and_storyboard";
 
 export const CURRENT_MARKET_PROFILE: Exclude<ProjectMarketProfile, "legacy_unknown"> = (
   process.env.NEXT_PUBLIC_SCRIPT_MARKET_PROFILE === "overseas_tiktok"
@@ -46,10 +52,23 @@ export interface CharacterDraft {
   appearance: string;
   description: string;
   motivation?: string;
+  actingProfile?: CharacterActingProfile;
   source?: "user" | "generated";
   lastUpdatedEpisode?: number;
   dynamicState?: CharacterDynamicState;
   stateHistory?: CharacterStateChange[];
+}
+
+/** Stable performance identity; episode memory remains the source of current state. */
+export interface CharacterActingProfile {
+  bodyLanguage: string;
+  voice: string;
+  movement: string;
+  gazeAndAttention: string;
+  habitualActions: string;
+  pressureResponse: string;
+  relationshipBehavior: string;
+  permanentVoicePrompt: string;
 }
 
 export type CharacterStateCommitStatus = "provisional" | "confirmed";
@@ -226,8 +245,23 @@ export interface ScriptProject {
   creativeDirectionInputSignature?: string;
   selectedCreativeDirection?: CreativeDirectionCandidate;
   storyBibleAuthorInstruction?: string;
+  /** Human-readable bridge document reviewed before the Story Bible. */
+  storySynopsis?: StorySynopsis;
+  /** Persisted once when the author enters the script stage. Legacy projects remain storyboard-enabled. */
+  productionOutputMode?: ProjectOutputMode;
   planningSession?: PlanningSession;
+  /** Server-validated generation identity; legacy workspaces use epoch zero. */
+  planningRevisionEpoch?: number;
+  planningRevision?: PlanningRevision;
+  planningRevisionHistory?: PlanningRevision[];
+  /** One explicit compare-and-save request; the server replaces it with a receipt. */
+  producedPlanAmendmentRequest?: ProducedPlanAmendmentRequest;
+  producedPlanAmendments?: ProducedPlanAmendmentReceipt[];
+  producedPlanAmendmentResolutionRequest?: ProducedBodyResolutionRequest;
+  producedPlanAmendmentResolutions?: ProducedBodyResolutionReceipt[];
   storyBibleInputSignature?: string;
+  /** The synopsis changed after this outline was generated. */
+  storyBibleSynopsisOutdated?: boolean;
   storyBibleVersion?: number;
   storyBibleStatus?: "draft" | "approved" | "superseded";
   episodePlansReadyThrough?: number;
@@ -251,6 +285,28 @@ export interface ScriptProject {
   updatedAt: string;
 }
 
+export type StorySynopsisStatus = "draft" | "refining" | "confirmed";
+
+export interface StorySynopsisReview {
+  status: "draft" | "complete";
+  issues: Array<{
+    kind: "causality" | "conflict" | "unresolved" | "proposal";
+    message: string;
+  }>;
+}
+
+export interface StorySynopsis {
+  text: string;
+  status: StorySynopsisStatus;
+  version: number;
+  source: "generated" | "user";
+  updatedAt: string;
+  pendingChanges?: boolean;
+  review?: StorySynopsisReview;
+  conversation?: { brief: StoryInspirationBrief; messages: StoryInspirationMessage[] };
+  history?: Array<Omit<StorySynopsis, "history">>;
+}
+
 export interface StoryTreeQualityFinding {
   node_id: string;
   node_version: number;
@@ -262,7 +318,34 @@ export interface StoryTreeQualityFinding {
   repair_instruction: string;
 }
 
+export interface StoryPlanExecutionRequirement {
+  episode_number: number;
+  source_event_index: number;
+  instruction: string;
+}
+
+export interface StoryPlanExecutionHandoff extends StoryPlanExecutionRequirement {
+  node_id: string;
+  node_version: number;
+}
+
+export interface FutureRevisionReview {
+  revision_id: string;
+  planning_revision_epoch: number;
+  start_episode: number;
+  end_episode: number;
+  evidence_signature: string;
+  status: "pass" | "needs_revision";
+  boundary_status: "pass" | "needs_revision";
+  summary: string;
+}
+
 export interface StoryTreeQualityAudit {
+  review_contract_version?: number;
+  reviewed_episode_plans?: string;
+  reviewed_source_fingerprint?: string | null;
+  reviewed_source_signature?: string | null;
+  future_revision_review?: FutureRevisionReview | null;
   schema_version: string;
   story_project_id: string;
   story_bible_id: string;
@@ -274,6 +357,7 @@ export interface StoryTreeQualityAudit {
   audited_node_count: number;
   semantic_sample_count: number;
   findings: StoryTreeQualityFinding[];
+  execution_requirements?: StoryPlanExecutionHandoff[];
   created_at: string;
 }
 
@@ -336,6 +420,60 @@ export interface PlanningSession {
   turns: PlanningTurn[];
   startedAt?: string;
   updatedAt: string;
+}
+
+export interface PlanningRevision {
+  revisionId: string;
+  status: "active" | "completed";
+  startEpisode: number;
+  sourceWorkspaceRevision: number;
+  startedAt: string;
+  completedAt?: string;
+  originalRoadmaps: EpisodeRoadmapItem[];
+  originalAudit?: StoryTreeQualityAudit;
+  originalPlanningSession?: PlanningSession;
+  invalidatedJobIds?: string[];
+}
+
+export interface ProducedPlanAmendmentRequest {
+  amendmentId: string;
+  sourceWorkspaceRevision: number;
+  sourcePlanningRevisionEpoch: number;
+  episodeNumbers: number[];
+  reason: string;
+}
+
+export interface ProducedPlanAmendmentReceipt {
+  schemaVersion: 1;
+  amendmentId: string;
+  appliedAt: string;
+  sourceWorkspaceRevision: number;
+  sourcePlanningRevisionEpoch: number;
+  planningRevisionEpoch: number;
+  episodeNumbers: number[];
+  affectedEpisodeNumbers: number[];
+  reason: string;
+  originalRoadmaps: EpisodeRoadmapItem[];
+  originalEpisodes: EpisodeWorkspace[];
+  originalAudit?: StoryTreeQualityAudit | null;
+  sources: Array<{
+    episodeNumber: number;
+    sourceNodeId: string;
+    sourceNodeVersion: number;
+    storyBibleVersion: number;
+    previousPlanHash: string;
+    currentPlanHash: string;
+    previousBodyHash: string;
+  }>;
+  invalidatedJobIds: string[];
+}
+
+export interface EpisodeSourceAmendment {
+  amendmentId: string;
+  status: "revision_required" | "review_required";
+  planningRevisionEpoch: number;
+  sourcePlanHash: string;
+  sourceBodyHash: string;
 }
 
 export type StoryBibleInteractiveStep =
@@ -476,6 +614,7 @@ export type GenerationRecoveryStatus =
   | "failed";
 
 export interface GenerationRecoveryTask {
+  planningRevisionEpoch?: number;
   batchId: string;
   batchRevision: number;
   jobId: string;
@@ -582,11 +721,32 @@ export interface EpisodeThreeLayerContract {
   meets_contract: boolean;
 }
 
+export interface FutureRoadmapRebuildReceipt {
+  planning_revision_epoch: number;
+  revision_id: string;
+  source_node_id: string;
+  source_node_version: number;
+  episode_number: number;
+  ending_mode?: EndingMode;
+  evidence_signature: string;
+  candidate_signature: string;
+  agent_request_id: string;
+  agent_run_id: string;
+  source_evidence: Pick<EpisodeRoadmapItem, 'entry_state' | 'exit_state' | 'source_turning_points' | 'source_unit_story_beats'>;
+  budget: {
+    target_duration_seconds: number; planned_scene_count: number;
+    planned_shot_count: number; planned_dialogue_line_count: number;
+    scenes: Array<{ scene_number: number; dialogue_line_target: number; shot_target: number }>;
+  };
+}
+
 export interface EpisodeRoadmapItem {
   source_node_id: string;
   source_node_version: number;
   story_bible_version: number;
   status: "draft" | "approved";
+  /** Rebinding a revised source preserves prose but requires a new source review. */
+  source_revision_review?: { previous_version: number; current_version: number; rebuilt?: FutureRoadmapRebuildReceipt };
   ending_mode?: EndingMode;
   episode_number: number;
   episode_title?: string | null;
@@ -666,6 +826,8 @@ export interface EpisodeWorkspace {
   id: string;
   episodeNumber: number;
   status: EpisodeStatus;
+  /** Planning-source validity is independent of the saved/confirmed body lifecycle. */
+  sourceAmendment?: EpisodeSourceAmendment;
   generationRun: ScriptGenerationRun;
   workingDraftJson: string;
   confirmedDraftJson?: string;
@@ -673,6 +835,8 @@ export interface EpisodeWorkspace {
   modificationCandidate?: ScriptDraftModificationResult;
   modificationCandidateSourceSnapshot?: string;
   pendingAuthorConflict?: PendingAuthorConflict;
+  /** Saved author requirements for this episode, independent of candidate adoption. */
+  authorModificationInstructions?: AuthorModificationInstruction[];
   deepeningRun?: CreativeDeepeningRun;
   revisionRun?: ScriptRevisionRun;
   finalizationResult?: MasterScriptFinalizationResult;
@@ -873,7 +1037,7 @@ export interface GeneratedDraft {
   target_audience?: string;
   episode_goal?: string;
   language: string;
-  characters: Array<{ name: string; role: string; description: string; motivation: string }>;
+  characters: Array<{ name: string; role: string; description: string; motivation: string; acting_profile?: CharacterActingProfile }>;
   character_state_updates?: GeneratedCharacterStateUpdate[];
   relationship_state_updates?: GeneratedRelationshipStateUpdate[];
   continuity_state_updates?: GeneratedContinuityStateUpdate[];
@@ -910,6 +1074,7 @@ export interface GeneratedContinuationHookState {
 }
 
 export interface GeneratedSetupPayoffStateUpdate {
+  source_ref?: string | null;
   setup_payoff_ref: string;
   action: PlotSetupPayoffChange["action"];
   status: "setup" | "active" | "paid_off";
@@ -1008,7 +1173,10 @@ export interface GeneratedEpisodeGenerationContext {
   planned_setup_refs?: string[];
   planned_payoff_refs?: string[];
   planned_story_beat?: string | null;
-  memory_recall?: unknown;
+  memory_recall?: MemoryRecall | null;
+  approved_episode_plan?: EpisodeExecutionPlan | null;
+  approved_story_node?: StoryNodeExecutionContext | null;
+  episode_instruction?: string | null;
 }
 
 export interface ContinuityQCReport {
@@ -1052,6 +1220,7 @@ export interface AuthorConflictReview {
   source_fingerprint: string;
   instruction: string;
   user_goal: string;
+  rewrite_scope?: "preserve_unaffected_text" | "reexecute_approved_plan";
   conflicts: Array<{
     source_ref: string;
     established_fact: string;
@@ -1068,6 +1237,7 @@ export interface AuthorConflictResolution {
 }
 
 export interface PendingAuthorConflict {
+  author_instruction_id?: string;
   review: AuthorConflictReview;
   source_snapshot: string;
   selection_context?: {

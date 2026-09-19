@@ -231,7 +231,7 @@ test("direct-script generation consumes the full selected approved leaf", () => 
   );
 });
 
-test("episode body guidance treats reduced total characters as a bounded reference", () => {
+test("episode body guidance increases for a shortfall without discounting later episodes", () => {
   const settings = normalizeGenerationSettings({
     episodeCountMode: "custom",
     episodeCount: 334,
@@ -243,19 +243,19 @@ test("episode body guidance treats reduced total characters as a bounded referen
     generatedEpisodeCount: 1,
     generatedBodyCharacters: 1200,
   });
-  assert.ok(initial >= 600 && initial <= 2400);
-  assert.ok(observed >= 600 && observed <= 2400);
+  assert.equal(initial, Math.ceil(settings.targetTotalCharacters / settings.episodeCount));
+  assert.equal(observed, initial);
   assert.ok(
     targetScriptBodyCharacters(settings, {
       generatedEpisodeCount: 12,
       generatedBodyCharacters: 4_800,
     }) > initial,
   );
-  assert.ok(
+  assert.equal(
     targetScriptBodyCharacters(settings, {
       generatedEpisodeCount: 12,
       generatedBodyCharacters: 28_800,
-    }) < initial,
+    }), initial,
   );
   assert.equal(
     targetScriptBodyCharacters(settings, {
@@ -266,9 +266,42 @@ test("episode body guidance treats reduced total characters as a bounded referen
   );
   assert.deepEqual(scriptBodyLengthGuidance(1797), {
     referenceCharacters: 1797,
-    preferredMinCharacters: 1258,
-    preferredMaxCharacters: 2516,
+    preferredMinCharacters: 1438,
+    preferredMaxCharacters: 2156,
     truncationFloorCharacters: 449,
   });
   assert.equal(settings.failureRetryMode, "automatic");
+});
+
+test("a fully developed opening never lowers middle or final episode references", () => {
+  const settings = {
+    episodeCount: 72, targetTotalCharacters: 100_000,
+    preferredEpisodeDurationMinutes: 1.5, storyDensity: "balanced",
+  };
+  const initial = targetScriptBodyCharacters(settings);
+  for (const generatedEpisodeCount of [3, 6, 12, 24, 36, 48, 60, 71]) {
+    for (const average of [2_000, 5_000, 100_000]) {
+      assert.equal(targetScriptBodyCharacters(settings, {
+        generatedEpisodeCount, generatedBodyCharacters: generatedEpisodeCount * average,
+      }), initial);
+    }
+  }
+  const shortfall = targetScriptBodyCharacters(settings, {
+    generatedEpisodeCount: 60, generatedBodyCharacters: 30_000,
+  });
+  assert.ok(shortfall > initial);
+  assert.ok(shortfall <= Math.ceil(initial * 1.15));
+});
+
+test("the series target survives short runtime and low density without a last-episode catch-up quota", () => {
+  const settings = {
+    episodeCount: 72, targetTotalCharacters: 100_000,
+    preferredEpisodeDurationMinutes: 1.25, storyDensity: "compact",
+  };
+  assert.equal(targetScriptBodyCharacters(settings), 1389);
+  const finalReference = targetScriptBodyCharacters(settings, {
+    generatedEpisodeCount: 71, generatedBodyCharacters: 63_000,
+  });
+  assert.ok(finalReference >= 1389 && finalReference <= Math.ceil(1389 * 1.15));
+  assert.equal(nextBatchRange(72, { ...settings, batchSize: 10 }), null);
 });

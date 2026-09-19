@@ -107,7 +107,9 @@ export function calculateSeriesTextMetrics(
     requiredAverageCharactersPerEpisode: normalizedTarget > 0
       ? Math.ceil(normalizedTarget / normalizedPlannedEpisodes)
       : 0,
-    projectedCharactersAtPlannedEpisodes: averageCharactersPerEpisode * normalizedPlannedEpisodes,
+    projectedCharactersAtPlannedEpisodes: drafts.length
+      ? Math.round(aggregate.scriptBodyCharacters / drafts.length * normalizedPlannedEpisodes)
+      : 0,
     estimatedEpisodesToTarget: normalizedTarget > 0 && averageCharactersPerEpisode > 0
       ? Math.ceil(normalizedTarget / averageCharactersPerEpisode)
       : null,

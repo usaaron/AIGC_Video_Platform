@@ -130,6 +130,39 @@ def test_same_org_and_cross_org_isolate_same_ids_and_survive_new_pool(pg):
         assert session.execute(text("SELECT count(*) FROM story_projects WHERE project_id='project.shared'")).scalar() == 0
 
 
+def test_new_planning_attempts_keep_private_candidates_in_account_schema(pg):
+    from app.modules.script_engine.planning_attempts import (
+        ATTEMPT_NAMESPACE, PlanningAttemptBinding, PlanningAttemptRecord, PlanningAttemptRepository,
+    )
+
+    repository = PlanningAttemptRepository(pg.runtime)
+    binding = PlanningAttemptBinding(
+        story_project_id="project.shared", parent_node_id="node.shared", parent_node_version=1,
+        request_fingerprint="a" * 64, source_fingerprint="b" * 64, operation_id="decompose.shared",
+    )
+    for actor in ("one", "two"):
+        with pg.account(actor=actor):
+            assert repository.list_for_binding(binding) == []
+            repository.append(PlanningAttemptRecord(
+                id="candidate.shared", attempt_id="attempt.shared", binding=binding,
+                kind="candidate", artifact="decomposition", candidate={"private_story": actor},
+            ))
+
+    fresh = create_database_runtime(pg.runtime.engine.url.render_as_string(hide_password=False))
+    try:
+        for actor in ("one", "two"):
+            with pg.account(actor=actor):
+                records = PlanningAttemptRepository(fresh).list_for_binding(binding)
+                assert len(records) == 1
+                assert records[0].candidate == {"private_story": actor}
+    finally:
+        fresh.engine.dispose()
+    with system_storage(), pg.runtime.session() as session:
+        assert session.execute(text(
+            "SELECT count(*) FROM module_documents WHERE namespace=:namespace"
+        ), {"namespace": ATTEMPT_NAMESPACE}).scalar() == 0
+
+
 def test_explicit_commit_rollback_and_pool_checkout_reapply_schema(pg):
     with pg.account() as expected, pg.runtime.session() as session:
         assert session.execute(text("SELECT current_schema()")).scalar() == expected

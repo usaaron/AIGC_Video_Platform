@@ -1,7 +1,10 @@
+import { mergeOverseasCharacterNames } from "./bilingual-dialogue.ts";
 import { clientSceneHeading } from "./client-screenplay-format.ts";
+import { characterReferenceNames } from "./character-reference.ts";
 import type {
   BilingualScriptView,
   CharacterDraft,
+  CharacterActingProfile,
   CharacterRelationship,
   ContinuityStateRecord,
   GeneratedDraft,
@@ -25,6 +28,7 @@ export interface ProductionCharacterRecord {
   appearanceCount: number;
   episodeNumbers: number[];
   designNotes: string;
+  actingProfile?: CharacterActingProfile;
   personality: string;
   description: string;
 }
@@ -47,6 +51,7 @@ export interface ProductionPropRecord {
   relatedScenes: string[];
   relatedCharacters: string[];
   appearanceCount: number;
+  episodeNumbers: number[];
   designNotes: string[];
   owners: string[];
   directUsers: string[];
@@ -54,6 +59,7 @@ export interface ProductionPropRecord {
 }
 
 export interface ProductionIndex {
+  characterNameLanguage?: "en" | "zh";
   characters: ProductionCharacterRecord[];
   scenes: ProductionSceneRecord[];
   props: ProductionPropRecord[];
@@ -68,6 +74,7 @@ export interface ProductionIndexInput {
 
 interface MutableCharacter {
   character?: CharacterDraft;
+  actingProfile?: CharacterActingProfile;
   name: string;
   englishName: string;
   chineseName: string;
@@ -130,28 +137,57 @@ const VISUAL_KEYWORDS = [
 
 export function buildProductionIndex(input: ProductionIndexInput): ProductionIndex {
   const characters = new Map<string, MutableCharacter>();
+  const overseas = input.episodes.some(source => (source.draft.language ?? "").toLowerCase().startsWith("en"));
+  const aliases = new Map<string, string>();
+  if (overseas) for (const source of input.episodes) {
+    mergeOverseasCharacterNames(aliases, source.bilingualView);
+    for (const scene of source.draft.scenes) for (const line of scene.dialogues) {
+      if (line.chinese_character_name && !containsHan(line.character_name)) {
+        aliases.set(line.chinese_character_name, cleanSpeakerName(line.character_name));
+      }
+    }
+  }
+  const identity = (name: string) => aliases.get(cleanSpeakerName(name)) ?? cleanSpeakerName(name);
+  const ensureIdentity = (name: string) => ensureCharacter(characters, identity(name));
   const characterIds = new Map<string, string>();
   const scenes = new Map<string, MutableScene>();
   const props = new Map<string, MutableProp>();
+  const itemNames = [
+    ...(input.continuityStates ?? []).filter(state => state.entityType === "item").map(state => state.entityName),
+    ...input.episodes.flatMap(source => (source.draft.continuity_state_updates ?? [])
+      .filter(update => update.entity_type === "item").map(update => update.entity_name)),
+  ];
+  const productionPropNames = new Set<string>();
+  for (const source of input.episodes) {
+    for (const scene of source.draft.scenes ?? []) {
+      const declared = scene.content_manifest?.props ?? [];
+      const body = sceneBodyText(scene);
+      const names = declared.length ? declared : [...COMMON_PROPS, ...itemNames].filter(name => containsTerm(body, name));
+      for (const name of names) {
+        if (!/^(?:sl_|memory[.:]|story[_-]line[.:])/.test(name)) productionPropNames.add(normalizeName(name));
+      }
+    }
+  }
 
   for (const character of input.characters) {
-    const record = ensureCharacter(characters, character.name);
+    const record = ensureIdentity(character.name);
     record.character = character;
+    record.actingProfile = character.actingProfile;
     record.roles.add(character.role);
     if (character.description) record.descriptions.add(character.description);
     if (character.motivation) record.motivations.add(character.motivation);
-    characterIds.set(character.id, character.name);
+    characterIds.set(character.id, identity(character.name));
   }
 
   for (const state of input.continuityStates ?? []) {
-    if (state.entityType !== "item") continue;
+    if (state.entityType !== "item" || !productionPropNames.has(normalizeName(state.entityName))) continue;
     const prop = ensureProp(props, state.entityName);
     addRanked(prop.designNotes, state.currentState);
     if (state.futureConstraint) addRanked(prop.functions, state.futureConstraint);
     if (state.stateDomain === "ownership" || state.stateDomain === "possession") {
       for (const character of input.characters) {
         if (containsName(state.currentState, character.name)) {
-          addRanked(prop.owners, character.name);
+          addRanked(prop.owners, identity(character.name));
         }
       }
     }
@@ -161,7 +197,8 @@ export function buildProductionIndex(input: ProductionIndexInput): ProductionInd
   for (const source of orderedEpisodes) {
     const translations = bilingualCharacterNames(source.bilingualView);
     for (const draftCharacter of source.draft.characters ?? []) {
-      const record = ensureCharacter(characters, draftCharacter.name);
+      const record = ensureIdentity(draftCharacter.name);
+      record.actingProfile ??= draftCharacter.acting_profile;
       record.roles.add(draftCharacter.role);
       if (draftCharacter.description) record.descriptions.add(draftCharacter.description);
       if (draftCharacter.motivation) record.motivations.add(draftCharacter.motivation);
@@ -170,28 +207,23 @@ export function buildProductionIndex(input: ProductionIndexInput): ProductionInd
     }
 
     const episodeItemUpdates = (source.draft.continuity_state_updates ?? [])
-      .filter((update) => update.entity_type === "item");
+      .filter((update) => update.entity_type === "item" && productionPropNames.has(normalizeName(update.entity_name)));
     for (const update of episodeItemUpdates) {
       const prop = ensureProp(props, update.entity_name);
       addRanked(prop.functions, update.change_cause);
       addRanked(prop.designNotes, update.current_state);
       for (const character of input.characters) {
         if (containsName(`${update.current_state} ${update.change_cause}`, character.name)) {
-          addRanked(prop.characters, character.name);
-          addRanked(prop.directUsers, character.name);
           if (update.state_domain === "ownership" || update.state_domain === "possession") {
-            addRanked(prop.owners, character.name);
+            addRanked(prop.owners, identity(character.name));
           }
         }
-      }
-      for (const sceneNumber of update.evidence_scene_numbers ?? []) {
-        prop.appearanceSceneKeys.add(`${source.episodeNumber}:${sceneNumber}`);
       }
     }
 
     for (const scene of source.draft.scenes ?? []) {
       const sceneName = extractLocationName(
-        scene.setting_hint ?? scene.setting ?? scene.slug,
+        scene.content_manifest?.location || scene.scene_heading || scene.setting_hint || scene.setting || scene.slug,
       );
       const sceneKey = normalizeName(sceneName) || `scene-${source.episodeNumber}-${scene.scene_number}`;
       const sceneRecord = scenes.get(sceneKey) ?? {
@@ -219,33 +251,48 @@ export function buildProductionIndex(input: ProductionIndexInput): ProductionInd
       }
 
       const presentCharacters = new Set<string>();
+      const declaredCast = scene.content_manifest?.character_refs?.length
+        ? scene.content_manifest.character_refs : scene.character_refs ?? [];
+      for (const name of characterReferenceNames(declaredCast, input.characters)) {
+        if (name && !/^(?:story-bible-)?character[.:]/.test(name)) {
+          presentCharacters.add(ensureIdentity(name).name);
+        }
+      }
       for (const line of scene.dialogues ?? []) {
         const name = cleanSpeakerName(line.character_name);
-        if (name) presentCharacters.add(ensureCharacter(characters, name).name);
+        if (name) presentCharacters.add(ensureIdentity(name).name);
       }
-      for (const character of characters.values()) {
-        if ((scene.character_actions ?? []).some((action) => containsName(action, character.name))) {
-          presentCharacters.add(character.name);
+      // Legacy drafts have no cast manifest. Once an explicit cast exists,
+      // a name written on paper or mentioned in an action is not an appearance.
+      if (!declaredCast.length) {
+        for (const character of characters.values()) {
+          if ((scene.character_actions ?? []).some((action) => containsName(action, character.name))) {
+            presentCharacters.add(character.name);
+          }
         }
       }
       for (const name of presentCharacters) {
-        ensureCharacter(characters, name).episodeNumbers.add(source.episodeNumber);
+        ensureIdentity(name).episodeNumbers.add(source.episodeNumber);
       }
       for (const sourceName of presentCharacters) {
         for (const targetName of presentCharacters) {
           if (sourceName === targetName) continue;
-          addRanked(ensureCharacter(characters, sourceName).relationships, targetName);
+          addRanked(ensureIdentity(sourceName).relationships, targetName);
         }
       }
 
-      const candidates = new Set<string>();
-      for (const prop of props.values()) {
-        if ([...prop.aliases].some((alias) => containsTerm(sceneText, alias))) candidates.add(prop.name);
+      const declaredProps = (scene.content_manifest?.props ?? []).filter(name => productionPropNames.has(normalizeName(name)));
+      const candidates = new Set<string>(declaredProps);
+      if (!declaredProps.length) {
+        const body = sceneBodyText(scene);
+        for (const prop of props.values()) {
+          if ([...prop.aliases].some((alias) => containsTerm(body, alias))) candidates.add(prop.name);
+        }
+        for (const term of COMMON_PROPS) {
+          if (containsTerm(body, term)) candidates.add(term);
+        }
       }
-      for (const term of COMMON_PROPS) {
-        if (containsTerm(sceneText, term)) candidates.add(term);
-      }
-      for (const name of reduceNestedCandidates(candidates)) {
+      for (const name of declaredProps.length ? candidates : reduceNestedCandidates(candidates)) {
         const prop = ensureProp(props, name);
         prop.appearanceSceneKeys.add(`${source.episodeNumber}:${scene.scene_number}`);
         addRanked(prop.scenes, sceneRecord.name);
@@ -265,8 +312,8 @@ export function buildProductionIndex(input: ProductionIndexInput): ProductionInd
     const source = characterIds.get(relationship.sourceCharacterId);
     const target = characterIds.get(relationship.targetCharacterId);
     if (!source || !target) continue;
-    addRanked(ensureCharacter(characters, source).relationships, target, 8);
-    addRanked(ensureCharacter(characters, target).relationships, source, 8);
+    addRanked(ensureIdentity(source).relationships, target, 8);
+    addRanked(ensureIdentity(target).relationships, source, 8);
   }
 
   const characterRecords = [...characters.values()]
@@ -281,7 +328,7 @@ export function buildProductionIndex(input: ProductionIndexInput): ProductionInd
     .sort((a, b) => b.appearanceSceneKeys.size - a.appearanceSceneKeys.size || a.name.localeCompare(b.name, "zh-CN"))
     .map(toPropRecord);
 
-  return { characters: characterRecords, scenes: sceneRecords, props: propRecords };
+  return { characterNameLanguage: overseas ? "en" : "zh", characters: characterRecords, scenes: sceneRecords, props: propRecords };
 }
 
 export function formatEpisodeRanges(values: number[]): string {
@@ -307,7 +354,7 @@ export function frequencySummary(index: ProductionIndex): Array<{
   low: string;
 }> {
   return [
-    frequencyRow("人物", index.characters.map((item) => ({ name: item.chineseName || item.name, count: item.appearanceCount }))),
+    frequencyRow("人物", index.characters.map((item) => ({ name: index.characterNameLanguage === "en" ? item.englishName || item.name : item.chineseName || item.name, count: item.appearanceCount }))),
     frequencyRow("场景", index.scenes.map((item) => ({ name: item.chineseName || item.name, count: item.appearanceCount }))),
     frequencyRow("道具", index.props.map((item) => ({ name: item.chineseName || item.name, count: item.appearanceCount }))),
   ];
@@ -323,6 +370,7 @@ function toCharacterRecord(record: MutableCharacter, index: number): ProductionC
     || "按人物在正文中的行为与选择保持一致";
   return {
     name: record.name,
+    actingProfile: record.actingProfile,
     code: characterCode(character, index),
     englishName: record.englishName || (containsHan(record.name) ? "" : record.name),
     chineseName: record.chineseName || (containsHan(record.name) ? record.name : ""),
@@ -366,7 +414,8 @@ function toPropRecord(record: MutableProp): ProductionPropRecord {
     functions: topValues(record.functions, 3).map((value) => truncate(value, 48)),
     relatedScenes: topValues(record.scenes, 4),
     relatedCharacters: topValues(record.characters, 6),
-    appearanceCount: Math.max(1, record.appearanceSceneKeys.size),
+    appearanceCount: record.appearanceSceneKeys.size,
+    episodeNumbers: [...new Set([...record.appearanceSceneKeys].map(key => Number(key.split(":")[0])))].sort((a, b) => a - b),
     designNotes: topValues(record.designNotes, 3).map((value) => truncate(value, 60)),
     owners: topValues(record.owners, 4),
     directUsers: topValues(record.directUsers, 10),
@@ -391,6 +440,10 @@ function ensureCharacter(map: Map<string, MutableCharacter>, rawName: string): M
   };
   map.set(key, created);
   return created;
+}
+
+function sceneBodyText(scene: GeneratedDraft["scenes"][number]): string {
+  return [...(scene.character_actions ?? []), ...(scene.dialogues ?? []).map(line => line.text)].join(" ");
 }
 
 function ensureProp(map: Map<string, MutableProp>, rawName: string): MutableProp {

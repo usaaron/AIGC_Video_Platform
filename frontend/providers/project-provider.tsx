@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+
 import {
   createContext,
   type ReactNode,
@@ -48,6 +50,7 @@ interface ProjectContextValue {
     patch: Partial<ScriptProject> | ((current: ScriptProject) => Partial<ScriptProject>),
   ) => Promise<boolean>;
   syncProjectSnapshot: (project: ScriptProject) => Promise<ProjectServerSyncState>;
+  adoptServerProjectSnapshot: (project: ScriptProject, source: ScriptProject) => Promise<boolean>;
   retryProjectSync: (projectId: string) => Promise<ProjectServerSyncState | null>;
   resolveProjectSyncConflict: (
     projectId: string,
@@ -70,7 +73,16 @@ function sortProjects(projects: ScriptProject[]): ScriptProject[] {
   return [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+function projectContentSnapshot(project: ScriptProject): string {
+  const content = { ...project };
+  delete content.serverSync;
+  return JSON.stringify(content);
+}
+
 export function ProjectProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const pathParts = pathname.split("/");
+  const requestedProjectId = pathParts[1] === "projects" && pathParts[2] !== "new" ? pathParts[2] : undefined;
   const [projects, setProjects] = useState<ScriptProject[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [authReady, setAuthReady] = useState(false);
@@ -80,6 +92,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [storageError, setStorageError] = useState<string | null>(null);
   const [serverPersistenceAvailable, setServerPersistenceAvailable] = useState<boolean | null>(null);
   const automaticConflictRetries = useRef(new Set<string>());
+  const deletedProjectIds = useRef(new Set<string>());
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
 
@@ -113,7 +126,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setProjects(scopedLocalProjects);
         setIsReady(true);
 
-        const serverResult = await loadServerProjects();
+        const hydratedSnapshots = new Map<string, ScriptProject>();
+        const serverResult = await loadServerProjects({
+          preferredProjectId: requestedProjectId,
+          onProject: (remoteProject) => {
+            if (!active || deletedProjectIds.current.has(remoteProject.id)) return;
+            if (scopedProjectId && remoteProject.id !== scopedProjectId) return;
+            assertHostSessionActive();
+            // Always merge against the latest author edits, including edits
+            // made while another project's workspace is still downloading.
+            const merged = mergeHydratedProject(projectsRef.current, remoteProject, hydratedSnapshots.get(remoteProject.id));
+            hydratedSnapshots.set(remoteProject.id, remoteProject);
+            const nextProjects = sortProjects(merged);
+            projectsRef.current = nextProjects;
+            setProjects(nextProjects);
+          },
+        });
         if (!active) return;
         assertHostSessionActive();
         setServerPersistenceAvailable(serverResult.available);
@@ -139,9 +167,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
         // The editor is usable while the server request is pending. Merge
         // against current state so that response cannot erase intervening edits.
-        const scopedServerProjects = scopedProjectId
-          ? serverResult.projects.filter((project) => project.id === scopedProjectId)
-          : serverResult.projects;
+        const scopedServerProjects = serverResult.projects.filter((project) =>
+          (!scopedProjectId || project.id === scopedProjectId)
+          && !deletedProjectIds.current.has(project.id));
         const merged = mergeProjects(projectsRef.current, scopedServerProjects);
         const nextProjects = sortProjects(merged.projects);
         projectsRef.current = nextProjects;
@@ -207,6 +235,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       updatedAt: now,
     };
     await saveStoredProject(project);
+    setStorageError(null);
     setProjects((current) => {
       const nextProjects = sortProjects([project, ...current]);
       projectsRef.current = nextProjects;
@@ -214,6 +243,34 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     });
     requestServerSync(project);
     return project;
+  }
+
+  async function adoptServerProjectSnapshot(saved: ScriptProject, source: ScriptProject): Promise<boolean> {
+    if (saved.serverSync?.status !== "synced" || saved.id !== source.id) return false;
+    const sourceContent = projectContentSnapshot(source);
+    const canAdopt = (candidate: ScriptProject | undefined) => candidate
+      && projectContentSnapshot(candidate) === sourceContent
+      && (candidate.planningRevisionEpoch ?? 0) <= (saved.planningRevisionEpoch ?? 0)
+      && (candidate.serverSync?.workspaceRevision ?? 0) <= (saved.serverSync?.workspaceRevision ?? 0);
+    const current = projectsRef.current.find((project) => project.id === saved.id);
+    // The source predates the server PUT. Checking only the state captured here
+    // would miss author edits made while that request was waiting.
+    if (!canAdopt(current)) return false;
+    try { await saveStoredProject(saved); }
+    catch (error) {
+      setStorageError(error instanceof Error ? error.message : "Unable to store the accepted revision.");
+      return false;
+    }
+    const latest = projectsRef.current.find((project) => project.id === saved.id);
+    if (!canAdopt(latest)) {
+      if (latest) await saveStoredProject(latest);
+      else await deleteStoredProject(saved.id);
+      return false;
+    }
+    const next = sortProjects([...projectsRef.current.filter((project) => project.id !== saved.id), saved]);
+    projectsRef.current = next;
+    setProjects(next);
+    return true;
   }
 
   function updateProject(
@@ -286,7 +343,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           },
         };
         void saveStoredProject(updated)
-          .then(() => resolve(true))
+          .then(() => { setStorageError(null); resolve(true); })
           .catch((error: unknown) => {
             setStorageError(
               error instanceof Error ? error.message : "Unable to save the project.",
@@ -323,6 +380,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       );
       return false;
     }
+    deletedProjectIds.current.add(projectId);
     setProjects((current) => {
       const nextProjects = current.filter((project) => project.id !== projectId);
       projectsRef.current = nextProjects;
@@ -336,6 +394,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       );
       return false;
     }
+    setStorageError(null);
     return true;
   }
 
@@ -345,7 +404,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function syncProjectSnapshot(
     project: ScriptProject,
-    options: { forceWorkspaceOverwrite?: boolean } = {},
+    options: { forceWorkspaceOverwrite?: boolean; bypassCooldown?: boolean } = {},
   ): Promise<ProjectServerSyncState> {
     await ensureHostToken();
     setProjects((current) => {
@@ -366,7 +425,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     });
     const serverSync = options.forceWorkspaceOverwrite
       ? await forceWorkspaceOverwrite(project)
-      : await queueProjectServerSync(project);
+      : await queueProjectServerSync(project, { bypassCooldown: options.bypassCooldown });
     setServerPersistenceAvailable(serverSync.status !== "unavailable");
     if (serverSync.status !== "conflict") clearAutomaticConflictRetries(project.id);
 
@@ -401,7 +460,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   ): Promise<ProjectServerSyncState | null> {
     const project = projectsRef.current.find((item) => item.id === projectId);
     if (!project) return null;
-    return syncProjectSnapshot(project);
+    return syncProjectSnapshot(project, { bypassCooldown: true });
   }
 
   async function resolveProjectSyncConflict(
@@ -468,12 +527,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     <ProjectContext.Provider
       value={{
         projects,
-        isReady,
+        isReady: isReady && (!requestedProjectId || projects.some(project => project.id === requestedProjectId)
+          || serverPersistenceAvailable !== null || Boolean(storageError)),
         storageError,
         serverPersistenceAvailable,
         createProject,
         updateProject,
         syncProjectSnapshot,
+        adoptServerProjectSnapshot,
         retryProjectSync,
         resolveProjectSyncConflict,
         deleteProject,
@@ -499,6 +560,10 @@ function syncStateForSnapshot(
   synchronizedSnapshot: ScriptProject,
   serverSync: ProjectServerSyncState,
 ): ProjectServerSyncState {
+  if ((current.planningRevisionEpoch ?? 0) !== (synchronizedSnapshot.planningRevisionEpoch ?? 0)
+    || (current.serverSync?.workspaceRevision ?? 0) > serverSync.workspaceRevision) {
+    return current.serverSync ?? serverSync;
+  }
   if (current.updatedAt <= synchronizedSnapshot.updatedAt) return serverSync;
   return {
     ...serverSync,
@@ -508,6 +573,21 @@ function syncStateForSnapshot(
 }
 
 
+function mergeHydratedProject(
+  projects: ScriptProject[],
+  remote: ScriptProject,
+  previous?: ScriptProject,
+): ScriptProject[] {
+  const current = projects.find(project => project.id === remote.id);
+  if (!previous) return mergeProjects(projects, [remote]).projects;
+  // A deleted or edited project cannot be resurrected or replaced by a late
+  // ancillary response, including edits whose timestamp has not changed.
+  if (!current || projectContentSnapshot(current) !== projectContentSnapshot(previous)
+    || (current.planningRevisionEpoch ?? 0) > (remote.planningRevisionEpoch ?? 0)
+    || (current.serverSync?.workspaceRevision ?? 0) > (remote.serverSync?.workspaceRevision ?? 0)) return projects;
+  return projects.map(project => project.id === remote.id ? remote : project);
+}
+
 function mergeProjects(
   localProjects: ScriptProject[],
   serverProjects: ScriptProject[],
@@ -516,7 +596,15 @@ function mergeProjects(
   const localNewer: ScriptProject[] = [];
   for (const remote of serverProjects) {
     const local = merged.get(remote.id);
-    if (!local || remote.updatedAt > local.updatedAt) {
+    if (!local || (remote.planningRevisionEpoch ?? 0) > (local.planningRevisionEpoch ?? 0)) {
+      merged.set(remote.id, remote);
+      continue;
+    }
+    // A delayed hydration response or clock skew must never roll back an
+    // acknowledged planning epoch, even when its timestamp appears newer.
+    if ((remote.planningRevisionEpoch ?? 0) < (local.planningRevisionEpoch ?? 0)
+      || (remote.serverSync?.workspaceRevision ?? 0) < (local.serverSync?.workspaceRevision ?? 0)) continue;
+    if (remote.updatedAt > local.updatedAt) {
       merged.set(remote.id, remote);
       continue;
     }

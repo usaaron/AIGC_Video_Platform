@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   BookOpenText,
@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Circle,
   FileText,
+  FilePenLine,
+  LockKeyhole,
   List,
   LoaderCircle,
   TriangleAlert,
@@ -17,6 +19,7 @@ import {
 
 import type { DocumentOutlineEntry } from "@/components/document-outline";
 import { episodeRoadmapCoverageThrough } from "@/lib/planning-coverage";
+import { useDocumentScrollPosition } from "@/lib/use-document-scroll-position";
 import {
   workspaceSectionAccess,
   workspaceSectionHref,
@@ -30,6 +33,7 @@ const SECTION_DEFINITIONS: Array<{
   labelKey: string;
   icon: typeof List;
 }> = [
+  { id: "story-synopsis", labelKey: "workspaceDirectory.storySynopsis", icon: FileText },
   { id: "story-bible", labelKey: "workspaceDirectory.storyBible", icon: BookOpenText },
   { id: "planning", labelKey: "workspaceDirectory.planning", icon: Workflow },
   { id: "script", labelKey: "workspaceDirectory.script", icon: FileText },
@@ -51,42 +55,73 @@ export function WorkspaceSectionDirectory({
 }) {
   const { t } = useLocale();
   const { getProject } = useProjects();
+  const directoryRef = useRef<HTMLElement>(null);
+  const visibleEntryId = useDocumentScrollPosition(currentEntries, activeEntryId);
   const project = getProject(projectId);
   const access = project ? workspaceSectionAccess(project) : {
     storyBible: true,
+    storySynopsis: true,
     planning: false,
     script: false,
     storyboard: false,
   };
-  const visibleSections = SECTION_DEFINITIONS.filter((section) => (
-    section.id === "story-bible"
-      ? access.storyBible
+  const sectionAccessible = (section: typeof SECTION_DEFINITIONS[number]) => (
+    section.id === "story-synopsis"
+      ? access.storySynopsis
+      : section.id === "story-bible"
+        ? access.storyBible
       : access[section.id]
-  ));
-  const [expandedSection, setExpandedSection] = useState<WorkspaceSectionId | null>(
-    activeSection === "story-bible" ? null : activeSection,
   );
+  const [expandedSection, setExpandedSection] = useState<WorkspaceSectionId | null>(
+    activeSection,
+  );
+  const [lockedHint, setLockedHint] = useState<string | null>(null);
+  const unlockHint = (id: WorkspaceSectionId) => id === "storyboard" && project?.productionOutputMode === "script_only"
+    ? "当前作品选择了仅生成正文，因此没有启用分镜。可以继续在正文工作区创作。"
+    : t(`workspaceDirectory.unlock.${id}`);
 
   useEffect(() => {
-    setExpandedSection(activeSection === "story-bible" ? null : activeSection);
+    setExpandedSection(activeSection);
   }, [activeSection]);
+
+  useEffect(() => {
+    const directory = directoryRef.current;
+    const active = directory?.querySelector('[aria-current="location"]');
+    if (!directory || !active || !active.getClientRects().length) return;
+    // Reveal the highlight inside the directory without scrolling the document or page.
+    let container = active.parentElement;
+    while (container && directory.contains(container)) {
+      if (/(auto|scroll)/.test(getComputedStyle(container).overflowY)) {
+        const item = active.getBoundingClientRect();
+        const viewport = container.getBoundingClientRect();
+        const top = Math.max(0, viewport.top);
+        const bottom = Math.min(window.innerHeight, viewport.bottom);
+        if (item.top < top + 8) container.scrollTop += item.top - top - 8;
+        else if (item.bottom > bottom - 8) container.scrollTop += item.bottom - bottom + 8;
+      }
+      container = container.parentElement;
+    }
+  }, [visibleEntryId, expandedSection]);
 
   const planningCoverage = project?.episodeRoadmapRequired === true
     ? episodeRoadmapCoverageThrough(project.episodeRoadmaps ?? [])
     : project?.episodePlansReadyThrough ?? 0;
 
   return (
-    <aside className="document-outline workspace-section-directory">
+    <aside className="document-outline workspace-section-directory" ref={directoryRef}>
       <div className="workspace-mobile-navigation">
         <nav aria-label={t("workspaceDirectory.label")}>
-          {visibleSections.map(section => <Link key={section.id} aria-current={section.id === activeSection ? "page" : undefined}
+          <Link href={`/projects/${projectId}`}><FilePenLine aria-hidden="true" size={16} /><span>{t("workspaceDirectory.input")}</span></Link>
+          {SECTION_DEFINITIONS.map(section => sectionAccessible(section) ? <Link key={section.id} aria-current={section.id === activeSection ? "page" : undefined}
             href={project ? workspaceSectionHref(project, section.id) : `/projects/${projectId}/planning`}>
             <section.icon aria-hidden="true" size={16} /><span>{t(section.labelKey)}</span>
-          </Link>)}
+          </Link> : <button aria-disabled="true" key={section.id} onClick={() => setLockedHint(unlockHint(section.id))} title={unlockHint(section.id)} type="button">
+            <LockKeyhole aria-hidden="true" size={14} /><span>{t(section.labelKey)}</span>
+          </button>)}
         </nav>
         {!!currentEntries.length && <label>
           <span>{t(SECTION_DEFINITIONS.find(section => section.id === activeSection)!.labelKey)}</span>
-          <select aria-label={t("workspaceDirectory.jumpTo")} value={activeEntryId ?? ""}
+          <select aria-label={t("workspaceDirectory.jumpTo")} value={visibleEntryId ?? ""}
             onChange={event => { const entry = currentEntries.find(item => item.id === event.target.value); if (entry) onSelect(entry); }}>
             <option value="" disabled>{t("workspaceDirectory.jumpTo")}</option>
             {currentEntries.map(entry => <option key={entry.id} value={entry.id} disabled={entry.disabled}>
@@ -100,14 +135,15 @@ export function WorkspaceSectionDirectory({
         {project && access.planning ? (
           <small className="workspace-section-directory-progress">
             <span>{t("workspaceDirectory.planningMetric")} {planningCoverage}/{project.generationSettings.episodeCount}</span>
-            {access.script ? <span>{t("workspaceDirectory.scriptMetric")} {project.episodes.length}/{project.generationSettings.episodeCount}</span> : null}
+            {access.script ? <span>{t("workspaceDirectory.scriptMetric")} {project.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length}/{project.generationSettings.episodeCount}</span> : null}
           </small>
         ) : null}
       </div>
       <nav aria-label={t("workspaceDirectory.label")} className="document-outline-scroll workspace-section-directory-scroll">
-        {visibleSections.map((section) => {
+        <Link className="workspace-section-directory-section workspace-story-input" href={`/projects/${projectId}`}><FilePenLine aria-hidden="true" size={16} /><span>{t("workspaceDirectory.input")}</span></Link>
+        {SECTION_DEFINITIONS.map((section) => {
           const isActive = section.id === activeSection;
-          const isExpandable = section.id !== "story-bible";
+          const isExpandable = currentEntries.length > 0;
           const isExpanded = isExpandable && isActive && expandedSection === section.id;
           const sectionHref = project
             ? workspaceSectionHref(project, section.id)
@@ -117,7 +153,9 @@ export function WorkspaceSectionDirectory({
               className={`workspace-section-directory-group${isActive ? " is-active" : ""}${isExpanded ? " is-expanded" : ""}`}
               key={section.id}
             >
-              {isActive && isExpandable ? (
+              {!sectionAccessible(section) ? <button aria-disabled="true" className="workspace-section-directory-section" onClick={() => setLockedHint(unlockHint(section.id))} title={unlockHint(section.id)} type="button">
+                <section.icon aria-hidden="true" size={16} /><span>{t(section.labelKey)}</span><LockKeyhole aria-hidden="true" size={13} />
+              </button> : isActive && isExpandable ? (
                 <button
                   aria-controls={`workspace-section-directory-children-${section.id}`}
                   aria-current="page"
@@ -149,11 +187,11 @@ export function WorkspaceSectionDirectory({
                 >
                   {currentEntries.length ? currentEntries.map((entry) => (
                     <button
-                      aria-current={activeEntryId === entry.id ? "location" : undefined}
+                      aria-current={visibleEntryId === entry.id ? "location" : undefined}
                       aria-label={entry.statusLabel
                         ? `${entry.label}，${entry.statusLabel}`
                         : entry.label}
-                      className={`${activeEntryId === entry.id ? "is-active" : ""}${entry.isCurrent ? " is-current" : ""}${entry.depth ? " is-nested" : ""}${entry.status ? ` has-status is-${entry.status}` : ""}`}
+                      className={`${visibleEntryId === entry.id ? "is-active" : ""}${entry.isCurrent ? " is-current" : ""}${entry.depth ? " is-nested" : ""}${entry.status ? ` has-status is-${entry.status}` : ""}`}
                       disabled={entry.disabled}
                       key={entry.id}
                       onClick={() => onSelect(entry)}
@@ -178,6 +216,7 @@ export function WorkspaceSectionDirectory({
           );
         })}
       </nav>
+      {lockedHint ? <p className="workspace-directory-hint" role="status">{lockedHint}</p> : null}
     </aside>
   );
 }

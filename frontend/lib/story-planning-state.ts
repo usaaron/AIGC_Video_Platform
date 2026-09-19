@@ -1,4 +1,6 @@
-import type { ProjectDraft, ScriptProject } from "@/lib/types";
+import type { EpisodeRoadmapItem, ProjectDraft, ScriptProject } from "@/lib/types";
+import type { StoryBible, StoryPlanNode } from "@/lib/story-planning-client";
+import { withoutEpisodeCharacterState } from "./character-reference.ts";
 
 interface GeneratedStoryBibleState {
   status: "draft" | "approved" | "superseded";
@@ -6,8 +8,96 @@ interface GeneratedStoryBibleState {
   project_title?: string | null;
 }
 
+/** Reuse only an unchanged, contiguous authored prefix after a leaf edit. */
+export function unchangedRoadmapPrefixAfterNodeRevision(
+  items: EpisodeRoadmapItem[], previous: StoryPlanNode, next: StoryPlanNode,
+): EpisodeRoadmapItem[] {
+  const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+  const boundaryFields = [
+    "node_id", "story_project_id", "story_bible_id", "story_bible_version",
+    "parent_node_id", "parent_node_version", "predecessor_node_id", "predecessor_node_version",
+    "planned_start_episode", "planned_end_episode", "entry_state",
+    "character_refs", "story_line_refs", "setup_refs", "payoff_refs",
+  ] as const;
+  if (next.version <= previous.version || boundaryFields.some((field) => !same(previous[field], next[field]))) return [];
+  const before = previous.episode_developments ?? [];
+  const after = next.episode_developments ?? [];
+  const start = previous.planned_start_episode;
+  const end = previous.planned_end_episode;
+  if (start == null || end == null || before.length !== end - start + 1 || after.length !== before.length) return [];
+  const candidates = items.filter((item) => item.source_node_id === previous.node_id
+    && item.source_node_version === previous.version && item.story_bible_version === previous.story_bible_version);
+  const retained: EpisodeRoadmapItem[] = [];
+  const eventFields = ["episode_number", "synopsis", "entry_state", "exit_state", "source_turning_points", "source_unit_story_beats"] as const;
+  for (let index = 0; index < before.length; index += 1) {
+    const oldEvent = before[index];
+    const newEvent = after[index];
+    const matches = candidates.filter((item) => item.episode_number === start + index);
+    if (oldEvent.episode_number !== start + index || newEvent.episode_number !== start + index
+      || eventFields.some((field) => !same(oldEvent[field], newEvent[field])) || matches.length !== 1) break;
+    const item = matches[0];
+    // A matching upper plan cannot legitimize an already stale lower source/state.
+    if ((["entry_state", "exit_state", "source_turning_points", "source_unit_story_beats"] as const)
+      .some((field) => !same(item[field], oldEvent[field]))) break;
+    retained.push({ ...item, source_node_version: next.version, status: "draft" });
+  }
+  return retained;
+}
+
 export function canRegenerateStoryBible(project: ScriptProject): boolean {
   return project.episodes.length === 0;
+}
+
+/** Restart downstream planning from the reviewed canon, without discarding it. */
+export function storyPlanningRevisionSeed(project: ScriptProject): {
+  draft: ProjectDraft;
+  patch: Partial<ScriptProject>;
+} {
+  return structuredClone({
+    draft: {
+      title: `${project.title.trim()} · 剧情修订`,
+      titleSource: "user" as const,
+      creativePrompt: project.creativePrompt,
+      referenceMaterials: project.referenceMaterials ?? [],
+      selectedTagIds: project.selectedTagIds,
+      customTags: project.customTags,
+      characters: (project.characters ?? []).map(withoutEpisodeCharacterState),
+      generationSettings: project.generationSettings,
+      inputReadiness: project.inputReadiness,
+    },
+    patch: {
+      sourceProjectId: project.id,
+      canonicalCharacterNames: project.canonicalCharacterNames,
+      selectedCreativeDirection: project.selectedCreativeDirection,
+      storyBibleAuthorInstruction: project.storyBibleAuthorInstruction,
+      storySynopsis: project.storySynopsis,
+      contentSpecId: project.contentSpecId,
+      resolvedCreativeContext: project.resolvedCreativeContext,
+      generationStrategyId: project.generationStrategyId,
+      productionOutputMode: project.productionOutputMode,
+    },
+  });
+}
+
+/** saveStoryBibleDraft will persist this seed as the new project's first draft. */
+export function storyBibleRevisionSeed(
+  source: StoryBible,
+  projectId: string,
+  bibleId: string,
+  createdAt: string,
+): StoryBible {
+  if (source.status !== "approved" || projectId === source.story_project_id) {
+    throw new Error("剧情修订副本需要已确认总纲和独立项目。");
+  }
+  return {
+    ...structuredClone(source),
+    story_project_id: projectId,
+    story_bible_id: bibleId,
+    version: 0,
+    status: "draft",
+    created_at: createdAt,
+    approved_at: null,
+  };
 }
 
 export function storyBibleRewriteVersionSeed(
@@ -77,6 +167,7 @@ export function storyBibleRegenerationPatch(
     resolvedCreativeContext: project.resolvedCreativeContext,
     generationStrategyId: project.generationStrategyId,
     storyBibleInputSignature: project.storyBibleInputSignature,
+    storyBibleSynopsisOutdated: false,
     storyBibleStatus: generated.status,
     storyBibleVersion: generated.version,
     // Episode-plan source audits are lineage-bound to the prior Story Bible;

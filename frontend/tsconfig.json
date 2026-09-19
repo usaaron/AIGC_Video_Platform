@@ -27,20 +27,24 @@
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": [
     "next-env.d.ts",
-    ".next/types/**/*.ts",
     "**/*.ts",
     "**/*.tsx",
+    ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    ".next-human-flow/types/**/*.ts",
-    ".next-human-flow/dev/types/**/*.ts",
-    ".next-human-flow-mock/types/**/*.ts",
-    ".next-human-flow-mock/dev/types/**/*.ts",
-    ".next-human-flow-real/types/**/*.ts",
-    ".next-human-flow-real/dev/types/**/*.ts"
+    ".next-human-flow*/types/**/*.ts",
+    ".next-human-flow*/dev/types/**/*.ts",
+    ".next-full-flow-72*/types/**/*.ts",
+    ".next-full-flow-72*/dev/types/**/*.ts",
+    ".next-root-capacity*/types/**/*.ts",
+    ".next-root-capacity*/dev/types/**/*.ts",
+    ".next-full-flow-72-r53/types/**/*.ts",
+    ".next-full-flow-72-r53/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

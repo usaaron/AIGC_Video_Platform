@@ -4,7 +4,8 @@ import type { GeneratedDraft } from "./types";
 
 type Schema = components["schemas"];
 // Response models always emit defaults; OpenAPI also describes request inputs.
-export type StoryboardShot = Required<Schema["StoryboardShot"]>;
+export type StoryboardShot = Omit<Required<Schema["StoryboardShot"]>, "acting_direction" | "prompt_plan">
+  & Pick<Schema["StoryboardShot"], "acting_direction" | "prompt_plan">;
 export type StoryboardScene = Omit<Required<Schema["StoryboardScene"]>, "shots"> & { shots: StoryboardShot[] };
 export type Storyboard = Omit<Required<Schema["PreproductionStoryboard"]>, "scenes" | "candidate"> & {
   scenes: StoryboardScene[]; candidate: StoryboardScene | null;
@@ -115,25 +116,54 @@ export function mergeStoryboardShot(scene: StoryboardScene, index: number): Stor
   }, ...scene.shots.slice(index + 2)] };
 }
 
+/** Resolve prose against the storyboard's own source snapshot, including historical versions. */
+export function readableStoryboardText(
+  value: string | null | undefined,
+  plan: Pick<Storyboard, "source_draft"> | null | undefined,
+  sceneNumber: number | null | undefined,
+): string {
+  if (!value) return "";
+  const source = (plan?.source_draft as unknown as GeneratedDraft | undefined)?.scenes
+    ?.find(scene => scene.scene_number === sceneNumber);
+  if (!source) return value;
+  return value.replace(/(?<![A-Za-z0-9_:/])(?:dialogue:(\d+)|D(\d+)|action:(\d+))(?![A-Za-z0-9_])/gi,
+    (reference, dialogueIndex, shortDialogueIndex, actionIndex) => {
+      if (actionIndex !== undefined) {
+        const index = Number(actionIndex);
+        return source.character_actions?.[index] !== undefined ? `第${index + 1}个正文动作` : reference;
+      }
+      const line = source.dialogues?.[Number(dialogueIndex ?? shortDialogueIndex)];
+      return line?.text ? `“${line.text}”` : reference;
+    });
+}
+
 export function storyboardMarkdown(plan: Storyboard): string {
   const draft = plan.source_draft as unknown as GeneratedDraft;
   return [
     `# ${draft.title} · 第 ${plan.episode_number} 集分镜草稿`,
     `版本：${plan.revision}；状态：${plan.status}；来源校验：${plan.source_signature}`,
     "## 视觉方向", plan.visual_direction || "待确定",
-    ...(plan.scenes ?? []).flatMap(scene => [
-      `## 场 ${scene.scene_number}`, `正文快照：分镜 v${scene.source_revision}`,
-      `场景目标：${scene.design.purpose}`, `空间布局：${scene.design.spatial_layout}`,
-      `信息揭示：${scene.design.reveal_order}`, `动作节拍：${scene.design.action_rhythm}`, `转场：${scene.design.transition}`,
-      ...(scene.unresolved_questions.length ? ["### 本场待确认事项", ...scene.unresolved_questions.map(question => `- ${question}`)] : []),
-      ...scene.shots.flatMap((shot, index) => [
-        `### 镜 ${scene.scene_number}-${index + 1} · ${shot.duration_seconds} 秒`,
-        `ID: ${shot.shot_id}`, `来源：${shot.source_refs.join(", ")}`,
-        `镜头作用：${shot.purpose}`, `锁定状态：${shot.locked ? "已锁定" : "未锁定"}`,
-        `${shot.framing}；${shot.camera}`, ...shot.action_sequence,
-        ...(shot.dialogue ?? []), `声音：${shot.sound || "未设定"}`, `起始：${shot.continuity_in}`, `结束：${shot.continuity_out}`,
-        "#### 视频描述草稿", shot.prompt ?? "",
-      ]),
-    ]), "## 待处理事项", ...(plan.findings ?? []).map(f => `${f.severity}: ${f.message}`),
+    ...(plan.scenes ?? []).flatMap(scene => {
+      const read = (value: string | null | undefined) => readableStoryboardText(value, plan, scene.scene_number);
+      return [
+        `## 场 ${scene.scene_number}`, `正文快照：分镜 v${scene.source_revision}`,
+        `场景目标：${read(scene.design.purpose)}`, `空间布局：${read(scene.design.spatial_layout)}`,
+        `信息揭示：${read(scene.design.reveal_order)}`, `动作节拍：${read(scene.design.action_rhythm)}`, `转场：${read(scene.design.transition)}`,
+        `观众此刻应感受到：${read(scene.design.audience_effect) || "正文未明确"}`,
+        `本场局面变化：${read(scene.design.status_change) || "正文未明确"}`,
+        ...(scene.unresolved_questions.length ? ["### 本场待确认事项", ...scene.unresolved_questions.map(question => `- ${read(question)}`)] : []),
+        ...scene.shots.flatMap((shot, index) => [
+          `### 镜 ${scene.scene_number}-${index + 1} · ${shot.duration_seconds} 秒`,
+          `ID: ${shot.shot_id}`, `来源：${shot.source_refs.join(", ")}`,
+          `镜头作用：${read(shot.purpose)}`, `锁定状态：${shot.locked ? "已锁定" : "未锁定"}`,
+          `${read(shot.framing)}；${read(shot.camera)}`, ...shot.action_sequence.map(read),
+          `台词表达：${read(shot.acting_direction?.line_delivery) || "正文未明确"}`,
+          `重音与停顿：${read(shot.acting_direction?.emphasis_and_pause) || "正文未明确"}`,
+          `本镜变化：${read(shot.acting_direction?.status_change) || "正文未明确"}`,
+          ...(shot.dialogue ?? []), `声音：${read(shot.sound) || "未设定"}`, `起始：${read(shot.continuity_in)}`, `结束：${read(shot.continuity_out)}`,
+          "#### 视频描述草稿", shot.prompt ?? "",
+        ]),
+      ];
+    }), "## 待处理事项", ...(plan.findings ?? []).map(f => `${f.severity}: ${readableStoryboardText(f.message, plan, f.scene_number)}`),
   ].join("\n\n");
 }
