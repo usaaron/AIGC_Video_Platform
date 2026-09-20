@@ -42,7 +42,32 @@ class _Deadline:
 _ACTIVE_DEADLINE: ContextVar[_Deadline | None] = ContextVar(
     "llm_active_deadline", default=None
 )
+_REQUEST_DEADLINE_OVERRIDE: ContextVar[float | None] = ContextVar(
+    "llm_request_deadline_override", default=None
+)
 _Result = TypeVar("_Result")
+
+
+@contextmanager
+def request_deadline_override(seconds: float) -> Iterator[None]:
+    """Override a role's request budget only inside the current invocation.
+
+    This does not change adapter instances or socket idle timeouts. An earlier
+    parent operation deadline still wins. Context-local binding keeps concurrent
+    standard planning and other calls on their configured role deadlines.
+    """
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("Request deadline override must be finite and positive.")
+    token = _REQUEST_DEADLINE_OVERRIDE.set(seconds)
+    try:
+        yield
+    finally:
+        _REQUEST_DEADLINE_OVERRIDE.reset(token)
+
+
+def effective_request_deadline_seconds(configured: float) -> float:
+    override = _REQUEST_DEADLINE_OVERRIDE.get()
+    return configured if override is None else override
 
 
 def remaining_deadline_seconds() -> float | None:

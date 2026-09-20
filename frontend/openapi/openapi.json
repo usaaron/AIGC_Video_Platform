@@ -16176,6 +16176,16 @@
             "title": "Abilities And Limits",
             "type": "string"
           },
+          "acting_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CharacterActingProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "appearance": {
             "default": "",
             "maxLength": 500,
@@ -16779,8 +16789,11 @@
             "type": "integer"
           },
           "language": {
-            "const": "zh",
             "default": "zh",
+            "enum": [
+              "zh",
+              "en"
+            ],
             "title": "Language",
             "type": "string"
           },
@@ -16901,6 +16914,20 @@
             },
             "title": "Operation Records",
             "type": "array"
+          },
+          "overseas_story_profile": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overseas Story Profile"
           },
           "phase": {
             "default": "setup",

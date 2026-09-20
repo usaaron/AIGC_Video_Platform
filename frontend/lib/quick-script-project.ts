@@ -30,8 +30,8 @@ export function quickSettingsForHost(durationSeconds?: number | null): Generatio
 }
 
 export function canStartQuickScript(project: ScriptProject): boolean {
-  return project.quickWorkflow?.phase !== "standard" && project.episodes.length === 0 && project.marketProfile !== "overseas_tiktok"
-    && project.generationSettings.releaseRegion !== "overseas" && project.generationSettings.outputLanguage !== "en";
+  return project.quickWorkflow?.phase !== "standard" && project.episodes.length === 0
+    && !project.activeGenerationTask && !project.planningRevision;
 }
 
 /** A deliberate short-series entry is offered only before protected standard work exists. */
@@ -40,9 +40,13 @@ export function shortQuickSettingsForLegacyProject(project: ScriptProject, episo
     || project.creationMode === "quick" || !canStartQuickScript(project) || project.quickWorkflow
     || project.storyBibleStatus === "approved" || project.activeGenerationTask || project.planningRevision
     || project.planningSession?.status === "active") return null;
-  return { language: "zh", episode_count: episodeCount,
+  return { language: quickDialogueLanguage(project), episode_count: episodeCount,
     target_total_characters: quickTargetCharactersAfterEpisodeChange(0, episodeCount, 8000),
     target_duration_seconds: 90, storyline_count: 1 };
+}
+
+function quickDialogueLanguage(project: Pick<ScriptProject, "generationSettings">): QuickScriptSettings["language"] {
+  return project.generationSettings.releaseRegion === "overseas" ? "en" : "zh";
 }
 
 export function quickInitialInputs(project: ScriptProject): {
@@ -53,7 +57,7 @@ export function quickInitialInputs(project: ScriptProject): {
     idea: project.creativePrompt ?? "",
     material: (project.referenceMaterials ?? []).map(item => item.extractedText).filter(Boolean).join("\n\n"),
     synopsis: project.storySynopsis?.text ?? "",
-    settings: { language: "zh", episode_count: project.creationMode === "quick" ? project.generationSettings.episodeCount : 8,
+    settings: { language: quickDialogueLanguage(project), episode_count: project.creationMode === "quick" ? project.generationSettings.episodeCount : 8,
       target_total_characters: project.creationMode === "quick" ? project.generationSettings.targetTotalCharacters : 8000,
       target_duration_seconds: duration >= 75 && duration <= 115 ? duration : 90, storyline_count: 1 },
   };
@@ -61,8 +65,7 @@ export function quickInitialInputs(project: ScriptProject): {
 
 /** Explicit mode only: a short legacy project must never silently change workflow. */
 export function isQuickScriptProject(project: Pick<ScriptProject, "creationMode" | "marketProfile" | "generationSettings">): boolean {
-  return project.creationMode === "quick" && project.marketProfile !== "overseas_tiktok"
-    && project.generationSettings.releaseRegion !== "overseas";
+  return project.creationMode === "quick";
 }
 
 /** Restore short targets without the standard workflow's 80,000-character floor.

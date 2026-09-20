@@ -30,6 +30,7 @@ from app.modules.script_engine.llm_deadline import (
     cap_timeout,
     check_deadline,
     deadline_scope,
+    effective_request_deadline_seconds,
     install_deadline_backends,
     remaining_deadline_seconds,
 )
@@ -72,6 +73,21 @@ _DEEPSEEK_OUTPUT_RECOVERY: ContextVar[bool] = ContextVar(
 _LLM_LOCAL_OUTPUT_SCHEMA: ContextVar[dict[str, Any] | None] = ContextVar(
     "llm_local_output_schema", default=None,
 )
+_LLM_REASONING_EFFORT_OVERRIDE: ContextVar[str | None] = ContextVar(
+    "llm_reasoning_effort_override", default=None,
+)
+
+
+@contextmanager
+def bind_reasoning_effort(effort: str | None):
+    """Bind a request-local effort without changing thinking or shared adapters."""
+    if effort not in {None, "low", "medium", "high"}:
+        raise ValueError("Reasoning effort override must be low, medium or high.")
+    token = _LLM_REASONING_EFFORT_OVERRIDE.set(effort)
+    try:
+        yield
+    finally:
+        _LLM_REASONING_EFFORT_OVERRIDE.reset(token)
 
 
 @contextmanager
@@ -233,7 +249,7 @@ def _bounded_llm_request(operation: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(operation)
     def bounded(self: Any, *args: Any, **kwargs: Any) -> Any:
         try:
-            with deadline_scope(self._request_deadline_seconds, scope="request"):
+            with deadline_scope(effective_request_deadline_seconds(self._request_deadline_seconds), scope="request"):
                 check_copilot_cancelled()
                 check_deadline()
                 result = operation(self, *args, **kwargs)
@@ -1619,6 +1635,12 @@ class RealLLMAdapter(LLMAdapter):
             max_context_tokens=self._max_context_tokens,
         )
 
+    def _request_reasoning_effort(self) -> str | None:
+        override = _LLM_REASONING_EFFORT_OVERRIDE.get()
+        if override is None:
+            return self._effective_reasoning_effort
+        return self._protocol.reasoning_effort(override, self._thinking_mode)
+
     def _build_payload(
         self,
         *,
@@ -1665,9 +1687,10 @@ class RealLLMAdapter(LLMAdapter):
                 {"role": "user", "content": structured_prompt},
             ],
         }
+        effective_reasoning_effort = self._request_reasoning_effort()
         if self._is_deepseek:
             thinking_mode = self._thinking_mode or "enabled"
-            reasoning_effort = self._effective_reasoning_effort
+            reasoning_effort = effective_reasoning_effort
             if current_copilot_progress() is not None:
                 # The interactive assistant explicitly requests visible thinking;
                 # leave all ordinary generation-role parameters unchanged.
@@ -1690,18 +1713,18 @@ class RealLLMAdapter(LLMAdapter):
             payload["thinking"] = {"type": thinking_mode}
             if thinking_mode == "disabled":
                 payload["reasoning_effort"] = "none"
-            elif self._effective_reasoning_effort is not None:
-                payload["reasoning_effort"] = self._effective_reasoning_effort
+            elif effective_reasoning_effort is not None:
+                payload["reasoning_effort"] = effective_reasoning_effort
             payload["temperature"] = strategy.temperature
             payload["top_p"] = strategy.top_p
         elif self._protocol.family == "openai_reasoning":
-            if self._effective_reasoning_effort is not None:
-                payload["reasoning_effort"] = self._effective_reasoning_effort
+            if effective_reasoning_effort is not None:
+                payload["reasoning_effort"] = effective_reasoning_effort
         else:
             payload["temperature"] = strategy.temperature
             payload["top_p"] = strategy.top_p
-            if self._protocol.family == "gemini" and self._effective_reasoning_effort is not None:
-                payload["reasoning_effort"] = self._effective_reasoning_effort
+            if self._protocol.family == "gemini" and effective_reasoning_effort is not None:
+                payload["reasoning_effort"] = effective_reasoning_effort
         response_format_type = self._protocol.chat_response_format_type(
             strict=self._use_strict_schema,
             thinking=payload.get("thinking", {}).get("type"),
@@ -2040,8 +2063,9 @@ Return exactly one json object now."""
                 },
             ],
         }
-        if self._effective_reasoning_effort is not None:
-            payload["reasoning"] = {"effort": self._effective_reasoning_effort}
+        effective_reasoning_effort = self._request_reasoning_effort()
+        if effective_reasoning_effort is not None:
+            payload["reasoning"] = {"effort": effective_reasoning_effort}
         observer = current_copilot_progress()
         if copilot_summaries_allowed() and observer is not None and observer.allows_summary_for(self):
             payload.setdefault("reasoning", {})["summary"] = "auto"
@@ -2617,7 +2641,7 @@ Return exactly one json object now."""
         for attempt in range(first_attempt, self._max_retries + 1):
             check_copilot_cancelled()
             check_deadline()
-            charge_planning_model_request()
+            charge_planning_model_request(previous_error=last_error)
             started = time.monotonic()
             progress = self._stream_progress(started, attempt, "non_stream")
             self._log_route_started(
@@ -2833,7 +2857,7 @@ Return exactly one json object now."""
             check_deadline()
             if cancel_event is not None and cancel_event.is_set():
                 raise _HedgedRequestCancelled()
-            charge_planning_model_request()
+            charge_planning_model_request(previous_error=last_error)
             started = time.monotonic()
             progress = self._stream_progress(started, attempt, "stream")
             self._log_route_started(
@@ -4117,6 +4141,8 @@ class ModelFailoverLLMAdapter(LLMAdapter):
         self._log_failover(primary_error)
         try:
             return self._fallback.generate_text(prompt, strategy=strategy)
+        except PlanningCallBudgetExceeded as exhausted:
+            raise exhausted from primary_error
         except LLMRequestError as fallback_error:
             raise self._combined_failure(primary_error, fallback_error) from fallback_error
 
@@ -4437,6 +4463,8 @@ class ModelFailoverLLMAdapter(LLMAdapter):
                 if len(errors) >= 2:
                     primary_error = errors["primary"]
                     fallback_error = errors["fallback"]
+                    if isinstance(fallback_error, PlanningCallBudgetExceeded):
+                        raise fallback_error from primary_error
                     if isinstance(fallback_error, LLMRequestError):
                         if isinstance(primary_error, LLMStructuredOutputError):
                             setattr(
@@ -4487,6 +4515,10 @@ class ModelFailoverLLMAdapter(LLMAdapter):
 
         try:
             result = fallback_call()
+        except PlanningCallBudgetExceeded as exhausted:
+            # No fallback POST was permitted. Keep the original request's
+            # timeout/HTTP cause available to the durable operation owner.
+            raise exhausted from primary_error
         except LLMRequestError as fallback_error:
             if fallback_error.category == "deadline":
                 raise

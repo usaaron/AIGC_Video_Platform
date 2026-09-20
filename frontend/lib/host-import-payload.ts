@@ -1,4 +1,5 @@
 import { toEpisodePlainText } from "./episode-export.ts";
+import { buildEmbeddedOverseasDialogueView } from "./generation-client.ts";
 import { resolveSavedDraft } from "./script-draft-state.ts";
 import { sameStoryboardSource, type Storyboard } from "./storyboard.ts";
 import { projectHostAssetEvidence, type PendingHostAssetEvidence } from "./host-asset-evidence.ts";
@@ -37,7 +38,7 @@ export function buildImportMaterial(project: ScriptProject, boards: Map<number, 
       asset("scene", location, location);
       for (const prop of scene.content_manifest?.props ?? []) asset("prop", prop);
     }
-    const result: ImportEpisode = { sourceEpisodeId: episode.id, episodeNumber: episode.episodeNumber, title: draft.title || `第 ${episode.episodeNumber} 集`, content: toEpisodePlainText(draft, episode.episodeNumber) };
+    const result: ImportEpisode = { sourceEpisodeId: episode.id, episodeNumber: episode.episodeNumber, title: draft.title || `第 ${episode.episodeNumber} 集`, content: toEpisodePlainText(draft, episode.episodeNumber, buildEmbeddedOverseasDialogueView(draft)) };
     const projected = projectHostAssetEvidence(draft, project.characters ?? [], episode.id, result.content);
     if (projected.evidence) result.assetEvidence = projected.evidence;
     if (projected.warning) warnings.push(`第 ${episode.episodeNumber} 集${projected.warning}`);

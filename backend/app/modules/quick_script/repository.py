@@ -23,7 +23,7 @@ def validate_quick_workspace_transition(previous: dict, candidate: dict) -> None
     if candidate.get("quickWorkflow") != previous.get("quickWorkflow"):
         raise LongStoryPersistenceConflictError("快速创作状态已由服务端保存，请刷新后使用快速创作操作。")
     if previous.get("quickWorkflow") and previous.get("creationMode") == "quick":
-        for key in ("episodes", "generationSettings", "creationMode"):
+        for key in ("episodes", "generationSettings", "creationMode", "marketProfile"):
             if candidate.get(key) != previous.get(key):
                 raise LongStoryPersistenceConflictError(f"快速创作的 {key} 不能被自动保存覆盖，请刷新后重试。")
 
@@ -100,12 +100,12 @@ class QuickRepository:
             project = QuickRepository._sync_project_targets(repository, project, workspace)
         if state.phase != "standard" and (project.planned_episode_count != state.settings.episode_count
                 or project.target_total_characters != state.settings.target_total_characters
-                or project.output_language != "zh"):
+                or project.output_language != state.settings.language):
             project = repository.save_project(project.model_copy(update={
                 "revision": project.revision + 1, "planned_episode_count": state.settings.episode_count,
                 "target_total_characters": state.settings.target_total_characters,
                 "default_batch_size": min(project.default_batch_size, state.settings.episode_count),
-                "output_language": "zh", "updated_at": utc_now(),
+                "output_language": state.settings.language, "updated_at": utc_now(),
             }))
         encoded = json.dumps(workspace, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         if len(encoded) > MAX_WORKSPACE_PAYLOAD_BYTES:

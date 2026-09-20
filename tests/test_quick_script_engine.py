@@ -195,7 +195,8 @@ def test_transport_retry_cannot_spend_a_second_model_call():
         engine(adapter).draft_synopsis(make_state())
     assert len(requests) == 1
     assert caught.value.call.physical_requests == 1
-    assert caught.value.code == "quick_model_operation_failed"
+    assert caught.value.code == "quick_model_upstream"
+    assert caught.value.diagnostics["http_status"] == 500
 
 
 def test_fixture_preserves_real_delivery_contract():

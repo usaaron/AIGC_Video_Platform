@@ -11,6 +11,7 @@ from app.modules.quick_script.models import (
     QuickResponseData, utc_now,
 )
 from app.modules.quick_script.repository import QuickRepository
+from app.modules.quick_script.market import workspace_language, workspace_overseas_profile, quick_market
 from app.modules.script_engine.long_story_repository import LongStoryPersistenceConflictError
 
 
@@ -132,16 +133,21 @@ class QuickService:
         if state.phase == "standard" and action not in {"setup", "switch_standard"}:
             raise QuickInputError("当前项目已转入标准流程。快速创作成果仍保留。")
         if action == "setup":
-            settings_row = workspace.get("generationSettings") or {}
-            if (workspace.get("marketProfile") == "overseas_tiktok"
-                    or settings_row.get("outputLanguage") == "en"
-                    or settings_row.get("releaseRegion") == "overseas"):
-                raise QuickInputError("快速创作首版仅支持中文大陆项目；海外项目请继续标准流程。")
+            try:
+                language = workspace_language(workspace)
+            except ValueError as error:
+                raise QuickInputError(str(error)) from error
             if workspace.get("episodes") or state.episodes:
                 raise QuickInputError("已有剧本正文，请继续当前流程；快速设置不能覆盖已保存正文。")
             if workspace.get("activeGenerationTask") or workspace.get("planningRevision"):
                 raise QuickInputError("当前仍有标准流程任务，请先完成或暂停该任务。")
-            settings = QuickSettings.model_validate(payload.get("settings", state.settings.model_dump()))
+            settings_input = dict(payload.get("settings", state.settings.model_dump()))
+            if "settings" not in payload:
+                settings_input["language"] = language
+            if settings_input.get("language", language) != language:
+                raise QuickInputError("快速创作对白语言必须与项目已保存的发行地区一致。")
+            settings_input["language"] = language
+            settings = QuickSettings.model_validate(settings_input)
             idea = str(payload.get("idea", workspace.get("creativePrompt", ""))).strip()
             source = payload.get("source_material")
             if source is None:
@@ -158,11 +164,13 @@ class QuickService:
                     "name": row["name"], "role": row.get("role") or "主要人物",
                     "motivation": row.get("motivation") or "", "appearance": row.get("appearance") or "",
                     "fixed_identity": row.get("description") or row.get("background") or "",
+                    "acting_profile": row.get("actingProfile"),
                 } for index, row in enumerate(workspace.get("characters", [])) if isinstance(row, dict) and row.get("name")]
             validated = QuickState(project_id=state.project_id, settings=settings, idea=idea,
                                    source_material=source, supplied_characters=characters)
             state.settings, state.idea, state.source_material = validated.settings, validated.idea, validated.source_material
             state.supplied_characters = validated.supplied_characters
+            state.overseas_story_profile = workspace_overseas_profile(workspace) if language == "en" else None
             state.synopsis = str(synopsis.get("text", state.synopsis) or "")
             state.synopsis_confirmed = bool(state.synopsis and synopsis.get("status") == "confirmed")
             state.synopsis_hash = synopsis_hash(state.synopsis) if state.synopsis else ""
@@ -365,6 +373,10 @@ class QuickService:
                 for key in ("action", "stage", "episode_number", "started_at") if key in completed_operation})
             if failure is not None:
                 state.operation_records[-1]["error_code"] = getattr(failure, "code", "quick_model_operation_failed")
+                diagnostics = getattr(failure, "diagnostics", None)
+                if isinstance(diagnostics, dict):
+                    state.operation_records[-1]["diagnostics"] = {key: value for key, value in diagnostics.items()
+                        if key in {"error_type", "category", "http_status", "deadline_scope", "elapsed_ms", "physical_requests"}}
                 candidate = getattr(failure, "candidate", None)
                 if isinstance(candidate, dict):
                     state.operation_records[-1]["candidate"] = {k: v for k, v in candidate.items() if k != "_meta"}
@@ -553,12 +565,19 @@ class QuickService:
         if state.phase == "standard":
             return
         settings = dict(workspace.get("generationSettings") or {})
-        settings.update({"outputLanguage": "zh", "releaseRegion": "cn_mainland", "episodeCount": state.settings.episode_count,
+        settings.update({"outputLanguage": state.settings.language,
+                         "releaseRegion": "overseas" if state.settings.language == "en" else "cn_mainland",
+                         "episodeCount": state.settings.episode_count,
                          "targetTotalCharacters": state.settings.target_total_characters,
                          "preferredEpisodeDurationMinutes": state.settings.target_duration_seconds / 60})
         workspace["generationSettings"] = settings
+        if state.overseas_story_profile and state.settings.language == "en":
+            profile = state.overseas_story_profile
+            settings["overseasStoryProfile"] = {"enabled": True, "country": profile.get("country", ""),
+                "region": profile.get("region", ""), "socialContext": profile.get("social_context", ""),
+                "storyEngine": profile.get("story_engine", "")}
         workspace["creativePrompt"] = state.idea
-        workspace["marketProfile"] = "cn_mainland"
+        workspace["marketProfile"] = quick_market(state)
         if state.synopsis:
             previous = workspace.get("storySynopsis") or {}
             workspace["storySynopsis"] = {**previous, "text": state.synopsis,
@@ -567,7 +586,9 @@ class QuickService:
         if state.plan:
             workspace["characters"] = [{"id": c.character_ref, "name": c.name, "role": c.role, "age": "", "gender": "",
                 "background": c.fixed_identity, "appearance": c.appearance, "description": c.fixed_identity,
-                "motivation": c.motivation, "source": "generated"} for c in state.plan.characters]
+                "motivation": c.motivation, "source": "generated",
+                **({"actingProfile": c.acting_profile.model_dump(mode="json")} if c.acting_profile else {})}
+                for c in state.plan.characters]
         previous = {e.get("episodeNumber"): e for e in workspace.get("episodes", []) if isinstance(e, dict)}
         episodes = []
         changed = False

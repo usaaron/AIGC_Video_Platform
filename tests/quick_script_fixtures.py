@@ -77,3 +77,40 @@ def add_episode(state, episode_number=1, *, status="passed"):
         source_episode_hashes={str(e.episode_number): e.body_hash for e in state.episodes if e.episode_number < episode_number})
     state.episodes.append(value)
     return value
+
+
+def _overseas_identity(value):
+    if isinstance(value, str):
+        return value.replace("林澈", "Ethan")
+    if isinstance(value, dict):
+        return {key: _overseas_identity(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_overseas_identity(item) for item in value]
+    return value
+
+
+def make_overseas_state(episode_count=2):
+    state = make_state(episode_count)
+    state = QuickState.model_validate(_overseas_identity(state.model_dump(mode="json")))
+    state.settings.language = "en"
+    state.synopsis_hash = synopsis_hash(state.synopsis)
+    state.plan.source_synopsis_hash = state.synopsis_hash
+    state.plan.content_hash = plan_content_hash(state.plan)
+    return state
+
+
+def make_overseas_llm_draft(episode_number=1, total_episodes=2):
+    raw = _overseas_identity(make_llm_draft(episode_number, total_episodes))
+    raw.update(language="en", target_platform="海外竖屏短剧")
+    for scene in raw["scenes"]:
+        for index, line in enumerate(scene["dialogues"]):
+            line["chinese_translation"] = line["text"]
+            line["text"] = f"Please check original document {index + 1} carefully before saving this evidence."
+    return raw
+
+
+def make_overseas_draft(episode_number=1, total_episodes=2):
+    raw = make_overseas_llm_draft(episode_number, total_episodes)
+    for scene in raw["scenes"]:
+        scene["setting_hint"] = scene.pop("setting")
+    return DraftMasterScript(**raw, content_spec_id="quick.fixture", generation_strategy_id="strategy.quick_script.draft.v1")

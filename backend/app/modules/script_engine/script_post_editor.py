@@ -1270,6 +1270,11 @@ class ScriptPostEditor:
                     )
         return list(dict.fromkeys(issues))
 
+    @classmethod
+    def overseas_body_language_issues(cls, draft: DraftMasterScript, *, include_narrative: bool = False) -> list[str]:
+        """Pure language diagnostics, reusable without invoking model repairs."""
+        return cls._overseas_body_language_issues(draft, include_narrative=include_narrative)
+
     @staticmethod
     def _overseas_body_language_issues(
         draft: DraftMasterScript,

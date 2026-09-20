@@ -200,10 +200,17 @@ def planning_call_budget_scope(**kwargs) -> Iterator[PlanningCallBudget]:
         _budget.reset(token)
 
 
-def charge_planning_model_request() -> None:
+def charge_planning_model_request(*, previous_error: Exception | None = None) -> None:
     budget = _budget.get()
     if budget is not None:
-        budget.charge()
+        try:
+            budget.charge()
+        except PlanningCallBudgetExceeded as exhausted:
+            # Retry loops charge outside their previous except block. Preserve
+            # that failed request's typed cause without permitting another POST.
+            if previous_error is not None:
+                raise exhausted from previous_error
+            raise
 
 
 def remaining_planning_model_requests() -> int | None:

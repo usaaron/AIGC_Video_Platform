@@ -25,7 +25,9 @@ test("legacy source materials and synopsis remain available when entering quick 
   assert.equal(canStartQuickScript(legacy), true);
   assert.equal(canStartQuickScript({ ...legacy, episodes: [{ episodeNumber: 1 }] }), false);
   assert.equal(canStartQuickScript({ ...legacy, creationMode: 'standard', quickWorkflow: { phase: 'standard' } }), false);
-  assert.equal(canStartQuickScript({ ...legacy, generationSettings: { ...legacy.generationSettings, releaseRegion: 'overseas' } }), false);
+  assert.equal(canStartQuickScript({ ...legacy, generationSettings: { ...legacy.generationSettings, releaseRegion: 'overseas' } }), true);
+  assert.equal(canStartQuickScript({ ...legacy, activeGenerationTask: {} }), false);
+  assert.equal(canStartQuickScript({ ...legacy, planningRevision: {} }), false);
 });
 
 test("quick projects retain supported host duration and leave incompatible duration in standard creation", () => {
@@ -68,14 +70,27 @@ test("legacy short entry prepares only explicit 1–7 episode intents without mu
     assert.equal(requested.target_duration_seconds, 90);
   }
   for (const count of [0, 8, 12, 2.5, NaN]) assert.equal(shortQuickSettingsForLegacyProject(legacy, count), null);
-  for (const patch of [{ creationMode: "quick" }, { episodes: [{}] }, { marketProfile: "overseas_tiktok" },
-    { generationSettings: { ...legacy.generationSettings, releaseRegion: "overseas" } },
-    { generationSettings: { ...legacy.generationSettings, outputLanguage: "en" } },
+  for (const patch of [{ creationMode: "quick" }, { episodes: [{}] },
     { quickWorkflow: { phase: "standard" } }, { quickWorkflow: { phase: "synopsis" } },
     { activeGenerationTask: {} }, { planningRevision: {} }, { planningSession: { status: "active" } }, { storyBibleStatus: "approved" }]) {
     assert.equal(shortQuickSettingsForLegacyProject({ ...legacy, ...patch }, 2), null);
   }
   assert.equal(JSON.stringify(legacy), before);
+});
+
+test("overseas quick scope keeps short counts and uses English only as the dialogue-language setting", () => {
+  const overseas = project({ creationMode: "quick", marketProfile: "overseas_tiktok", generationSettings: {
+    ...DEFAULT_QUICK_GENERATION_SETTINGS, releaseRegion: "overseas", outputLanguage: "en", episodeCount: 2, targetTotalCharacters: 2000,
+  } });
+  assert.equal(isQuickScriptProject(overseas), true);
+  assert.equal(quickInitialInputs(overseas).settings.language, "en");
+  assert.equal(quickInitialInputs(overseas).settings.episode_count, 2);
+  assert.equal(quickInitialInputs(overseas).settings.target_total_characters, 2000);
+  const requested = shortQuickSettingsForLegacyProject({ ...overseas, creationMode: "standard" }, 2);
+  assert.equal(requested.language, "en"); assert.equal(requested.episode_count, 2);
+  assert.equal(requested.target_total_characters, 2000); assert.equal(requested.target_duration_seconds, 90);
+  assert.equal(shortQuickSettingsForLegacyProject({ ...overseas, creationMode: "standard", quickWorkflow: { phase: "standard" } }, 2), null);
+  assert.equal(quickSourceInputsLocked({ ...overseas, quickWorkflow: { synopsis_confirmed: true } }), true);
 });
 
 test("explicit quick entry keeps an existing 60 second project's synopsis and presents the quick scope", () => {
@@ -132,10 +147,12 @@ test("new mainland quick projects open source inputs while existing work resumes
     assert.equal(hostScriptEntryHref({ ...quick, ...saved }, standard, true), "/projects/project.quick/quick");
   }
   assert.equal(hostScriptEntryHref(quick, standard, false), standard);
-  for (const other of [project(), project({ creationMode: "standard" }), project({ creationMode: "quick", marketProfile: "overseas_tiktok" }),
-    project({ creationMode: "quick", generationSettings: { ...quick.generationSettings, releaseRegion: "overseas" } })]) {
+  for (const other of [project(), project({ creationMode: "standard" })]) {
     assert.equal(hostScriptEntryHref(other, standard, true), standard);
   }
+  const overseas = { ...quick, marketProfile: "overseas_tiktok", generationSettings: { ...quick.generationSettings, releaseRegion: "overseas", outputLanguage: "en" } };
+  assert.equal(hostScriptEntryHref(overseas, standard, true), "/projects/project.quick");
+  assert.equal(hostScriptEntryHref({ ...overseas, quickWorkflow: { phase: "synopsis" } }, standard, true), "/projects/project.quick/quick");
 });
 
 test("quick routing allows source review and explicit continuation without switching old project modes", () => {

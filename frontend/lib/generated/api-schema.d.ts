@@ -7208,6 +7208,7 @@ export interface components {
              * @default
              */
             abilities_and_limits: string;
+            acting_profile?: components["schemas"]["CharacterActingProfile"] | null;
             /**
              * Appearance
              * @default
@@ -7442,9 +7443,9 @@ export interface components {
             /**
              * Language
              * @default zh
-             * @constant
+             * @enum {string}
              */
-            language: "zh";
+            language: "zh" | "en";
             /**
              * Storyline Count
              * @default 1
@@ -7496,6 +7497,10 @@ export interface components {
             operation_records?: {
                 [key: string]: unknown;
             }[];
+            /** Overseas Story Profile */
+            overseas_story_profile?: {
+                [key: string]: string;
+            } | null;
             /**
              * Phase
              * @default setup

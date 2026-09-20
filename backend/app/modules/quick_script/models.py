@@ -7,7 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.master_script.models import DraftMasterScript
-from app.modules.script_engine.long_story_models import EpisodePlanGenerationItem, StoryProjectWorkspaceSnapshot
+from app.modules.script_engine.long_story_models import CharacterActingProfile, EpisodePlanGenerationItem, StoryProjectWorkspaceSnapshot
 
 
 def utc_now() -> datetime:
@@ -19,7 +19,7 @@ class QuickModel(BaseModel):
 
 
 class QuickSettings(QuickModel):
-    language: Literal["zh"] = "zh"
+    language: Literal["zh", "en"] = "zh"
     target_total_characters: int = Field(default=8_000, ge=1_000, le=10_000)
     episode_count: int = Field(default=8, ge=1, le=12)
     target_duration_seconds: int = Field(default=90, ge=75, le=115)
@@ -34,6 +34,7 @@ class QuickCharacter(QuickModel):
     fixed_identity: str = Field(default="", max_length=800)
     abilities_and_limits: str = Field(default="", max_length=800)
     appearance: str = Field(default="", max_length=500)
+    acting_profile: CharacterActingProfile | None = None
 
 
 class QuickPlanContent(QuickModel):
@@ -149,6 +150,7 @@ class QuickState(QuickModel):
     status: Literal["idle", "busy", "blocked", "stale", "completed"] = "idle"
     next_step: QuickNextStep = "synopsis"
     settings: QuickSettings = Field(default_factory=QuickSettings)
+    overseas_story_profile: dict[str, str] | None = None
     idea: str = Field(default="", max_length=10_000)
     source_material: str = Field(default="", max_length=20_000)
     supplied_characters: list[QuickCharacter] = Field(default_factory=list, max_length=6)

@@ -1,6 +1,7 @@
 import { ensureHostToken } from "@/lib/api-client";
 import { assertHostSessionActive, hostProjectId, hostSessionSignal } from "@/lib/host-session";
 import { toEpisodePlainText } from "@/lib/episode-export";
+import { buildEmbeddedOverseasDialogueView } from "@/lib/generation-client";
 import { resolveSavedDraft } from "@/lib/script-draft-state";
 import type { ScriptProject } from "@/lib/types";
 
@@ -28,7 +29,7 @@ export async function deliverSeriesToHost(project: ScriptProject): Promise<HostD
         sourceEpisodeId: episode.id,
         episodeNumber: episode.episodeNumber,
         title: draft.title || `第 ${episode.episodeNumber} 集`,
-        content: toEpisodePlainText(draft, episode.episodeNumber),
+        content: toEpisodePlainText(draft, episode.episodeNumber, buildEmbeddedOverseasDialogueView(draft)),
       };
     });
   if (!episodes.length) throw new Error("At least one saved episode is required.");

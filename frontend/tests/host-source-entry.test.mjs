@@ -174,7 +174,7 @@ test("short entry keeps save failures and protected work blocked while empty sou
   assert.equal(emptyNext.props.disabled, false);
   emptyNext.props.onClick(); await setImmediate();
   assert.deepEqual(empty.routes, ["/projects/host-series/quick?episodes=2"]);
-  for (const patch of [{}, { marketProfile: "overseas_tiktok" }, { episodes: [{}] }, { storyBibleStatus: "approved" },
+  for (const patch of [{}, { episodes: [{}] }, { storyBibleStatus: "approved" },
     { quickWorkflow: { phase: "standard" } }, { activeGenerationTask: {} }, { planningRevision: {} }, { planningSession: { status: "active" } }]) {
     const app = harness({ ...legacy, ...patch }, { integrated: Object.keys(patch).length > 0 });
     const count = elements(app.render()).find(item => item.type === "input" && item.props.type === "number");
@@ -183,6 +183,47 @@ test("short entry keeps save failures and protected work blocked while empty sou
     assert.equal(count.props.min, 8);
     assert.deepEqual(app.routes, []);
   }
+});
+
+test("a legacy two-episode intent saves the selected overseas market before quick entry while preserving the standard scope", async () => {
+  let finishSave;
+  const gate = new Promise(resolve => { finishSave = resolve; });
+  const original = project({ creationMode: "standard", generationSettings: { ...types.DEFAULT_GENERATION_SETTINGS, episodeCount: 300 } });
+  const app = harness(original, { save: () => gate });
+  elements(app.render()).find(item => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "2" } });
+  elements(app.render()).find(item => item.props["aria-label"] === "generation.releaseRegion").props.onChange({ target: { value: "overseas" } });
+  const tree = app.render();
+  assert.match(renderToStaticMarkup(tree), /按 2 集快速创作/);
+  const next = elements(tree).find(item => item.type === "button" && item.props.className === "primary-action full-width");
+  assert.equal(next.props.disabled, false); next.props.onClick(); await setImmediate();
+  assert.deepEqual(app.routes, []);
+  assert.equal(app.saves[0].draft.generationSettings.episodeCount, 300);
+  assert.equal(app.saves[0].draft.generationSettings.releaseRegion, "overseas");
+  assert.equal(app.saves[0].draft.generationSettings.outputLanguage, "en");
+  finishSave(true); await setImmediate();
+  assert.deepEqual(app.routes, ["/projects/host-series/quick?episodes=2"]);
+  assert.equal(original.generationSettings.releaseRegion, "cn_mainland");
+});
+
+test("switching a two-episode quick project between markets preserves its short scope and route", async () => {
+  const original = project({ generationSettings: { ...quick.DEFAULT_QUICK_GENERATION_SETTINGS, episodeCount: 2, targetTotalCharacters: 2000 } });
+  const app = harness(original);
+  for (const region of ["overseas", "cn_mainland", "overseas"]) {
+    elements(app.render()).find(item => item.props["aria-label"] === "generation.releaseRegion").props.onChange({ target: { value: region } });
+    const tree = app.render();
+    const count = elements(tree).find(item => item.type === "input" && item.props.type === "number");
+    assert.equal(count.props.min, 1); assert.equal(count.props.max, 12); assert.equal(count.props.value, "2");
+    assert.match(renderToStaticMarkup(tree), /2,000/);
+    assert.doesNotMatch(renderToStaticMarkup(tree), /80,000|140,000|标准流程需要/);
+  }
+  elements(app.render()).find(item => item.type === "button" && item.props.className === "primary-action full-width").props.onClick();
+  await setImmediate();
+  assert.equal(app.saves[0].draft.generationSettings.episodeCount, 2);
+  assert.equal(app.saves[0].draft.generationSettings.targetTotalCharacters, 2000);
+  assert.equal(app.saves[0].draft.generationSettings.releaseRegion, "overseas");
+  assert.equal(app.saves[0].draft.generationSettings.outputLanguage, "en");
+  assert.deepEqual(app.routes, ["/projects/host-series/quick"]);
+  assert.equal(original.creationMode, "quick");
 });
 
 test("standard source navigation explains its actual next step instead of blaming an unconfirmed outline", () => {

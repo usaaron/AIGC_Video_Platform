@@ -7,27 +7,29 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import time
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from app.modules.content_spec.market_profile import CREATOR_INTERACTION_LANGUAGE_CONTRACT
 from app.modules.master_script.models import (
     DraftMasterScript, DraftSceneCard, LLMGeneratedDraftMasterScript, LLMMainlandBodyRepairPatch,
 )
 from app.modules.script_engine.episode_readiness import episode_execution_readiness_issues
-from app.modules.script_engine.llm_adapter import LLMAdapter, bind_llm_market, bind_local_output_schema
+from app.modules.script_engine.llm_adapter import LLMAdapter, bind_llm_market, bind_local_output_schema, bind_reasoning_effort
 from app.modules.script_engine.json_schema_contract import compact_json_schema
 from app.modules.script_engine.mainland_language import blocking_draft_script_chinese_issues
 from app.modules.script_engine.mainland_screenplay import draft_screenplay_style_issues
 from app.modules.script_engine.models import GenerationStrategy
-from app.modules.script_engine.planning_call_budget import PlanningCallBudgetExceeded, planning_call_budget_scope
+from app.modules.script_engine.planning_call_budget import planning_call_budget_scope
+from app.modules.script_engine.llm_deadline import deadline_scope, request_deadline_override
 from app.modules.script_engine.production_count_utils import episode_production_counts
-from app.modules.script_engine.screenplay_duration import estimate_screenplay_duration
+from app.modules.script_engine.screenplay_duration import estimate_screenplay_duration, screenplay_runtime_prompt_guidance
 from app.modules.script_engine.screenplay_metrics import screenplay_character_count
 from app.modules.script_engine.script_body_length import script_body_length_guidance, script_body_scale_prompt
 from app.script_delivery_contract import (
@@ -38,14 +40,16 @@ from .models import (
     QuickDraftResult, QuickIssue, QuickModel, QuickModelCall, QuickPlan, QuickPlanContent,
     QuickPlanResult, QuickReview, QuickReviewResult, QuickState, QuickSynopsisResult,
 )
+from .market import quick_market, quick_market_contract, creator_language_paths, overseas_plan_issues
 
 
 class QuickEngineError(ValueError):
     def __init__(self, message: str, *, code: str = "quick_output_invalid", call: QuickModelCall | None = None,
-                 candidate: dict | None = None):
+                 candidate: dict | None = None, diagnostics: dict | None = None):
         super().__init__(message)
         self.public_message = message
         self.code, self.call, self.candidate = code, call, candidate
+        self.diagnostics = diagnostics
 
 
 class _Synopsis(QuickModel):
@@ -69,7 +73,13 @@ def synopsis_hash(text: str) -> str:
 
 def plan_content_hash(plan: QuickPlanContent | dict) -> str:
     raw = _json(plan)
-    return source_hash({key: raw[key] for key in QuickPlanContent.model_fields if key in raw})
+    content = {key: raw[key] for key in QuickPlanContent.model_fields if key in raw}
+    # v1 plans predate optional acting profiles. Loading an old confirmed plan
+    # must not invalidate its saved sources merely by materializing a null.
+    content["characters"] = [{key: value for key, value in row.items()
+                              if key != "acting_profile" or value is not None}
+                             for row in content.get("characters", [])]
+    return source_hash(content)
 
 
 def draft_body_hash(draft: DraftMasterScript | dict) -> str:
@@ -84,7 +94,7 @@ def _issue(code: str, message: str, *, episode: int | None = None, scene: int | 
 
 
 def validate_quick_plan(state: QuickState, plan: QuickPlanContent) -> list[QuickIssue]:
-    issues = []
+    issues = overseas_plan_issues(state, plan)
     if len(plan.episodes) != state.settings.episode_count:
         issues.append(_issue("episode_coverage", "创作安排必须完整覆盖已确认集数。"))
     if state.settings.storyline_count == 1 and plan.subplot:
@@ -118,6 +128,14 @@ def _body_lines(draft: DraftMasterScript, scene_number: int | None = None) -> li
             for text in (*scene.character_actions, *(line.text for line in scene.dialogues))]
 
 
+def _evidence_lines(draft: DraftMasterScript, scene_number: int) -> list[str]:
+    # The reviewer can quote an exact saved Chinese translation. It is evidence
+    # text, not an additional spoken line or an extra unit in body metrics.
+    return _body_lines(draft, scene_number) + [line.chinese_translation
+        for scene in draft.scenes if scene.scene_number == scene_number
+        for line in scene.dialogues if line.chinese_translation]
+
+
 def complete_screenplay_text(draft: DraftMasterScript) -> str:
     """Retain every action and spoken line in its saved order, without metadata."""
     lines = [draft.title]
@@ -130,6 +148,8 @@ def complete_screenplay_text(draft: DraftMasterScript) -> str:
             else:
                 line = scene.dialogues[int(index)]
                 lines.append(f"{line.character_name}：{line.text}")
+                if line.chinese_translation:
+                    lines.append("中译：" + line.chinese_translation)
     return "\n".join(lines)
 
 
@@ -173,10 +193,25 @@ def mechanical_review(state: QuickState, episode_number: int, draft: DraftMaster
     prior_size = sum(screenplay_character_count(e.draft) for e in state.episodes if e.episode_number != episode_number)
     if prior_size + size > 10_000:
         add("quick_length_limit", "总正文已超出快速模式一万有效字范围，请转标准流程。")
-    if not draft.language.startswith("zh"):
-        add("language", "快速模式首版只支持中文正文。")
-    for path in blocking_draft_script_chinese_issues(draft):
-        add("language", "正文存在不符合中文交付的字段。", path=path)
+    if not draft.language.startswith(state.settings.language):
+        add("language", "正文语言与项目已确认的发行地区不一致。")
+    if state.settings.language == "en":
+        from app.modules.script_engine.script_post_editor import ScriptPostEditor
+        from app.modules.script_engine.overseas_identity import english_identity
+        paths = ScriptPostEditor.overseas_body_language_issues(draft, include_narrative=True)
+        for path in paths:
+            match = re.match(r"scenes\.(\d+)\.(character_actions|dialogues)\.", path)
+            scene = draft.scenes[int(match[1])].scene_number if match else None
+            add("language", "海外正文需中文叙述、英文对白与逐句中文翻译。", scene=scene, path=path)
+        for index, character in enumerate(draft.characters):
+            if not english_identity(character.name):
+                add("character_identity", "海外人物需要沿用已确认英文姓名。", path=f"characters.{index}.name")
+        for scene in draft.scenes:
+            if any(line.chinese_character_name for line in scene.dialogues):
+                add("character_identity", "海外台词与译文需沿用同一个英文姓名。", scene=scene.scene_number)
+    else:
+        for path in blocking_draft_script_chinese_issues(draft):
+            add("language", "正文存在不符合中文交付的字段。", path=path)
     for path in draft_screenplay_style_issues(draft):
         add("screenplay_style", "正文存在不可直接表演或拍摄的动作说明。", path=path)
     repeated = {line.strip() for line in lines if line.strip() and lines.count(line) > 1 and len(line.strip()) > 12}
@@ -198,11 +233,29 @@ def mechanical_review(state: QuickState, episode_number: int, draft: DraftMaster
     return metrics, issues
 
 
-def _strategy(adapter: LLMAdapter, stage: str, output_tokens: int) -> GenerationStrategy:
-    info = adapter.get_model_info()
+def _configured_model_infos(adapter: LLMAdapter, market: str | None = None):
+    """Inspect configured routes; wrapper display names are not provider models."""
+    from app.modules.script_engine.llm_adapter import (
+        MarketRoutedLLMAdapter, AdaptiveTransportLLMAdapter, ModelFailoverLLMAdapter, PooledLLMAdapter,
+    )
+    if isinstance(adapter, MarketRoutedLLMAdapter):
+        routes = ([adapter._overseas] if market == "overseas_tiktok" else [adapter._mainland]
+                  if market else [adapter._mainland, adapter._overseas])
+    elif isinstance(adapter, AdaptiveTransportLLMAdapter):
+        routes = [adapter._adapter]
+    elif isinstance(adapter, ModelFailoverLLMAdapter):
+        routes = [adapter._primary, adapter._fallback]
+    elif isinstance(adapter, PooledLLMAdapter):
+        routes = adapter._adapters
+    else:
+        return [adapter.get_model_info()]
+    return [info for route in routes for info in _configured_model_infos(route, market)]
+
+
+def _strategy(info, stage: str, output_tokens: int, market: str) -> GenerationStrategy:
     return GenerationStrategy(
         id=f"strategy.quick_script.{stage}.v1", name=f"Quick Script {stage}",
-        target_platform="中文竖屏短剧", target_content_type="ai_comic_drama",
+        target_platform="海外竖屏短剧" if market == "overseas_tiktok" else "中文竖屏短剧", target_content_type="ai_comic_drama",
         model_provider=info.provider, model_name=info.model_name, max_tokens=output_tokens,
         temperature=0.7, top_p=0.9, workflow_steps=[{"step_order": 1, "name": stage,
             "description": "一次有界模型操作", "prompt_id": "prompt.quick_script.v1"}],
@@ -213,7 +266,9 @@ def _strategy(adapter: LLMAdapter, stage: str, output_tokens: int) -> Generation
 class QuickScriptEngine:
     def __init__(self, *, planning_adapter: LLMAdapter, script_adapter: LLMAdapter,
                  review_adapter: LLMAdapter | None = None, repair_adapter: LLMAdapter | None = None,
-                 verified_context_tokens: int, verified_models: set[str] | None = None):
+                 verified_context_tokens: int, verified_models: set[str] | None = None,
+                 request_deadline_seconds: float = 480, operation_deadline_seconds: float = 600,
+                 planning_reasoning_effort: str = "low"):
         if not 8_192 <= verified_context_tokens <= 2_000_000:
             raise QuickEngineError("快速模式尚未配置已核验的上下文能力。", code="quick_capability_unverified")
         self.planning_adapter, self.script_adapter = planning_adapter, script_adapter
@@ -221,12 +276,24 @@ class QuickScriptEngine:
         self.repair_adapter = repair_adapter or script_adapter
         self.verified_context_tokens = verified_context_tokens
         self.verified_models = verified_models
+        if (not math.isfinite(request_deadline_seconds) or not 0 < request_deadline_seconds <= 480
+                or not math.isfinite(operation_deadline_seconds)
+                or not request_deadline_seconds <= operation_deadline_seconds <= 600):
+            raise QuickEngineError("快速创作等待时限配置无效，请联系管理员检查。", code="quick_model_configuration")
+        self.request_deadline_seconds = request_deadline_seconds
+        self.operation_deadline_seconds = operation_deadline_seconds
+        if planning_reasoning_effort not in {"low", "medium", "high"}:
+            raise QuickEngineError("快速创作规划推理配置无效，请联系管理员检查。", code="quick_model_configuration")
+        self.planning_reasoning_effort = planning_reasoning_effort
 
     def _call(self, state: QuickState, stage: str, prompt: str, schema_type: type[BaseModel],
               adapter: LLMAdapter, *, output_tokens: int = 12_000):
-        info = adapter.get_model_info()
-        if self.verified_models is not None and info.model_name not in self.verified_models:
+        market = quick_market(state)
+        infos = _configured_model_infos(adapter, market)
+        info = infos[0]
+        if self.verified_models is not None and any(item.model_name not in self.verified_models for item in infos):
             raise QuickEngineError("当前模型尚未通过快速模式上下文能力核验。", code="quick_capability_unverified")
+        prompt = quick_market_contract(state) + "\n" + prompt
         schema = schema_type.model_json_schema()
         prompt += "\n只返回完整根JSON对象，不返回schema或Markdown。输出合同：\n" + json.dumps(
             compact_json_schema(schema), ensure_ascii=False, separators=(",", ":"))
@@ -234,7 +301,7 @@ class QuickScriptEngine:
         # actual model text, the one inline schema, system policy and envelope
         # reserve. No history is truncated and no duplicate schema is sent.
         upper_bound = len((CREATOR_INTERACTION_LANGUAGE_CONTRACT + prompt).encode("utf-8")) + 2_048
-        if upper_bound + output_tokens > min(self.verified_context_tokens, info.max_context_tokens):
+        if upper_bound + output_tokens > min(self.verified_context_tokens, *(item.max_context_tokens for item in infos)):
             raise QuickEngineError("完整前文与本次输出预留已超出快速模式上下文预算，请转标准流程；前文不会被删减。",
                                    code="quick_context_limit")
         started = time.perf_counter()
@@ -244,12 +311,16 @@ class QuickScriptEngine:
                              output_reserve_tokens=output_tokens, elapsed_ms=0)
         budget = None
         try:
-            with bind_llm_market("cn_mainland"), bind_local_output_schema(schema), planning_call_budget_scope(
+            with request_deadline_override(self.request_deadline_seconds), deadline_scope(
+                self.operation_deadline_seconds, scope="quick_operation"
+            ), bind_llm_market(market), bind_local_output_schema(schema), bind_reasoning_effort(
+                self.planning_reasoning_effort if stage == "plan" else None
+            ), planning_call_budget_scope(
                 database_runtime=None, operation_id=f"quick-{operation_id}-{stage}", project_id=state.project_id,
                 parent_node_id="quick-workflow", parent_node_version=max(1, state.revision),
                 input_fingerprint=source_hash({"prompt": prompt, "schema": schema}), limit=1,
             ) as budget:
-                raw = adapter.generate_structured_output_stream(prompt, strategy=_strategy(adapter, stage, output_tokens),
+                raw = adapter.generate_structured_output_stream(prompt, strategy=_strategy(info, stage, output_tokens, market),
                                                                  output_schema=None, on_delta=None)
             meta = raw.get("_meta", {}) if isinstance(raw, dict) else {}
             call.elapsed_ms = round((time.perf_counter() - started) * 1000)
@@ -268,31 +339,10 @@ class QuickScriptEngine:
             call.elapsed_ms = round((time.perf_counter() - started) * 1000)
             if isinstance(error, QuickEngineError):
                 raise
-            from app.modules.script_engine.llm_adapter import LLMRequestError, LLMStructuredOutputError
-            from app.modules.script_engine.llm_deadline import DeadlineExceeded
-            # The final permitted transport failure is wrapped by the hard call
-            # budget. Classify its cause without retrying or weakening that cap.
-            failure = error
-            for _ in range(4):
-                if not isinstance(failure, PlanningCallBudgetExceeded):
-                    break
-                cause = failure.__cause__ or failure.__context__
-                if cause is None or cause is failure:
-                    break
-                failure = cause
-            code, message = "quick_model_operation_failed", "本次模型操作未完成；已保存的正文和检查进度保持不变。"
-            if isinstance(failure, (DeadlineExceeded, TimeoutError)) or (
-                isinstance(failure, LLMRequestError) and failure.category in {"timeout", "deadline"}
-            ):
-                code, message = "quick_model_timeout", "模型响应超时，当前步骤已暂停。已有内容已保存，可稍后恢复，不会自动重复请求。"
-            elif isinstance(failure, LLMRequestError) and failure.status_code in {401, 403, 404}:
-                code, message = "quick_model_configuration", "模型接入配置暂不可用，已有内容已保存，请联系管理员检查后恢复。"
-            elif isinstance(failure, LLMRequestError) and failure.status_code == 429:
-                code, message = "quick_model_busy", "模型当前请求较多，已有内容已保存，请稍后恢复当前步骤。"
-            elif isinstance(failure, (LLMStructuredOutputError, ValidationError)):
-                code, message = "quick_output_invalid", "本次模型结果不完整或格式不正确，已有正文保持不变，请恢复当前步骤重新生成。"
-            raise QuickEngineError(message,
-                                   code=code, call=call,
+            from .failures import classify_failure
+            code, message, diagnostics = classify_failure(error, elapsed_ms=call.elapsed_ms,
+                physical_requests=budget.used if budget is not None else 0)
+            raise QuickEngineError(message, code=code, call=call, diagnostics=diagnostics,
                                    candidate=locals().get("raw")) from error
         finally:
             # The transport debits immediately before POST; configuration or
@@ -300,7 +350,9 @@ class QuickScriptEngine:
             call.physical_requests = budget.used if budget is not None else 0
 
     def draft_synopsis(self, state: QuickState) -> QuickSynopsisResult:
-        prompt = ("为中文短剧生成一份可编辑梗概。只使用作者资料，覆盖具体主角、目标、阻力、关键选择、结局。"
+        prompt = ("为当前发行市场的短剧生成一份中文可编辑梗概。只使用作者资料，覆盖具体主角、目标、阻力、关键选择、结局。"
+                  "海外梗概已有登记英文姓名可沿用；尚未登记姓名的人物先使用中文身份称呼，"
+                  "在后续简版创作安排中才为该人物确定稳定英文姓名。"
                   "不编写总纲或多层故事树。只输出schema要求的JSON。\n" + json.dumps({
                       "idea": state.idea, "source_material": state.source_material,
                       "author_instruction": str((state.active_operation or {}).get("instruction", ""))[:2_000],
@@ -308,6 +360,8 @@ class QuickScriptEngine:
                       "characters": [_json(c) for c in state.supplied_characters], "settings": _json(state.settings),
                   }, ensure_ascii=False))
         value, call = self._call(state, "synopsis", prompt, _Synopsis, self.planning_adapter, output_tokens=4_000)
+        if state.settings.language == "en" and creator_language_paths(value.model_dump(), names=tuple(c.name for c in state.supplied_characters)):
+            raise QuickEngineError("梗概需要使用中文，海外仅正式人物对白使用英文并附中文翻译。", call=call, candidate=_json(value))
         return QuickSynopsisResult(synopsis=value.synopsis, call=call)
 
     def draft_plan(self, state: QuickState) -> QuickPlanResult:
@@ -328,6 +382,15 @@ class QuickScriptEngine:
                                 "source_material": state.source_material,
                                 "characters": [_json(c) for c in state.supplied_characters]}, ensure_ascii=False))
         value, call = self._call(state, "plan", prompt, QuickPlanContent, self.planning_adapter, output_tokens=24_000)
+        # Author-provided nonempty acting fields are immutable references. Retain
+        # them when the model omits the optional profile; fill only empty fields.
+        supplied = {c.character_ref: c for c in state.supplied_characters}
+        for character in value.characters:
+            original = supplied.get(character.character_ref)
+            if original and original.acting_profile:
+                fields = character.acting_profile.model_dump() if character.acting_profile else {}
+                fields.update({key: text for key, text in original.acting_profile.model_dump().items() if text})
+                character.acting_profile = type(original.acting_profile).model_validate(fields)
         issues = validate_quick_plan(state, value)
         if issues:
             raise QuickEngineError("创作安排尚不可执行：" + "；".join(i.message for i in issues[:4]),
@@ -374,9 +437,14 @@ class QuickScriptEngine:
         context = self._context(state, episode_number)
         prompt = (SCREENPLAY_FIRST_PASS_CONTRACT + "\n" + SCREENPLAY_EXECUTION_ORDER_CONTRACT + "\n"
                   + script_body_scale_prompt(script_body_length_guidance(round(state.settings.target_total_characters / state.settings.episode_count)))
-                  + "\n只写本集完整可表演正文；人物与场次严格按批准安排，不重设计剧情。简体中文，"
+                  + "\n只写本集完整可表演正文；人物与场次严格按批准安排，不重设计剧情。严格按发行市场语言合同，"
                   "完整前文是已保存事实；候选状态变化只能记录本集真实可见证据，不把怀疑升级为知道。"
                   "不省略任何必需字段，严格按JSON schema。\n" + json.dumps(context, ensure_ascii=False))
+        if state.settings.language == "en":
+            prompt += "\n" + screenplay_runtime_prompt_guidance(
+                target_duration_seconds=state.settings.target_duration_seconds,
+                scene_count=len(state.plan.episodes[episode_number - 1].scene_execution_plan), chinese_dialogue=False,
+            ) + "\n中文翻译仅作对照，不重复计入口播时长或正文有效字数；一万有效字上限仍适用。"
         value, call = self._call(state, "draft", prompt, LLMGeneratedDraftMasterScript, self.script_adapter, output_tokens=8_192)
         try:
             raw = _json(value)
@@ -414,15 +482,23 @@ class QuickScriptEngine:
                   "只输出指定JSON。\n" + json.dumps(context, ensure_ascii=False))
         review, call = self._call(state, "recheck" if episode.repair_count else "review", prompt,
                                    QuickReview, self.review_adapter, output_tokens=8_000)
+        self._check_review_language(state, review, call)
         review = self._verified_review(review, {episode_number: episode.draft}, local_issues)
         return QuickReviewResult(review=review, call=call)
+
+    @staticmethod
+    def _check_review_language(state: QuickState, review: QuickReview, call: QuickModelCall):
+        if state.settings.language == "en" and creator_language_paths(
+            review.model_dump(mode="json"), names=tuple(value for c in state.plan.characters for value in (c.name, c.character_ref)), overseas=True,
+        ):
+            raise QuickEngineError("检查意见与事实说明需要使用中文。", call=call, candidate=_json(review))
 
     def _verified_review(self, review: QuickReview, drafts: dict[int, DraftMasterScript], local_issues: list[QuickIssue]) -> QuickReview:
         raw = _json(review)
         raw["issues"] += [_json(i) for i in local_issues]
         for fact in raw["accepted_facts"]:
             draft = drafts.get(fact["episode_number"])
-            if draft is None or not any(fact["evidence_quote"] in line for line in _body_lines(draft, fact["scene_number"])):
+            if draft is None or not any(fact["evidence_quote"] in line for line in _evidence_lines(draft, fact["scene_number"])):
                 raw["issues"].append(_json(_issue("fact_evidence_invalid", "候选事实缺少对应正文原句证据，需核对。", severity="ambiguity")))
             else:
                 fact["body_hash"] = draft_body_hash(draft)
@@ -453,6 +529,11 @@ class QuickScriptEngine:
                   "人物身份或元数据。只返回allowed_scene_numbers中的局部场景正文，保持其余字节内容不变。"
                   "修复后仍需25–35条对白、15–20动作单元、75–115秒；不为风格润色扩写。\n"
                   + json.dumps(context, ensure_ascii=False))
+        if state.settings.language == "en":
+            prompt += "\n" + screenplay_runtime_prompt_guidance(
+                target_duration_seconds=state.settings.target_duration_seconds,
+                scene_count=len(episode.draft.scenes), chinese_dialogue=False,
+            ) + "\n英文对白与中文翻译成对修复；翻译不重复计入有效字数和口播时长。"
         patch, call = self._call(state, "repair", prompt, LLMMainlandBodyRepairPatch, self.repair_adapter, output_tokens=12_000)
         if not {s.scene_number for s in patch.scenes}.issubset(scenes):
             raise QuickEngineError("修复越过允许场景范围，原稿保持不变。", code="quick_repair_scope", call=call, candidate=_json(patch))
@@ -475,6 +556,7 @@ class QuickScriptEngine:
                   "不得把局部已通过当全文通过，不修改或润色正文。问题给准确集场与原句证据；"
                   "本次不新增事实，accepted_facts为空。只输出指定JSON。\n" + json.dumps(context, ensure_ascii=False))
         review, call = self._call(state, "final_review", prompt, QuickReview, self.review_adapter, output_tokens=8_000)
+        self._check_review_language(state, review, call)
         local_issues = [issue for episode in state.episodes
                         for issue in mechanical_review(state, episode.episode_number, episode.draft)[1]]
         review.accepted_facts = []
@@ -482,6 +564,16 @@ class QuickScriptEngine:
 
 
 def build_quick_script_engine() -> QuickScriptEngine:
+    """Quick-only budgets override request role defaults in the current context.
+
+    QUICK_SCRIPT_REQUEST_DEADLINE_SECONDS defaults to 480 (maximum 480), while
+    QUICK_SCRIPT_OPERATION_DEADLINE_SECONDS defaults to 600 (maximum 600).
+    The role's socket idle timeout still applies. Standard planning deadlines,
+    shared adapters, real streaming, and the one-POST operation cap are unchanged.
+    QUICK_SCRIPT_PLANNING_REASONING_EFFORT defaults to low for only the compact
+    plan step. Thinking stays enabled; other Quick stages retain role effort.
+    Provider protocol mappings still apply (DeepSeek maps medium to high).
+    """
     from app.llm_runtime import (build_planning_llm_adapter_from_env, build_script_generation_adapter_from_env,
                                  build_continuity_llm_adapter_from_env, build_script_repair_llm_adapter_from_env)
     try:
@@ -489,11 +581,19 @@ def build_quick_script_engine() -> QuickScriptEngine:
                     or os.environ.get("QUICK_SCRIPT_VERIFIED_CONTEXT_TOKENS") or "65536")
     except ValueError:
         limit = 0
+    try:
+        request_seconds = float(os.environ.get("QUICK_SCRIPT_REQUEST_DEADLINE_SECONDS") or "480")
+        operation_seconds = float(os.environ.get("QUICK_SCRIPT_OPERATION_DEADLINE_SECONDS") or "600")
+    except ValueError as error:
+        raise QuickEngineError("快速创作等待时限配置无效，请联系管理员检查。", code="quick_model_configuration") from error
     models = {name.strip() for name in os.environ.get("QUICK_SCRIPT_VERIFIED_MODELS", "").split(",") if name.strip()}
     # 64 Ki is an application operation ceiling, not a claim of verified gateway
     # capacity. Explicit operator configuration and adapter limits can lower it.
     planning, script = build_planning_llm_adapter_from_env(), build_script_generation_adapter_from_env()
     review, repair = build_continuity_llm_adapter_from_env(), build_script_repair_llm_adapter_from_env()
-    models = models or {adapter.get_model_info().model_name for adapter in (planning, script, review, repair)}
+    models = models or {info.model_name for adapter in (planning, script, review, repair)
+                       for info in _configured_model_infos(adapter)}
     return QuickScriptEngine(planning_adapter=planning, script_adapter=script, review_adapter=review,
-                             repair_adapter=repair, verified_context_tokens=limit, verified_models=models)
+                             repair_adapter=repair, verified_context_tokens=limit, verified_models=models,
+                             request_deadline_seconds=request_seconds, operation_deadline_seconds=operation_seconds,
+                             planning_reasoning_effort=os.environ.get("QUICK_SCRIPT_PLANNING_REASONING_EFFORT", "low").strip().lower())

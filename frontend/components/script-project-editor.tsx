@@ -517,10 +517,10 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     if (isReadOnly || quickSettingsLocked) return;
     invalidateInputReadiness();
     setDraft((current) => {
-      const nextSettings = normalizeGenerationSettings({
+      const nextSettings = normalizeProjectGenerationSettings(project?.creationMode, {
         ...current.generationSettings,
         [key]: value,
-      });
+      }, { quickHistory: project?.quickWorkflow?.schema_version === "quick_script.v1" });
       return {
         ...current,
         generationSettings: enforceMarketDeliveryContract(

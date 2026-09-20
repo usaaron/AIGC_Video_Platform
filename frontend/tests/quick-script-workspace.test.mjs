@@ -198,6 +198,28 @@ test("editing one dialogue preserves author intent, body ordering, evidence and 
   assert.equal(draft.scenes[0].dialogues[0].text, "你认得这只表？");
 });
 
+test("overseas editor shows paired dialogue and edits Chinese translation without replacing the English line", () => {
+  const overseas = { ...draft, language: "en", scenes: [{ ...draft.scenes[0], dialogues: [{
+    character_name: "Lena", text: "Do you recognize this watch?", intent: "试探", chinese_translation: "你认得这只表吗？",
+  }] }] };
+  let updated;
+  const tree = component.exports.QuickDraftEditor({ draft: overseas, disabled: false, onChange: value => { updated = value; } });
+  const html = renderToStaticMarkup(tree);
+  assert.match(html, /英文台词 1/); assert.match(html, /中文翻译 1/);
+  assert.ok(html.indexOf("Do you recognize this watch?") < html.indexOf("你认得这只表吗？"));
+  elements(tree).find(item => item.type === "textarea" && item.props.value === "你认得这只表吗？").props.onChange({ target: { value: "这只表你见过吗？" } });
+  assert.equal(updated.scenes[0].dialogues[0].text, "Do you recognize this watch?");
+  assert.equal(updated.scenes[0].dialogues[0].chinese_translation, "这只表你见过吗？");
+  assert.deepEqual(updated.scenes[0].body_order, overseas.scenes[0].body_order);
+  assert.equal(overseas.scenes[0].dialogues[0].chinese_translation, "你认得这只表吗？");
+  const locked = component.exports.QuickDraftEditor({ draft: overseas, disabled: true, onChange: () => { throw new Error("locked editor mutated"); } });
+  const translation = elements(locked).find(item => item.type === "textarea" && item.props.value === "你认得这只表吗？");
+  assert.equal(translation.props.disabled, true); translation.props.onChange({ target: { value: "不应保存" } });
+  const missing = component.exports.QuickDraftEditor({ draft: { ...overseas, scenes: [{ ...overseas.scenes[0], dialogues: [{ ...overseas.scenes[0].dialogues[0], chinese_translation: null }] }] }, disabled: false, onChange() {} });
+  assert.ok(elements(missing).some(item => item.type === "textarea" && item.props.value === ""));
+  assert.doesNotMatch(renderToStaticMarkup(component.exports.QuickDraftEditor({ draft, disabled: false, onChange() {} })), /英文台词|中文翻译/);
+});
+
 test("adding a paragraph within an action preserves action indices and corresponding body order", () => {
   let updated;
   const tree = component.exports.QuickDraftEditor({ draft, disabled: false, onChange: (value) => { updated = value; } });

@@ -1,7 +1,7 @@
 "use client";
 
 import { Aperture, ArrowUp, Check, ChevronDown, ChevronUp, Copy, Pencil, Square, X } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { isHostEmbedded } from "@/lib/host-navigation";
 import type { StoryBibleSelectionContext } from "@/lib/story-planning-client";
@@ -59,6 +59,10 @@ export function PlanningCanvasCopilot({
   scopeLabel = "当前规划",
   thinking,
   variant = "node",
+  presentation = "rail",
+  welcomeMessage,
+  composerPlaceholder,
+  primaryAction,
 }: {
   busy: boolean;
   disabled: boolean;
@@ -83,6 +87,10 @@ export function PlanningCanvasCopilot({
   scopeLabel?: string;
   thinking?: boolean;
   variant?: "document" | "node";
+  presentation?: "rail" | "primary";
+  welcomeMessage?: string;
+  composerPlaceholder?: string;
+  primaryAction?: ReactNode;
 }) {
   const isThinking = thinking ?? busy;
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -100,7 +108,7 @@ export function PlanningCanvasCopilot({
   const lastFocusRequest = useRef(focusRequest ?? 0);
   const pendingInstructionFocus = useRef(false);
   const panelId = useId();
-  const collapsed = embedded && !expanded;
+  const collapsed = presentation !== "primary" && embedded && !expanded;
   const progressInLastMessage = Boolean(progress && messages.at(-1)?.progress?.id === progress.id);
 
   useEffect(() => {
@@ -230,6 +238,7 @@ export function PlanningCanvasCopilot({
     <aside
       className={`story-bible-copilot planning-canvas-copilot is-${variant}-copilot${embedded ? ` is-host-copilot${compact ? " is-host-compact" : ""}${collapsed ? " is-host-collapsed" : ""}` : ""}`}
       aria-label={`${scopeLabel}修改助手`}
+      data-presentation={presentation}
       ref={copilotRef}
     >
       <div className="story-bible-copilot-heading story-bible-chat-header">
@@ -241,7 +250,7 @@ export function PlanningCanvasCopilot({
               <span className="story-bible-chat-status" title={`当前上下文：${scopeLabel}`} aria-live="polite">{isThinking ? `正在处理：${scopeLabel}` : collapsed && selection ? `已引用「${selection.source_field}」` : collapsed && instruction.trim() ? "有未发送的修改要求" : `当前：${scopeLabel}`}</span>
             </div>
           </div>
-          <button
+          {presentation !== "primary" && <button
             aria-controls={`${panelId}-actions ${panelId}-thread ${panelId}-composer`}
             aria-expanded={!collapsed}
             aria-label={`${collapsed ? "展开" : "收起"}${scopeLabel}修改助手`}
@@ -251,7 +260,7 @@ export function PlanningCanvasCopilot({
           >
             {collapsed ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronUp aria-hidden="true" size={15} />}
             <span>{collapsed ? "展开" : "收起"}</span>
-          </button>
+          </button>}
         </> : variant === "document" ? (
           <div className="story-bible-copilot-identity">
             <span className="story-bible-copilot-mark"><Aperture aria-hidden="true" size={16} /></span>
@@ -272,7 +281,7 @@ export function PlanningCanvasCopilot({
       </div>
       {onWithdrawMessage ? <p className="muted" hidden={collapsed}>本集已发送的要求会持续生效。放弃候选不撤回要求；编辑旧消息会撤回该消息及后续要求，再保存新的要求。</p> : null}
       {copyError ? <p className="inline-notice" hidden={collapsed} role="alert">{copyError}</p> : null}
-      {variant === "node" ? actionBar : null}
+      {variant === "node" && quickActions.length ? actionBar : null}
       <div className="story-bible-chat-thread" hidden={collapsed} id={`${panelId}-thread`} ref={threadRef}
         onScroll={(event) => {
           const thread = event.currentTarget;
@@ -283,7 +292,7 @@ export function PlanningCanvasCopilot({
         <div className="copilot-thread-content" ref={threadContentRef}>
         <div className="story-bible-chat-bubble is-assistant">
           <strong>{title}</strong>
-          <p>我已同步{scopeLabel}。告诉我你想调整的内容，我会同时检查关联上下文。</p>
+          <p>{welcomeMessage ?? <>我已同步{scopeLabel}。告诉我你想调整的内容，我会同时检查关联上下文。</>}</p>
         </div>
         {messages.map((item) => (
           <div className={`story-bible-chat-bubble is-${item.role}`} key={item.id}>
@@ -371,7 +380,8 @@ export function PlanningCanvasCopilot({
         {disabled ? <div className="story-bible-chat-bubble is-assistant"><p>{disabledReason}</p></div> : null}
         </div>
       </div>
-      {variant === "document" ? actionBar : null}
+      {variant === "document" && quickActions.length ? actionBar : null}
+      {primaryAction ? <div className="planning-canvas-primary-action">{primaryAction}</div> : null}
       <div className="story-bible-chat-composer" hidden={collapsed} id={`${panelId}-composer`}>
         {instructionNotice ? <p className="inline-notice planning-canvas-instruction-notice" id={`${panelId}-instruction-notice`} role="status">{instructionNotice}</p> : null}
         <label className="story-bible-copilot-instruction">
@@ -388,9 +398,9 @@ export function PlanningCanvasCopilot({
                 if (!busy && !disabled && instruction.trim()) onSubmit();
               }
             }}
-            placeholder={selection ? "例如：请重写这段情节，并保持前后因果一致。" : `告诉我你想怎样调整${scopeLabel}…`}
+            placeholder={selection ? "例如：请重写这段情节，并保持前后因果一致。" : composerPlaceholder ?? `告诉我你想怎样调整${scopeLabel}…`}
             ref={instructionRef}
-            rows={variant === "document" ? 4 : 5}
+            rows={presentation === "primary" ? 3 : variant === "document" ? 4 : 5}
             value={instruction}
           />
         </label>

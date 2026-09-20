@@ -8,6 +8,7 @@ import ts from "typescript";
 import { isValidElement } from "react";
 import * as quickProject from "../lib/quick-script-project.ts";
 import * as quickState from "../lib/quick-script-types.ts";
+import * as quickExport from "../lib/quick-script-export.ts";
 import { pendingQuickSourceInputs } from "../lib/quick-source-recovery.ts";
 import { currentWorkspaceHref } from "../lib/workspace-stage.ts";
 
@@ -80,6 +81,7 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
       if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, key) => String(key) });
       if (name === "@/lib/quick-script-types") return quickState;
       if (name === "@/lib/quick-script-project") return quickProject;
+      if (name === "@/lib/quick-script-export") return quickExport;
       if (name === "@/lib/quick-source-recovery") return { pendingQuickSourceInputs };
       if (name === "@/lib/workspace-stage") return { currentWorkspaceHref };
       if (name === "@/lib/api-client") return { ApiError };
@@ -122,13 +124,14 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
     if (!isValidElement(element)) return result;
     result.push(element);
     if (typeof element.type === "function" && element.type !== Copilot) walk(element.type(element.props), result);
-    else walk(element.props.children, result);
+    else { walk(element.props.children, result); if (element.type === Copilot) walk(element.props.primaryAction, result); }
     return result;
   }
   const items = () => walk(tree);
   const text = element => typeof element === "string" ? element : Array.isArray(element) ? element.map(text).join("") : isValidElement(element) ? text(element.props.children) : "";
   const button = label => items().find(item => item.type === "button" && text(item.props.children).includes(label));
   return { calls, reads, routes, sequences, timers, storage, items, button, text, ApiError,
+    entry: () => bindings.exports.QuickScriptWorkspace(),
     project: () => currentProject,
     remote: state => { remoteState = state; },
     copilot: () => items().find(item => item.type === Copilot),
@@ -140,11 +143,13 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
 
 test("new quick UI saves setup before its first synopsis request and adopts that result", async () => {
   const harness = editorHarness(); await harness.settle();
+  assert.equal(harness.copilot().props.presentation, "primary");
   const idea = harness.items().find(item => item.type === "textarea" && item.props.placeholder);
   idea.props.onChange({ target: { value: "修表师寻找父亲" } }); await harness.settle();
   await harness.click("整理成故事梗概");
   assert.deepEqual(harness.calls.map(call => call.kind), ["setup", "draft_synopsis"]);
   assert.equal(harness.calls[1].revision, 1);
+  assert.equal(harness.copilot().props.presentation, "rail", "Saved synopsis becomes the main document");
   assert.ok(harness.items().some(item => item.type === "textarea" && item.props.value === synopsis));
   assert.ok(harness.button("确认梗概"));
 });
@@ -231,6 +236,59 @@ test("empty legacy two-episode entry opens idea collection without allowing an e
   await harness.click("使用快速创作");
   assert.equal(harness.calls[0].payload.settings.episode_count, 2);
   assert.equal(harness.calls[0].payload.settings.target_total_characters, 2000);
+});
+
+test("overseas legacy two-episode entry submits English dialogue settings only after the author starts", async () => {
+  const original = makeProject({ creationMode: "standard", marketProfile: "overseas_tiktok", creativePrompt: "修表师寻找父亲",
+    generationSettings: { ...quickProject.DEFAULT_QUICK_GENERATION_SETTINGS, releaseRegion: "overseas", outputLanguage: "en",
+      episodeCount: 300, targetTotalCharacters: 100000, preferredEpisodeDurationMinutes: 1 } });
+  const harness = editorHarness({ project: original, search: "?episodes=2" });
+  assert.equal(harness.entry().type.name, "QuickScriptEditor", "host overseas entry must render the quick workspace");
+  await harness.settle();
+  assert.equal(harness.calls.length, 0);
+  assert.equal(harness.project().creationMode, "standard");
+  assert.equal(harness.project().generationSettings.episodeCount, 300);
+  assert.equal(harness.items().find(item => item.type === "input" && item.props.max === 12).props.value, 2);
+  assert.ok(harness.items().some(item => harness.text(item).includes("英文台词配中文翻译")));
+  await harness.click("使用快速创作");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["setup", "draft_synopsis"]);
+  assert.equal(harness.calls[0].payload.settings.language, "en");
+  assert.equal(harness.calls[0].payload.settings.episode_count, 2);
+  assert.equal(harness.calls[0].payload.settings.target_total_characters, 2000);
+  assert.equal(harness.calls[0].payload.settings.target_duration_seconds, 90);
+  assert.equal(harness.project().generationSettings.releaseRegion, "overseas");
+});
+
+test("overseas quick hydration and same-market cache restore English dialogue settings without repeating setup", async () => {
+  const englishSettings = { ...settings, language: "en", episode_count: 2, target_total_characters: 2000 };
+  const saved = makeState({ revision: 4, settings: englishSettings });
+  const key = "ai-comic.quick-editor.v1:quick.flow";
+  const original = makeProject({ marketProfile: "overseas_tiktok", generationSettings: { ...quickProject.DEFAULT_QUICK_GENERATION_SETTINGS,
+    releaseRegion: "overseas", outputLanguage: "en", episodeCount: 2, targetTotalCharacters: 2000 } });
+  const harness = editorHarness({ project: original, initialState: saved, cache: [[key, JSON.stringify({ revision: 4, dirty: true,
+    settings: { ...englishSettings, target_duration_seconds: 100 }, idea: "海外页未提交的新想法", material: "", synopsis: "" })]] });
+  await harness.settle();
+  assert.equal(harness.entry().type.name, "QuickScriptEditor");
+  assert.equal(harness.calls.length, 0);
+  assert.equal(harness.items().find(item => item.type === "input" && item.props.max === 115).props.value, 100);
+  await harness.click("重新整理梗概");
+  assert.equal(harness.calls[0].payload.settings.language, "en");
+  assert.equal(harness.calls[0].payload.settings.episode_count, 2);
+  assert.equal(harness.calls[0].payload.idea, "海外页未提交的新想法");
+});
+
+test("a cached draft from the previous market is retained as recovery instead of changing saved overseas settings", async () => {
+  const key = "ai-comic.quick-editor.v1:quick.flow";
+  const pending = JSON.stringify({ revision: 0, dirty: true, settings, idea: "大陆页未提交的旧想法", material: "" });
+  const harness = editorHarness({ project: makeProject({ creativePrompt: "已保存的海外故事", marketProfile: "overseas_tiktok",
+    generationSettings: { ...quickProject.DEFAULT_QUICK_GENERATION_SETTINGS, releaseRegion: "overseas", outputLanguage: "en", episodeCount: 2, targetTotalCharacters: 2000 } }),
+    cache: [[key, pending]] });
+  await harness.settle();
+  assert.equal(harness.calls.length, 0);
+  assert.equal(harness.storage.get(`${key}:recovery-latest`), pending);
+  await harness.click("整理成故事梗概");
+  assert.equal(harness.calls[0].payload.settings.language, "en");
+  assert.equal(harness.calls[0].payload.idea, "已保存的海外故事");
 });
 
 test("legacy input UI retains uploaded material and confirms its existing synopsis without regenerating it", async () => {
@@ -387,4 +445,51 @@ test("same-revision author edits restore while stale edits stay in recovery inst
   assert.ok(stale.items().some(item => item.type === "textarea" && item.props.readOnly && item.props.value.includes(edited)));
   assert.equal(JSON.parse(stale.storage.get("ai-comic.quick-editor.v1:quick.flow:recovery-latest")).synopsis, edited);
   assert.equal(stale.calls.length, 0);
+});
+
+test("failed arrangement offers one explicit retry, resumes first and returns to document review after saving", async () => {
+  const receipt = { operation_id: "quick.failed-plan", error_code: "quick_model_timeout", diagnostics: {
+    category: "deadline", elapsed_ms: 120000, physical_requests: 1,
+  } };
+  const failed = makeState({ synopsis, synopsis_confirmed: true, next_step: "plan", phase: "paused", status: "blocked",
+    blocked_reason: "模型响应超时", operation_records: [receipt] });
+  const plan = { id: "plan.saved", title: "旧怀表", characters: [], fixed_facts: [], relationships: [], episodes: [],
+    main_storyline: "修表师寻找失踪父亲", opening: "发现旧怀表", turning_points: [], ending: "父女重逢" };
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const harness = editorHarness({ initialState: failed, action: async (kind, payload, state) => {
+    if (kind === "resume") return { ...state, revision: 2, phase: "plan", status: "idle", blocked_reason: null };
+    assert.equal(kind, "draft_plan"); await pending;
+    return { ...state, revision: 3, plan, phase: "plan", status: "idle" };
+  } });
+  await harness.settle();
+  assert.equal(harness.copilot().props.presentation, "primary");
+  assert.equal(harness.items().filter(item => item.type === "button" && harness.text(item) === "重新生成创作安排").length, 1);
+  assert.ok(harness.items().some(item => item.props.error === receipt), "Saved failure diagnostics survive reopening");
+  assert.ok(harness.items().some(item => item.type === "p" && item.props.children === synopsis));
+  assert.equal(harness.calls.length, 0);
+  harness.copilot().props.onInstructionChange("保持父女关系，让每集结尾承接下一集。");
+  await harness.settle();
+  await harness.click("重新生成创作安排");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["resume", "draft_plan"]);
+  assert.equal(harness.calls[1].revision, 2);
+  assert.equal(harness.calls[1].payload.instruction, "保持父女关系，让每集结尾承接下一集。");
+  assert.ok(harness.items().some(item => item.props.role === "status" && harness.text(item).includes("正在安排人物与每集故事")));
+  assert.equal(harness.button("重新生成创作安排"), undefined, "In-flight step cannot be submitted twice");
+  assert.ok(harness.button("当前步骤完成后暂停"));
+  release(); await harness.settle();
+  assert.equal(harness.copilot().props.presentation, "rail");
+  assert.ok(harness.button("确认安排，生成整部剧本"));
+  assert.equal(harness.project().quickWorkflow.synopsis, synopsis);
+  assert.equal(harness.sequences.length, 0, "The separate plan approval is still required");
+});
+
+test("unsuccessful resume cannot submit another model request", async () => {
+  const failed = makeState({ synopsis, synopsis_confirmed: true, next_step: "plan", phase: "paused", status: "blocked", blocked_reason: "暂未完成" });
+  const harness = editorHarness({ initialState: failed, action: (kind, _payload, state) => {
+    assert.equal(kind, "resume"); return { ...state, revision: 2 };
+  } });
+  await harness.settle(); await harness.click("重新生成创作安排");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["resume"]);
+  assert.equal(harness.sequences.length, 0);
 });

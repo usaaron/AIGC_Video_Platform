@@ -1,9 +1,10 @@
 import type { EpisodeExecutionPlan } from "./episode-generation-planning";
 import type { CopilotProgressEvent } from "./copilot-progress";
-import type { GeneratedDraft, ScriptProject } from "./types";
+import type { CharacterActingProfile, GeneratedDraft, ScriptProject } from "./types";
 
 export interface QuickScriptSettings {
-  language: "zh";
+  /** Dialogue language only; planning, reasoning and narrative remain Chinese. */
+  language: "zh" | "en";
   target_total_characters: number;
   episode_count: number;
   target_duration_seconds: number;
@@ -13,6 +14,7 @@ export interface QuickScriptSettings {
 export interface QuickScriptCharacter {
   character_ref: string; name: string; role: string; motivation: string;
   fixed_identity: string; abilities_and_limits: string; appearance: string;
+  acting_profile?: CharacterActingProfile | null;
 }
 
 export interface QuickScriptPlan {
@@ -48,6 +50,7 @@ export interface QuickScriptState {
   status: "idle" | "busy" | "blocked" | "stale" | "completed";
   next_step: "synopsis" | "plan" | "draft" | "review" | "repair" | "recheck" | "final_review" | "done";
   settings: QuickScriptSettings; idea: string; source_material: string;
+  overseas_story_profile?: Record<string, string> | null;
   supplied_characters: QuickScriptCharacter[]; synopsis: string; synopsis_confirmed: boolean;
   synopsis_hash: string; plan: QuickScriptPlan | null; plan_confirmed: boolean;
   episodes: QuickScriptEpisode[]; facts: unknown[]; final_review: QuickScriptReview | null;
