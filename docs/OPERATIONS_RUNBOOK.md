@@ -1,6 +1,8 @@
 # SEQORA 生产运维手册
 
-> 最新应用发布：2026-09-21 00:29，主站 `ebb55fa` 与剧本 `5f41a27` 已配套上线。当前镜像、双库及媒体备份、生产冒烟和回退说明见 [快速剧本融合版发布记录](QUICK_SCRIPT_DEPLOYMENT_2026-09-21.md)。下方历史版本不代表当前运行镜像。
+> 最新应用发布：2026-09-21 01:01:02（上海时间），主站 Web `seqora-web:2cc67d2b591b`、剧本 API / Web `e71ee9874823` 已上线；主站 API / Worker 保留 `seqora-api:ebb55fa3c7a9`。两个 PostgreSQL 与 Redis 容器 ID 未变。发布目录 `/opt/seqora-releases/script-fix-20260921`，双库、配置和源码备份 `/opt/seqora-backups/script-fix-20260920T170045Z`；readiness 与生产样本冒烟通过。修复新网剧快速入口和 PostgreSQL 生成保存误报冲突，未执行付费生成。当前版本、验证边界及应用回退镜像见 [剧本修复发布记录](QUICK_SCRIPT_ENTRY_FIX_2026-09-21.md#生产修复发布)。
+
+> 上一应用发布：2026-09-21 00:29，主站 `ebb55fa` 与剧本 `5f41a27` 配套上线。双库及媒体备份、生产冒烟和回退说明见 [快速剧本融合版发布记录](QUICK_SCRIPT_DEPLOYMENT_2026-09-21.md)。下方历史版本不代表当前运行镜像。
 
 > 核对日期：2026-09-04。本手册只记录安全的基础设施标识和操作步骤，不记录密码、邀请码、API Key、Cookie 或用户数据。
 
