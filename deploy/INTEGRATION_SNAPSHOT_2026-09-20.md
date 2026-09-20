@@ -1,10 +1,12 @@
 # 主站与剧本服务整合候选 · 2026-09-20
 
+> 发布更新：本快照已于 2026-09-21 00:29 配套部署，详见 [生产发布记录](PRODUCTION_2026-09-21.md)。真实模型全剧验收仍未完成。
+
 本分支为当前整合源码版本，沿用两个服务分别构建、配套交付的方式。Git推送不代表线上部署或生产验收。
 
-| 服务 | 源码分支 |
-| --- | --- |
-| 序幕主项目 | [codex/quick-script-preview-20260920](https://github.com/usaaron/AIGC_Video_Platform/tree/codex/quick-script-preview-20260920) |
+| 服务               | 源码分支                                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 序幕主项目         | [codex/quick-script-preview-20260920](https://github.com/usaaron/AIGC_Video_Platform/tree/codex/quick-script-preview-20260920)               |
 | 剧本服务（本分支） | [codex/script-master-quick-preview-20260920](https://github.com/usaaron/AIGC_Video_Platform/tree/codex/script-master-quick-preview-20260920) |
 
 本次包含 final2 与宿主适配后的现有积累：主站嵌入与简化流程、快速剧本、模型配置模板更新、中文过程与海外双语台词、流式进度、资产依据、制作返修、断流恢复。独立版海外连载与导演分镜，以及十集验收中新增的取消、合同与输出恢复修复，也保留在整合快照中；不能将本分支称为仅快速版变更。
