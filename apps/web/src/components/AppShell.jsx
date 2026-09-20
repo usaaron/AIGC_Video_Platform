@@ -458,7 +458,7 @@ export function NewProjectModal({ onClose, onCreate }) {
                 contentType,
                 visualStyle,
                 aspectRatio,
-                episodeDurationSeconds: contentType === 'short-drama' ? 60 : 30,
+                episodeDurationSeconds: contentType === 'short-drama' ? 90 : 30,
               })
             }
           >
