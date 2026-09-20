@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowRight, Check, Download, Pause, Play, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { HostImportPanel } from "@/components/host-import-panel";
-import { PlanningCanvasCopilot, type PlanningCanvasMessage } from "@/components/planning-canvas-copilot";
+import { PlanningCanvasCopilot, CopilotProgressView, type PlanningCanvasMessage } from "@/components/planning-canvas-copilot";
+import { GenerationDiagnostics } from "@/components/generation-diagnostics";
 import { WorkspaceMissingProject } from "@/components/workspace-missing-project";
 import { ApiError } from "@/lib/api-client";
 import { toEpisodePlainText } from "@/lib/episode-export";
@@ -13,6 +14,7 @@ import { projectStorageKey } from "@/lib/host-session";
 import { acceptQuickWorkspaceSnapshot } from "@/lib/project-sync";
 import { actQuickScript, advanceQuickScriptSequentially, loadQuickScript } from "@/lib/quick-script-client";
 import { canStartQuickScript, quickInitialInputs } from "@/lib/quick-script-project";
+import { pendingQuickSourceInputs } from "@/lib/quick-source-recovery";
 import { quickScriptOperationActive, quickScriptProgressLabel, quickScriptRecoveryWaitLabel, quickScriptSavedProgressLabel, quickScriptSelectedEpisode, quickScriptStage, type QuickScriptAction, type QuickScriptPlan, type QuickScriptResponse, type QuickScriptSettings, type QuickScriptStage, type QuickScriptState } from "@/lib/quick-script-types";
 import type { GeneratedDraft, ScriptProject } from "@/lib/types";
 import { useCopilotProgress } from "@/lib/use-copilot-progress";
@@ -47,6 +49,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
   const [paused, setPaused] = useState(false);
   const [pauseRequested, setPauseRequested] = useState(false);
   const [error, setError] = useState("");
+  const [failureDetails, setFailureDetails] = useState<unknown>();
   const [notice, setNotice] = useState("");
   const [recoveredDraft, setRecoveredDraft] = useState("");
   const [reload, setReload] = useState(0);
@@ -74,6 +77,8 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
   const { progress, begin } = useCopilotProgress(`${project.id}:quick`);
   const initial = quickInitialInputs(project);
   const hasSynopsis = Boolean(state?.synopsis || (!state && synopsis.trim()));
+  const sourceChanged = Boolean(state && !state.synopsis_confirmed && (idea !== state.idea || material !== state.source_material
+    || JSON.stringify(settings) !== JSON.stringify(state.settings)));
   stateRef.current = state;
   episodeRef.current = episodeNumber;
   const currentEpisode = state?.episodes.find((item) => item.episode_number === episodeNumber);
@@ -200,6 +205,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
       const source = await syncedSource();
       const response = await loadQuickScript(project.id, controller.signal);
       if (!active) return;
+      const changedSources = pendingQuickSourceInputs(source, response.data.state);
       const loaded = await adopt(response, source);
       if (!active) return;
       setStage(quickScriptStage(loaded));
@@ -230,6 +236,10 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
           if (Array.isArray(pending.messages)) setMessages(pending.messages.filter((item: PlanningCanvasMessage) => typeof item.text === "string").slice(-50));
         }
       } catch { /* A damaged local editor cache does not prevent server recovery. */ }
+      if (changedSources) {
+        setIdea(changedSources.idea); setMaterial(changedSources.material); setSettings(changedSources.settings);
+        setNotice("原始资料已更新。点击重新整理梗概，让新资料进入本次创作。");
+      }
       setReady(true);
       setRecoveryNeeded(false); setRecoveryError(""); setCheckedAt(Date.now());
     })().catch((failure) => { if (active && !controller.signal.aborted) setError(failure instanceof Error ? failure.message : "读取失败，请重试。"); });
@@ -247,7 +257,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
     }
     const controller = new AbortController();
     operation.current = controller; stop.current = false;
-    setBusy(true); setPaused(false); setPauseRequested(false); setError(""); setNotice("");
+    setBusy(true); setPaused(false); setPauseRequested(false); setError(""); setFailureDetails(undefined); setNotice("");
     const progressRun = begin(controller.signal);
     progressRun.mark("requesting", "正在提交当前创作请求");
     let next = stateRef.current;
@@ -291,6 +301,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
     } catch (failure) {
       progressRun.finish(controller.signal.aborted ? "paused" : "error");
       if (mounted.current && !controller.signal.aborted) {
+        setFailureDetails(failure);
         setPaused(true);
         setError(failure instanceof ApiError && failure.status === 409 ? "作品状态已有变化，请重新读取后继续。已保存正文不会被覆盖。" : failure instanceof Error ? failure.message : "本次处理未完成，已有内容已保留。");
         if (submitted && (!(failure instanceof ApiError) || failure.status === 409 || failure.status >= 500)) {
@@ -339,6 +350,8 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
 
   return <section className={styles.workspace} aria-label="快速剧本创作">
     <header className={styles.header}>
+      <Link className={styles.sourceLink} href={`/projects/${project.id}`} aria-disabled={busy || recovering || dirty || undefined}
+        onClick={(event) => { if (busy || recovering || dirty) event.preventDefault(); }}>原始资料</Link>
       <nav className={styles.stages} aria-label="剧本创作阶段">{STAGES.map((item, index) => <button key={item.id} type="button" aria-current={stage === item.id ? "step" : undefined}
         disabled={busy || (item.id !== stage && (synopsisDirty || planDirty || bodyDirty)) || (item.id === "plan" && !state?.synopsis_confirmed) || (item.id === "script" && !state?.plan_confirmed && !state?.episodes.length)} onClick={() => setStage(item.id)}>
         <span className={styles.stageNumber}>{index < STAGES.findIndex((part) => part.id === activeStage) ? <Check size={12} /> : index + 1}</span>{item.label}</button>)}</nav>
@@ -346,7 +359,11 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
     </header>
     <div className={`${styles.body} host-workspace-content`}>
       <main className={styles.document}>
+        {busy && progress && <div className={styles.mobileProgress}><CopilotProgressView progress={progress} /></div>}
         {error && <div className={`${styles.notice} ${styles.error}`} role="alert"><p>{error}</p><button className={styles.secondary} disabled={busy || checkingSaved} type="button" onClick={() => ready ? void refreshSavedState() : setReload((value) => value + 1)}><RefreshCw size={14} />重新读取</button></div>}
+        {(error || state?.blocked_reason || recoveryError) && <GenerationDiagnostics projectId={project.id} stage={state?.next_step ?? stage}
+          error={failureDetails} requestId={progress?.requestId} revision={state?.revision} savedEpisodes={state?.episodes.length}
+          operationId={typeof state?.active_operation?.operation_id === "string" ? state.active_operation.operation_id : undefined} />}
         {notice && <p className={styles.notice} role="status">{notice}</p>}
         {ready && (synopsisDirty || planDirty || bodyDirty) && <p className={styles.intro}>先确认或保存本页修改，再切换阶段。</p>}
         {recoveredDraft && <details className={styles.notice}><summary>查看版本变化前保留的编辑内容</summary><p>当前显示服务端版本。你之前的编辑已另存，可从这里复制所需内容。</p><Field label="保留的编辑内容"><textarea rows={10} value={recoveredDraft} readOnly /></Field></details>}
@@ -365,13 +382,14 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
             {hasSynopsis ? <div className={styles.card}><Field label="故事梗概"><textarea className={styles.synopsis} rows={16} maxLength={8000} disabled={busy || recovering || arrangementLocked} value={synopsis} onChange={(event) => setSynopsis(event.target.value)} /></Field></div>
               : <div className={styles.card}><Field label="故事想法"><textarea className={styles.idea} rows={7} maxLength={10000} disabled={busy || recovering} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：一位能听见旧物记忆的修表师，在一只停走的怀表里发现了父亲失踪的线索。" /></Field>
                 <details className={styles.settings}><summary>调整篇幅 · {settings.episode_count} 集 / 约 {settings.target_total_characters.toLocaleString()} 字</summary><div className={styles.settingsGrid}>
-                  <NumberField label="总正文字数" value={settings.target_total_characters} min={1000} max={10000} disabled={busy || recovering} onChange={(value) => setSettings({ ...settings, target_total_characters: value })} />
+                  <p className={styles.intro}>正文目标约 {settings.target_total_characters.toLocaleString()} 字，上限 10,000 有效字。</p>
                   <NumberField label="集数" value={settings.episode_count} min={1} max={12} disabled={busy || recovering} onChange={(value) => setSettings({ ...settings, episode_count: value })} />
                   <NumberField label="每集时长（秒）" value={settings.target_duration_seconds} min={75} max={115} disabled={busy || recovering} onChange={(value) => setSettings({ ...settings, target_duration_seconds: value })} />
                 </div></details><details className={styles.settings}><summary>补充已有资料或人物设定</summary><Field label="已有资料"><textarea rows={6} maxLength={20000} disabled={busy || recovering} value={material} onChange={(event) => setMaterial(event.target.value)} /></Field></details>
               </div>}
             {!hasSynopsis && !settingsValid && <p className={styles.notice}>快速创作支持 1–12 集、总正文 1000–10000 字、每集 75–115 秒。可以调整篇幅，或在下方转入标准流程。</p>}
-            <div className={styles.actions}>{arrangementLocked ? <button className={styles.primary} type="button" onClick={() => setStage("script")}>回到剧本正文<ArrowRight size={15} /></button> : hasSynopsis
+            <div className={styles.actions}>{arrangementLocked ? <button className={styles.primary} type="button" onClick={() => setStage("script")}>回到剧本正文<ArrowRight size={15} /></button> : sourceChanged
+              ? <button className={styles.primary} type="button" disabled={busy || recovering || !settingsValid} onClick={() => void run("draft_synopsis")}>根据新资料重新整理梗概<RefreshCw size={15} /></button> : hasSynopsis
               ? <button className={styles.primary} type="button" disabled={busy || recovering || !synopsis.trim()} onClick={() => void run("confirm_synopsis", { synopsis })}>确认梗概，安排每集故事<ArrowRight size={15} /></button>
               : <button className={styles.primary} type="button" disabled={busy || recovering || (!idea.trim() && !material.trim()) || !settingsValid} onClick={() => void run("draft_synopsis")}>{project.creationMode === "quick" ? "整理成故事梗概" : "使用快速创作，整理梗概"}<ArrowRight size={15} /></button>}</div>
           </>}
@@ -383,7 +401,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
             {plan ? <QuickPlanEditor plan={plan} disabled={busy || recovering || arrangementLocked} onChange={setPlan} /> : <div className={styles.empty}>还没有创作安排。</div>}
           </>}
           {stage === "script" && <>
-            <h1>{plan?.title || "剧本正文"}</h1><p className={styles.intro}>每一步完成后自动保存。关闭页面会暂停后续创作，重新打开后可从保存处继续。</p>
+            <h1>{plan?.title || "剧本正文"}</h1><p className={styles.intro}>每一步完成后自动保存。可切换主项目页面；关闭或刷新网页后，回来读取保存进度再继续。</p>
             {busy && state ? <div className={styles.progress} role="status"><div><strong>{quickScriptProgressLabel(state)}</strong><p>{pauseRequested ? "当前处理保存后暂停" : "每一步完成后都会保存"}</p></div></div> : null}
             <div className={`${styles.actions} ${styles.stickyActions}`}>{bodyDirty ? <button className={styles.primary} type="button" disabled={busy || recovering} onClick={() => void run("save_episode", { episode_number: episodeNumber, draft })}>保存正文修改<Check size={15} /></button>
               : canDeliver ? <button className={styles.primary} type="button" disabled={busy || recovering} onClick={() => setDeliver(true)}>确认剧本，进入资产设计<ArrowRight size={15} /></button>

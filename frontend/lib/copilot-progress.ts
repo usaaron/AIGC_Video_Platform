@@ -1,9 +1,9 @@
 export type CopilotProgressStage = "context" | "requesting" | "thinking" | "writing" | "validating";
 
-export type CopilotProgressEvent =
+export type CopilotProgressEvent = (
   | { type: "progress"; stage: CopilotProgressStage; message: string }
   | { type: "model_thinking"; delta: string }
-  | { type: "reasoning_summary"; delta: string };
+  | { type: "reasoning_summary"; delta: string }) & { request_id?: string };
 
 export interface CopilotProgressStep {
   stage: CopilotProgressStage;
@@ -22,6 +22,7 @@ export interface CopilotProgress {
   summary: string;
   /** Model thinking supplied by a supported provider; absent in older history. */
   thinking?: string;
+  requestId?: string;
 }
 
 export interface CopilotProgressRun {
@@ -75,6 +76,7 @@ export function createCopilotProgressRun(options: {
   }
   function onEvent(event: CopilotProgressEvent) {
     if (!writable()) return;
+    if (event.request_id && /^[a-zA-Z0-9_.:-]{1,128}$/.test(event.request_id)) value = { ...value, requestId: event.request_id };
     if (event.type === "progress") mark(event.stage, event.message);
     else if (event.type === "reasoning_summary" && typeof event.delta === "string" && event.delta) {
       const summary = (value.summary + event.delta).slice(0, COPILOT_SUMMARY_LIMIT);

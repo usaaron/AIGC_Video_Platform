@@ -1,5 +1,6 @@
 import logging
 from typing import NoReturn
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import ValidationError
@@ -111,6 +112,14 @@ from app.modules.script_engine.story_planning_service import (
 
 router = APIRouter(prefix="/story-projects", tags=["Long Story Planning"])
 logger = logging.getLogger(__name__)
+
+
+def _persisted_planning_stream(request: Request, operation, *, response: Response | None = None):
+    return copilot_stream_response(
+        operation, persist_on_disconnect=True,
+        request_id=getattr(request.state, "request_id", None) or str(uuid4()),
+        result_headers=response.headers if response is not None else None,
+    )
 
 
 def _source_import_author_instruction(author_instruction: str) -> str:
@@ -883,7 +892,12 @@ def generate_story_bible_draft(
     payload: StoryBibleDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
     long_story_service: LongStoryService = Depends(get_long_story_service),
+    request: Request = None,
 ) -> StoryBibleDraftResponse:
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: generate_story_bible_draft(
+            project_id, payload, service, long_story_service,
+        ))
     return _story_bible_draft_response(
         project_id,
         payload,
@@ -908,6 +922,7 @@ def import_story_bible_draft(
     payload: StoryBibleDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
     long_story_service: LongStoryService = Depends(get_long_story_service),
+    request: Request = None,
 ) -> StoryBibleDraftResponse:
     """Normalize a supplied outline into an editable, source-preserving draft.
 
@@ -915,6 +930,10 @@ def import_story_bible_draft(
     approval.  The raw source is retained and the service is forced to keep
     the resulting Story Bible in the ordinary draft lifecycle.
     """
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: import_story_bible_draft(
+            project_id, payload, service, long_story_service,
+        ))
     import_payload = payload.model_copy(
         update={
             "author_instruction": _source_import_author_instruction(
@@ -1198,12 +1217,17 @@ def generate_story_plan_node_draft(
     project_id: str,
     payload: StoryPlanNodeDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StoryPlanNodeResponse:
     if payload.story_project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Story Plan Node path ID must match payload story_project_id.",
         )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: generate_story_plan_node_draft(
+            project_id, payload, service,
+        ))
     try:
         node = service.generate_story_plan_node_draft(payload)
     except LongStoryNotFoundError as exc:
@@ -1290,12 +1314,17 @@ def generate_top_level_story_plan_nodes(
     project_id: str,
     payload: StoryPlanNodeDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StoryPlanNodeListResponse:
     if payload.story_project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Top-level Story Plan path ID must match payload story_project_id.",
         )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: generate_top_level_story_plan_nodes(
+            project_id, payload, service,
+        ))
     try:
         nodes = service.generate_top_level_story_plan_nodes(payload)
     except LongStoryNotFoundError as exc:
@@ -1334,12 +1363,17 @@ def decompose_story_plan_node(
     node_id: str,
     payload: StoryPlanNodeDecompositionRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StoryPlanNodeListResponse:
     if payload.story_project_id != project_id or payload.parent_node_id != node_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Story Plan Node decomposition path IDs must match the payload.",
         )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: decompose_story_plan_node(
+            project_id, node_id, payload, service,
+        ))
     try:
         nodes = service.decompose_story_plan_node(payload)
     except PlanningCallBudgetExceeded as exc:
@@ -1475,12 +1509,17 @@ def generate_episode_plan_batch(
     node_id: str,
     payload: EpisodePlanBatchDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> EpisodeRoadmapDraftResponse:
     if payload.story_project_id != project_id or payload.source_node_id != node_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Episode Plan path IDs must match the payload.",
         )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: generate_episode_plan_batch(
+            project_id, node_id, payload, service,
+        ))
     try:
         plans = service.generate_episode_plan_batch(payload)
     except LongStoryNotFoundError as exc:
@@ -1521,6 +1560,7 @@ def generate_episode_plan_chunk(
     payload: EpisodePlanItemDraftRequest,
     response: Response,
     agent: EpisodeRoadmapAgent = Depends(get_episode_roadmap_agent),
+    request: Request = None,
 ) -> EpisodeRoadmapDraftResponse:
     """Generate or replay the next idempotent transport-sized roadmap block."""
 
@@ -1529,6 +1569,10 @@ def generate_episode_plan_chunk(
             status_code=status.HTTP_409_CONFLICT,
             detail="Episode Plan chunk path IDs must match the payload.",
     )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: generate_episode_plan_chunk(
+            project_id, node_id, payload, response, agent,
+        ), response=response)
     try:
         result = agent.run_chunk(payload)
     except LongStoryNotFoundError as exc:
@@ -1596,6 +1640,7 @@ def generate_episode_plan_item(
     episode_number: int,
     payload: EpisodePlanItemDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> EpisodeRoadmapItemDraftResponse:
     if (
         payload.story_project_id != project_id
@@ -1606,6 +1651,10 @@ def generate_episode_plan_item(
             status_code=status.HTTP_409_CONFLICT,
             detail="Episode Plan item path identity must match the payload.",
         )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: generate_episode_plan_item(
+            project_id, node_id, episode_number, payload, service,
+        ))
     try:
         plan = service.generate_episode_plan_item(payload)
     except LongStoryNotFoundError as exc:
@@ -1649,6 +1698,7 @@ def run_episode_roadmap_agent(
     payload: EpisodePlanItemDraftRequest,
     response: Response,
     agent: EpisodeRoadmapAgent = Depends(get_episode_roadmap_agent),
+    request: Request = None,
 ) -> EpisodeRoadmapItemDraftResponse:
     """Run one bounded, resumable roadmap Agent step for the current episode."""
 
@@ -1661,6 +1711,10 @@ def run_episode_roadmap_agent(
             status_code=status.HTTP_409_CONFLICT,
             detail="Episode roadmap Agent path identity must match the payload.",
         )
+    if accepts_copilot_stream(request):
+        return _persisted_planning_stream(request, lambda: run_episode_roadmap_agent(
+            project_id, node_id, episode_number, payload, response, agent,
+        ), response=response)
     try:
         result = agent.run(payload)
     except LongStoryNotFoundError as exc:

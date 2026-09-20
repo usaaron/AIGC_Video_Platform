@@ -56,5 +56,7 @@ def quick_script_action(project_id: str, payload: QuickActionRequest, request: R
                         service: QuickService = Depends(get_quick_script_service)):
     operation = lambda: _handle(lambda: service.action(project_id, payload))
     if accepts_copilot_stream(request):
-        return copilot_stream_response(operation)
+        return copilot_stream_response(operation, persist_on_disconnect=True,
+                                       request_id=getattr(request.state, "request_id", None) or payload.operation_id,
+                                       on_timeout=lambda: service.interrupt_operation(project_id, payload.operation_id))
     return operation()

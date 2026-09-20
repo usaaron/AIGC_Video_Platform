@@ -64,6 +64,24 @@ export function quickScriptHref(projectId: string): string {
   return `/projects/${encodeURIComponent(projectId)}/quick`;
 }
 
+export function projectSourceHref(projectId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}`;
+}
+
 export function hostScriptEntryHref(project: ScriptProject, standardHref: string, integrated: boolean): string {
-  return integrated && isQuickScriptProject(project) ? quickScriptHref(project.id) : standardHref;
+  if (!integrated || !isQuickScriptProject(project)) return standardHref;
+  return project.quickWorkflow || project.storySynopsis || project.episodes.length
+    ? quickScriptHref(project.id) : projectSourceHref(project.id);
+}
+
+/** Source inputs remain a real destination; other legacy URLs resume quick work. */
+export function hostQuickRedirectHref(project: ScriptProject, pathname: string, integrated: boolean): string | null {
+  if (!integrated || !isQuickScriptProject(project)
+    || pathname === projectSourceHref(project.id) || pathname === quickScriptHref(project.id)) return null;
+  return hostScriptEntryHref(project, pathname, true);
+}
+
+export function quickSourceInputsLocked(project: ScriptProject): boolean {
+  return isQuickScriptProject(project) && Boolean(project.episodes.length || project.quickWorkflow?.synopsis_confirmed
+    || project.quickWorkflow?.plan_confirmed || project.quickWorkflow?.active_operation);
 }

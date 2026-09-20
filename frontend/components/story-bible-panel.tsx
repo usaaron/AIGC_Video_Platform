@@ -1,5 +1,9 @@
 "use client";
+import { GenerationDiagnostics } from "@/components/generation-diagnostics";
+import { readSavedProjectSnapshot } from "@/lib/project-sync";
+import { recoveredStoryBibleProgressPatch } from "@/lib/story-bible-recovery";
 
+import { useRetainedCopilotProgress } from "@/lib/planning-task-progress";
 import { useCopilotProgress } from "@/lib/use-copilot-progress";
 
 import { useRouter } from "next/navigation";
@@ -79,6 +83,7 @@ import {
 } from "@/lib/workspace-section-memory";
 import {
   PlanningCanvasCopilot,
+  CopilotProgressView,
   type PlanningCanvasAction,
   type PlanningCanvasMessage,
   type PlanningCanvasQuickAction,
@@ -115,16 +120,19 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   const { t } = useLocale();
   const router = useRouter();
   const scriptWorkflow = useHostScriptWorkflow();
-  const { createProject, getProject, retryProjectSync, syncProjectSnapshot, updateProject } = useProjects();
+  const { createProject, getProject, retryProjectSync, syncProjectSnapshot, updateProject, adoptServerProjectSnapshot } = useProjects();
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [busy, setBusy] = useState<"load" | "generate" | "version" | "save" | "confirm" | "ai" | null>("load");
   const [message, setMessage] = useState<string | null>(null);
+  const [generationFailure, setGenerationFailure] = useState<unknown>();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [generationStage, setGenerationStage] = useState<"prepare" | "save" | "generate" | null>(null);
   const [aiInstruction, setAiInstruction] = useState("");
-  const { progress: copilotProgress, begin: beginCopilotProgress } = useCopilotProgress(`${project.id}:story-bible`);
+  const { progress: generationProgress, begin: beginGenerationProgress } = useRetainedCopilotProgress(`${project.id}:story-bible-generation`);
+  const { progress: chatProgress, begin: beginCopilotProgress } = useCopilotProgress(`${project.id}:story-bible`);
+  const copilotProgress = generationProgress?.status === "running" ? generationProgress : chatProgress ?? generationProgress;
   const [documentSelection, setDocumentSelection] = useState<StoryBibleSelectionContext | null>(null);
   const [chatMessages, setChatMessages] = useState<PlanningCanvasMessage[]>(() => (
     loadWorkspaceChatMessages(project.id, "story-bible") as PlanningCanvasMessage[]
@@ -133,6 +141,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   const [undoHistory, setUndoHistory] = useState<StoryBible[]>([]);
   const savedStoryBibleRef = useRef<StoryBible | null>(null);
   const [pendingProgress, setPendingProgress] = useState<{ patch: ProjectUpdate } | null>(null);
+  const unsavedChangesRef = useRef(false);
+  unsavedChangesRef.current = isEditing || Boolean(pendingProgress);
   const [rewriteCopyId, setRewriteCopyId] = useState<string | null>(() => readPendingProjectCopy(project.id, "bible"));
   const [rewriteCopyMissing, setRewriteCopyMissing] = useState(false);
   const rewriteInFlightRef = useRef(false);
@@ -140,6 +150,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   const [activeOutlineId, setActiveOutlineId] = useState("story-bible-positioning");
   const aiAbortControllerRef = useRef<AbortController | null>(null);
   const generationRequestInFlightRef = useRef(false);
+  const observingGeneration = useRef(false);
+  const handledGeneration = useRef<string | null>(null);
   const currentInputSignature = storyPlanningInputSignature(project);
   const isCurrentInput = project.storyBibleInputSignature === currentInputSignature && !project.storyBibleSynopsisOutdated;
   const regenerationLocked = !canRegenerateStoryBible(project);
@@ -163,6 +175,24 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     : null;
 
   useEffect(() => () => aiAbortControllerRef.current?.abort(), []);
+  useEffect(() => {
+    if (generationRequestInFlightRef.current || aiAbortControllerRef.current) return;
+    if (generationProgress?.status === "running") {
+      observingGeneration.current = true;
+      setBusy("generate");
+      setGenerationStage("generate");
+    } else if (generationProgress && ["completed", "error"].includes(generationProgress.status)
+      && handledGeneration.current !== generationProgress.id) {
+      handledGeneration.current = generationProgress.id;
+      observingGeneration.current = false;
+      setBusy(null); setGenerationStage(null);
+      setLoadAttempt(attempt => attempt + 1);
+      if (generationProgress?.status === "error") {
+        setGenerationFailure(new Error("上次生成未完成"));
+        setMessage("上次生成未完成，正在读取已保存结果；可以从保存处继续。");
+      }
+    }
+  }, [generationProgress?.id, generationProgress?.status, busy]);
   const storyBibleOutlineEntries = [
     { id: "story-bible-positioning", label: "故事定位" },
     { id: "story-bible-overview", label: "核心故事" },
@@ -176,15 +206,37 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   ];
 
   useEffect(() => {
+    if (unsavedChangesRef.current) return;
     let active = true;
     setBusy("load");
     setLoadError(null);
     setDocumentSelection(null);
     setChatHistoryHydrated(false);
     setChatMessages(loadWorkspaceChatMessages(project.id, "story-bible") as PlanningCanvasMessage[]);
-    loadStoryBible(project.id, project.storyBibleVersion)
+    (async () => {
+      if (loadAttempt > 0) {
+        const source = getProject(project.id);
+        if (source && source.serverSync?.status === "synced") {
+          const [saved, recoveredBible] = await Promise.all([
+            readSavedProjectSnapshot(source), loadStoryBible(project.id),
+          ]);
+          if (!active || unsavedChangesRef.current) return null;
+          const recoveryPatch = recoveredStoryBibleProgressPatch(source, saved, recoveredBible);
+          if (!await adoptServerProjectSnapshot(saved, source)) throw new Error("作品已在别处修改，请保留当前编辑后重新读取。");
+          if (recoveryPatch) {
+            // Persist the repaired progress flag; adopting only a local change
+            // would make the next read restore the obsolete server flag.
+            if (!await updateProject(project.id, current => (
+              recoveredStoryBibleProgressPatch(source, saved, recoveredBible, current) ?? {}
+            ))) throw new Error("已读取保存结果，但进度未能保存，请重试读取。");
+          }
+          return recoveredBible;
+        }
+      }
+      return loadStoryBible(project.id, loadAttempt > 0 ? undefined : project.storyBibleVersion);
+    })()
       .then((value) => {
-        if (!active) return;
+        if (!active || unsavedChangesRef.current) return;
         setStoryBible(value);
         savedStoryBibleRef.current = value;
         if (!value && project.storyBibleVersion) setLoadError("暂时未能读取已保存的故事总纲，请重试。");
@@ -194,7 +246,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       })
       .finally(() => {
         if (active) {
-          setBusy(aiAbortControllerRef.current ? "ai" : generationRequestInFlightRef.current ? "generate" : null);
+          setBusy(aiAbortControllerRef.current ? "ai" : generationRequestInFlightRef.current || observingGeneration.current ? "generate" : null);
           setChatHistoryHydrated(true);
         }
       });
@@ -254,8 +306,12 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       return;
     }
     generationRequestInFlightRef.current = true;
+    const generationController = new AbortController();
+    const progressRun = beginGenerationProgress(generationController.signal);
+    progressRun.mark("context", "正在整理已确认的梗概与人物资料");
     setBusy("generate");
     setGenerationStage("prepare");
+    setGenerationFailure(undefined);
     setMessage(null);
     try {
       const prepared = await prepareStoryPlanningProject(project);
@@ -265,6 +321,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       };
       const importSource = requestedImport || shouldApplyImportedStoryBibleConstraints(preparedProject);
       setGenerationStage("save");
+      progressRun.mark("context", "正在保存本次创作资料");
       const syncState = await syncProjectSnapshot(preparedProject);
       if (syncState.status !== "synced") {
         throw new Error(syncState.error ?? t("storyBible.syncRequired"));
@@ -279,15 +336,18 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       const authorInstruction = boundStoryBibleAuthorInstruction(preparedProject.storyBibleAuthorInstruction ?? "");
       const creativeDecisions = storyBibleCreativeDecisions(preparedProject);
       setGenerationStage("generate");
+      progressRun.mark("requesting", "正在请求人物与世界观，收到过程后会实时显示");
       const generated = importSource
         ? await importStoryBibleDraft(
             preparedProject,
             retryNotice,
-            undefined,
+            generationController.signal,
             creativeDecisions,
             authorInstruction,
+            progressRun.onEvent,
           )
-        : await generateStoryBibleDraft(preparedProject, retryNotice, authorInstruction, undefined, creativeDecisions);
+        : await generateStoryBibleDraft(preparedProject, retryNotice, authorInstruction, generationController.signal, creativeDecisions, progressRun.onEvent);
+      progressRun.mark("validating", "人物与世界观已生成，正在保存创作进度");
       setStoryBible(generated);
       savedStoryBibleRef.current = generated;
       await persistProjectUpdate({
@@ -306,7 +366,11 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         .catch(() => undefined);
       setIsEditing(false);
       setMessage(t("storyBible.generated"));
+      const completed = progressRun.finish("completed");
+      setChatMessages(current => [...current, { id: crypto.randomUUID(), role: "assistant", text: "人物与世界观已保存，可以核对和修改。", progress: completed }]);
     } catch (error) {
+      progressRun.finish("error");
+      setGenerationFailure(error);
       setMessage(userFacingError(error, t("storyBible.generateFailed")));
     } finally {
       generationRequestInFlightRef.current = false;
@@ -899,9 +963,14 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
       </div>
 
       {storyBible && busy === "load" ? <p role="status">{t("storyBible.loading")}</p> : null}
+      {!!generationFailure && <div className="inline-notice" role="alert">
+        <p>本次处理未完成。已保存的内容会保留，可先读取保存结果再继续。</p>
+        <button className="outline-action" type="button" disabled={Boolean(busy) || isEditing || Boolean(pendingProgress)} onClick={() => setLoadAttempt(attempt => attempt + 1)}>读取保存结果</button>
+        <GenerationDiagnostics projectId={project.id} stage="story_bible" error={generationFailure} requestId={copilotProgress?.requestId} />
+      </div>}
       {loadError ? <div className="inline-notice" role="alert">
         <p>{loadError}</p>
-        <button className="outline-action" disabled={busy === "load"} onClick={() => setLoadAttempt(attempt => attempt + 1)} type="button">重新读取总纲</button>
+        <button className="outline-action" disabled={Boolean(busy) || isEditing || Boolean(pendingProgress)} onClick={() => setLoadAttempt(attempt => attempt + 1)} type="button">重新读取总纲</button>
       </div> : null}
       {pendingProgress ? <div className="inline-notice" role="alert">
         <p>{message ?? "正在保存总纲进度…"}</p>
@@ -948,6 +1017,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
               </div>
             </div>
             <div className="story-bible-generation-controls">
+              {copilotProgress ? <CopilotProgressView progress={copilotProgress} /> : null}
               {busy === "load" ? <p role="status"><LoaderCircle aria-hidden="true" className="story-bible-generation-spinner" size={16} />正在读取故事总纲…</p> : null}
               {busy === "generate" ? <p role="status"><LoaderCircle aria-hidden="true" className="story-bible-generation-spinner" size={16} />{generationStage === "prepare" ? "正在整理创作资料…" : generationStage === "save" ? "正在保存已确认的故事…" : "正在展开人物、冲突和故事发展，请稍候…"}</p> : null}
               {message ? <p role={busy === "generate" ? "status" : "alert"}>{message}</p> : null}
@@ -1125,7 +1195,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
             </StoryBibleEditableContext.Provider>
           </div>
           <PlanningCanvasCopilot
-            busy={busy === "ai"}
+            busy={busy === "ai" || busy === "generate"}
             messages={chatMessages}
             progress={copilotProgress}
             disabled={!storyBibleCanBeRevised || regenerationLocked || (busy !== null && busy !== "ai")}

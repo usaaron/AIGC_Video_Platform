@@ -44,6 +44,12 @@ class QuickService:
                     if receipt["fingerprint"] != fingerprint:
                         raise LongStoryPersistenceConflictError("同一操作标识不能用于不同内容。")
                     return self.repository.response(project, snapshot, stored), None
+            if state.active_operation and state.active_operation.get("operation_id") == request.operation_id:
+                if state.active_operation.get("fingerprint") != fingerprint:
+                    raise LongStoryPersistenceConflictError("同一操作标识不能用于不同内容。")
+                # Reconnecting the same command observes its durable state;
+                # it must not spend another model call or change its revision.
+                return self.repository.response(project, snapshot, stored), None
             if state.revision != request.expected_revision:
                 raise LongStoryPersistenceConflictError("快速创作版本已变化，请刷新后重试。")
             if state.active_operation:
@@ -67,7 +73,7 @@ class QuickService:
                     "action": request.action, "stage": model_stage,
                     "instruction": str(request.payload.get("instruction") or ""),
                     "started_at": utc_now().isoformat(),
-                    "expires_at": (utc_now() + timedelta(minutes=20)).isoformat(),
+                    "expires_at": (utc_now() + timedelta(minutes=11)).isoformat(),
                 }
                 if model_stage in {"draft", "review", "repair", "recheck"}:
                     state.active_operation["episode_number"] = (len(state.episodes) + 1
@@ -92,6 +98,28 @@ class QuickService:
             # stage. Internal exception text/URLs/credentials are not exposed.
             return self._finish(project_id, request, fingerprint, stage, None, exc)
         return self._finish(project_id, request, fingerprint, stage, result, None)
+
+    def interrupt_operation(self, project_id: str, operation_id: str) -> None:
+        """Fence only this timed-out owner before its request scope is revoked."""
+        def interrupt(repo):
+            project, snapshot, stored = self.repository.load(repo, project_id, lock=True)
+            if not stored or not stored.active_operation or stored.active_operation.get("operation_id") != operation_id:
+                return
+            state = stored.model_copy(deep=True)
+            operation = state.active_operation
+            state.active_operation = None
+            state.phase, state.status = "paused", "blocked"
+            state.blocked_reason = "本次处理超时，已保存的内容保持不变。请恢复当前步骤；系统不会自动重复生成。"
+            state.revision += 1
+            state.updated_at = utc_now()
+            self._record(state, operation_id, operation["fingerprint"], "interrupted")
+            state.operation_records[-1].update({key: operation[key]
+                for key in ("action", "stage", "episode_number", "started_at") if key in operation})
+            state.operation_records[-1]["error_code"] = "quick_operation_timeout"
+            workspace = deepcopy(snapshot.workspace_payload)
+            self._project_workspace(state, workspace)
+            self.repository.save(repo, project, snapshot, state, project_payload=workspace)
+        self.repository.transaction(interrupt)
 
     def _prepare(self, state: QuickState, request: QuickActionRequest, workspace: dict) -> str | None:
         from app.modules.quick_script.engine import (
@@ -264,6 +292,17 @@ class QuickService:
         return next(e for e in sorted(state.episodes, key=lambda e: e.episode_number) if e.status != "passed")
 
     def _run_stage(self, state: QuickState, stage: str):
+        from app.modules.script_engine.copilot_progress import copilot_stage
+        messages = {
+            "synopsis": "正在根据故事想法和已保存素材生成梗概…",
+            "plan": "正在整理人物、世界观和各集创作安排…",
+            "draft": "正在依据已确认的安排生成本集正文…",
+            "review": "正在检查本集正文、人物和前文衔接…",
+            "repair": "正在根据检查结果进行一次局部修复…",
+            "recheck": "正在复核修复后的正文…",
+            "final_review": "正在检查全剧连续性和结局…",
+        }
+        copilot_stage("context", messages.get(stage))
         if stage == "synopsis":
             return self.engine.draft_synopsis(state)
         if stage == "plan":

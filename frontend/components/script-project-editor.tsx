@@ -11,7 +11,7 @@ import { userFacingError } from "@/lib/api-error";
 import { safeFilename } from "@/lib/filename";
 import { downloadBlob } from "@/lib/download";
 import { isHostScriptWorkflow } from "@/lib/host-navigation";
-import { normalizeProjectGenerationSettings } from "@/lib/quick-script-project";
+import { isQuickScriptProject, normalizeProjectGenerationSettings, quickScriptHref, quickSourceInputsLocked } from "@/lib/quick-script-project";
 import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import { OverseasStoryProfileEditor } from "@/components/overseas-story-profile";
 import { TagSelector } from "@/components/tag-selector";
@@ -90,10 +90,15 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   const router = useRouter();
   const { createProject, updateProject } = useProjects();
   const { locale, t } = useLocale();
-  const isReadOnly = mode === "edit" && Boolean(
-    project && (project.storyBibleStatus === "approved" || project.episodes.length > 0),
-  );
   const [draft, setDraft] = useState<ProjectDraft>(() => project ? toDraft(project) : EMPTY_DRAFT);
+  const quickProject = Boolean(project && isQuickScriptProject({ ...project, generationSettings: draft.generationSettings }));
+  const quickInputsLocked = Boolean(project && quickSourceInputsLocked(project));
+  const quickSettingsLocked = quickProject && Boolean(project?.quickWorkflow);
+  const isReadOnly = mode === "edit" && Boolean(
+    project && (project.storyBibleStatus === "approved" || project.episodes.length > 0 || quickInputsLocked),
+  );
+  const episodeCountMinimum = quickProject ? 1 : 8;
+  const episodeCountMaximum = quickProject ? 12 : 2000;
   const [releaseRegionInput, setReleaseRegionInput] = useState<ReleaseRegion | "">(() => (
     project ? draft.generationSettings.releaseRegion : ""
   ));
@@ -107,8 +112,17 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   const [isNavigating, setIsNavigating] = useState(false);
   const updateProjectRef = useRef(updateProject);
   updateProjectRef.current = updateProject;
+  const sourceProjectRef = useRef(project);
+  sourceProjectRef.current = project;
   const [draftAutosave] = useState(() => createProjectDraftAutosave(
-    (projectId, nextDraft) => updateProjectRef.current(projectId, nextDraft),
+    (projectId, nextDraft) => {
+      const current = sourceProjectRef.current;
+      return updateProjectRef.current(projectId, {
+        ...nextDraft,
+        ...(current && isQuickScriptProject(current) && current.quickWorkflow
+          ? { quickSourceInputsRevision: current.quickWorkflow.revision } : {}),
+      });
+    },
     setSaveState,
   ));
   const [ontologyNodes, setOntologyNodes] = useState<OntologyTagSource[]>([]);
@@ -188,8 +202,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     const detectedEpisodeCount = detectEpisodeCountFromCreativeInput(draft);
     const previousAutoDetected = episodeCountAutoDetectedRef.current;
     const validDetectedEpisodeCount = detectedEpisodeCount !== null
-      && detectedEpisodeCount >= 8
-      && detectedEpisodeCount <= 2_000
+      && detectedEpisodeCount >= episodeCountMinimum
+      && detectedEpisodeCount <= episodeCountMaximum
       ? detectedEpisodeCount
       : null;
     if (validDetectedEpisodeCount === null) {
@@ -224,7 +238,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
             episodeCount: validDetectedEpisodeCount,
           }),
         });
-  }, [draft, isReadOnly, mode]);
+  }, [draft, isReadOnly, mode, episodeCountMinimum, episodeCountMaximum]);
 
   useEffect(() => () => inputReadinessAbortRef.current?.abort(), []);
 
@@ -315,8 +329,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   const parsedEpisodeCount = Number(episodeCountInput);
   const episodeCountIsValid = /^\d+$/.test(episodeCountInput)
     && Number.isInteger(parsedEpisodeCount)
-    && parsedEpisodeCount >= 8
-    && parsedEpisodeCount <= 2000;
+    && parsedEpisodeCount >= episodeCountMinimum
+    && parsedEpisodeCount <= episodeCountMaximum;
   const hasExistingEpisodes = Boolean(project?.episodes.length);
   const scriptEpisodeCount = project?.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length ?? 0;
   const storyBibleReady = Boolean(
@@ -445,8 +459,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     if (requestId !== inputReadinessRequestRef.current) return;
     const detectedEpisodeCount = analysis.detectedEpisodeCount;
     const detectedEpisodeCountValue = typeof detectedEpisodeCount === "number"
-      && detectedEpisodeCount >= 8
-      && detectedEpisodeCount <= 2_000
+      && detectedEpisodeCount >= episodeCountMinimum
+      && detectedEpisodeCount <= episodeCountMaximum
       ? detectedEpisodeCount
       : null;
     const detectedEpisodeCountIsValid = detectedEpisodeCountValue !== null;
@@ -497,7 +511,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     key: Key,
     value: ProjectDraft["generationSettings"][Key],
   ) {
-    if (isReadOnly) return;
+    if (isReadOnly || quickSettingsLocked) return;
     invalidateInputReadiness();
     setDraft((current) => {
       const nextSettings = normalizeGenerationSettings({
@@ -515,20 +529,20 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   }
 
   function updateReleaseRegion(value: string) {
-    if (isReadOnly || (value !== "cn_mainland" && value !== "overseas")) return;
+    if (isReadOnly || quickSettingsLocked || (value !== "cn_mainland" && value !== "overseas")) return;
     setReleaseRegionInput(value);
     updateGenerationSetting("releaseRegion", value);
   }
 
   function updateEpisodeCount(value: string) {
-    if (isReadOnly) return;
+    if (isReadOnly || quickSettingsLocked) return;
     episodeCountManuallyEditedRef.current = true;
     episodeCountAutoDetectedRef.current = null;
     invalidateInputReadiness();
     setEpisodeCountInput(value);
     if (!/^\d+$/.test(value)) return;
     const episodeCount = Number(value);
-    if (!Number.isInteger(episodeCount) || episodeCount < 8 || episodeCount > 2000) return;
+    if (!Number.isInteger(episodeCount) || episodeCount < episodeCountMinimum || episodeCount > episodeCountMaximum) return;
     setDraft((current) => ({
       ...current,
       generationSettings: normalizeGenerationSettings({
@@ -587,7 +601,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     if (!project || isNavigating) return;
     setIsNavigating(true);
     try {
-      if (!isReadOnly && (draftAutosave.state === "saving" || draftAutosave.state === "error")
+      if (!isReadOnly && (lastAutosavedDraftRef.current !== draft || draftAutosave.state === "saving" || draftAutosave.state === "error")
         && !await draftAutosave.save(project.id, draft)) return;
       router.push(href);
     } finally { setIsNavigating(false); }
@@ -619,7 +633,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     <main className={"creator-page" + (mode === "create" ? " is-creating" : "") + (scriptWorkflow === true ? " host-stage-content host-story-source" : "")}>
       <div className="creator-document page-reveal">
         <header className="creator-header">
-          <div className={`creator-breadcrumb ${styles.breadcrumb}`}>{scriptWorkflow === true ? <strong>故事设定 · 原始资料</strong> : <><Link href="/">{t("nav.myScripts")}</Link><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></>}</div>
+          <div className={`creator-breadcrumb ${styles.breadcrumb}`}>{scriptWorkflow === true ? <strong>{quickProject ? "剧本 · 原始资料" : "故事设定 · 原始资料"}</strong> : <><Link href="/">{t("nav.myScripts")}</Link><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></>}</div>
           <div className="autosave-state" data-save-state={saveState} role="status">
             <span className={isSaving ? "is-saving" : ""} />
             {saveLabel}
@@ -642,9 +656,9 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
             rows={1}
             value={draft.title}
           />
-          <p>{scriptWorkflow === true ? "写下故事想法或上传已有资料，填写集数和发行地区后继续。" : t("editor.intro")}</p>
+          <p>{quickProject ? "先写下故事想法或上传已有资料，再进入故事梗概。题材和人物资料可以按需补充。" : scriptWorkflow === true ? "写下故事想法或上传已有资料，填写集数和发行地区后继续。" : t("editor.intro")}</p>
           {isReadOnly && !hasExistingEpisodes && <p className="inline-notice" role="status">
-            {locale === "zh" ? "故事总纲已确认，原始资料已锁定。请在创作工作区继续修改故事。" : "The story outline is confirmed. Source materials are locked; continue editing your story in the workspace."}
+            {quickInputsLocked ? "梗概已确认或创作正在进行，原始资料已保留。请在创作工作区继续修改故事。" : locale === "zh" ? "故事总纲已确认，原始资料已锁定。请在创作工作区继续修改故事。" : "The story outline is confirmed. Source materials are locked; continue editing your story in the workspace."}
           </p>}
         </section>
 
@@ -743,7 +757,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                 </div>
               </div>
               <div className="generation-form-grid generation-form-grid-compact">
-                <label className="form-field">
+                {scriptWorkflow === false && !quickProject && <label className="form-field">
                   <span>{t("generation.targetCharacters")}</span>
                   <select
                     disabled={isReadOnly}
@@ -756,15 +770,15 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                       </option>
                     ))}
                   </select>
-                </label>
+                </label>}
                 <label className="form-field">
                   <span>{t("generation.episodes")}</span>
                   <input
                     aria-invalid={episodeCountInput.length > 0 && !episodeCountIsValid}
-                    disabled={isReadOnly}
+                    disabled={isReadOnly || quickSettingsLocked}
                     inputMode="numeric"
-                    max={2000}
-                    min={8}
+                    max={episodeCountMaximum}
+                    min={episodeCountMinimum}
                     onChange={(event) => updateEpisodeCount(event.target.value)}
                     placeholder={t("generation.episodeCountManualPlaceholder")}
                     step={1}
@@ -772,14 +786,14 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                     value={episodeCountInput}
                   />
                   <small className={episodeCountInput.length > 0 && !episodeCountIsValid ? "field-help is-error" : "field-help"}>
-                    {t("generation.episodeCountManualHelp")}
+                    {quickProject ? "支持 1–12 集，默认 8 集；按故事需要调整。" : t("generation.episodeCountManualHelp")}
                   </small>
                 </label>
                 <label className="form-field">
                   <span>{t("generation.releaseRegion")}</span>
                   <select
                     aria-label={t("generation.releaseRegion")}
-                    disabled={isReadOnly}
+                    disabled={isReadOnly || quickSettingsLocked}
                     onChange={(event) => updateReleaseRegion(event.target.value)}
                     required
                     value={releaseRegionInput}
@@ -791,6 +805,10 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                   {releaseRegionInput && <small className="field-help">{t("generation.releaseRegion.help")}</small>}
                 </label>
               </div>
+              {quickProject && <p className="field-help">{draft.generationSettings.targetTotalCharacters > 10000
+                ? "当前篇幅超过快速版的 10,000 字范围。已有目标已保留，请在创作工作区调整或继续标准流程。"
+                : `快速创作以约 ${draft.generationSettings.targetTotalCharacters.toLocaleString()} 有效正文字起步，总正文不超过 10,000 字；篇幅安排在梗概确认后一起核对。`}</p>}
+              {quickSettingsLocked && <p className="field-help">创作已开始，集数与时长请回到故事梗概中调整。</p>}
               {scriptWorkflow === false && releaseRegionInput === "overseas" && <OverseasStoryProfileEditor
                 value={draft.generationSettings.overseasStoryProfile}
                 readOnly={isReadOnly}
@@ -866,7 +884,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
               <SectionHelp content={t("guide.creationCheck")} label={t("guide.openHelp")} />
             </div>
           </div>
-            <dl className="inspector-summary">
+            {!quickProject && <dl className="inspector-summary">
               <div>
                 <dt>{t("editor.storyBibleProgress")}</dt>
                 <dd className={storyBibleReady ? "is-complete" : "is-pending"}>
@@ -889,7 +907,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                     .replace("{total}", String(draft.generationSettings.episodeCount))}
                 </dd>
               </div>
-            </dl>
+            </dl>}
           {hasExistingEpisodes ? <div className="inline-notice">{t("generation.existingProtected")}</div> : null}
           {localSaveFailed && <div className="inline-notice is-error" role="alert">
             <p>{locale === "zh" ? "本次修改尚未保存，请重试后再继续。" : "Your changes have not been saved. Retry before continuing."}</p>
@@ -899,7 +917,11 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
           </div>}
           {actionError && <p className="inline-notice is-error" role="alert">{actionError}</p>}
           <div className="inspector-actions">
-            {hasExistingEpisodes ? (
+            {scriptWorkflow === true && quickProject ? <button className="primary-action full-width"
+              disabled={isNavigating || (!isReadOnly && (!hasRequiredCreativeInput || !episodeCountIsValid || !releaseRegionInput))}
+              onClick={() => project && void continueTo(quickScriptHref(project.id))} type="button">
+              {project?.quickWorkflow ? "继续剧本创作" : "下一步：故事梗概"}<ArrowIcon />
+            </button> : hasExistingEpisodes ? (
                 <>
                 <button className="primary-action full-width" onClick={() => project && router.push(currentWorkspaceHref(project))} type="button">
                   {t("generation.openWorkspace")} <ArrowIcon />
@@ -931,7 +953,8 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
               </>
             }
           </div>
-          {mode === "edit" && !hasExistingEpisodes ? <small className="readiness-hint">{storyBibleReady ? t("generation.recursivePlanningPending") : t("generation.planRequired")}</small> : null}
+          {quickProject && !isReadOnly && !hasRequiredCreativeInput && <small className="readiness-hint">写下故事想法，或上传一份资料，就可以继续。</small>}
+          {!quickProject && mode === "edit" && !hasExistingEpisodes ? <small className="readiness-hint">{storyBibleReady ? t("generation.recursivePlanningPending") : t("generation.planRequired")}</small> : null}
         </div>
       </aside>}
 

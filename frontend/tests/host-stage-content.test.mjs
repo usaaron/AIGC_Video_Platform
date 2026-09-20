@@ -43,12 +43,28 @@ test("selecting another episode keeps the editor, directory and assistant scope 
 });
 
 for (const options of [{ busy: "save" }, { interacting: true }]) {
-  test(`episode switching waits for ${options.busy ? "the project save" : "an active editor operation"}`, () => {
+  test(`episode browsing only changes the visible scope during ${options.busy ? "the project save" : "an active editor operation"}`, () => {
     const { choose, changes } = navigation(options);
     choose(9);
-    assert.deepEqual(changes, []);
+    assert.deepEqual(changes, [["episode", 9], ["full", false], ["outline", "story-plan-roadmap-second-node-9"], ["assistant", "second-node"]]);
   });
 }
+
+test("browsing generated episodes keeps in-flight generation and edit locks on the actual content", () => {
+  const project = {};
+  const item = { episode_number: 9 };
+  for (const options of [
+    { treeInteractionLocked: true, busy: null },
+    { treeInteractionLocked: false, busy: "roadmap" },
+    { treeInteractionLocked: false, busy: "ai" },
+  ]) {
+    const locked = handler("roadmapItemLocked", {
+      planningLocked: false, rebuildTaskActive: false, generatedRangeLocked: false,
+      ...options, project, isPlanningRevisionActive: () => false,
+    });
+    assert.equal(locked(item), true, 'view selection cannot unlock a concurrent write');
+  }
+});
 
 test("selecting an unavailable episode cannot change the visible scope", () => {
   const { choose, changes } = navigation();

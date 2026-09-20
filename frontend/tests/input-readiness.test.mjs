@@ -142,7 +142,8 @@ test("project creation keeps readiness advisory and existing planning gates sepa
   assert.match(editor, /inputReadiness\.createWithoutAnalysis/);
   assert.match(editor, /createWithReadinessPath\(\)/);
   assert.match(editor, /selectedPath:\s*"full_workflow"/);
-  assert.match(editor, /detectedEpisodeCount >= 8/);
+  assert.match(editor, /episodeCountMinimum = quickProject \? 1 : 8/);
+  assert.match(editor, /detectedEpisodeCount >= episodeCountMinimum/);
   assert.doesNotMatch(editor, /createWithReadinessPath\(path/);
   assert.match(editor, /inputReadiness\.createRecommended/);
   assert.match(editor, /router\.push\(`\/projects\/\$\{created\.id\}\/synopsis`\)/);

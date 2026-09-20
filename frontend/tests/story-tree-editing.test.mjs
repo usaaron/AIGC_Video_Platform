@@ -25,7 +25,12 @@ test("the recursive story tree has one resumable full-tree coordinator", async (
   assert.match(panel, /storyPlanNode\.generateAllRoadmaps/);
   assert.match(panel, /storyPlanNode\.continueAllRoadmaps/);
   assert.match(panel, /useTrackedPlanningTask/);
-  assert.doesNotMatch(panel, /usePlanningTask/);
+  // Whole-run state includes failures completed while the planning route was
+  // unmounted; per-node interactions retain page-local tracking.
+  assert.match(panel, /const topLevelTask = usePlanningTask\(topLevelTaskKey\)/);
+  assert.match(panel, /const roadmapBatchTask = usePlanningTask\(roadmapBatchTaskKey\)/);
+  assert.match(panel, /usePlanningProgress\(topLevelTaskKey\)/);
+  assert.match(panel, /usePlanningProgress\(roadmapBatchTaskKey\)/);
   assert.match(coordinator, /FULL_TREE_INITIAL_CONCURRENCY = 3/);
   assert.match(coordinator, /FULL_TREE_MINIMUM_CONCURRENCY = 2/);
   assert.match(coordinator, /FULL_TREE_MAXIMUM_CONCURRENCY = 4/);

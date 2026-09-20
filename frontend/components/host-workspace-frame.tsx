@@ -14,7 +14,7 @@ import { resolveSavedDraft } from "@/lib/script-draft-state";
 import type { ScriptProject } from "@/lib/types";
 import type { WorkspaceSectionId } from "@/lib/workspace-stage";
 import { useProjects } from "@/providers/project-provider";
-import { canStartQuickScript, quickScriptHref } from "@/lib/quick-script-project";
+import { canStartQuickScript, isQuickScriptProject, quickScriptHref } from "@/lib/quick-script-project";
 
 export function HostWorkspaceFrame({ children, project, onImport }: {
   children: ReactNode;
@@ -38,6 +38,7 @@ export function HostWorkspaceFrame({ children, project, onImport }: {
     : pathname.endsWith("/storyboard") ? "storyboard" : "story-bible";
   const inputPage = pathname === `/projects/${project.id}`;
   const integrated = scriptWorkflow === true;
+  const quick = integrated && isQuickScriptProject(project);
   const directoryLabel = section === "script" || section === "planning" ? "剧集目录" : "内容目录";
   const drawer = integrated || narrow;
   const savedEpisodeCount = project.episodes.filter(episode => episode.episodeNumber <= project.generationSettings.episodeCount
@@ -93,10 +94,10 @@ export function HostWorkspaceFrame({ children, project, onImport }: {
     <section className={`host-workspace-frame${open ? " is-directory-open" : ""}${integrated ? " is-three-stage" : ""}`} aria-label="剧本创作工作区">
       {integrated && <HostScriptStages project={project} section={section} inputPage={inputPage} />}
       <header className="host-workspace-toolbar">
-        <button className="host-directory-toggle" ref={toggle} type="button" aria-controls="host-workflow-directory" aria-expanded={open}
+        {!quick && <button className="host-directory-toggle" ref={toggle} type="button" aria-controls="host-workflow-directory" aria-expanded={open}
           aria-label={`${open ? "收起" : "展开"}${integrated ? directoryLabel : "流程目录"}`} title={integrated ? directoryLabel : "流程目录"} onClick={() => setOpen(value => !value)}>
           {open ? <PanelLeftClose size={17} /> : <List size={17} />}<span>{integrated ? directoryLabel : "流程目录"}</span>
-        </button>
+        </button>}
         {!integrated && <span className="host-current-stage">{stageLabel}</span>}
         <div className="host-workspace-status" role="status" title="这里显示草稿保存到项目的状态，仅代表最近保存的版本。手动编辑后请先保存；同步到制作需另行确认。">
           {saving ? <LoaderCircle className="host-save-spinner" size={14} /> : sync === "synced" ? <Check size={14} /> : sync === "conflict" ? <CloudOff size={14} /> : <Cloud size={14} />}
@@ -104,7 +105,7 @@ export function HostWorkspaceFrame({ children, project, onImport }: {
           {!saving && (sync === "unavailable" || sync === "local_only") && <button type="button" onClick={() => void retry()} aria-label="重试保存到服务端" title="重试保存到服务端"><RefreshCw size={14} /></button>}
         </div>
         <BackgroundGenerationStatus />
-        {integrated && canStartQuickScript(project)
+        {integrated && !quick && canStartQuickScript(project)
           && <Link className="outline-action" href={quickScriptHref(project.id)}>快速创作</Link>}
         {hostDeliveryConfigured() && (canDeliver || scriptWorkflow === false) && <button className={`${canDeliver ? "primary-action" : "outline-action"} host-sync-action`} type="button" onClick={onImport} title={canDeliver ? `选择 ${savedEpisodeCount} 集已保存正文的制作版本，然后进入资产设计` : "选择已完成的内容，同步到当前项目的制作稿、资产和分镜"}>{canDeliver ? "下一步：资产设计" : "同步到制作"}</button>}
       </header>

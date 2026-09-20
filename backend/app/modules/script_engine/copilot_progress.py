@@ -36,6 +36,7 @@ class CopilotProgress:
         self.cancel = cancel
         self._lock = threading.RLock()
         self._stage: Stage | None = None
+        self._stage_message: str | None = None
         self._characters: dict[TextEvent, int] = {"reasoning_summary": 0, "model_thinking": 0}
         self._pending: dict[TextEvent, str] = {"reasoning_summary": "", "model_thinking": ""}
         self._last_flush = dict.fromkeys(self._pending, time.monotonic())
@@ -62,13 +63,15 @@ class CopilotProgress:
         self.check_cancelled()
         self._emit(event)
 
-    def progress(self, stage: Stage) -> None:
+    def progress(self, stage: Stage, message: str | None = None) -> None:
         self.check_cancelled()
         with self._lock:
-            if stage not in MESSAGES or stage == self._stage:
+            message = message or MESSAGES.get(stage)
+            if stage not in MESSAGES or (stage == self._stage and message == self._stage_message):
                 return
             self._stage = stage
-            self._publish({"type": "progress", "stage": stage, "message": MESSAGES[stage]})
+            self._stage_message = message
+            self._publish({"type": "progress", "stage": stage, "message": message})
 
     def request_started(self) -> None:
         with self._lock:
@@ -176,10 +179,10 @@ def check_copilot_cancelled() -> None:
         observer.check_cancelled()
 
 
-def copilot_stage(stage: Stage) -> None:
+def copilot_stage(stage: Stage, message: str | None = None) -> None:
     observer = _OBSERVER.get()
     if observer is not None:
-        observer.progress(stage)
+        observer.progress(stage, message)
 
 
 def copilot_request_started() -> None:

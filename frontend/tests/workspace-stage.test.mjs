@@ -6,6 +6,7 @@ import * as React from "react";
 import * as jsxRuntime from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import * as quickProject from "../lib/quick-script-project.ts";
 
 import {
   currentWorkspaceHref,
@@ -205,6 +206,7 @@ test("deployed total-outline drafts remain accessible before the synopsis step e
 test("three-stage navigation keeps approval gates and never adds a generation intent", async () => {
   const { HostScriptStages } = await component("components/host-script-stages.tsx", {
     "@/lib/workspace-stage": { workspaceSectionAccess, workspaceSectionHref },
+    "@/lib/quick-script-project": quickProject,
   });
   const render = (value, section = "story-synopsis") => renderToStaticMarkup(React.createElement(HostScriptStages, {
     project: value, section, inputPage: false,

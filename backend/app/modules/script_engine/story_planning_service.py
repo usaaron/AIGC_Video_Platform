@@ -6029,6 +6029,16 @@ Return only JSON matching the provided schema."""
         output_schema: dict[str, object],
         stage: str,
     ) -> dict[str, object]:
+        from app.modules.script_engine.copilot_progress import copilot_stage
+        messages = {
+            "initial": "正在根据已确认梗概整理人物、关系和世界观…",
+            "format_repair": "已收到初稿，正在修正返回格式…",
+            "contract_recovery": "正在补全初稿中缺失的必要内容…",
+            "quality_repair": "正在检查并修正人物身份与故事设定的一致性…",
+            "language_patch": "正在将创作说明统一为中文…",
+            "quality_language_patch": "正在复核修正后的中文说明…",
+        }
+        copilot_stage("context", messages.get(stage, "正在处理当前人物与世界观内容…"))
         started = monotonic()
         logger.warning(
             "Story Bible model call started stage=%s prompt_chars=%d max_tokens=%d",

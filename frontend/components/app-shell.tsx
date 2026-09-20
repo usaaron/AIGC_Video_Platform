@@ -28,7 +28,7 @@ import { useProjects } from "@/providers/project-provider";
 import { DEFAULT_GENERATION_SETTINGS } from "@/lib/types";
 import { hostProjectId as currentHostProjectId, hostProjectContext } from "@/lib/host-session";
 import { hostWorkspaceHref, isHostEmbedded, isHostScriptWorkflow, notifyHost } from "@/lib/host-navigation";
-import { quickSettingsForHost, hostScriptEntryHref, isQuickScriptProject, quickScriptHref } from "@/lib/quick-script-project";
+import { quickSettingsForHost, hostScriptEntryHref, hostQuickRedirectHref } from "@/lib/quick-script-project";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -112,9 +112,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [createProject, isReady, pathname, projects, router, serverPersistenceAvailable]);
 
   useEffect(() => {
-    if (!isReady || !currentProject || !isHostScriptWorkflow() || !isQuickScriptProject(currentProject)) return;
-    const target = quickScriptHref(currentProject.id);
-    if (pathname !== target) router.replace(target);
+    if (!isReady || !currentProject) return;
+    const target = hostQuickRedirectHref(currentProject, pathname, isHostScriptWorkflow());
+    if (target) router.replace(target);
   }, [currentProject, isReady, pathname, router]);
 
   useEffect(() => {

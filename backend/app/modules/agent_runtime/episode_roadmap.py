@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass
 
 from app.modules.agent_runtime.models import (
@@ -9,7 +10,8 @@ from app.modules.agent_runtime.models import (
     AgentToolKind,
 )
 from app.modules.agent_runtime.runtime import AgentSession
-from app.modules.agent_runtime.service import AgentRunService, fingerprint_input
+from app.modules.agent_runtime.stream_lifecycle import start_stream_session
+from app.modules.agent_runtime.service import AgentRunService, AgentRunPersistenceUnavailableError, fingerprint_input
 from app.modules.script_engine.long_story_models import (
     EpisodePlanGenerationItem,
     EpisodePlanItemDraftRequest,
@@ -34,6 +36,8 @@ ROADMAP_AGENT_POLICY = AgentRunPolicy(
         "inspect_repaired_episode_roadmap",
     }),
 )
+
+logger = logging.getLogger(__name__)
 
 ROADMAP_CHUNK_AGENT_POLICY = AgentRunPolicy(
     max_steps=1,
@@ -91,7 +95,7 @@ class EpisodeRoadmapAgent:
         )
         start = None
         if self._run_service is not None and self._run_service.available:
-            start = self._run_service.start_session(
+            start = start_stream_session(self._run_service, lambda: self._run_service.start_session(
                 agent_name="episode_roadmap",
                 subject_ref=subject_ref,
                 policy=ROADMAP_AGENT_POLICY,
@@ -105,7 +109,7 @@ class EpisodeRoadmapAgent:
                 project_id=payload.story_project_id,
                 planning_revision_epoch=payload.planning_revision_epoch,
                 episode_number=payload.episode_number,
-            )
+            ))
             if start.session is None:
                 item_payload = start.result_payload or {}
                 item = EpisodePlanGenerationItem.model_validate(
@@ -180,7 +184,7 @@ class EpisodeRoadmapAgent:
         except Exception as error:
             session.fail(error)
             raise
-        run = session.complete(
+        run = self._complete(session,
             result_type="episode_roadmap_item.v1",
             result_payload={"item": item.model_dump(mode="json")},
         )
@@ -210,7 +214,7 @@ class EpisodeRoadmapAgent:
         )
         start = None
         if self._run_service is not None and self._run_service.available:
-            start = self._run_service.start_session(
+            start = start_stream_session(self._run_service, lambda: self._run_service.start_session(
                 agent_name="episode_roadmap_chunk",
                 subject_ref=subject_ref,
                 policy=ROADMAP_CHUNK_AGENT_POLICY,
@@ -219,7 +223,7 @@ class EpisodeRoadmapAgent:
                 project_id=payload.story_project_id,
                 planning_revision_epoch=payload.planning_revision_epoch,
                 episode_number=payload.episode_number,
-            )
+            ))
             if start.session is None:
                 items = _roadmap_chunk_items(start.result_payload or {})
                 receipt = self._rebuild_receipt(payload, rebuild_context, items, start.record)
@@ -265,11 +269,28 @@ class EpisodeRoadmapAgent:
         }
         if receipt is not None:
             result_payload["rebuild_receipt"] = receipt.model_dump(mode="json")
-        run = session.complete(
+        run = self._complete(session,
             result_type="episode_roadmap_chunk.v1",
             result_payload=result_payload,
         )
         return EpisodeRoadmapChunkAgentResult(items=items, run=run, rebuild_receipt=receipt)
+
+    def _complete(self, session: AgentSession, **result) -> AgentRunRecord:
+        # The model tool checkpoint is already durable. A transient failure in
+        # the final run receipt must release this exact owner so the stable key
+        # can replay that checkpoint, instead of remaining busy for the lease.
+        owned = session.record.model_copy(deep=True)
+        try:
+            return session.complete(**result)
+        except Exception as error:
+            if self._run_service is None:
+                raise
+            try:
+                self._run_service.cancel_stream_run(owned)
+            except Exception as cleanup_error:
+                logger.error("Roadmap completion cleanup unavailable run=%s error_type=%s",
+                             owned.run_id, type(cleanup_error).__name__)
+            raise AgentRunPersistenceUnavailableError("路线图结果已进入保存检查，请使用原操作标识恢复。") from error
 
     def _rebuild_receipt(self, payload, original_context, items, record):
         if original_context is None:

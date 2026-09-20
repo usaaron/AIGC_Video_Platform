@@ -89,10 +89,10 @@ test("an interrupted streamed modification cannot trigger the automatic retry wr
 
 test("stream errors retain safe error metadata and never become successful completion", async t => {
   t.mock.method(globalThis, "fetch", async () => responseFor([
-    { type: "error", message: "本次修改未完成", status: 422, error_type: "planning_input", retryable: true },
+    { type: "error", message: "本次修改未完成", status: 422, error_type: "planning_input", retryable: true, request_id: "request-123" },
     { type: "result", data: { data: "must not apply" } },
   ]));
-  await assert.rejects(copilotRequest("/chat", {}, () => {}), error => error.status === 422 && error.retryable === false && error.errorType === "planning_input");
+  await assert.rejects(copilotRequest("/chat", {}, () => {}), error => error.status === 422 && error.retryable === false && error.errorType === "planning_input" && error.requestId === "request-123");
 });
 
 test("aborted requests reject even when a late buffered result arrives", async t => {
@@ -112,4 +112,18 @@ test("aborted requests reject even when a late buffered result arrives", async t
   stream.enqueue(encoder.encode(frame({ type: "result", data: { data: "late" } })));
   stream.close();
   await assert.rejects(result, error => error.name === "AbortError");
+});
+
+test("only an explicitly retryable terminal failure may retry an idempotent planning request", async t => {
+  t.mock.method(globalThis, "fetch", async () => responseFor([
+    { type: "error", message: "上游暂时不可用", status: 503, retryable: true, request_id: "request-safe" },
+  ]));
+  await assert.rejects(copilotRequest("/chunk", {}, () => {}, { idempotencyKey: "stable-chunk" }), error => error.retryable === true && error.requestId === "request-safe");
+  await assert.rejects(copilotRequest("/modify", {}, () => {}), error => error.retryable === false);
+});
+test("an ambiguous broken stream never auto-replays even an idempotent planning request", async t => {
+  t.mock.method(globalThis, "fetch", async () => responseFor([
+    { type: "progress", stage: "writing", message: "正在生成", request_id: "request-inflight" },
+  ]));
+  await assert.rejects(copilotRequest("/chunk", {}, () => {}, { idempotencyKey: "stable-chunk" }), error => error.retryable === false && error.requestId === "request-inflight");
 });

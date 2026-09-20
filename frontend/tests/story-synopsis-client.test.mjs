@@ -11,6 +11,41 @@ const project = {
   characters: [], referenceMaterials: [], episodes: [],
 };
 
+test("initial story bible generation streams thinking before the final draft", async context => {
+  const progress = [];
+  context.mock.method(globalThis, "fetch", async (_url, init) => {
+    assert.equal(init.headers.Accept, "text/event-stream");
+    const events = [
+      { type: "progress", stage: "thinking", message: "正在整理人物与世界观", request_id: "bible-demo" },
+      { type: "model_thinking", delta: "先核对人物的目标与已确认设定。", request_id: "bible-demo" },
+      { type: "result", data: { data: { version: 1, status: "draft" } } },
+    ];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });
+  });
+  const result = await generateStoryBibleDraft({ ...project, storySynopsis: { text: "已确认梗概", status: "confirmed" } },
+    undefined, "", undefined, [], event => progress.push(event));
+  assert.equal(result.version, 1);
+  assert.equal(progress[1].type, "model_thinking");
+  assert.equal(progress[0].request_id, "bible-demo");
+});
+
+test("lost generation response reads the saved story bible without another model request", async context => {
+  let posts = 0, reads = 0;
+  context.mock.method(globalThis, "fetch", async (_url, init) => {
+    if (init.method === "POST") {
+      posts++;
+      return new Response('data: {"type":"progress","stage":"writing","message":"正在保存"}\n\n', { headers: { "Content-Type": "text/event-stream" } });
+    }
+    reads++;
+    return Response.json({ data: { version: 2, status: "draft" } });
+  });
+  const result = await generateStoryBibleDraft({ ...project, storyBibleVersion: 1,
+    storySynopsis: { text: "已确认梗概", status: "confirmed" } }, undefined, "", undefined, [], () => {});
+  assert.equal(result.version, 2);
+  assert.equal(posts, 1);
+  assert.equal(reads, 1);
+});
+
 test("synopsis drafting carries the entire edited document, author decisions and recent messages", async (context) => {
   const currentText = "完整的作者正文。".repeat(1_600) + "最终她决定保留原件。";
   const brief = { ...EMPTY_INSPIRATION_BRIEF, ending_direction: "暂缓决定", must_avoid: ["不能让她销毁原件"] };

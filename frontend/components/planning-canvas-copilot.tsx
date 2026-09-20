@@ -421,7 +421,7 @@ function progressDuration(startedAt: number, endedAt: number) {
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
 
-function CopilotProgressView({ progress, historical = false }: { progress: CopilotProgress; historical?: boolean }) {
+export function CopilotProgressView({ progress, historical = false }: { progress: CopilotProgress; historical?: boolean }) {
   const [open, setOpen] = useState(!historical && progress.status !== "completed");
   const [now, setNow] = useState(Date.now);
   useEffect(() => {

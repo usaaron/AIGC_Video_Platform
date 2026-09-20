@@ -739,6 +739,7 @@ export async function generateStoryBibleDraft(
   authorInstruction = "",
   signal?: AbortSignal,
   creativeDecisions: CreativeDecisionRecord[] = [],
+  onProgress?: CopilotProgressObserver,
 ): Promise<StoryBible> {
   return requestStoryBibleDraft(
     project,
@@ -747,6 +748,7 @@ export async function generateStoryBibleDraft(
     signal,
     creativeDecisions,
     false,
+    onProgress,
   );
 }
 
@@ -761,6 +763,7 @@ export async function importStoryBibleDraft(
   signal?: AbortSignal,
   creativeDecisions: CreativeDecisionRecord[] = [],
   authorInstruction = "",
+  onProgress?: CopilotProgressObserver,
 ): Promise<StoryBible> {
   return requestStoryBibleDraft(
     project,
@@ -769,6 +772,7 @@ export async function importStoryBibleDraft(
     signal,
     creativeDecisions,
     true,
+    onProgress,
   );
 }
 
@@ -779,6 +783,7 @@ async function requestStoryBibleDraft(
   signal: AbortSignal | undefined,
   creativeDecisions: CreativeDecisionRecord[],
   importSource: boolean,
+  onProgress?: CopilotProgressObserver,
 ): Promise<StoryBible> {
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法生成长篇总纲。");
@@ -794,7 +799,7 @@ async function requestStoryBibleDraft(
   const response = await generateWithAutomaticTransientRetry({
     generate: async (): Promise<StoryBibleDraftResponse | { data: StoryBible }> => {
       try {
-        return await apiRequest<StoryBibleDraftResponse>(
+        return await copilotRequest<StoryBibleDraftResponse>(
           `/story-projects/${project.id}/story-bibles/${importSource ? "import-draft" : "draft"}`,
           {
             method: "POST",
@@ -822,9 +827,10 @@ async function requestStoryBibleDraft(
             }),
             signal,
           },
+          onProgress,
         );
       } catch (error) {
-        if (!isTransientGenerationFailure(error)) throw error;
+        if (!isTransientGenerationFailure(error) && !(error instanceof ApiError && error.status >= 500)) throw error;
         try {
           const recovered = await loadStoryBible(project.id);
           if (
@@ -1661,7 +1667,7 @@ export async function generateEpisodePlanBatch(
   node: StoryPlanNode,
   onCheckpoint?: (plan: EpisodeRoadmapItem) => Promise<void> | void,
   beforeNextEpisode?: () => Promise<void> | void,
-  options?: { regenerate?: boolean; activeNodes?: StoryPlanNode[] },
+  options?: { regenerate?: boolean; activeNodes?: StoryPlanNode[]; onProgress?: CopilotProgressObserver },
 ): Promise<EpisodeRoadmapItem[]> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法生成分集计划。");
@@ -1721,7 +1727,7 @@ export async function generateEpisodePlanBatch(
       requestPayload,
     );
     const response = await generateWithFailurePolicy({
-      generate: () => apiRequest<{ data: RoadmapApiItem[] }>(
+      generate: () => copilotRequest<{ data: RoadmapApiItem[] }>(
         `/story-projects/${project.id}/plan-nodes/${node.node_id}/episode-plans/chunk`,
         {
           method: "POST",
@@ -1730,6 +1736,8 @@ export async function generateEpisodePlanBatch(
             agent_request_id: agentRequestId,
           }),
         },
+        options?.onProgress,
+        { idempotencyKey: agentRequestId },
       ),
       mode: "automatic",
       shouldRetry: isTransientGenerationFailure,

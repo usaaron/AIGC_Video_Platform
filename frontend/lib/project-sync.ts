@@ -278,6 +278,18 @@ export function acceptQuickWorkspaceSnapshot(
   };
 }
 
+/** Read the latest durable workspace without autosaving or discarding local edits. */
+export async function readSavedProjectSnapshot(source: ScriptProject): Promise<ScriptProject> {
+  const [project, workspace] = await Promise.all([
+    apiRequest<StoryProjectResponse>(`/story-projects/${encodeURIComponent(source.id)}`),
+    apiRequest<WorkspaceResponse>(`/story-projects/${encodeURIComponent(source.id)}/workspace`),
+  ]);
+  return acceptQuickWorkspaceSnapshot(source, {
+    project_revision: project.data.revision,
+    workspace_snapshot: { ...workspace.data, workspace_payload: workspace.data.workspace_payload as unknown as ScriptProject },
+  });
+}
+
 export function forceWorkspaceOverwrite(
   project: ScriptProject,
 ): Promise<ProjectServerSyncState> {

@@ -8,6 +8,7 @@ import ts from "typescript";
 import { isValidElement } from "react";
 import * as quickProject from "../lib/quick-script-project.ts";
 import * as quickState from "../lib/quick-script-types.ts";
+import { pendingQuickSourceInputs } from "../lib/quick-source-recovery.ts";
 import { currentWorkspaceHref } from "../lib/workspace-stage.ts";
 
 const require = createRequire(import.meta.url);
@@ -78,6 +79,7 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
       if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, key) => String(key) });
       if (name === "@/lib/quick-script-types") return quickState;
       if (name === "@/lib/quick-script-project") return quickProject;
+      if (name === "@/lib/quick-source-recovery") return { pendingQuickSourceInputs };
       if (name === "@/lib/workspace-stage") return { currentWorkspaceHref };
       if (name === "@/lib/api-client") return { ApiError };
       if (name === "@/lib/host-session") return { projectStorageKey: key => key };

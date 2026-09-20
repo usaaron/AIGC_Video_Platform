@@ -13,7 +13,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.modules.content_spec.market_profile import CREATOR_INTERACTION_LANGUAGE_CONTRACT
 from app.modules.master_script.models import (
@@ -25,7 +25,7 @@ from app.modules.script_engine.json_schema_contract import compact_json_schema
 from app.modules.script_engine.mainland_language import blocking_draft_script_chinese_issues
 from app.modules.script_engine.mainland_screenplay import draft_screenplay_style_issues
 from app.modules.script_engine.models import GenerationStrategy
-from app.modules.script_engine.planning_call_budget import planning_call_budget_scope
+from app.modules.script_engine.planning_call_budget import PlanningCallBudgetExceeded, planning_call_budget_scope
 from app.modules.script_engine.production_count_utils import episode_production_counts
 from app.modules.script_engine.screenplay_duration import estimate_screenplay_duration
 from app.modules.script_engine.screenplay_metrics import screenplay_character_count
@@ -268,8 +268,31 @@ class QuickScriptEngine:
             call.elapsed_ms = round((time.perf_counter() - started) * 1000)
             if isinstance(error, QuickEngineError):
                 raise
-            raise QuickEngineError("本次模型操作未完成；已保存的正文和检查进度保持不变。",
-                                   code="quick_model_operation_failed", call=call,
+            from app.modules.script_engine.llm_adapter import LLMRequestError, LLMStructuredOutputError
+            from app.modules.script_engine.llm_deadline import DeadlineExceeded
+            # The final permitted transport failure is wrapped by the hard call
+            # budget. Classify its cause without retrying or weakening that cap.
+            failure = error
+            for _ in range(4):
+                if not isinstance(failure, PlanningCallBudgetExceeded):
+                    break
+                cause = failure.__cause__ or failure.__context__
+                if cause is None or cause is failure:
+                    break
+                failure = cause
+            code, message = "quick_model_operation_failed", "本次模型操作未完成；已保存的正文和检查进度保持不变。"
+            if isinstance(failure, (DeadlineExceeded, TimeoutError)) or (
+                isinstance(failure, LLMRequestError) and failure.category in {"timeout", "deadline"}
+            ):
+                code, message = "quick_model_timeout", "模型响应超时，当前步骤已暂停。已有内容已保存，可稍后恢复，不会自动重复请求。"
+            elif isinstance(failure, LLMRequestError) and failure.status_code in {401, 403, 404}:
+                code, message = "quick_model_configuration", "模型接入配置暂不可用，已有内容已保存，请联系管理员检查后恢复。"
+            elif isinstance(failure, LLMRequestError) and failure.status_code == 429:
+                code, message = "quick_model_busy", "模型当前请求较多，已有内容已保存，请稍后恢复当前步骤。"
+            elif isinstance(failure, (LLMStructuredOutputError, ValidationError)):
+                code, message = "quick_output_invalid", "本次模型结果不完整或格式不正确，已有正文保持不变，请恢复当前步骤重新生成。"
+            raise QuickEngineError(message,
+                                   code=code, call=call,
                                    candidate=locals().get("raw")) from error
         finally:
             # The transport debits immediately before POST; configuration or

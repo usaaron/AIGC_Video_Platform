@@ -20,6 +20,7 @@ import type {
   StoryTreeQualityAudit,
 } from "@/lib/types";
 import { requireStoryPlanQuality } from "@/lib/story-quality-gate";
+import type { CopilotProgressEvent } from "@/lib/copilot-progress";
 
 export interface EpisodeRoadmapGenerationProgress {
   phase?: "quality_review" | "roadmap";
@@ -40,6 +41,7 @@ export async function runFullEpisodeRoadmapGeneration(input: {
   beforeStep?: () => Promise<void> | void;
   onCheckpoint?: (item: EpisodeRoadmapItem) => Promise<void> | void;
   onProgress?: (progress: EpisodeRoadmapGenerationProgress) => Promise<void> | void;
+  onModelProgress?: (event: CopilotProgressEvent) => void;
   onQualityCheckpoint?: (audit: StoryTreeQualityAudit) => Promise<void> | void;
 }): Promise<EpisodeRoadmapGenerationResult> {
   const { project, storyBible } = input;
@@ -110,7 +112,7 @@ export async function runFullEpisodeRoadmapGeneration(input: {
         });
       },
       input.beforeStep,
-      { activeNodes },
+      { activeNodes, onProgress: input.onModelProgress },
     );
     workingRoadmaps = mergeEpisodeRoadmaps(workingRoadmaps, generated);
     // Review the realized movement while its causal neighbors are still drafts.

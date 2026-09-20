@@ -13,6 +13,7 @@ export class ApiError extends Error {
   readonly retryable?: boolean;
   readonly failureClass?: string;
   readonly errorType?: string;
+  readonly requestId?: string;
 
   constructor(
     message: string,
@@ -21,6 +22,7 @@ export class ApiError extends Error {
       retryable?: boolean;
       failureClass?: string;
       errorType?: string;
+      requestId?: string;
     } = {},
   ) {
     super(message);
@@ -29,6 +31,7 @@ export class ApiError extends Error {
     this.retryable = metadata.retryable;
     this.failureClass = metadata.failureClass;
     this.errorType = metadata.errorType;
+    this.requestId = metadata.requestId;
   }
 }
 
@@ -175,16 +178,19 @@ function responseFailureMetadata(response: Response): {
   retryable?: boolean;
   failureClass?: string;
   errorType?: string;
+  requestId?: string;
 } {
   const retryable = response.headers.get("x-generation-retryable");
   const failureClass = response.headers.get("x-generation-failure-class") ?? undefined;
   const errorType = response.headers.get("x-generation-error-type") ?? undefined;
+  const requestId = response.headers.get("x-request-id") ?? undefined;
   return {
     ...(retryable === "true" || retryable === "false"
       ? { retryable: retryable === "true" }
       : {}),
     ...(failureClass ? { failureClass } : {}),
     ...(errorType ? { errorType } : {}),
+    ...(requestId ? { requestId } : {}),
   };
 }
 

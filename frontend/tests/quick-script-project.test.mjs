@@ -3,13 +3,15 @@ import test from "node:test";
 import {
   DEFAULT_QUICK_GENERATION_SETTINGS,
   hostScriptEntryHref,
+  hostQuickRedirectHref,
+  quickSourceInputsLocked,
   isQuickScriptProject,
   normalizeProjectGenerationSettings,
   canStartQuickScript, quickInitialInputs, quickSettingsForHost,
 } from "../lib/quick-script-project.ts";
 
 const project = (patch = {}) => ({
-  id: "project.quick", marketProfile: "cn_mainland", generationSettings: { ...DEFAULT_QUICK_GENERATION_SETTINGS }, ...patch,
+  id: "project.quick", episodes: [], marketProfile: "cn_mainland", generationSettings: { ...DEFAULT_QUICK_GENERATION_SETTINGS }, ...patch,
 });
 
 test("legacy source materials and synopsis remain available when entering quick creation", () => {
@@ -80,13 +82,37 @@ test("switching to standard preserves the existing short scope on hydration", ()
   assert.equal(restored.episodeCount, 8);
 });
 
-test("only explicit mainland quick projects use the host quick entry", () => {
+test("new mainland quick projects open source inputs while existing work resumes quick creation", () => {
   const quick = project({ creationMode: "quick" });
   const standard = "/projects/project.quick/planning";
-  assert.equal(hostScriptEntryHref(quick, standard, true), "/projects/project.quick/quick");
+  assert.equal(hostScriptEntryHref(quick, standard, true), "/projects/project.quick");
+  for (const saved of [{ quickWorkflow: { phase: "synopsis" } }, { storySynopsis: { text: "已保存梗概" } }, { episodes: [{ episodeNumber: 1 }] }]) {
+    assert.equal(hostScriptEntryHref({ ...quick, ...saved }, standard, true), "/projects/project.quick/quick");
+  }
   assert.equal(hostScriptEntryHref(quick, standard, false), standard);
   for (const other of [project(), project({ creationMode: "standard" }), project({ creationMode: "quick", marketProfile: "overseas_tiktok" }),
     project({ creationMode: "quick", generationSettings: { ...quick.generationSettings, releaseRegion: "overseas" } })]) {
     assert.equal(hostScriptEntryHref(other, standard, true), standard);
   }
+});
+
+test("quick routing allows source review and explicit continuation without switching old project modes", () => {
+  const quick = project({ creationMode: "quick", quickWorkflow: { phase: "synopsis" } });
+  assert.equal(hostQuickRedirectHref(quick, "/projects/project.quick", true), null);
+  assert.equal(hostQuickRedirectHref(quick, "/projects/project.quick/quick", true), null);
+  assert.equal(hostQuickRedirectHref(quick, "/projects/project.quick/synopsis", true), "/projects/project.quick/quick");
+  assert.equal(hostQuickRedirectHref(quick, "/projects/project.quick/synopsis", false), null);
+  assert.equal(hostQuickRedirectHref(project(), "/projects/project.quick", true), null);
+  assert.equal(hostQuickRedirectHref({ ...quick, quickWorkflow: undefined }, "/projects/project.quick/synopsis", true), "/projects/project.quick");
+});
+
+test("quick source changes are locked after confirmation or while a generation is in flight", () => {
+  const quick = project({ creationMode: "quick" });
+  assert.equal(quickSourceInputsLocked(quick), false);
+  assert.equal(quickSourceInputsLocked({ ...quick, quickWorkflow: { synopsis_confirmed: false } }), false);
+  for (const saved of [{ quickWorkflow: { synopsis_confirmed: true } }, { quickWorkflow: { plan_confirmed: true } },
+    { quickWorkflow: { active_operation: { operation_id: "running" } } }, { episodes: [{ episodeNumber: 1 }] }]) {
+    assert.equal(quickSourceInputsLocked({ ...quick, ...saved }), true);
+  }
+  assert.equal(quickSourceInputsLocked(project({ quickWorkflow: { synopsis_confirmed: true } })), false);
 });

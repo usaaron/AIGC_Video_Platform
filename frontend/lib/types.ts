@@ -229,6 +229,8 @@ export interface ScriptProject {
   id: string;
   /** Product workflow; absent legacy values retain the standard workflow. */
   creationMode?: "standard" | "quick";
+  /** Source-page edits awaiting explicit adoption by this quick workflow revision. */
+  quickSourceInputsRevision?: number;
   /** Server-managed quick plan, checkpoints and review provenance. */
   quickWorkflow?: QuickScriptState;
   hostDeliveryTargetProjectId?: string;

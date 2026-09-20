@@ -29,6 +29,30 @@ function loadPipeline(file, client) {
 }
 
 const bible = { story_bible_id: 'bible', version: 1 };
+
+test('roadmap coordinator forwards actual model progress while retaining each durable checkpoint', async () => {
+  const leaf = { ...node('streamed-leaf', 1, 8), status: 'approved' };
+  const events = []; const saved = [];
+  const client = {
+    loadActiveStoryPlanNodes: async () => [leaf], storyPlanQualityAuditMatchesNodes, canFinishUnreviewedRoadmapLeaf,
+    auditStoryPlanQuality: async () => report([leaf], false),
+    generateEpisodePlanBatch: async (_project, current, checkpoint, _beforeStep, options) => {
+      options.onProgress({ type: 'model_thinking', delta: '核对连续性', request_id: 'planning-stream-1' });
+      const rows = Array.from({ length: 8 }, (_, index) => ({ episode_number: index + 1,
+        source_node_id: current.node_id, source_node_version: 1, story_bible_version: 1, status: 'draft' }));
+      for (const row of rows) await checkpoint(row);
+      return rows;
+    },
+  };
+  const { runFullEpisodeRoadmapGeneration } = loadPipeline('episode-roadmap-generation', client);
+  await runFullEpisodeRoadmapGeneration({
+    project: { id: 'project', generationSettings: { episodeCount: 8 } }, storyBible: bible,
+    onModelProgress: event => events.push(event), onCheckpoint: item => saved.push(item.episode_number),
+  });
+  assert.deepEqual(events, [{ type: 'model_thinking', delta: '核对连续性', request_id: 'planning-stream-1' }]);
+  assert.deepEqual(saved, [1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
 function node(id, start, end, parent = null) {
   return { node_id: id, version: 1, title: id, story_bible_id: 'bible', story_bible_version: 1,
     parent_node_id: parent?.node_id ?? null, parent_node_version: parent?.version ?? null,
