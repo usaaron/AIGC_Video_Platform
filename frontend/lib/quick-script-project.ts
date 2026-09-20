@@ -13,6 +13,17 @@ export const DEFAULT_QUICK_GENERATION_SETTINGS: GenerationSettings = {
   outputLanguage: "zh",
 };
 
+/** Rebudget only an explicit, valid episode-count change; never rewrite saved scope on load. */
+export function quickTargetCharactersAfterEpisodeChange(
+  currentEpisodeCount: number,
+  nextEpisodeCount: number,
+  currentTarget: number,
+): number {
+  if (nextEpisodeCount === currentEpisodeCount || !Number.isInteger(nextEpisodeCount)
+    || nextEpisodeCount < 1 || nextEpisodeCount > 12) return currentTarget;
+  return Math.min(10_000, Math.max(1_000, nextEpisodeCount * 1_000));
+}
+
 export function quickSettingsForHost(durationSeconds?: number | null): GenerationSettings | null {
   if (durationSeconds != null && (!Number.isInteger(durationSeconds) || durationSeconds < 75 || durationSeconds > 115)) return null;
   return { ...DEFAULT_QUICK_GENERATION_SETTINGS, preferredEpisodeDurationMinutes: (durationSeconds ?? 90) / 60 };

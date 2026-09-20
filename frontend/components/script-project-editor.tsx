@@ -11,7 +11,7 @@ import { userFacingError } from "@/lib/api-error";
 import { safeFilename } from "@/lib/filename";
 import { downloadBlob } from "@/lib/download";
 import { isHostScriptWorkflow } from "@/lib/host-navigation";
-import { isQuickScriptProject, normalizeProjectGenerationSettings, quickScriptHref, quickSourceInputsLocked } from "@/lib/quick-script-project";
+import { isQuickScriptProject, normalizeProjectGenerationSettings, quickScriptHref, quickSourceInputsLocked, quickTargetCharactersAfterEpisodeChange } from "@/lib/quick-script-project";
 import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import { OverseasStoryProfileEditor } from "@/components/overseas-story-profile";
 import { TagSelector } from "@/components/tag-selector";
@@ -545,10 +545,13 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     if (!Number.isInteger(episodeCount) || episodeCount < episodeCountMinimum || episodeCount > episodeCountMaximum) return;
     setDraft((current) => ({
       ...current,
-      generationSettings: normalizeGenerationSettings({
+      generationSettings: normalizeProjectGenerationSettings(quickProject ? "quick" : project?.creationMode, {
         ...current.generationSettings,
         episodeCountMode: "custom",
         episodeCount,
+        ...(quickProject ? { targetTotalCharacters: quickTargetCharactersAfterEpisodeChange(
+          current.generationSettings.episodeCount, episodeCount, current.generationSettings.targetTotalCharacters,
+        ) } : {}),
       }),
     }));
   }

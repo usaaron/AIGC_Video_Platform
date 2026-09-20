@@ -148,6 +148,38 @@ test("new quick UI saves setup before its first synopsis request and adopts that
   assert.ok(harness.button("确认梗概"));
 });
 
+test("quick workspace count edits submit matching targets for 1, 2, 8 and 12 episodes", async () => {
+  for (const [count, expected] of [[1, 1000], [2, 2000], [8, 8000], [12, 10000]]) {
+    const harness = editorHarness({ project: makeProject({ creativePrompt: "修表师寻找父亲", generationSettings: {
+      ...quickProject.DEFAULT_QUICK_GENERATION_SETTINGS, episodeCount: 3, targetTotalCharacters: 6500,
+    } }) });
+    await harness.settle();
+    harness.items().find(item => item.type === "input" && item.props.type === "number" && item.props.max === 12)
+      .props.onChange({ target: { value: String(count) } });
+    await harness.settle();
+    await harness.click("整理成故事梗概");
+    assert.equal(harness.calls[0].kind, "setup");
+    assert.equal(harness.calls[0].payload.settings.episode_count, count);
+    assert.equal(harness.calls[0].payload.settings.target_total_characters, expected);
+    assert.equal(harness.calls[0].payload.settings.target_duration_seconds, 90);
+  }
+});
+
+test("opening an existing quick workspace keeps its custom target and sends no setup when count is unchanged", async () => {
+  const saved = makeState({ settings: { ...settings, episode_count: 2, target_total_characters: 6500 } });
+  const harness = editorHarness({ initialState: saved });
+  await harness.settle();
+  assert.equal(harness.calls.length, 0, "hydration cannot issue a scope reset");
+  const count = harness.items().find(item => item.type === "input" && item.props.type === "number" && item.props.max === 12);
+  assert.equal(count.props.value, 2);
+  count.props.onChange({ target: { value: "2" } });
+  await harness.settle();
+  await harness.click("整理成故事梗概");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["draft_synopsis"]);
+  assert.equal(harness.project().quickWorkflow.settings.target_total_characters, 6500);
+  assert.equal(saved.settings.target_total_characters, 6500);
+});
+
 test("legacy input UI retains uploaded material and confirms its existing synopsis without regenerating it", async () => {
   const material = "原项目上传的故事全文片段。";
   const harness = editorHarness({ project: makeProject({ creationMode: "standard", creativePrompt: "",

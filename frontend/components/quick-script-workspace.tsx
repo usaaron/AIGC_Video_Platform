@@ -13,7 +13,7 @@ import { toEpisodePlainText } from "@/lib/episode-export";
 import { projectStorageKey } from "@/lib/host-session";
 import { acceptQuickWorkspaceSnapshot } from "@/lib/project-sync";
 import { actQuickScript, advanceQuickScriptSequentially, loadQuickScript } from "@/lib/quick-script-client";
-import { canStartQuickScript, quickInitialInputs } from "@/lib/quick-script-project";
+import { canStartQuickScript, quickInitialInputs, quickTargetCharactersAfterEpisodeChange } from "@/lib/quick-script-project";
 import { pendingQuickSourceInputs } from "@/lib/quick-source-recovery";
 import { quickScriptOperationActive, quickScriptProgressLabel, quickScriptRecoveryWaitLabel, quickScriptSavedProgressLabel, quickScriptSelectedEpisode, quickScriptStage, type QuickScriptAction, type QuickScriptPlan, type QuickScriptResponse, type QuickScriptSettings, type QuickScriptStage, type QuickScriptState } from "@/lib/quick-script-types";
 import type { GeneratedDraft, ScriptProject } from "@/lib/types";
@@ -383,7 +383,8 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
               : <div className={styles.card}><Field label="故事想法"><textarea className={styles.idea} rows={7} maxLength={10000} disabled={busy || recovering} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：一位能听见旧物记忆的修表师，在一只停走的怀表里发现了父亲失踪的线索。" /></Field>
                 <details className={styles.settings}><summary>调整篇幅 · {settings.episode_count} 集 / 约 {settings.target_total_characters.toLocaleString()} 字</summary><div className={styles.settingsGrid}>
                   <p className={styles.intro}>正文目标约 {settings.target_total_characters.toLocaleString()} 字，上限 10,000 有效字。</p>
-                  <NumberField label="集数" value={settings.episode_count} min={1} max={12} disabled={busy || recovering} onChange={(value) => setSettings({ ...settings, episode_count: value })} />
+                  <NumberField label="集数" value={settings.episode_count} min={1} max={12} disabled={busy || recovering} onChange={(value) => setSettings((current) => ({ ...current, episode_count: value,
+                    target_total_characters: quickTargetCharactersAfterEpisodeChange(current.episode_count, value, current.target_total_characters) }))} />
                   <NumberField label="每集时长（秒）" value={settings.target_duration_seconds} min={75} max={115} disabled={busy || recovering} onChange={(value) => setSettings({ ...settings, target_duration_seconds: value })} />
                 </div></details><details className={styles.settings}><summary>补充已有资料或人物设定</summary><Field label="已有资料"><textarea rows={6} maxLength={20000} disabled={busy || recovering} value={material} onChange={(event) => setMaterial(event.target.value)} /></Field></details>
               </div>}

@@ -107,9 +107,34 @@ test("editing a five-episode quick brief persists the latest source before enter
   await setImmediate();
   assert.equal(app.saves.length, 1);
   assert.equal(app.saves[0].draft.generationSettings.episodeCount, 5);
-  assert.equal(app.saves[0].draft.generationSettings.targetTotalCharacters, 8000);
+  assert.equal(app.saves[0].draft.generationSettings.targetTotalCharacters, 5000);
   assert.match(app.saves[0].draft.creativePrompt, /五集/);
   assert.deepEqual(app.routes, ["/projects/host-series/quick"]);
+});
+
+test("quick source count changes save matching targets for 1, 2, 8 and 12 episodes", async () => {
+  for (const [count, expected] of [[1, 1000], [2, 2000], [8, 8000], [12, 10000]]) {
+    const app = harness(project({ generationSettings: { ...quick.DEFAULT_QUICK_GENERATION_SETTINGS, episodeCount: 3, targetTotalCharacters: 6500 } }));
+    elements(app.render()).find((item) => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: String(count) } });
+    elements(app.render()).find((item) => item.type === "button" && item.props.className === "primary-action full-width").props.onClick();
+    await setImmediate();
+    assert.equal(app.saves[0].draft.generationSettings.episodeCount, count);
+    assert.equal(app.saves[0].draft.generationSettings.targetTotalCharacters, expected);
+  }
+});
+
+test("quick source hydration and text-only edits preserve an existing custom target", async () => {
+  const value = project({ generationSettings: { ...quick.DEFAULT_QUICK_GENERATION_SETTINGS, episodeCount: 2, targetTotalCharacters: 6500 } });
+  const app = harness(value);
+  const tree = app.render();
+  assert.equal(app.saves.length, 0, "loading the editor does not rewrite the saved project");
+  elements(tree).find((item) => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "2" } });
+  elements(tree).find((item) => item.props["aria-label"] === "editor.ideaLabel").props.onChange({ target: { value: "只更新故事想法，不调整原有篇幅。" } });
+  elements(app.render()).find((item) => item.type === "button" && item.props.className === "primary-action full-width").props.onClick();
+  await setImmediate();
+  assert.equal(app.saves[0].draft.generationSettings.episodeCount, 2);
+  assert.equal(app.saves[0].draft.generationSettings.targetTotalCharacters, 6500);
+  assert.equal(value.generationSettings.targetTotalCharacters, 6500);
 });
 
 test("failed materials save prevents navigation and confirmed quick sources stay read-only", async () => {
@@ -148,6 +173,7 @@ test("standalone keeps the scale selector and host legacy projects retain their 
   assert.match(renderToStaticMarkup(harness(undefined, { integrated: false, mode: "create" }).render()), /generation.targetCharacters/);
   const host = harness(standard);
   assert.doesNotMatch(renderToStaticMarkup(host.render()), /generation.targetCharacters/);
+  elements(host.render()).find((item) => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "20" } });
   elements(host.render()).find((item) => item.props["aria-label"] === "editor.ideaLabel").props.onChange({ target: { value: "保留完整长篇的作者目标" } });
   elements(host.render()).find((item) => item.type === "button" && item.props.className === "primary-action full-width").props.onClick();
   await setImmediate();

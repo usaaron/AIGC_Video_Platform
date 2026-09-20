@@ -5,6 +5,7 @@ import {
   hostScriptEntryHref,
   hostQuickRedirectHref,
   quickSourceInputsLocked,
+  quickTargetCharactersAfterEpisodeChange,
   isQuickScriptProject,
   normalizeProjectGenerationSettings,
   canStartQuickScript, quickInitialInputs, quickSettingsForHost,
@@ -34,6 +35,25 @@ test("quick projects retain supported host duration and leave incompatible durat
   }
   for (const seconds of [30, 120, 300, NaN]) assert.equal(quickSettingsForHost(seconds), null);
   assert.equal(quickSettingsForHost().preferredEpisodeDurationMinutes, 1.5);
+});
+
+test("explicit quick episode changes allocate about 1000 characters each within the total cap", () => {
+  for (const [count, expected] of [[1, 1000], [2, 2000], [8, 8000], [12, 10000]]) {
+    assert.equal(quickTargetCharactersAfterEpisodeChange(3, count, 6500), expected);
+  }
+  assert.equal(quickTargetCharactersAfterEpisodeChange(2, 2, 6500), 6500, "same-count input preserves the saved author target");
+  for (const invalid of [0, 13, 2.5, NaN]) assert.equal(quickTargetCharactersAfterEpisodeChange(2, invalid, 6500), 6500);
+});
+
+test("loading a quick project never rebudgets a stored target to its episode count", () => {
+  for (const count of [1, 2, 8, 12]) {
+    const saved = project({ creationMode: "quick", generationSettings: { ...DEFAULT_QUICK_GENERATION_SETTINGS,
+      episodeCount: count, targetTotalCharacters: 6500 } });
+    const before = JSON.stringify(saved);
+    assert.equal(normalizeProjectGenerationSettings("quick", saved.generationSettings).targetTotalCharacters, 6500);
+    assert.equal(quickInitialInputs(saved).settings.target_total_characters, 6500);
+    assert.equal(JSON.stringify(saved), before);
+  }
 });
 
 test("explicit quick entry keeps an existing 60 second project's synopsis and presents the quick scope", () => {
