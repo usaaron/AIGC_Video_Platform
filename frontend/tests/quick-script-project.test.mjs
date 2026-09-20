@@ -34,6 +34,22 @@ test("quick projects retain supported host duration and leave incompatible durat
   assert.equal(quickSettingsForHost().preferredEpisodeDurationMinutes, 1.5);
 });
 
+test("explicit quick entry keeps an existing 60 second project's synopsis and presents the quick scope", () => {
+  const legacy = project({ episodes: [], creativePrompt: '修表师调查停走怀表的来历',
+    generationSettings: { ...DEFAULT_QUICK_GENERATION_SETTINGS, preferredEpisodeDurationMinutes: 1,
+      episodeCount: 80, targetTotalCharacters: 80000 },
+    storySynopsis: { text: '已确认的人物和故事方向。', status: 'confirmed' } });
+  const before = JSON.stringify(legacy);
+  assert.equal(canStartQuickScript(legacy), true);
+  const initial = quickInitialInputs(legacy);
+  assert.equal(initial.synopsis, legacy.storySynopsis.text);
+  assert.equal(initial.idea, legacy.creativePrompt);
+  assert.equal(initial.settings.episode_count, 8);
+  assert.equal(initial.settings.target_duration_seconds, 90);
+  assert.equal(initial.settings.target_total_characters, 8000);
+  assert.equal(JSON.stringify(legacy), before, 'opening quick creation must not migrate or mutate the saved standard project');
+});
+
 test("quick settings survive local and remote hydration without standard long-form floors", () => {
   const saved = { ...DEFAULT_QUICK_GENERATION_SETTINGS, episodeCount: 5, targetTotalCharacters: 5000 };
   const restored = normalizeProjectGenerationSettings("quick", JSON.parse(JSON.stringify(saved)));

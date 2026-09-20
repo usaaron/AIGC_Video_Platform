@@ -344,7 +344,13 @@ class StoryBibleRecoveryRepository:
                 ModuleDocumentRecord.document_id == checkpoint.id,
                 ModuleDocumentRecord.payload["revision"].as_integer() == expected_revision,
             ).values(payload=payload, updated_at=checkpoint.updated_at)
-        if session.execute(statement).rowcount != 1:
+        # psycopg can report -1 for a successful INSERT even though the row is
+        # present. RETURNING distinguishes a write from a lost compare-and-swap
+        # without relying on the driver's optional affected-row count.
+        written_id = session.execute(
+            statement.returning(ModuleDocumentRecord.document_id)
+        ).scalar_one_or_none()
+        if written_id is None:
             raise StoryBibleRecoveryConflictError("A newer checkpoint already exists.")
         # Same transaction as the head: no head without history or orphan history.
         session.add(ModuleDocumentRecord(**{

@@ -51,17 +51,22 @@ class PreproductionRepository:
             if project is None:
                 raise StoryboardConflictError("项目已不存在，请返回项目列表。")
             if expected_revision == 0:
-                result = session.execute(insert(ModuleDocumentRecord).values(
+                statement = insert(ModuleDocumentRecord).values(
                     namespace=self.namespace, document_id=key, payload=payload,
                     created_at=plan.created_at, updated_at=plan.updated_at,
-                ).on_conflict_do_nothing(index_elements=["namespace", "document_id"]))
+                ).on_conflict_do_nothing(index_elements=["namespace", "document_id"])
             else:
-                result = session.execute(update(ModuleDocumentRecord).where(
+                statement = update(ModuleDocumentRecord).where(
                     ModuleDocumentRecord.namespace == self.namespace,
                     ModuleDocumentRecord.document_id == key,
                     ModuleDocumentRecord.payload["revision"].as_integer() == expected_revision,
-                ).values(payload=payload, updated_at=plan.updated_at))
-            if result.rowcount != 1:
+                ).values(payload=payload, updated_at=plan.updated_at)
+            # PostgreSQL/psycopg does not guarantee rowcount for INSERT. Read
+            # the written identity so a first save is not mistaken for a race.
+            written_id = session.execute(
+                statement.returning(ModuleDocumentRecord.document_id)
+            ).scalar_one_or_none()
+            if written_id is None:
                 raise StoryboardConflictError("分镜已被其他操作更新，请重新加载后再保存。")
             session.add(ModuleDocumentRecord(
                 namespace=self.namespace, document_id=f"{key}.v{plan.revision}",
