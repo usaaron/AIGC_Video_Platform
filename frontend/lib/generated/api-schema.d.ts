@@ -7388,6 +7388,8 @@ export interface components {
             main_storyline: string;
             /** Opening */
             opening: string;
+            /** Production Assets */
+            production_assets?: components["schemas"]["QuickProductionAsset"][] | null;
             /** Relationships */
             relationships?: string[];
             /** Source Synopsis Hash */
@@ -7403,6 +7405,25 @@ export interface components {
              * @default 1
              */
             version: number;
+        };
+        /**
+         * QuickProductionAsset
+         * @description Approved visual facts for a planned location or a concrete story prop.
+         */
+        QuickProductionAsset: {
+            /** Appearance */
+            appearance: string;
+            /** Asset Ref */
+            asset_ref: string;
+            /** Fixed Details */
+            fixed_details?: string[];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "scene" | "prop";
+            /** Name */
+            name: string;
         };
         /** QuickResponse */
         QuickResponse: {

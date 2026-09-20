@@ -32,3 +32,31 @@ Failed operation receipts retain only these diagnostic fields: `error_type`,
 `physical_requests`. They never contain provider error text, URLs, credentials,
 or prompts. HTTP 504/524 is distinguished from the application's cumulative
 deadline. Candidate artifacts retain the existing recovery behavior.
+
+## Production cards and handoff
+
+The existing Quick planning request may return `production_assets`: reusable
+location/prop cards with stable references, names, visual appearance and fixed
+details. The field is optional for older plans; absent cards do not invalidate
+their content hashes. The planning editor exposes these as a collapsible section
+and includes edited cards in local recovery text. No extra confirmation or model
+request is added.
+
+Each generated scene explicitly declares its actual location, visible characters
+(including silent participants) and props in `content_manifest`. Missing raw
+declarations are recorded before legacy defaults are filled, so synthetic empty
+arrays cannot suppress asset detection downstream. Confirmed cards supplement
+only assets that actually appear; unused planning cards are not exported.
+
+The integrated v2 host import sends `script_asset_evidence.v1` bound to the exact
+exported text hash, with optional ordered export headings and original scene IDs.
+The host reuses this evidence for deterministic asset suggestions and scene/beat
+storyboards. Explicit interior/exterior headings also populate unambiguous
+location space facts. Body edits invalidate affected appearances; missing,
+partial or stale evidence retains the host's legacy text rules. Existing shots
+and images remain protected by the host's explicit production revision flow.
+
+Overseas dialogue remains English plus its Chinese translation; these are not
+rewritten into asset metadata. Mainland prose remains Chinese. The legacy v1
+delivery route does not carry this scene mapping. Verification uses synthetic
+fixtures and real producer/consumer code; no paid model call is required.

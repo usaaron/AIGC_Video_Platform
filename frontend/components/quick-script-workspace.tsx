@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { HostImportPanel } from "@/components/host-import-panel";
 import { PlanningCanvasCopilot, CopilotProgressView, type PlanningCanvasMessage } from "@/components/planning-canvas-copilot";
 import { GenerationDiagnostics } from "@/components/generation-diagnostics";
+import { QuickProductionAssets } from "@/components/quick-production-assets";
 import { WorkspaceMissingProject } from "@/components/workspace-missing-project";
 import { ApiError } from "@/lib/api-client";
 import { quickEpisodePlainText } from "@/lib/quick-script-export";
@@ -468,6 +469,7 @@ export function quickRecoveryText(pending: { idea?: string; material?: string; s
   return [pending.idea && `故事想法\n${pending.idea}`, pending.material && `已有资料\n${pending.material}`,
     pending.synopsis && `故事梗概\n${pending.synopsis}`,
     plan && [plan.title, ...plan.characters.map(c => [c.name, c.role, c.motivation, c.fixed_identity, c.abilities_and_limits, c.appearance].filter(Boolean).join("\n")),
+      ...(plan.production_assets ?? []).map(asset => [asset.kind === "scene" ? "场景资料" : "物品资料", asset.name, asset.appearance, ...asset.fixed_details].filter(Boolean).join("\n")),
       ...plan.fixed_facts, ...plan.relationships, plan.main_storyline, plan.subplot, plan.opening, ...plan.turning_points, plan.ending,
       ...plan.episodes.map(e => [`第 ${e.episode_number} 集`, e.synopsis ?? e.episode_goal, e.central_conflict, e.protagonist_decision, e.exit_state,
         ...e.scene_execution_plan.flatMap(s => [s.scene_heading, s.visible_action, s.turn_or_reveal])].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n"),
@@ -484,8 +486,9 @@ export function QuickPlanEditor({ plan, disabled, onChange }: { plan: QuickScrip
   return <>
     <div className={styles.card}><h2>人物与固定设定</h2><div className={styles.characters}>{plan.characters.map((character, index) => {
       const change = (key: keyof typeof character, value: string) => onChange({ ...plan, characters: plan.characters.map((item, position) => position === index ? { ...item, [key]: value } : item) });
-      return <div key={character.character_ref} className={styles.character}><h3>{character.name}</h3><p className={styles.summary}>{character.fixed_identity || character.role}<br />{character.motivation}</p><details className={styles.sceneDetails}><summary>修改人物设定</summary>{text("人物姓名", character.name, (value) => change("name", value), 1)}{text("身份与角色", character.fixed_identity, (value) => change("fixed_identity", value))}{text("想要什么", character.motivation, (value) => change("motivation", value))}{text("能力与限制", character.abilities_and_limits, (value) => change("abilities_and_limits", value))}</details></div>;
+      return <div key={character.character_ref} className={styles.character}><h3>{character.name}</h3><p className={styles.summary}>{character.fixed_identity || character.role}<br />{character.motivation}</p><details className={styles.sceneDetails}><summary>修改人物设定</summary>{text("人物姓名", character.name, (value) => change("name", value), 1)}{text("身份与角色", character.fixed_identity, (value) => change("fixed_identity", value))}{text("人物外观", character.appearance, (value) => change("appearance", value))}{text("想要什么", character.motivation, (value) => change("motivation", value))}{text("能力与限制", character.abilities_and_limits, (value) => change("abilities_and_limits", value))}</details></div>;
     })}</div><details className={styles.sceneDetails}><summary>查看与修改固定设定、人物关系</summary>{text("固定设定（每行一条）", plan.fixed_facts.join("\n"), (value) => onChange({ ...plan, fixed_facts: value.split("\n") }), 3)}{text("人物关系（每行一条）", plan.relationships.join("\n"), (value) => onChange({ ...plan, relationships: value.split("\n") }), 2)}</details></div>
+    <QuickProductionAssets plan={plan} disabled={disabled} onChange={onChange} />
     <div className={styles.card}><h2>{plan.title} · 故事走向</h2><p className={styles.summary}>{plan.main_storyline}</p><p className={styles.summary}><strong>结局：</strong>{plan.ending}</p><details className={styles.sceneDetails}><summary>查看与修改故事走向</summary>{text("作品名称", plan.title, (value) => onChange({ ...plan, title: value }), 1)}{text("主线", plan.main_storyline, (value) => onChange({ ...plan, main_storyline: value }))}{text("开端", plan.opening, (value) => onChange({ ...plan, opening: value }))}{text("重要转折（每行一条）", plan.turning_points.join("\n"), (value) => onChange({ ...plan, turning_points: value.split("\n") }), 3)}{text("结局", plan.ending, (value) => onChange({ ...plan, ending: value }))}</details></div>
     {plan.episodes.map((episode, index) => {
       const change = (key: keyof typeof episode, value: unknown) => onChange({ ...plan, episodes: plan.episodes.map((item, position) => position === index ? { ...item, [key]: value } : item) });

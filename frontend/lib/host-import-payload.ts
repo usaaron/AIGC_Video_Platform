@@ -39,7 +39,8 @@ export function buildImportMaterial(project: ScriptProject, boards: Map<number, 
       for (const prop of scene.content_manifest?.props ?? []) asset("prop", prop);
     }
     const result: ImportEpisode = { sourceEpisodeId: episode.id, episodeNumber: episode.episodeNumber, title: draft.title || `第 ${episode.episodeNumber} 集`, content: toEpisodePlainText(draft, episode.episodeNumber, buildEmbeddedOverseasDialogueView(draft)) };
-    const projected = projectHostAssetEvidence(draft, project.characters ?? [], episode.id, result.content);
+    const projected = projectHostAssetEvidence(draft, project.characters ?? [], episode.id, result.content,
+      project.quickWorkflow?.plan_confirmed ? project.quickWorkflow.plan : undefined);
     if (projected.evidence) result.assetEvidence = projected.evidence;
     if (projected.warning) warnings.push(`第 ${episode.episodeNumber} 集${projected.warning}`);
     if (options.scriptsOnly) return result;

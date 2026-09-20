@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.modules.master_script.models import DraftMasterScript
 from app.modules.script_engine.long_story_models import CharacterActingProfile, EpisodePlanGenerationItem, StoryProjectWorkspaceSnapshot
@@ -37,9 +37,20 @@ class QuickCharacter(QuickModel):
     acting_profile: CharacterActingProfile | None = None
 
 
+class QuickProductionAsset(QuickModel):
+    """Approved visual facts for a planned location or a concrete story prop."""
+
+    asset_ref: str = Field(min_length=3, max_length=120, pattern=r"^[a-z0-9][a-z0-9_.:-]*$")
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    kind: Literal["scene", "prop"]
+    appearance: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1_200)]
+    fixed_details: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]] = Field(default_factory=list, max_length=12)
+
+
 class QuickPlanContent(QuickModel):
     title: str = Field(min_length=2, max_length=160)
     characters: list[QuickCharacter] = Field(min_length=1, max_length=6)
+    production_assets: list[QuickProductionAsset] | None = Field(default=None, max_length=48)
     fixed_facts: list[str] = Field(default_factory=list, max_length=24)
     relationships: list[str] = Field(default_factory=list, max_length=15)
     main_storyline: str = Field(min_length=5, max_length=1_000)
@@ -55,6 +66,13 @@ class QuickPlanContent(QuickModel):
                               ([c.name for c in self.characters], "人物姓名")):
             if len(set(values)) != len(values):
                 raise ValueError(f"{label}不能重复。")
+        assets = self.production_assets or []
+        if len({asset.asset_ref for asset in assets}) != len(assets):
+            raise ValueError("场景和物品的稳定资产ID不能重复。")
+        if len({(asset.kind, asset.name.strip().casefold()) for asset in assets}) != len(assets):
+            raise ValueError("同类资产必须使用唯一稳定名称，不能拆成重复卡片。")
+        if {asset.asset_ref for asset in assets} & {character.character_ref for character in self.characters}:
+            raise ValueError("场景或物品不能占用人物的稳定ID。")
         if [p.episode_number for p in self.episodes] != list(range(1, len(self.episodes) + 1)):
             raise ValueError("快速创作安排必须从第1集开始连续覆盖全部集数。")
         return self

@@ -16627,6 +16627,21 @@
             "title": "Opening",
             "type": "string"
           },
+          "production_assets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/QuickProductionAsset"
+                },
+                "maxItems": 48,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Production Assets"
+          },
           "relationships": {
             "items": {
               "type": "string"
@@ -16685,6 +16700,57 @@
           "content_hash"
         ],
         "title": "QuickPlan",
+        "type": "object"
+      },
+      "QuickProductionAsset": {
+        "additionalProperties": false,
+        "description": "Approved visual facts for a planned location or a concrete story prop.",
+        "properties": {
+          "appearance": {
+            "maxLength": 1200,
+            "minLength": 5,
+            "title": "Appearance",
+            "type": "string"
+          },
+          "asset_ref": {
+            "maxLength": 120,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9_.:-]*$",
+            "title": "Asset Ref",
+            "type": "string"
+          },
+          "fixed_details": {
+            "items": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Fixed Details",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "scene",
+              "prop"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_ref",
+          "name",
+          "kind",
+          "appearance"
+        ],
+        "title": "QuickProductionAsset",
         "type": "object"
       },
       "QuickResponse": {

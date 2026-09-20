@@ -17,9 +17,15 @@ export interface QuickScriptCharacter {
   acting_profile?: CharacterActingProfile | null;
 }
 
+export interface QuickScriptProductionAsset {
+  asset_ref: string; name: string; kind: "scene" | "prop";
+  appearance: string; fixed_details: string[];
+}
+
 export interface QuickScriptPlan {
   id: string; version: number; source_synopsis_hash: string; content_hash: string;
   title: string; characters: QuickScriptCharacter[]; fixed_facts: string[];
+  production_assets?: QuickScriptProductionAsset[] | null;
   relationships: string[]; main_storyline: string; subplot: string | null;
   opening: string; turning_points: string[]; ending: string;
   episodes: Array<EpisodeExecutionPlan & { episode_title?: string | null; synopsis?: string | null; locations: string[] }>;

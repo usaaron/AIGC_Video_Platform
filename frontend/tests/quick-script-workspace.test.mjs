@@ -158,8 +158,13 @@ const component = { exports: {}, require(name) {
   if (["react", "react/jsx-runtime", "lucide-react"].includes(name)) return require(name);
   if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, key) => String(key) });
   if (name === "@/lib/quick-script-types") return stateHelpers;
+  if (name === "@/components/quick-production-assets") return productionAssets.exports;
   return {};
 } };
+// Render the real nested editor so this harness covers its plan updates instead
+// of silently replacing a production child with an empty module or placeholder.
+const productionAssets = { exports: {}, require: component.require };
+vm.runInNewContext(compile("../components/quick-production-assets.tsx"), productionAssets);
 vm.runInNewContext(compile("../components/quick-script-workspace.tsx"), component);
 
 function elements(element, all = []) {
@@ -231,15 +236,32 @@ test("adding a paragraph within an action preserves action indices and correspon
 
 test("plan characters and episode arrangements are editable together while scene detail starts collapsed", () => {
   const plan = { id: "plan", title: "旧表", characters: [{ character_ref: "lin", name: "小林", motivation: "找到父亲", fixed_identity: "修表师", abilities_and_limits: "无法离开小镇" }], fixed_facts: ["旧表已经停走"], relationships: ["父女"], main_storyline: "寻找失踪父亲", opening: "她收到一只旧表", turning_points: ["表中留下暗号"], ending: "终于团聚", episodes: [{ episode_number: 1, synopsis: "发现表中暗号", target_duration_seconds: 90, central_conflict: "父亲隐瞒来源", protagonist_decision: "独自查清旧表来历", exit_state: "她找到了新线索", scene_execution_plan: [{ scene_number: 1, scene_heading: "表店", visible_action: "打开旧表", turn_or_reveal: "发现刻字" }] }] };
+  plan.production_assets = [
+    { asset_ref: "location.watch-shop", kind: "scene", name: "表店", appearance: "木窗与旧柜台", fixed_details: ["南墙木窗", "北墙挂钟"] },
+    { asset_ref: "prop.watch", kind: "prop", name: "旧表", appearance: "黄铜表壳", fixed_details: ["圆形表盘"] },
+  ];
   let updated;
   const tree = component.exports.QuickPlanEditor({ plan, disabled: false, onChange: (value) => { updated = value; } });
   const html = renderToStaticMarkup(tree);
   assert.ok(html.includes("人物与固定设定")); assert.ok(html.includes("第 1 集"));
+  assert.ok(html.includes("场景与物品")); assert.ok(html.includes("黄铜表壳"));
   assert.ok(!html.includes("<details open"));
   const ending = elements(tree).find((item) => item.type === "textarea" && item.props.value === "终于团聚");
   ending.props.onChange({ target: { value: "父女决定共同经营表店" } });
   assert.equal(updated.ending, "父女决定共同经营表店");
   assert.equal(updated.episodes, plan.episodes);
+  const appearance = elements(tree).find((item) => item.type === "textarea" && item.props.value === "黄铜表壳");
+  appearance.props.onChange({ target: { value: "黄铜表壳，深蓝表盘" } });
+  assert.equal(updated.production_assets[1].appearance, "黄铜表壳，深蓝表盘");
+  assert.equal(updated.production_assets[1].asset_ref, "prop.watch");
+  assert.equal(updated.production_assets[0], plan.production_assets[0]);
+  assert.equal(updated.characters, plan.characters);
+  assert.equal(updated.episodes, plan.episodes);
+  assert.equal(plan.production_assets[1].appearance, "黄铜表壳");
+  const facts = elements(tree).find((item) => item.type === "textarea" && item.props.value === "南墙木窗\n北墙挂钟");
+  facts.props.onChange({ target: { value: "南墙木窗\n\n东墙挂钟" } });
+  assert.deepEqual(Array.from(updated.production_assets[0].fixed_details), ["南墙木窗", "东墙挂钟"]);
+  assert.deepEqual(plan.production_assets[0].fixed_details, ["南墙木窗", "北墙挂钟"]);
 });
 
 test("author can add missing dialogue and action units without reordering existing screenplay", () => {

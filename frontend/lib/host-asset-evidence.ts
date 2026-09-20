@@ -1,4 +1,6 @@
 import { characterReferenceAliases } from "./character-reference.ts";
+import { productionCardFacts } from "./host-production-cards.ts";
+import type { QuickScriptPlan } from "./quick-script-types.ts";
 import type { CharacterDraft, GeneratedDraft } from "./types.ts";
 
 export type HostAssetEvidenceKind = "character" | "scene" | "prop";
@@ -13,6 +15,8 @@ export interface HostAssetEvidence {
   contentHash: string;
   complete: Record<HostAssetEvidenceKind, boolean>;
   assets: HostAssetEvidenceItem[];
+  /** Exact exported headings in body order; IDs retain the original scene numbers. */
+  scenes?: Array<{ sourceSceneId: string; heading: string }>;
 }
 /** Internal preparation only. Never send sourceContent or trust a caller's hash. */
 export interface PendingHostAssetEvidence extends Omit<HostAssetEvidence, "contentHash"> {
@@ -48,9 +52,14 @@ function withinLimits(value: Omit<HostAssetEvidence, "contentHash">): boolean {
       && Array.isArray(item.sourceSceneIds) && item.sourceSceneIds.length <= 500
       && item.sourceSceneIds.every(id => nameValue(id) && id.length <= 160));
   if (!valid) return false;
+  if (value.scenes && (!Array.isArray(value.scenes) || !value.scenes.length || value.scenes.length > 50
+    || new Set(value.scenes.map(scene => scene.sourceSceneId)).size !== value.scenes.length
+    || value.scenes.some(scene => !nameValue(scene.sourceSceneId) || scene.sourceSceneId.length > 160
+      || !nameValue(scene.heading) || scene.heading.length > 500 || /[\r\n]/u.test(scene.heading))
+    || value.assets.some(asset => asset.sourceSceneIds.some(id => !value.scenes!.some(scene => scene.sourceSceneId === id))))) return false;
   // Count the wire payload only, including its future fixed-length hash.
   return new TextEncoder().encode(JSON.stringify({ version: value.version, contentHash: "0".repeat(64),
-    complete: value.complete, assets: value.assets })).byteLength <= 500_000;
+    complete: value.complete, assets: value.assets, ...(value.scenes ? { scenes: value.scenes } : {}) })).byteLength <= 500_000;
 }
 
 /** Project explicit appearances, never narrative mentions or the global cast. */
@@ -59,6 +68,7 @@ export function projectHostAssetEvidence(
   characters: readonly CharacterDraft[],
   sourceEpisodeId: string,
   content: string,
+  plan?: QuickScriptPlan | null,
 ): { evidence?: PendingHostAssetEvidence; warning?: string } {
   const complete = { character: draft.scenes.length > 0, scene: draft.scenes.length > 0, prop: draft.scenes.length > 0 };
   const assets = new Map<string, HostAssetEvidenceItem>();
@@ -95,11 +105,14 @@ export function projectHostAssetEvidence(
     // Free-form description/background/motivation are not visual evidence.
     const visual = kind === "character" ? appearances.get(name) : undefined;
     const appearance = visual?.size === 1 ? [...visual][0] : undefined;
-    assets.set(key, { kind, name, facts: appearance ? { 外观: appearance } : {}, sourceSceneIds: [sourceSceneId] });
+    assets.set(key, { kind, name, facts: { ...productionCardFacts(kind, name, characters, plan),
+      ...(appearance ? { 外观: appearance } : {}) }, sourceSceneIds: [sourceSceneId] });
   };
   const sceneIds = new Set<string>();
   const invalidated = (draft.llm_metadata as Record<string, unknown> | null | undefined)?.quick_asset_evidence_invalidated_scenes;
   const invalidatedScenes = new Set(Array.isArray(invalidated) ? invalidated.filter(Number.isSafeInteger) : []);
+  const undeclared = (draft.llm_metadata as Record<string, unknown> | null | undefined)?.quick_asset_manifest_undeclared_scenes;
+  for (const number of Array.isArray(undeclared) ? undeclared.filter(Number.isSafeInteger) : []) invalidatedScenes.add(number);
   let invalidSceneIdentity = false;
   for (const scene of draft.scenes) {
     const sourceSceneId = `${sourceEpisodeId}:${scene.scene_number}`;
@@ -137,6 +150,16 @@ export function projectHostAssetEvidence(
   const evidence: PendingHostAssetEvidence = {
     version: "script_asset_evidence.v1", sourceContent: content.trim(), complete, assets: [...assets.values()],
   };
+  const body = content.split(/^正式正文\s*$/mu)[1]?.split(/^FADE IN \/ 淡入[：:]\s*$/mu)[1];
+  const headings = body ? [...body.matchAll(/^(?:INT\.(?:\s*\/\s*EXT\.)?|EXT\.(?:\s*\/\s*INT\.)?)\s+[^\r\n]+$/gimu)].map(match => match[0].trim()) : [];
+  if (headings.length === draft.scenes.length && headings.length > 0) {
+    evidence.scenes = draft.scenes.map((scene, index) => ({ sourceSceneId: `${sourceEpisodeId}:${scene.scene_number}`, heading: headings[index] }));
+    for (const asset of evidence.assets.filter(item => item.kind === "scene")) {
+      const spaces = new Set(evidence.scenes.filter(scene => asset.sourceSceneIds.includes(scene.sourceSceneId))
+        .map(scene => /^INT\.\s+(?!\/)/iu.test(scene.heading) ? "室内" : /^EXT\.\s+(?!\/)/iu.test(scene.heading) ? "室外" : ""));
+      if (spaces.size === 1 && !spaces.has("")) asset.facts["空间"] = [...spaces][0];
+    }
+  }
   if (invalidSceneIdentity || !withinLimits(evidence)) return {
     warning: "结构化资产资料超出交付限制或场次标识无效，本集仍交付正文，资产将从正文重新识别。",
   };
@@ -154,7 +177,8 @@ export async function bindHostAssetEvidence(
   const assets = pending.assets.map(({ kind, name, facts, sourceSceneIds }) => ({
     kind, name, facts: { ...facts }, sourceSceneIds: [...sourceSceneIds],
   }));
+  const scenes = pending.scenes?.map(scene => ({ ...scene }));
   const contentHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content.trim())))]
     .map(byte => byte.toString(16).padStart(2, "0")).join("");
-  return { version: "script_asset_evidence.v1", contentHash, complete, assets };
+  return { version: "script_asset_evidence.v1", contentHash, complete, assets, ...(scenes ? { scenes } : {}) };
 }

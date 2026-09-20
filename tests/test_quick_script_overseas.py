@@ -224,9 +224,10 @@ def test_legacy_plan_hash_and_state_remain_usable_without_optional_fields():
     state = make_state()
     legacy = state.model_dump(mode="json")
     legacy.pop("overseas_story_profile")
+    legacy["plan"].pop("production_assets")
     for row in legacy["plan"]["characters"]:
         row.pop("acting_profile")
-    original_hash = source_hash({key: legacy["plan"][key] for key in QuickPlanContent.model_fields})
+    original_hash = source_hash({key: legacy["plan"][key] for key in QuickPlanContent.model_fields if key in legacy["plan"]})
     legacy["plan"]["content_hash"] = original_hash
     loaded = QuickState.model_validate(legacy)
     assert loaded.settings.language == "zh"

@@ -14,7 +14,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from app.modules.content_spec.market_profile import CREATOR_INTERACTION_LANGUAGE_CONTRACT
 from app.modules.master_script.models import (
@@ -56,6 +56,30 @@ class _Synopsis(QuickModel):
     synopsis: str = Field(min_length=20, max_length=8_000)
 
 
+class _QuickGeneratedDraft(LLMGeneratedDraftMasterScript):
+    """Keep evidence of missing model fields before legacy validators fill them."""
+
+    _undeclared_manifest_scenes: list[int] = PrivateAttr(default_factory=list)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def preserve_manifest_declaration(cls, value, handler):
+        undeclared = []
+        if isinstance(value, dict):
+            for index, scene in enumerate(value.get("scenes", [])):
+                if not isinstance(scene, dict):
+                    continue
+                manifest = scene.get("content_manifest")
+                if (not isinstance(manifest, dict)
+                        or not isinstance(manifest.get("location"), str) or not manifest["location"].strip()
+                        or not isinstance(manifest.get("character_refs"), list)
+                        or not isinstance(manifest.get("props"), list)):
+                    undeclared.append(scene.get("scene_number", index + 1))
+        parsed = handler(value)
+        parsed._undeclared_manifest_scenes = [number for number in undeclared if type(number) is int and number > 0]
+        return parsed
+
+
 def _json(value: Any) -> Any:
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
@@ -74,6 +98,8 @@ def synopsis_hash(text: str) -> str:
 def plan_content_hash(plan: QuickPlanContent | dict) -> str:
     raw = _json(plan)
     content = {key: raw[key] for key in QuickPlanContent.model_fields if key in raw}
+    if content.get("production_assets") is None:
+        content.pop("production_assets", None)
     # v1 plans predate optional acting profiles. Loading an old confirmed plan
     # must not invalidate its saved sources merely by materializing a null.
     content["characters"] = [{key: value for key, value in row.items()
@@ -95,6 +121,12 @@ def _issue(code: str, message: str, *, episode: int | None = None, scene: int | 
 
 def validate_quick_plan(state: QuickState, plan: QuickPlanContent) -> list[QuickIssue]:
     issues = overseas_plan_issues(state, plan)
+    names = tuple(character.name for character in plan.characters)
+    for index, asset in enumerate(plan.production_assets or []):
+        for path in creator_language_paths({"asset_name": asset.name, "appearance": asset.appearance,
+                                           "fixed_details": asset.fixed_details}, names=names):
+            issues.append(_issue("asset_language", "场景和物品的名称与可视描述需要使用中文。",
+                                 path=f"production_assets.{index}.{path}"))
     if len(plan.episodes) != state.settings.episode_count:
         issues.append(_issue("episode_coverage", "创作安排必须完整覆盖已确认集数。"))
     if state.settings.storyline_count == 1 and plan.subplot:
@@ -371,6 +403,11 @@ class QuickScriptEngine:
                   "一条主线、至多一条直接服务主线的支线，单一时间顺序。禁止多层故事树和通用占位语。"
                   "每集场景明确谁在场、目标、可见行动、阻力、选择、信息变化、证据与退出状态；"
                   "execution_ready仅在所有场次内容完整时为true。稳定character_ref/name贯穿全剧。"
+                  "同一次输出production_assets数组，为安排中实际需要的场景(kind=scene)和关键物品(kind=prop)"
+                  "提供可视卡：稳定asset_ref/name、appearance写具体可见外观、fixed_details列已有固定物理细节。"
+                  "场景写空间结构与环境陈设，物品写形状材质与识别特征；只使用作者资料或本次安排明确确定的设定，"
+                  "未指定的尺寸、颜色、品牌等不补造，不为凑数添加资产；无物品可不建prop卡。"
+                  "同一资产只保留一张卡，人物仍只写characters；后续场景目录和道具清单沿用卡片稳定名称。"
                   "每集25–35条对白、15–20个动作单元，总数必须等于各场预算之和，1–3场，75–115秒。"
                   "每集target_duration_seconds与settings相同，前集serial_hook，最后一集series_finale，"
                   "最后一集next_episode_obligation固定填写：本集完成正式收束；后续内容仅按已批准方向承接。"
@@ -439,13 +476,17 @@ class QuickScriptEngine:
                   + script_body_scale_prompt(script_body_length_guidance(round(state.settings.target_total_characters / state.settings.episode_count)))
                   + "\n只写本集完整可表演正文；人物与场次严格按批准安排，不重设计剧情。严格按发行市场语言合同，"
                   "完整前文是已保存事实；候选状态变化只能记录本集真实可见证据，不把怀疑升级为知道。"
-                  "不省略任何必需字段，严格按JSON schema。\n" + json.dumps(context, ensure_ascii=False))
+                  "每场必须显式输出content_manifest.location、character_refs、props；location使用已确认场景卡的稳定名称，"
+                  "character_refs包含实际出场但未说话的人物，不能只从对白推断；props列本场实际出现且可由正文核实的"
+                  "关键物品，使用已确认物品卡稳定名称，无物品明确写[]。不得把未出场的规划资产复制进本场清单，"
+                  "不得为填清单添加新剧情。未提供可视卡的资产不补造外观设定。"
+                  "不省略任何必需字段，严格按JSON schema。\n" + json.dumps(context, ensure_ascii=False, separators=(",", ":")))
         if state.settings.language == "en":
             prompt += "\n" + screenplay_runtime_prompt_guidance(
                 target_duration_seconds=state.settings.target_duration_seconds,
                 scene_count=len(state.plan.episodes[episode_number - 1].scene_execution_plan), chinese_dialogue=False,
             ) + "\n中文翻译仅作对照，不重复计入口播时长或正文有效字数；一万有效字上限仍适用。"
-        value, call = self._call(state, "draft", prompt, LLMGeneratedDraftMasterScript, self.script_adapter, output_tokens=8_192)
+        value, call = self._call(state, "draft", prompt, _QuickGeneratedDraft, self.script_adapter, output_tokens=8_192)
         try:
             raw = _json(value)
             scenes = []
@@ -456,9 +497,17 @@ class QuickScriptEngine:
                 payload["supporting_asset_ids"] = []
                 scenes.append(DraftSceneCard.model_validate(payload))
             raw["scenes"] = scenes
+            # Copy the approved acting identity; an omitted or drifting optional
+            # model field must not drop voice/performance facts at host import.
+            approved_characters = {character.name: character for character in state.plan.characters}
+            for character in raw["characters"]:
+                approved = approved_characters.get(character["name"])
+                if approved and approved.acting_profile:
+                    character["acting_profile"] = approved.acting_profile.model_dump(mode="json")
             draft = DraftMasterScript(**raw, content_spec_id=f"quick.{state.project_id}"[:80],
                                       generation_strategy_id="strategy.quick_script.draft.v1",
                                       llm_metadata={"creation_mode": "quick", "quick_plan_hash": state.plan.content_hash,
+                                                    "quick_asset_manifest_undeclared_scenes": value._undeclared_manifest_scenes,
                                                     "model_call": _json(call)})
         except Exception as error:
             raise QuickEngineError("本次正文未满足保存格式，候选已保留。", call=call, candidate=_json(value)) from error
@@ -474,6 +523,8 @@ class QuickScriptEngine:
                        mechanical_issues=[_json(i) for i in local_issues])
         prompt = ("执行一次合并关键检查：核对全部前文、固定设定、本集正文、场次合同与候选状态变化。"
                   "评估连续性、人物知情、关系、物件归属、可行动能力、因果、真实戏剧推进、中文与交付完整性。"
+                  "核对content_manifest与实际正文，出场人物包括无对白人物，关键道具不能遗漏或加入仅在规划中的资产；"
+                  "人物表演设定和已确认production_assets外观不能漂移。缺少明确资产清单仅提示warning，不能声称已完整绑定资产。"
                   "不要把合理省略当矛盾；关键歧义标ambiguity与needs_author，不得宣布通过。"
                   "确定关键矛盾标critical/blocked；审美措辞仅warning，不自动返工。"
                   "问题必须给集/场/字段path和正文原句证据。accepted_facts仅列核实的本集状态变化，"
