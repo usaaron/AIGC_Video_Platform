@@ -61,7 +61,7 @@ function harness(value = project(), { integrated = true, save = true, mode = "ed
     if (name === "@/lib/story-planning-client") return { storyPlanningInputSignature: () => "saved" };
     if (name === "@/providers/locale-provider") return { useLocale: () => ({ locale: "zh", t: (key) => key }) };
     if (name === "@/providers/project-provider") return { useProjects: () => ({
-      updateProject: async (id, draft) => { saves.push({ id, draft }); return save; },
+      updateProject: async (id, draft) => { saves.push({ id, draft }); return typeof save === "function" ? save(id, draft) : save; },
     }) };
     if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, key) => String(key) });
     return new Proxy({}, { get: () => () => null });
@@ -135,6 +135,62 @@ test("quick source hydration and text-only edits preserve an existing custom tar
   assert.equal(app.saves[0].draft.generationSettings.episodeCount, 2);
   assert.equal(app.saves[0].draft.generationSettings.targetTotalCharacters, 6500);
   assert.equal(value.generationSettings.targetTotalCharacters, 6500);
+});
+
+test("legacy two-episode intent saves the current brief before quick navigation without saving an invalid standard count", async () => {
+  let finishSave;
+  const gate = new Promise(resolve => { finishSave = resolve; });
+  const legacy = project({ creationMode: "standard", generationSettings: { ...types.DEFAULT_GENERATION_SETTINGS, episodeCount: 300 },
+    referenceMaterials: [{ id: "source", fileName: "材料.txt", extractedText: "原始材料必须保留" }] });
+  const app = harness(legacy, { save: () => gate });
+  elements(app.render()).find(item => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "2" } });
+  elements(app.render()).find(item => item.props["aria-label"] === "editor.ideaLabel").props.onChange({ target: { value: "刚更新的两集故事想法" } });
+  const tree = app.render();
+  assert.match(renderToStaticMarkup(tree), /按 2 集快速创作/);
+  assert.doesNotMatch(renderToStaticMarkup(tree), /generation.planRequired/);
+  const next = elements(tree).find(item => item.type === "button" && item.props.className === "primary-action full-width");
+  assert.equal(next.props.disabled, false);
+  next.props.onClick(); await setImmediate();
+  assert.deepEqual(app.routes, [], "navigation waits for the pending save");
+  assert.equal(app.saves[0].draft.creativePrompt, "刚更新的两集故事想法");
+  assert.equal(app.saves[0].draft.referenceMaterials[0].extractedText, "原始材料必须保留");
+  assert.equal(app.saves[0].draft.generationSettings.episodeCount, 300);
+  assert.equal(app.saves[0].draft.creationMode, undefined);
+  finishSave(true); await setImmediate();
+  assert.deepEqual(app.routes, ["/projects/host-series/quick?episodes=2"]);
+  assert.equal(legacy.creationMode, "standard");
+});
+
+test("short entry keeps save failures and protected work blocked while empty sources may enter the idea editor", async () => {
+  const legacy = project({ creationMode: "standard", generationSettings: { ...types.DEFAULT_GENERATION_SETTINGS, episodeCount: 300 } });
+  const failed = harness(legacy, { save: false });
+  elements(failed.render()).find(item => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "2" } });
+  elements(failed.render()).find(item => item.props["aria-label"] === "editor.ideaLabel").props.onChange({ target: { value: "必须先保存的资料" } });
+  elements(failed.render()).find(item => item.type === "button" && item.props.className === "primary-action full-width").props.onClick();
+  await setImmediate(); assert.deepEqual(failed.routes, []);
+  const empty = harness({ ...legacy, creativePrompt: "" });
+  elements(empty.render()).find(item => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "2" } });
+  const emptyNext = elements(empty.render()).find(item => item.type === "button" && item.props.className === "primary-action full-width");
+  assert.equal(emptyNext.props.disabled, false);
+  emptyNext.props.onClick(); await setImmediate();
+  assert.deepEqual(empty.routes, ["/projects/host-series/quick?episodes=2"]);
+  for (const patch of [{}, { marketProfile: "overseas_tiktok" }, { episodes: [{}] }, { storyBibleStatus: "approved" },
+    { quickWorkflow: { phase: "standard" } }, { activeGenerationTask: {} }, { planningRevision: {} }, { planningSession: { status: "active" } }]) {
+    const app = harness({ ...legacy, ...patch }, { integrated: Object.keys(patch).length > 0 });
+    const count = elements(app.render()).find(item => item.type === "input" && item.props.type === "number");
+    count.props.onChange({ target: { value: "2" } });
+    assert.doesNotMatch(renderToStaticMarkup(app.render()), /按 2 集快速创作/);
+    assert.equal(count.props.min, 8);
+    assert.deepEqual(app.routes, []);
+  }
+});
+
+test("standard source navigation explains its actual next step instead of blaming an unconfirmed outline", () => {
+  const app = harness(project({ creationMode: "standard", generationSettings: { ...types.DEFAULT_GENERATION_SETTINGS, episodeCount: 8 } }));
+  assert.match(renderToStaticMarkup(app.render()), /下一步：故事梗概/);
+  assert.doesNotMatch(renderToStaticMarkup(app.render()), /generation.planRequired/);
+  elements(app.render()).find(item => item.type === "input" && item.props.type === "number").props.onChange({ target: { value: "0" } });
+  assert.match(renderToStaticMarkup(app.render()), /标准流程需要 8–2000 集/);
 });
 
 test("failed materials save prevents navigation and confirmed quick sources stay read-only", async () => {

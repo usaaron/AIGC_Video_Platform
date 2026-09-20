@@ -6,6 +6,7 @@ import {
   hostQuickRedirectHref,
   quickSourceInputsLocked,
   quickTargetCharactersAfterEpisodeChange,
+  shortQuickSettingsForLegacyProject,
   isQuickScriptProject,
   normalizeProjectGenerationSettings,
   canStartQuickScript, quickInitialInputs, quickSettingsForHost,
@@ -54,6 +55,27 @@ test("loading a quick project never rebudgets a stored target to its episode cou
     assert.equal(quickInitialInputs(saved).settings.target_total_characters, 6500);
     assert.equal(JSON.stringify(saved), before);
   }
+});
+
+test("legacy short entry prepares only explicit 1–7 episode intents without mutating saved standard work", () => {
+  const legacy = project({ generationSettings: { ...DEFAULT_QUICK_GENERATION_SETTINGS, episodeCount: 300, targetTotalCharacters: 100000,
+    preferredEpisodeDurationMinutes: 1 } });
+  const before = JSON.stringify(legacy);
+  for (const count of [1, 2, 7]) {
+    const requested = shortQuickSettingsForLegacyProject(legacy, count);
+    assert.equal(requested.episode_count, count);
+    assert.equal(requested.target_total_characters, count * 1000);
+    assert.equal(requested.target_duration_seconds, 90);
+  }
+  for (const count of [0, 8, 12, 2.5, NaN]) assert.equal(shortQuickSettingsForLegacyProject(legacy, count), null);
+  for (const patch of [{ creationMode: "quick" }, { episodes: [{}] }, { marketProfile: "overseas_tiktok" },
+    { generationSettings: { ...legacy.generationSettings, releaseRegion: "overseas" } },
+    { generationSettings: { ...legacy.generationSettings, outputLanguage: "en" } },
+    { quickWorkflow: { phase: "standard" } }, { quickWorkflow: { phase: "synopsis" } },
+    { activeGenerationTask: {} }, { planningRevision: {} }, { planningSession: { status: "active" } }, { storyBibleStatus: "approved" }]) {
+    assert.equal(shortQuickSettingsForLegacyProject({ ...legacy, ...patch }, 2), null);
+  }
+  assert.equal(JSON.stringify(legacy), before);
 });
 
 test("explicit quick entry keeps an existing 60 second project's synopsis and presents the quick scope", () => {

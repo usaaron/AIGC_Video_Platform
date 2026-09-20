@@ -34,6 +34,17 @@ export function canStartQuickScript(project: ScriptProject): boolean {
     && project.generationSettings.releaseRegion !== "overseas" && project.generationSettings.outputLanguage !== "en";
 }
 
+/** A deliberate short-series entry is offered only before protected standard work exists. */
+export function shortQuickSettingsForLegacyProject(project: ScriptProject, episodeCount: number): QuickScriptSettings | null {
+  if (!Number.isInteger(episodeCount) || episodeCount < 1 || episodeCount > 7
+    || project.creationMode === "quick" || !canStartQuickScript(project) || project.quickWorkflow
+    || project.storyBibleStatus === "approved" || project.activeGenerationTask || project.planningRevision
+    || project.planningSession?.status === "active") return null;
+  return { language: "zh", episode_count: episodeCount,
+    target_total_characters: quickTargetCharactersAfterEpisodeChange(0, episodeCount, 8000),
+    target_duration_seconds: 90, storyline_count: 1 };
+}
+
 export function quickInitialInputs(project: ScriptProject): {
   idea: string; material: string; synopsis: string; settings: QuickScriptSettings;
 } {

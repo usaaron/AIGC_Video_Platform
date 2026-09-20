@@ -29,7 +29,7 @@ const makeState = (patch = {}) => ({ schema_version: "quick_script.v1", project_
 /** Run the real editor and its async effects with controlled React hook bindings.
  * No DOM, network, timers, browser data, or replica of the editor's transitions.
  */
-function editorHarness({ project = makeProject(), initialState = null, action, read, cache = [] } = {}) {
+function editorHarness({ project = makeProject(), initialState = null, action, read, cache = [], search = "" } = {}) {
   let currentProject = project, remoteState = initialState, tree, cursor = 0, needsRender = true;
   let pendingEffects = [];
   const hooks = [], calls = [], reads = [], routes = [], sequences = [], timers = new Map(), storage = new Map(cache);
@@ -64,8 +64,9 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
       workspace_payload: { ...currentProject, creationMode: state?.phase === "standard" ? "standard" : currentProject.creationMode,
         quickWorkflow: state, ...(state?.synopsis ? { storySynopsis: { text: state.synopsis, status: state.synopsis_confirmed ? "confirmed" : "draft" } } : {}) } } } });
   const bindings = {
-    exports: {}, AbortController, Error, DOMException, crypto: { randomUUID: () => `operation-${calls.length}` },
+    exports: {}, AbortController, Error, DOMException, URLSearchParams, crypto: { randomUUID: () => `operation-${calls.length}` },
     window: {
+      location: { search },
       sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
       addEventListener() {}, removeEventListener() {},
       setTimeout: (callback) => { const key = Symbol("timer"); timers.set(key, callback); return key; },
@@ -178,6 +179,58 @@ test("opening an existing quick workspace keeps its custom target and sends no s
   assert.deepEqual(harness.calls.map(call => call.kind), ["draft_synopsis"]);
   assert.equal(harness.project().quickWorkflow.settings.target_total_characters, 6500);
   assert.equal(saved.settings.target_total_characters, 6500);
+});
+
+test("explicit legacy two-episode entry waits for server read and prepares the saved sources without a model call", async () => {
+  let releaseRead;
+  const gate = new Promise(resolve => { releaseRead = resolve; });
+  const original = makeProject({ creationMode: "standard", creativePrompt: "刚保存的两集故事想法",
+    referenceMaterials: [{ extractedText: "刚保存的参考材料" }], generationSettings: { ...quickProject.DEFAULT_QUICK_GENERATION_SETTINGS,
+      episodeCount: 300, targetTotalCharacters: 100000, preferredEpisodeDurationMinutes: 1 } });
+  const key = "ai-comic.quick-editor.v1:quick.flow";
+  const pending = JSON.stringify({ revision: 0, dirty: true, idea: "上次未提交的旧草稿", settings });
+  const harness = editorHarness({ project: original, search: "?episodes=2", read: () => gate, cache: [[key, pending]] });
+  await harness.settle();
+  assert.equal(harness.calls.length, 0); assert.deepEqual(harness.routes, []);
+  releaseRead(); await harness.settle();
+  assert.equal(harness.calls.length, 0, "entry must not automatically issue setup or generation");
+  assert.equal(harness.project().generationSettings.episodeCount, 300);
+  assert.equal(harness.project().creationMode, "standard");
+  assert.deepEqual(harness.routes, ["/projects/quick.flow/quick"], "consume the one-time query after successful recovery");
+  assert.equal(harness.storage.get(`${key}:recovery-latest`), pending);
+  assert.equal(harness.items().find(item => item.type === "input" && item.props.max === 12).props.value, 2);
+  await harness.click("使用快速创作");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["setup", "draft_synopsis"]);
+  assert.equal(harness.calls[0].payload.idea, "刚保存的两集故事想法");
+  assert.equal(harness.calls[0].payload.source_material, "刚保存的参考材料");
+  assert.equal(harness.calls[0].payload.settings.episode_count, 2);
+  assert.equal(harness.calls[0].payload.settings.target_total_characters, 2000);
+  assert.equal(harness.calls[0].payload.settings.target_duration_seconds, 90);
+});
+
+test("an existing server quick workflow takes precedence over a legacy short-entry query", async () => {
+  const saved = makeState({ settings: { ...settings, episode_count: 5, target_total_characters: 6500 } });
+  const harness = editorHarness({ project: makeProject({ creationMode: "standard" }), initialState: saved, search: "?episodes=2" });
+  await harness.settle();
+  assert.equal(harness.calls.length, 0);
+  assert.equal(harness.items().find(item => item.type === "input" && item.props.max === 12).props.value, 5);
+  assert.deepEqual(harness.routes, []);
+  await harness.click("使用快速创作");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["draft_synopsis"]);
+  assert.equal(harness.project().quickWorkflow.settings.target_total_characters, 6500);
+});
+
+test("empty legacy two-episode entry opens idea collection without allowing an empty model request", async () => {
+  const harness = editorHarness({ project: makeProject({ creationMode: "standard", creativePrompt: "" }), search: "?episodes=2" });
+  await harness.settle();
+  assert.equal(harness.calls.length, 0);
+  assert.equal(harness.items().find(item => item.type === "input" && item.props.max === 12).props.value, 2);
+  assert.equal(harness.button("使用快速创作").props.disabled, true);
+  harness.items().find(item => item.type === "textarea" && item.props.placeholder).props.onChange({ target: { value: "在下一页补充两集故事想法" } });
+  await harness.settle();
+  await harness.click("使用快速创作");
+  assert.equal(harness.calls[0].payload.settings.episode_count, 2);
+  assert.equal(harness.calls[0].payload.settings.target_total_characters, 2000);
 });
 
 test("legacy input UI retains uploaded material and confirms its existing synopsis without regenerating it", async () => {

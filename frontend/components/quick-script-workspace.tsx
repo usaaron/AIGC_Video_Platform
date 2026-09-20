@@ -13,7 +13,7 @@ import { toEpisodePlainText } from "@/lib/episode-export";
 import { projectStorageKey } from "@/lib/host-session";
 import { acceptQuickWorkspaceSnapshot } from "@/lib/project-sync";
 import { actQuickScript, advanceQuickScriptSequentially, loadQuickScript } from "@/lib/quick-script-client";
-import { canStartQuickScript, quickInitialInputs, quickTargetCharactersAfterEpisodeChange } from "@/lib/quick-script-project";
+import { canStartQuickScript, quickInitialInputs, quickScriptHref, quickTargetCharactersAfterEpisodeChange, shortQuickSettingsForLegacyProject } from "@/lib/quick-script-project";
 import { pendingQuickSourceInputs } from "@/lib/quick-source-recovery";
 import { quickScriptOperationActive, quickScriptProgressLabel, quickScriptRecoveryWaitLabel, quickScriptSavedProgressLabel, quickScriptSelectedEpisode, quickScriptStage, type QuickScriptAction, type QuickScriptPlan, type QuickScriptResponse, type QuickScriptSettings, type QuickScriptStage, type QuickScriptState } from "@/lib/quick-script-types";
 import type { GeneratedDraft, ScriptProject } from "@/lib/types";
@@ -208,6 +208,11 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
       const changedSources = pendingQuickSourceInputs(source, response.data.state);
       const loaded = await adopt(response, source);
       if (!active) return;
+      // This query is an explicit source-page intent, not a persisted workflow.
+      // Existing server state always wins; merely opening this page issues no setup command.
+      const entrySource = getProject(project.id) ?? source;
+      const shortSettings = !loaded ? shortQuickSettingsForLegacyProject(entrySource,
+        Number(new URLSearchParams(window.location.search).get("episodes"))) : null;
       setStage(quickScriptStage(loaded));
       setPaused(Boolean(loaded?.plan_confirmed && loaded.phase !== "complete"));
       const first = quickScriptSelectedEpisode(loaded, 1);
@@ -215,7 +220,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
       try {
         const raw = window.sessionStorage.getItem(pendingKey);
         const pending = raw ? JSON.parse(raw) : null;
-        if (pending && raw && pending.dirty !== false && pending.revision !== (loaded?.revision ?? 0)) {
+        if (pending && raw && pending.dirty !== false && (shortSettings || pending.revision !== (loaded?.revision ?? 0))) {
           // Preserve the original cache before the new server revision is adopted.
           window.sessionStorage.setItem(`${pendingKey}:recovery:${pending.revision}`, raw);
           window.sessionStorage.setItem(`${pendingKey}:recovery-latest`, raw);
@@ -239,6 +244,12 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
       if (changedSources) {
         setIdea(changedSources.idea); setMaterial(changedSources.material); setSettings(changedSources.settings);
         setNotice("原始资料已更新。点击重新整理梗概，让新资料进入本次创作。");
+      }
+      if (shortSettings) {
+        const entryInputs = quickInitialInputs(entrySource);
+        setIdea(entryInputs.idea); setMaterial(entryInputs.material); setSynopsis(entryInputs.synopsis); setSettings(shortSettings);
+        setNotice(`已按 ${shortSettings.episode_count} 集准备快速创作，请核对后继续。`);
+        router.replace(quickScriptHref(project.id));
       }
       setReady(true);
       setRecoveryNeeded(false); setRecoveryError(""); setCheckedAt(Date.now());

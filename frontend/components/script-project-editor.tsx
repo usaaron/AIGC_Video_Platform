@@ -11,7 +11,7 @@ import { userFacingError } from "@/lib/api-error";
 import { safeFilename } from "@/lib/filename";
 import { downloadBlob } from "@/lib/download";
 import { isHostScriptWorkflow } from "@/lib/host-navigation";
-import { isQuickScriptProject, normalizeProjectGenerationSettings, quickScriptHref, quickSourceInputsLocked, quickTargetCharactersAfterEpisodeChange } from "@/lib/quick-script-project";
+import { isQuickScriptProject, normalizeProjectGenerationSettings, quickScriptHref, quickSourceInputsLocked, quickTargetCharactersAfterEpisodeChange, shortQuickSettingsForLegacyProject } from "@/lib/quick-script-project";
 import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import { OverseasStoryProfileEditor } from "@/components/overseas-story-profile";
 import { TagSelector } from "@/components/tag-selector";
@@ -331,6 +331,9 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
     && Number.isInteger(parsedEpisodeCount)
     && parsedEpisodeCount >= episodeCountMinimum
     && parsedEpisodeCount <= episodeCountMaximum;
+  const shortQuickSettings = scriptWorkflow === true && project && !isReadOnly && /^\d+$/.test(episodeCountInput)
+    ? shortQuickSettingsForLegacyProject({ ...project, ...draft }, parsedEpisodeCount) : null;
+  const episodeInputAccepted = episodeCountIsValid || Boolean(shortQuickSettings);
   const hasExistingEpisodes = Boolean(project?.episodes.length);
   const scriptEpisodeCount = project?.episodes.filter(episode => ["saved", "confirmed", "final"].includes(episode.status)).length ?? 0;
   const storyBibleReady = Boolean(
@@ -777,19 +780,19 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                 <label className="form-field">
                   <span>{t("generation.episodes")}</span>
                   <input
-                    aria-invalid={episodeCountInput.length > 0 && !episodeCountIsValid}
+                    aria-invalid={episodeCountInput.length > 0 && !episodeInputAccepted}
                     disabled={isReadOnly || quickSettingsLocked}
                     inputMode="numeric"
                     max={episodeCountMaximum}
-                    min={episodeCountMinimum}
+                    min={shortQuickSettings ? 1 : episodeCountMinimum}
                     onChange={(event) => updateEpisodeCount(event.target.value)}
                     placeholder={t("generation.episodeCountManualPlaceholder")}
                     step={1}
                     type="number"
                     value={episodeCountInput}
                   />
-                  <small className={episodeCountInput.length > 0 && !episodeCountIsValid ? "field-help is-error" : "field-help"}>
-                    {quickProject ? "支持 1–12 集，默认 8 集；按故事需要调整。" : t("generation.episodeCountManualHelp")}
+                  <small className={episodeCountInput.length > 0 && !episodeInputAccepted ? "field-help is-error" : "field-help"}>
+                    {shortQuickSettings ? `可按 ${parsedEpisodeCount} 集进入快速创作，故事想法和已有资料会保留。` : quickProject ? "支持 1–12 集，默认 8 集；按故事需要调整。" : t("generation.episodeCountManualHelp")}
                   </small>
                 </label>
                 <label className="form-field">
@@ -920,7 +923,11 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
           </div>}
           {actionError && <p className="inline-notice is-error" role="alert">{actionError}</p>}
           <div className="inspector-actions">
-            {scriptWorkflow === true && quickProject ? <button className="primary-action full-width"
+            {shortQuickSettings ? <button className="primary-action full-width"
+              disabled={isNavigating || isReadingReferences || !releaseRegionInput}
+              onClick={() => project && void continueTo(`${quickScriptHref(project.id)}?episodes=${parsedEpisodeCount}`)} type="button">
+              按 {parsedEpisodeCount} 集快速创作<ArrowIcon />
+            </button> : scriptWorkflow === true && quickProject ? <button className="primary-action full-width"
               disabled={isNavigating || (!isReadOnly && (!hasRequiredCreativeInput || !episodeCountIsValid || !releaseRegionInput))}
               onClick={() => project && void continueTo(quickScriptHref(project.id))} type="button">
               {project?.quickWorkflow ? "继续剧本创作" : "下一步：故事梗概"}<ArrowIcon />
@@ -948,7 +955,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                   </button>
                 ) : (
                   <button className="primary-action full-width" disabled={!episodeCountIsValid || isNavigating} onClick={() => project && void continueTo(currentWorkspaceHref(project))} type="button">
-                    {t("planningWorkspace.continuePlanning")}
+                    {scriptWorkflow === true && !project?.storyBibleStatus ? "下一步：故事梗概" : t("planningWorkspace.continuePlanning")}
                     <ArrowIcon />
                   </button>
                 )}
@@ -957,7 +964,11 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
             }
           </div>
           {quickProject && !isReadOnly && !hasRequiredCreativeInput && <small className="readiness-hint">写下故事想法，或上传一份资料，就可以继续。</small>}
-          {!quickProject && mode === "edit" && !hasExistingEpisodes ? <small className="readiness-hint">{storyBibleReady ? t("generation.recursivePlanningPending") : t("generation.planRequired")}</small> : null}
+          {!quickProject && mode === "edit" && !hasExistingEpisodes ? <small className="readiness-hint">{shortQuickSettings
+            ? `共 ${parsedEpisodeCount} 集，每集约 90 秒，总正文约 ${shortQuickSettings.target_total_characters.toLocaleString()} 字。点击后先核对故事想法。`
+            : !episodeCountIsValid ? "标准流程需要 8–2000 集，请先调整集数。"
+            : !project?.storyBibleStatus ? "先整理故事梗概，再确认人物与故事设定。"
+            : storyBibleReady ? t("generation.recursivePlanningPending") : "下一步：检查并确认已有故事设定。"}</small> : null}
         </div>
       </aside>}
 
