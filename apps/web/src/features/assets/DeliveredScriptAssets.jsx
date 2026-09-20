@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { DEFAULT_SCRIPT_DIRECTION } from '@seqora/contracts'
 import { AssetEditor } from './AssetEditor'
-import { AssetSuggestionsPanel } from '../script/AssetSuggestionsPanel'
+import { AssetSuggestionsPanel, assetSuggestionKey } from '../script/AssetSuggestionsPanel'
 import { savedAssetSuggestionScope } from '../script/assetSuggestionScope'
 import { assetSuggestionRevision } from '../script/scriptTaskState'
 import { useAssetSuggestions } from '../script/useAssetSuggestions'
@@ -42,6 +42,16 @@ export function DeliveredScriptAssets({
     stoppingTaskId,
     setStoppingTaskId,
   })
+  const knownKeys = useMemo(
+    () => new Set([...assets.map(assetSuggestionKey), ...suggestions.createdKeys]),
+    [assets, suggestions.createdKeys],
+  )
+  const pending =
+    suggestions.result?.assets.filter((asset) => !knownKeys.has(assetSuggestionKey(asset))) || []
+  const pendingFingerprint = pending.map(assetSuggestionKey).sort().join('|')
+  useEffect(() => {
+    if (pendingFingerprint) setExpanded(true)
+  }, [pendingFingerprint])
   if (!scope.autoSource) return null
   return (
     <>
@@ -50,23 +60,39 @@ export function DeliveredScriptAssets({
         open={expanded}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
       >
-        <summary>从已交付剧本补充资产</summary>
+        <summary>
+          剧本资产{' '}
+          <span>
+            {pending.length
+              ? `${pending.length} 项待加入`
+              : suggestions.status === 'extracting'
+                ? '正在整理资料…'
+                : '人物 · 场景 · 物品'}
+          </span>
+        </summary>
+        <p className="delivered-script-assets-help">
+          已自动读取交付剧本。确认加入后即可设计形象，已有资产继续复用。
+        </p>
         <AssetSuggestionsPanel
           status={suggestions.status}
           result={suggestions.result}
           error={suggestions.error}
           creatingKeys={suggestions.creatingKeys}
-          createdKeys={suggestions.createdKeys}
+          createdKeys={knownKeys}
           onRefresh={suggestions.extractFast}
           onInspect={suggestions.openEditor}
           onDeleteSuggestion={suggestions.dismissSuggestion}
           onImportSelected={suggestions.importSelected}
           allowCostume={false}
+          showPrompt={false}
+          showExport={false}
           copy={{
-            eyebrow: '已交付剧本',
-            title: '确认剧本中的人物、场景和物品',
-            refresh: '重新提取已交付剧本',
-            empty: '正在准备资产建议。确认加入后，再为资产生成图片。',
+            eyebrow: '来自已交付剧本',
+            title: pending.length ? '确认这些资料，开始资产设计' : '人物、场景和物品资料',
+            importSelected: '确认加入资产',
+            refresh: '刷新剧本资料',
+            extracting: '正在读取剧本中的人物、场景和物品。',
+            empty: '正在读取已交付资料，完成后会自动显示。',
             inspect: '查看并调整',
           }}
         />

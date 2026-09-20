@@ -51,7 +51,15 @@ export function normalizeScriptAssetSuggestion(
   characterEvidence?: CharacterEvidenceContext,
 ): ScriptAssetSuggestion | null {
   if (isDiscardableScriptAssetSuggestion(suggestion)) return null
-  const name = resolveAssetSuggestionName(suggestion, sourceNames)
+  // Delivered stable identities may include meaningful parentheses, punctuation
+  // or long names. Apply legacy prose cleanup only to undeclared candidates.
+  const declaredName = suggestion.name.trim()
+  const declaredItem = manifest[suggestion.kind].find((item) => item.name === declaredName)
+  const name = declaredItem
+    ? suggestion.kind === 'scene'
+      ? declaredName.replace(/^(?:(?:INT|EXT)(?:\.?\s*\/\s*(?:INT|EXT))?\.?|I\/E\.?)\s+/iu, '')
+      : declaredName
+    : resolveAssetSuggestionName(suggestion, sourceNames)
   if (!name) return null
 
   const namedSuggestionBase: ScriptAssetSuggestion =
@@ -64,7 +72,7 @@ export function normalizeScriptAssetSuggestion(
           prompt: replaceAssetName(suggestion.prompt, suggestion.name, name),
           reason: replaceAssetName(suggestion.reason, suggestion.name, name),
         }
-  const manifestItem = manifest[namedSuggestionBase.kind].find((item) => item.name === name)
+  const manifestItem = declaredItem ?? manifest[namedSuggestionBase.kind].find((item) => item.name === name)
   const namedSuggestion: ScriptAssetSuggestion = {
     ...namedSuggestionBase,
     description: stripNarrativeAssetFacts(namedSuggestionBase.description),
@@ -189,6 +197,7 @@ export function normalizeScriptAssetSuggestion(
       negativePrompt: composeAssetNegativePrompt(namedSuggestion.negativePrompt, SCENE_ASSET_NEGATIVE_PROMPT),
       attributes: {
         ...namedSuggestion.attributes,
+        space: manifestSceneSpace(manifestItem) ?? namedSuggestion.attributes.space,
         sceneType: inferSceneType(sceneContext, namedSuggestion.attributes.sceneType),
         era: inferEra(sceneContext, namedSuggestion.attributes.era),
         visualStyle: projectVisualStyle || 'cinematic-cg',
@@ -297,6 +306,7 @@ function characterVisualFacts(item: ScriptAssetManifestItem | undefined): string
     '年龄',
     '精确年龄',
     '身份',
+    '角色',
     '角色身份',
     '人物背景',
     '故事作用',
@@ -476,7 +486,7 @@ export function fallbackAssetSuggestions(
           .join('；'),
         prompt: [
           name,
-          manifestDetails(manifestItem),
+          manifestDetails(manifestItem, Infinity),
           '空场景，中文 AI 视频美术设定，空间层次清晰，预留人物表演和运镜空间，不出现人物。',
         ]
           .filter(Boolean)
@@ -487,7 +497,7 @@ export function fallbackAssetSuggestions(
         sourceFacts: reusableAssetFacts(manifestItem?.facts),
         attributes: {
           type: 'scene',
-          space: inferSceneSpace(sceneEvidence),
+          space: manifestSceneSpace(manifestItem) ?? inferSceneSpace(sceneEvidence),
           sceneType: inferSceneType(sceneEvidence),
           era: inferEra(sceneEvidence),
           time: inferSceneTime(sceneEvidence),
@@ -511,7 +521,7 @@ export function fallbackAssetSuggestions(
           .join('；'),
         prompt: [
           name,
-          manifestDetails(manifestItem),
+          manifestDetails(manifestItem, Infinity),
           '关键道具单品展示，材质细节清晰，形状稳定，纯色背景，适合后续多镜头复用。',
         ]
           .filter(Boolean)
@@ -626,7 +636,20 @@ function inferManifestGender(
 }
 
 function inferManifestExactAge(item: ScriptAssetManifestItem | undefined): number | null {
-  return exactAgeFromText(manifestFact(item, ['年龄', '精确年龄']))
+  const explicit = manifestFact(item, ['年龄', '精确年龄'])
+  if (/^\d{1,3}$/u.test(explicit)) {
+    const age = Number(explicit)
+    return age >= 1 && age <= 120 ? age : null
+  }
+  return exactAgeFromText(explicit)
+}
+
+/** Apply only an explicit physical-space declaration, never a guessed visual style. */
+function manifestSceneSpace(item: ScriptAssetManifestItem | undefined): 'interior' | 'exterior' | null {
+  const explicit = manifestFact(item, ['空间', '内外景'])
+  if (/^(?:室内|内景|interior|INT\.?)$/iu.test(explicit)) return 'interior'
+  if (/^(?:室外|外景|exterior|EXT\.?)$/iu.test(explicit)) return 'exterior'
+  return null
 }
 
 function inferManifestAgeGroup(

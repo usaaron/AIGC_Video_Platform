@@ -8808,6 +8808,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .shot-reference-assets .pending-design {
+    border-style: dashed;
+    color: var(--ink-soft);
+  }
   .shot-actions {
     display: grid;
     grid-template-columns: 76px minmax(0, 1fr);

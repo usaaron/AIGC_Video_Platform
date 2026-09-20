@@ -163,6 +163,10 @@ DeepSeek V4 在配置 `DASHSCOPE_API_KEY` 时优先走阿里云百炼 OpenAI 兼
 
 剧本默认通过独立路由调用 `deepseek-v4-flash`，DeepSeek V4 Pro、序幕-5.6（`gpt-5.6-sol`）和 GLM/Kimi 按所选模型路由到各自 Provider；正式 UI 把剧本生成、续写和资产建议创建为 `generation_tasks.kind=text` 后台任务，由 Worker 执行并写回。Provider 的 `reasoning_content` 绝不能作为正文写回；剧本输出必须为简体中文，英文占比异常时同一任务自动校正一次，仍异常则禁止写回。多场结构化原稿的改写保持场次数量。Img2 当前调用 GPT Image 2。图片结果写入对象存储，完成后同步更新对应 `asset.imageUrl` 或 `shot.imageUrl`。混元图片模型目前只是禁用选项，没有 Provider 实现。
 
+### 快速剧本交付（本地候选）
+
+剧本到资产、分镜的本地候选改动见 [2026-09-21 衔接说明](SCRIPT_ASSET_STORYBOARD_HANDOFF_2026-09-21.md)，尚未部署。主项目快速剧本交付通过 v2 导入保存正文及与其哈希绑定的资产依据，主站 `fast` 资产读取不调用模型；用户仍确认加入人物、场景、物品卡，并主动生成本集分镜。有效的有序场次依据用于关联沉默角色及具体场景、物品；无图卡显示「待设计」，手工参考保留。缺失、过期或不完整依据按类别回退正文解析；仅资料更新不自动覆盖已有分镜、图片或视频。不要把这条确定性读取链路与前述模型资产分析混为一谈。
+
 ### 视频
 
 视频默认调用 DoraRouter 的 Seedance 2.0 兼容接口：

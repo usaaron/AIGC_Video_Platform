@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { createShotSchema, type ScriptEpisode, type Shot } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
-import { expandLongScriptParagraphs, splitScriptParagraphs } from '../projects/shotPlanning.js'
+import { prepareScriptProductionParagraphs } from '../projects/scriptProductionSource.js'
 import { splitScriptIntoSmartSceneShots } from '../projects/directorShotPlanning.js'
 
 export const PRODUCTION_HISTORY_KEY = 'scriptProductionHistory'
@@ -17,8 +18,8 @@ function fingerprint(
   return JSON.stringify([shot.prompt, shot.framing, shot.duration, shot.continuityMode, shot.continuityNote])
 }
 
-function sourceShots(content: string) {
-  const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(content))
+function sourceShots(content: string, assetEvidence?: unknown) {
+  const paragraphs = prepareScriptProductionParagraphs(content, assetEvidence)
   // Request one beyond the accepted limit so long scripts fail instead of truncating.
   const generated = splitScriptIntoSmartSceneShots(paragraphs, 2_001, true)
   if (!generated.length || generated.length > 2_000)
@@ -41,7 +42,7 @@ function sourceShots(content: string) {
 /** Build a complete new production view while retaining the previous one verbatim. */
 export function reviseProduction(
   current: ScriptEpisode,
-  next: { title: string; content: string },
+  next: { title: string; content: string; assetEvidence?: unknown },
   currentShots: Shot[],
   now: string,
   newShotId: (index: number) => string,
@@ -61,7 +62,10 @@ export function reviseProduction(
       shots: structuredClone(previous),
     },
   ]
-  if (next.content === current.content) {
+  if (
+    next.content === current.content &&
+    isDeepStrictEqual(next.assetEvidence, current.continuityState.scriptAssetEvidence)
+  ) {
     return {
       history,
       shots: previous.map((shot) => ({ ...shot, episodeTitle: next.title, updatedAt: now })),
@@ -69,8 +73,8 @@ export function reviseProduction(
       preservedShots: previous.length,
     }
   }
-  const oldGenerated = sourceShots(current.content)
-  const newGenerated = sourceShots(next.content)
+  const oldGenerated = sourceShots(current.content, current.continuityState.scriptAssetEvidence)
+  const newGenerated = sourceShots(next.content, next.assetEvidence)
   const available = new Set(previous.map((shot) => shot.id))
   const matches = oldGenerated.map(({ source, shot }) => ({
     source,

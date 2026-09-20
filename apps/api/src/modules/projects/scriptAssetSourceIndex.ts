@@ -19,7 +19,7 @@ import {
 } from './assetSuggestionExtraction.js'
 
 // Bump when field/manifest parsing semantics change. No model output is cached.
-export const SCRIPT_ASSET_SOURCE_PARSER_VERSION = 'script-asset-source.v4'
+export const SCRIPT_ASSET_SOURCE_PARSER_VERSION = 'script-asset-source.v5'
 
 export interface ScriptAssetSourceScope {
   tenantId: string

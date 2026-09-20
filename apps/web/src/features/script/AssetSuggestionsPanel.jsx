@@ -50,6 +50,8 @@ export function AssetSuggestionsPanel({
   stopping = false,
   disabled = false,
   copy = {},
+  showPrompt = true,
+  showExport = true,
 }) {
   const assets = Array.isArray(result?.assets)
     ? result.assets.filter(
@@ -76,6 +78,8 @@ export function AssetSuggestionsPanel({
     loading: '模型正在后台分析资产；你可以停止、切换为快速提取，或直接进入资产设计。',
     empty: '提交后会在后台分析剧本，即使离开当前页面也会继续生成。',
     inspect: '打开生成框',
+    importSelected: '一键导入资产',
+    extracting: '正在从剧本结构中快速提取人物、场景和关键物件。',
     ...copy,
   }
 
@@ -141,10 +145,10 @@ export function AssetSuggestionsPanel({
               {importBusy ? <LoaderCircle size={15} className="spin" /> : <ListChecks size={15} />}
               {importBusy
                 ? '正在导入'
-                : `一键导入资产${selectedAssets.length ? `（${selectedAssets.length}）` : ''}`}
+                : `${labels.importSelected}${selectedAssets.length ? `（${selectedAssets.length}）` : ''}`}
             </button>
           )}
-          {hasResult && (
+          {hasResult && showExport && (
             <button
               className="button secondary"
               disabled={!selectedAssets.length || importBusy}
@@ -232,7 +236,7 @@ export function AssetSuggestionsPanel({
       {isBusy && (
         <div className="script-asset-suggestions-loading" role="status">
           <LoaderCircle size={19} className="spin" />
-          <span>{isExtracting ? '正在从剧本结构中快速提取人物、场景和关键物件。' : labels.loading}</span>
+          <span>{isExtracting ? labels.extracting : labels.loading}</span>
           {isSuggesting && onSkip && (
             <button className="button ghost" type="button" disabled={stopping} onClick={onSkip}>
               跳过并进入资产设计
@@ -319,7 +323,7 @@ export function AssetSuggestionsPanel({
                               ))}
                             </div>
                             <p>{asset.description}</p>
-                            {asset.prompt && (
+                            {asset.prompt && showPrompt && (
                               <div className="script-asset-suggestion-prompt">
                                 <strong>提示词</strong>
                                 <span>{asset.prompt}</span>
@@ -451,6 +455,9 @@ function buildSuggestionFacts(asset) {
       .filter(Boolean)
       .filter((value, index, values) => values.indexOf(value) === index)
       .join('、')
+  const fixedDetailLabels = Object.keys(sourceFacts)
+    .filter((label) => /^固定细节\d+$/u.test(label))
+    .sort((left, right) => Number(left.replace('固定细节', '')) - Number(right.replace('固定细节', '')))
   if (asset.kind === 'character') {
     if (attributes.subjectType === 'animal') {
       return [
@@ -471,7 +478,7 @@ function buildSuggestionFacts(asset) {
       { label: '年龄段', value: optionLabel('ageGroup', attributes.ageGroup || 'young') },
       { label: '精确年龄', value: attributes.exactAge ? `${attributes.exactAge} 岁` : '未指定' },
       { label: '身份', value: sourceFact('身份', '角色身份', '人物背景') || asset.description || '未补充' },
-      { label: '固定外形', value: sourceFact('固定外形', '外形', '外貌', '基础造型') || '未补充' },
+      { label: '固定外形', value: sourceFact('固定外形', '外形', '外貌', '基础造型', '外观') || '未补充' },
       { label: '体貌', value: sourceFactList('体型', '脸型', '肤色') || '未补充' },
       { label: '发型', value: sourceFactList('发型', '发色') || '未补充' },
     ]
@@ -488,9 +495,14 @@ function buildSuggestionFacts(asset) {
       { label: '用途', value: sourceFact('场景用途', '用途') || '未补充' },
       {
         label: '固定布局',
-        value: sourceFactList('固定布局', '空间布局', '布局', '入口出口', '固定陈设') || '未补充',
+        value:
+          sourceFactList('固定布局', '空间布局', '布局', '入口出口', '固定陈设', ...fixedDetailLabels) ||
+          '未补充',
       },
-      { label: '材质色彩', value: sourceFactList('材质', '基础色彩', '基础氛围') || '未补充' },
+      {
+        label: '材质色彩',
+        value: sourceFactList('材质', '基础色彩', '基础氛围') || sourceFact('外观') || '未补充',
+      },
     ]
   }
   if (asset.kind === 'prop') {
@@ -507,7 +519,11 @@ function buildSuggestionFacts(asset) {
           sourceFact('基础状态', '基准状态') ||
           (attributes.condition ? optionLabel('condition', attributes.condition) : '未指定'),
       },
-      { label: '固定结构', value: sourceFactList('尺度', '形状', '固定结构', '结构') || '未补充' },
+      { label: '外观', value: sourceFact('外观') || '未补充' },
+      {
+        label: '固定结构',
+        value: sourceFactList('尺度', '形状', '固定结构', '结构', ...fixedDetailLabels) || '未补充',
+      },
       { label: '归属', value: sourceFact('归属', '持有人', '所有者') || '未指定' },
       { label: '准确文字', value: sourceFact('准确文字', '文字') || '无' },
     ]

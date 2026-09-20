@@ -1,4 +1,6 @@
 import { orderedVideoReferenceImages } from '@seqora/prompting'
+import { characterAppearance, characterIdentity, characterVariantName } from '@seqora/contracts'
+import { explicitAssetMatch, mentionsCharacter, shotAssetFields } from './shotAssetFields'
 const KIND_PRIORITY = { scene: 20, character: 16, brand: 10, costume: 8, prop: 8 }
 const COMMON_BIGRAMS = new Set([
   '人物',
@@ -24,20 +26,29 @@ export function createShotAssetReferenceIndex(assets) {
   const source = Array.isArray(assets) ? assets : []
   return {
     byId: new Map(source.filter((asset) => asset?.id).map((asset) => [asset.id, asset])),
-    candidates: source.filter(
-      (asset) =>
-        asset.kind !== 'audio' &&
-        (referenceUrl(asset) ||
-          asset.attributes?.appearanceVariants?.some((item) => item.bodyReference?.url)),
-    ),
+    assets: source.filter((asset) => asset && asset.kind !== 'audio'),
   }
 }
 
 export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, assets = []) {
+  return selectShotAssetsFromIndex(assetIndex, shot, assets)
+    .map((asset) => assetReference(asset, shot))
+    .filter((reference) => reference.url || reference.videoUrl)
+    .slice(0, limit)
+}
+
+/** All linked production records, including cards whose images are not designed yet. */
+export function selectShotAssetsFromIndex(assetIndex, shot, assets = []) {
   const resolvedIndex = assetIndex || createShotAssetReferenceIndex(assets)
+  const source = resolvedIndex.assets || [...resolvedIndex.byId.values()]
+  const fields = shotAssetFields(shot.prompt)
   const shotText = normalize(`${shot.title || ''}${shot.prompt || ''}`)
-  const candidates = resolvedIndex.candidates
-    .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText, resolvedIndex.byId) }))
+  const candidates = source
+    .map((asset, index) => ({
+      asset,
+      index,
+      ...scoreAsset(asset, shotText, resolvedIndex.byId, fields, shot),
+    }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
 
   const selected = []
@@ -48,34 +59,27 @@ export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, 
     if (ownerId && selectedCostumeOwners.has(ownerId)) continue
     selected.push(candidate)
     if (ownerId) selectedCostumeOwners.add(ownerId)
-    if (selected.length >= limit) break
   }
-  if (!selected.some(({ asset }) => asset.kind === 'scene')) {
-    const scene = candidates.find(({ asset }) => asset.kind === 'scene')
-    if (scene && !selected.includes(scene)) selected.push(scene)
-  }
+  return selected.map(({ asset }) => asset)
+}
 
-  return selected
-    .slice(0, limit)
-    .map(({ asset }) => {
-      const variant = characterAppearance(asset, `${shot.title || ''}\n${shot.prompt || ''}`)
-      const name = variant ? characterVariantName(asset.name, variant.name) : asset.name
-      return {
-        id: asset.id,
-        url: referenceUrl(asset, variant),
-        videoUrl: videoReferenceUrl(asset, variant),
-        ...(variant
-          ? {
-              appearance: { name, description: variant.description || '' },
-              appearanceUrl: variant.bodyReference?.url || null,
-            }
-          : {}),
-        name: `${name}.png`,
-        assetName: name,
-        assetKind: asset.kind,
-      }
-    })
-    .filter((reference) => reference.url || reference.videoUrl)
+export function assetReference(asset, shot) {
+  const variant = characterAppearance(asset, `${shot.title || ''}\n${shot.prompt || ''}`)
+  const name = variant ? characterVariantName(asset.name, variant.name) : asset.name
+  return {
+    id: asset.id,
+    url: referenceUrl(asset, variant),
+    videoUrl: videoReferenceUrl(asset, variant),
+    ...(variant
+      ? {
+          appearance: { name, description: variant.description || '' },
+          appearanceUrl: variant.bodyReference?.url || null,
+        }
+      : {}),
+    name: `${name}.png`,
+    assetName: name,
+    assetKind: asset.kind,
+  }
 }
 
 export function taskUsesAssetReferences(task, references) {
@@ -97,9 +101,16 @@ export function selectVideoReferenceImages(manualReferenceUrl, references, limit
   )
 }
 
-function scoreAsset(asset, shotText, assetById) {
+function scoreAsset(asset, shotText, assetById, fields, shot) {
   const name = normalize(asset.kind === 'character' ? characterIdentity(asset.name).name : asset.name)
-  const exactNameMatch = Boolean(name && shotText.includes(name))
+  if (fields.has(asset.kind)) {
+    const matched = explicitAssetMatch(asset, fields.get(asset.kind))
+    return { score: (KIND_PRIORITY[asset.kind] || 0) + (matched ? 200 : 0), matched }
+  }
+  const exactNameMatch =
+    asset.kind === 'character'
+      ? mentionsCharacter(`${shot.title || ''}\n${shot.prompt || ''}`, asset, [...assetById.values()])
+      : Boolean(name && shotText.includes(name))
   if (asset.kind === 'character' && !exactNameMatch) {
     return { score: KIND_PRIORITY[asset.kind] || 0, matched: false }
   }
@@ -107,9 +118,18 @@ function scoreAsset(asset, shotText, assetById) {
   let matchingName = name
   if (asset.kind === 'costume' && asset.attributes?.characterAssetId) {
     const owner = assetById.get(asset.attributes.characterAssetId)
+    if (fields.has('character') && (!owner || !explicitAssetMatch(owner, fields.get('character')))) {
+      return { score: 0, matched: false }
+    }
     const ownerName = normalize(owner?.name)
     if (ownerName) matchingName = name.replace(ownerName, '')
-    if (ownerName && shotText.includes(ownerName)) matchScore += 190
+    if (
+      owner &&
+      (fields.has('character')
+        ? explicitAssetMatch(owner, fields.get('character'))
+        : mentionsCharacter(`${shot.title || ''}\n${shot.prompt || ''}`, owner, [...assetById.values()]))
+    )
+      matchScore += 190
   }
   matchScore += overlapScore(shotText, matchingName, 20, 40)
   matchScore += overlapScore(shotText, normalize(asset.description), 2, 20)
@@ -152,4 +172,3 @@ function normalize(value) {
     .toLowerCase()
     .replace(/[\s\p{P}\p{S}]+/gu, '')
 }
-import { characterAppearance, characterIdentity, characterVariantName } from '@seqora/contracts'

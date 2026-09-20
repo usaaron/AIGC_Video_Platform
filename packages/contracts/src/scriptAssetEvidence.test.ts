@@ -12,6 +12,20 @@ function evidence() {
 }
 
 describe('episode asset evidence contract', () => {
+  it('supports bounded optional ordered formal scene headings without changing legacy v1', () => {
+    const scenes = [{ sourceSceneId: 'episode-1:7', heading: 'INT. 档案室 - 夜' }]
+    expect(scriptAssetEvidenceSchema.parse({ ...evidence(), scenes }).scenes).toEqual(scenes)
+    expect(scriptAssetEvidenceSchema.parse(evidence())).not.toHaveProperty('scenes')
+    for (const invalid of [
+      [],
+      Array.from({ length: 51 }, () => scenes[0]),
+      [{ sourceSceneId: ' ', heading: 'INT. 档案室 - 夜' }],
+      [{ sourceSceneId: 'episode-1:7', heading: 'INT. 档案室\n角色：父亲' }],
+      [{ sourceSceneId: 'episode-1:7', heading: '室'.repeat(501) }],
+    ]) {
+      expect(scriptAssetEvidenceSchema.safeParse({ ...evidence(), scenes: invalid }).success).toBe(false)
+    }
+  })
   it('accepts explicit partial coverage and trims names, facts and scene identifiers', () => {
     expect(scriptAssetEvidenceSchema.parse(evidence())).toMatchObject({
       complete: { character: true, scene: false, prop: true },

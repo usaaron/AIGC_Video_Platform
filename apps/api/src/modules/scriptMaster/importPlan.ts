@@ -93,7 +93,10 @@ export function planImport(
     episodeTextChanged ||= textChanged
     const existingShots = workspace.shots.filter((shot) => shot.scriptEpisodeId === id)
     const revision =
-      textChanged && current && existingShots.length && input.storyboardRevision === 'preserve-history'
+      (textChanged || evidenceChanged) &&
+      current &&
+      existingShots.length &&
+      input.storyboardRevision === 'preserve-history'
         ? reviseProduction(current, entry, existingShots, now, (index) =>
             importedId(
               input,

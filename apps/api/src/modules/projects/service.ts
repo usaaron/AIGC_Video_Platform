@@ -62,6 +62,7 @@ import {
   splitScriptParagraphs,
 } from './shotPlanning.js'
 import { splitScriptIntoSmartSceneShots } from './directorShotPlanning.js'
+import { prepareScriptProductionParagraphs } from './scriptProductionSource.js'
 
 export { assignShotEpisodes, splitScriptParagraphs } from './shotPlanning.js'
 import {
@@ -910,7 +911,8 @@ export class ProjectService {
         )
       }
       const generated = selectedEpisodes.flatMap((episode) => {
-        const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(episode.content))
+        const { content, continuityState } = episode
+        const paragraphs = prepareScriptProductionParagraphs(content, continuityState?.scriptAssetEvidence)
         const shots =
           input.mode === 'beat'
             ? splitScriptIntoBeatShots(paragraphs, input.maxShots, true)

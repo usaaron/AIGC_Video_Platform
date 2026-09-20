@@ -1,6 +1,25 @@
 const sceneHeading = /^(INT\.(?:\s*\/\s*EXT\.)?|EXT\.(?:\s*\/\s*INT\.)?)\s+([^\n]+)$/iu
 const parenthetical = /^[（(][\s\S]*[）)]$/u
 
+/** Read only the formal export body; prefatory scene indexes are not production scenes. */
+export function scriptMasterSceneHeadings(script: string): string[] | undefined {
+  const text = script.replace(/\r/gu, '')
+  const marker = /^正式正文\s*\n\s*FADE IN \/ 淡入[：:]\s*\n/gmu.exec(text)
+  if (
+    !/^\s*第\s*\d+\s*集(?:《[^\n]*》)?\s*\n/u.test(text) ||
+    !marker ||
+    !/^预计时长[：:]/mu.test(text.slice(0, marker.index)) ||
+    !/\n\s*FADE OUT \/ 淡出[。.]*\s*$/u.test(text)
+  )
+    return undefined
+  const headings = text
+    .slice(marker.index + marker[0].length)
+    .split(/\n\s*\n/u)
+    .map((block) => block.trim())
+    .filter((block) => sceneHeading.test(block))
+  return headings.length ? headings : undefined
+}
+
 /** Adapt explicit Script Master exports for downstream scene and asset parsing. */
 export function normalizeScriptMasterScreenplay(script: string): string {
   const text = script.replace(/\r/gu, '')

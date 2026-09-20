@@ -7,6 +7,7 @@ import {
   nonSpokenSoundCues,
   parseSceneDirectionFields,
   parseShotFields,
+  parseScriptParagraphFields,
   scenesShareVisualContinuity,
   spokenDialogueCues,
   splitFieldBeats,
@@ -65,7 +66,7 @@ export function splitScriptIntoSmartSceneShots(
   for (const [sceneIndex, scriptParagraph] of paragraphs.entries()) {
     if (shots.length >= maxShots) break
     const paragraph = scriptParagraph.text
-    const fields = parseShotFields(paragraph)
+    const fields = parseScriptParagraphFields(scriptParagraph)
     const direction = parseSceneDirectionFields(paragraph)
     const explicitSpecs = directorShotSpecs(fields)
     const sceneDuration = parseDurationSeconds(fields.时长)
@@ -138,6 +139,7 @@ export function splitScriptIntoSmartSceneShots(
           framing,
           shotIndex,
           plans.length,
+          scriptParagraph.sourceAssets,
         ),
         negativePrompt: '',
         imageUrl: null,
@@ -312,14 +314,15 @@ function compactDirectorShotPrompt(
   framing: string,
   shotIndex: number,
   shotCount: number,
+  sourceAssets?: ScriptParagraph['sourceAssets'],
 ): string {
   const opening = plan.firstFrame || (shotIndex === 0 ? direction.入场状态 : '')
   const ending = plan.lastFrame || (shotIndex === shotCount - 1 ? direction.出场状态 : '')
   return [
-    fieldPart('场景', fields.场景, 420),
-    fieldPart('角色', fields.角色, 520),
+    fieldPart('场景', fields.场景, sourceAssets?.场景 === undefined ? 420 : Infinity),
+    fieldPart('角色', fields.角色, sourceAssets?.角色 === undefined ? 520 : Infinity),
     fieldPart('服装', fields.服装, 260),
-    fieldPart('关键物件', fields.关键物件, 260),
+    fieldPart('关键物件', fields.关键物件, sourceAssets?.关键物件 === undefined ? 260 : Infinity),
     fieldPart('资产引用', plan.assetReferences, 300),
     fieldPart('首帧', opening && !content.includes(opening) ? opening : '', 500),
     fieldPart('动作', content, Infinity),

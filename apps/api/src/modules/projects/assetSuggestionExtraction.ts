@@ -211,7 +211,18 @@ export function manifestFact(item: ScriptAssetManifestItem | undefined, labels: 
   return ''
 }
 
-const NON_VISUAL_ASSET_FACT_LABELS = new Set(['故事作用', '剧情作用', '作用', '故事', '剧情', '目的', '目标'])
+const NON_VISUAL_ASSET_FACT_LABELS = new Set([
+  '故事作用',
+  '剧情作用',
+  '作用',
+  '故事',
+  '剧情',
+  '目的',
+  '目标',
+  '动机',
+  '人物动机',
+  '人物弧光',
+])
 
 export function isReusableAssetFactLabel(label: string): boolean {
   const normalized = label.trim()
@@ -229,11 +240,11 @@ export function reusableAssetFacts(facts: Record<string, string> | undefined): R
   )
 }
 
-export function manifestDetails(item: ScriptAssetManifestItem | undefined): string {
+export function manifestDetails(item: ScriptAssetManifestItem | undefined, limit = 360): string {
   const details = Object.entries(reusableAssetFacts(item?.facts))
     .map(([label, value]) => `${label}：${value}`)
     .join('；')
-  return details ? `剧本资产设定：${details}`.slice(0, 360) : ''
+  return details ? `剧本资产设定：${details}`.slice(0, limit) : ''
 }
 
 export function namesFromManifestOrFields(
@@ -248,15 +259,17 @@ export function namesFromManifestOrFields(
     return [
       ...new Set([
         ...manifest[kind].map((item) => item.name),
-        ...extractAssetNames(script, fields, [], limit, kind).filter(
-          (name) =>
-            kind !== 'character' ||
-            !manifest.character.some((item) =>
-              characterIdentity(name).name === name
-                ? characterIdentity(item.name).name === name
-                : characterVariantKey(item.name) === characterVariantKey(name),
-            ),
-        ),
+        ...extractAssetNames(script, fields, [], limit, kind)
+          .map((name) => (kind === 'character' ? declaredCharacterName(name, manifest) : name))
+          .filter(
+            (name) =>
+              kind !== 'character' ||
+              !manifest.character.some((item) =>
+                characterIdentity(name).name === name
+                  ? characterIdentity(item.name).name === name
+                  : characterVariantKey(item.name) === characterVariantKey(name),
+              ),
+          ),
       ]),
     ].slice(0, limit)
   return extractAssetNames(script, fields, fallback, limit, kind)
@@ -265,6 +278,13 @@ export function namesFromManifestOrFields(
 export type PreparedScriptAssetIndex = {
   manifest: ScriptAssetManifest
   fieldNames: ScriptAssetNameIndex
+}
+
+/** A quoted speech verb is not another person when the real name is declared. */
+function declaredCharacterName(name: string, manifest: ScriptAssetManifest): string {
+  const identities = manifest.character.map((item) => characterIdentity(item.name).name)
+  if (identities.includes(name)) return name
+  return identities.find((identity) => name === `${identity}说` || name === `${identity}说道`) || name
 }
 
 /** Uses the same per-kind limits as the original normalizer, without rescanning. */
@@ -278,15 +298,17 @@ export function namesFromPreparedScriptAssets(
   return [
     ...new Set([
       ...manifest[kind].map((item) => item.name),
-      ...fields.filter(
-        (name) =>
-          kind !== 'character' ||
-          !manifest.character.some((item) =>
-            characterIdentity(name).name === name
-              ? characterIdentity(item.name).name === name
-              : characterVariantKey(item.name) === characterVariantKey(name),
-          ),
-      ),
+      ...fields
+        .map((name) => (kind === 'character' ? declaredCharacterName(name, manifest) : name))
+        .filter(
+          (name) =>
+            kind !== 'character' ||
+            !manifest.character.some((item) =>
+              characterIdentity(name).name === name
+                ? characterIdentity(item.name).name === name
+                : characterVariantKey(item.name) === characterVariantKey(name),
+            ),
+        ),
     ]),
   ].slice(0, limit)
 }

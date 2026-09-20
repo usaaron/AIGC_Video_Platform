@@ -34,6 +34,56 @@ const revisedBody = revisedScreenplay(
 )
 
 describe('structured script asset evidence', () => {
+  it.each([
+    ['室内', 'interior'],
+    ['室外', 'exterior'],
+  ])('keeps explicit space %s even when model fields disagree', async (space, expected) => {
+    const declared = evidence()
+    declared.assets = [
+      {
+        kind: 'scene',
+        name: '档案室',
+        facts: { 空间: space, 外观: '红砖墙、木制档案柜' },
+        sourceSceneIds: ['episode-1:1'],
+      },
+    ]
+    const state = {
+      project: {
+        name: '明确场景',
+        contentType: 'short-drama',
+        visualStyle: 'cinematic-cg',
+        aspectRatio: '9:16',
+      },
+      assets: [],
+      scriptEpisodes: [
+        { id: 'one', status: 'saved', content, continuityState: { scriptAssetEvidence: declared } },
+      ],
+    }
+    const service = new ProjectService({ workspace: async () => state } as unknown as ProjectRepository, {
+      generate: async () =>
+        JSON.stringify({
+          summary: '场景',
+          assets: [
+            {
+              kind: 'scene',
+              name: '档案室',
+              description: '档案室',
+              visualNotes: '墙面与柜子',
+              reason: '场景设计',
+              priority: 4,
+              attributes: { space: expected === 'interior' ? 'exterior' : 'interior' },
+            },
+          ],
+        }),
+    })
+    const result = await service.suggestScriptAssets(scope.projectId, '', DEFAULT_SCRIPT_DIRECTION, {
+      tenantId: scope.tenantId,
+      userId: 'user-1',
+      roles: ['creator'],
+    })
+    expect(result.assets[0]!.attributes).toMatchObject({ space: expected })
+    expect(result.assets[0]!.sourceFacts).toMatchObject({ 空间: space })
+  })
   it('recovers explicit scenes and dialogue speakers from revised exports without generated metadata', () => {
     const cache = new ScriptAssetSourceIndexCache()
     for (const assetEvidence of [

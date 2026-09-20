@@ -32,8 +32,8 @@ describe('delivered script assets entry', () => {
         onCreate={create}
       />,
     )
-    expect(html).toContain('确认剧本中的人物、场景和物品')
-    expect(html).toContain('重新提取已交付剧本')
+    expect(html).toContain('剧本资产')
+    expect(html).toContain('刷新剧本资料')
     expect(html).toContain('class="delivered-script-assets" open=""')
     expect(html).not.toContain('后台生成资产建议')
     expect(create).not.toHaveBeenCalled()
@@ -52,7 +52,7 @@ describe('delivered script assets entry', () => {
           onCreate={vi.fn()}
         />,
       )
-      expect(html).not.toContain('确认剧本中的人物、场景和物品')
+      expect(html).not.toContain('class="delivered-script-assets"')
       expect(html).toContain('添加人物')
     }
   })

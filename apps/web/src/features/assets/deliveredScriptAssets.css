@@ -9,6 +9,18 @@
     color: var(--ink);
     font-weight: 600;
   }
+  .delivered-script-assets > summary > span {
+    margin-left: 12px;
+    color: var(--ink-soft);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .delivered-script-assets-help {
+    margin: 0 0 12px;
+    color: var(--ink-soft);
+    font-size: 13px;
+    line-height: 1.7;
+  }
   .delivered-script-assets .script-asset-suggestions {
     margin-top: 0;
   }

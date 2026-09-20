@@ -71,6 +71,12 @@ export type ScriptParagraph = {
   text: string
   forceEpisodeBreakBefore: boolean
   forceShotBreakBefore?: boolean
+  /** Validated explicit visual appearances; never inserted into dialogue/body text. */
+  sourceAssets?: Partial<Record<'角色' | '场景' | '关键物件', string>>
+}
+
+export function parseScriptParagraphFields(paragraph: ScriptParagraph) {
+  return { ...parseShotFields(paragraph.text), ...paragraph.sourceAssets }
 }
 
 export function splitScriptParagraphs(script: string): ScriptParagraph[] {
@@ -218,11 +224,12 @@ export function expandLongScriptParagraphs(paragraphs: ScriptParagraph[]): Scrip
 function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[] {
   if (paragraph.text.replace(/\s/gu, '').length < LONG_SCRIPT_PARAGRAPH_THRESHOLD) return [paragraph]
 
-  const fields = parseShotFields(paragraph.text)
+  const fields = parseScriptParagraphFields(paragraph)
   if (fields.场次 && (fields.镜头1 || fields.镜头2 || fields.镜头3)) return [paragraph]
   const direction = parseSceneDirectionFields(paragraph.text)
   const withBreaks = (text: string, index: number): ScriptParagraph => ({
     text,
+    ...(paragraph.sourceAssets ? { sourceAssets: { ...paragraph.sourceAssets } } : {}),
     forceEpisodeBreakBefore: index === 0 && paragraph.forceEpisodeBreakBefore,
     ...(index === 0 && paragraph.forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
   })
@@ -464,7 +471,7 @@ export function splitScriptIntoBeatShots(
   const shots: ShotDraft[] = []
   for (const [sceneIndex, scriptParagraph] of paragraphs.entries()) {
     const paragraph = scriptParagraph.text
-    const fields = parseShotFields(paragraph)
+    const fields = parseScriptParagraphFields(scriptParagraph)
     const direction = parseSceneDirectionFields(paragraph)
     const action = fields.动作 || fields.剧情 || (fields.对白 ? '' : paragraph)
     const beats = action ? splitFieldBeats(action).slice(0, 4) : ['']
@@ -496,7 +503,15 @@ export function splitScriptIntoBeatShots(
         title: `场次 ${sceneNumber} · 动作 ${beatIndex + 1}`,
         framing: beatFraming(fields.构图, beat, dialogue, beatIndex, beats.length),
         duration,
-        prompt: compactShotPrompt(fields, direction, beat, dialogue, beatIndex, beats.length),
+        prompt: compactShotPrompt(
+          fields,
+          direction,
+          beat,
+          dialogue,
+          beatIndex,
+          beats.length,
+          scriptParagraph.sourceAssets,
+        ),
         negativePrompt: '',
         imageUrl: null,
         episodeBreakBefore: beatIndex === 0 && scriptParagraph.forceEpisodeBreakBefore,
@@ -521,7 +536,7 @@ export function splitScriptIntoSceneShots(
 ): ShotDraft[] {
   return paragraphs.slice(0, maxShots).map((scriptParagraph, index) => {
     const paragraph = scriptParagraph.text
-    const fields = parseShotFields(paragraph)
+    const fields = parseScriptParagraphFields(scriptParagraph)
     const direction = parseSceneDirectionFields(paragraph)
     const structured = Object.keys(fields).length > 1
     const action = fields.动作 || fields.剧情 || (fields.对白 ? '' : paragraph)
@@ -536,7 +551,9 @@ export function splitScriptIntoSceneShots(
       duration: structured
         ? estimateShotDuration(action, fields.对白, fields, isWebSeries)
         : Math.min(15, Math.max(isWebSeries ? 3 : 4, Math.ceil(paragraph.length / 18))),
-      prompt: structured ? compactShotPrompt(fields, direction, action, fields.对白, 0, 1) : paragraph,
+      prompt: structured
+        ? compactShotPrompt(fields, direction, action, fields.对白, 0, 1, scriptParagraph.sourceAssets)
+        : paragraph,
       negativePrompt: '',
       imageUrl: null,
       episodeBreakBefore: scriptParagraph.forceEpisodeBreakBefore,
@@ -729,15 +746,16 @@ function compactShotPrompt(
   dialogue?: string,
   beatIndex = 0,
   beatCount = 1,
+  sourceAssets?: ScriptParagraph['sourceAssets'],
 ): string {
   const action = beat.trim() || fields.动作 || fields.剧情 || ''
   const opening = beatIndex === 0 ? direction.入场状态 : ''
   const ending = beatIndex === beatCount - 1 ? direction.出场状态 : ''
   return [
-    fieldPart('场景', fields.场景, 420),
-    fieldPart('角色', fields.角色, 520),
+    fieldPart('场景', fields.场景, sourceAssets?.场景 === undefined ? 420 : Infinity),
+    fieldPart('角色', fields.角色, sourceAssets?.角色 === undefined ? 520 : Infinity),
     fieldPart('服装', fields.服装, 260),
-    fieldPart('关键物件', fields.关键物件, 260),
+    fieldPart('关键物件', fields.关键物件, sourceAssets?.关键物件 === undefined ? 260 : Infinity),
     fieldPart('首帧', opening && !action.includes(opening) ? opening : '', 500),
     fieldPart('动作', action, Infinity),
     fieldPart('对白', (dialogue === undefined ? fields.对白 : dialogue) || '无台词', Infinity),

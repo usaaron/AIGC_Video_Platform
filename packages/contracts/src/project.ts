@@ -308,7 +308,7 @@ const scriptAssetSuggestionBaseSchema = z.object({
   negativePrompt: z.string().max(2_000).default(''),
   reason: z.string().trim().min(1).max(500),
   priority: z.number().int().min(1).max(5).default(3),
-  sourceFacts: z.record(z.string().max(20), z.string().max(200)).optional(),
+  sourceFacts: z.record(z.string().max(40), z.string().max(2_000)).optional(),
 })
 
 export const scriptAssetSuggestionSchema = z.discriminatedUnion('kind', [

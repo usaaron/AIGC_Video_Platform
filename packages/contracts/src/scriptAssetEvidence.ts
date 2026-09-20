@@ -18,6 +18,22 @@ export const scriptAssetEvidenceSchema = z
     contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
     complete: z.object({ character: z.boolean(), scene: z.boolean(), prop: z.boolean() }),
     assets: z.array(evidenceAsset).max(2_000),
+    /** Ordered headings from the exact delivered screenplay, not generated summaries. */
+    scenes: z
+      .array(
+        z.object({
+          sourceSceneId: z.string().trim().min(1).max(160),
+          heading: z
+            .string()
+            .trim()
+            .min(1)
+            .max(500)
+            .regex(/^[^\r\n]+$/u),
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
   })
   .superRefine((evidence, context) => {
     const names = new Set<string>()

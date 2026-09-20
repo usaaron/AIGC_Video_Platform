@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createShotAssetReferenceIndex,
+  selectShotAssetsFromIndex,
   selectShotAssetReferences,
   selectVideoReferenceImages,
   taskUsesAssetReferences,
@@ -13,6 +15,120 @@ const assets = [
 ]
 
 describe('selectShotAssetReferences', () => {
+  it('associates silent participants from the explicit cast and excludes dialogue-only mentions', () => {
+    const records = [
+      asset('silent', 'character', '林', '', '/silent.png'),
+      asset('speaker', 'character', '林夏', '', '/speaker.png'),
+      asset('mentioned', 'character', 'Anna', '', '/anna.png'),
+      asset('similar', 'character', 'Ann', '', '/ann.png'),
+    ]
+    const shot = {
+      prompt: '角色：林、林夏\n场景：无\n关键物件：无\n动作：两人保持沉默。\n对白：林夏说：“Anna 还没来。”',
+    }
+    expect(selectShotAssetReferences(records, shot).map((item) => item.id)).toEqual(['silent', 'speaker'])
+    expect(
+      selectShotAssetReferences(records, { prompt: '角色：Anna\n对白：Anna 提起林夏。' }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['mentioned'])
+    expect(
+      selectShotAssetReferences(records, { prompt: '林夏与 Anna 走进门。' })
+        .map((item) => item.id)
+        .sort(),
+    ).toEqual(['mentioned', 'speaker'])
+  })
+
+  it('respects explicit empty cast and props including outfits linked to absent participants', () => {
+    const records = [
+      ...assets,
+      {
+        ...assets[3],
+        attributes: { type: 'costume', characterAssetId: 'character-lin' },
+      },
+    ]
+    records.splice(3, 1)
+    const shot = {
+      prompt:
+        '场景：雨夜旧火车站\n角色：无\n关键物件：无\n动作：林夏的黑色雨夜风衣和胶片铁盒出现在回忆文字中。',
+    }
+    expect(selectShotAssetReferences(records, shot).map((item) => item.id)).toEqual(['scene-station'])
+  })
+
+  it('matches stable scene identity with time metadata without cross-linking day and night variants', () => {
+    const records = [
+      asset('day', 'scene', '档案室 - 日', '', '/day.png'),
+      asset('night', 'scene', '档案室（夜）', '', '/night.png'),
+      asset('stable', 'scene', '档案室', '', '/room.png'),
+      asset('another', 'scene', '办公室', '', '/office.png'),
+      asset('named-parentheses', 'scene', '档案室（旧馆）', '', '/old.png'),
+    ]
+    expect(
+      selectShotAssetReferences(records, { prompt: '场景：档案室（档案室 - 夜，内景）' }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['night', 'stable'])
+    expect(
+      selectShotAssetReferences(records, { prompt: '场景：档案室（旧馆）' }).map((item) => item.id),
+    ).toEqual(['named-parentheses'])
+    expect(
+      selectShotAssetReferences(records, { prompt: '场景：档案室（旧馆）（档案室（旧馆） - 夜，内景）' }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['named-parentheses'])
+    expect(
+      selectShotAssetReferences(records, { prompt: '场景：档案室（day）' }).map((item) => item.id),
+    ).toEqual(['day', 'stable'])
+    expect(selectShotAssetReferences(records, { prompt: '场景：陌生码头\n动作：驶离海岸。' })).toEqual([])
+    expect(selectShotAssetReferences(records, { prompt: '一片空白。' })).toEqual([])
+  })
+
+  it('keeps undesigned records linked without consuming media slots or changing manual choices', () => {
+    const records = [
+      asset('pending', 'character', '沉默者', '', null),
+      asset('ready', 'prop', '铜钥匙', '', '/key.png'),
+      asset('pending-room', 'scene', '档案室', '', null),
+    ]
+    const shot = {
+      prompt: '场景：档案室\n角色：沉默者\n关键物件：铜钥匙',
+      referenceImages: [{ url: '/manual.png' }],
+    }
+    const original = structuredClone({ records, shot })
+    expect(
+      selectShotAssetsFromIndex(createShotAssetReferenceIndex(records), shot).map((item) => item.id),
+    ).toEqual(['pending-room', 'pending', 'ready'])
+    const references = selectShotAssetReferences(records, shot, 1)
+    expect(references.map((item) => item.id)).toEqual(['ready'])
+    expect(
+      selectVideoReferenceImages(
+        shot.referenceImages.map((item) => item.url),
+        references,
+      ),
+    ).toEqual(['/manual.png', '/key.png'])
+    expect({ records, shot }).toEqual(original)
+  })
+
+  it.each([
+    '档案室（档案室 - 日，内外景）',
+    '档案室（档案室，内外景）',
+    'INT./EXT. 档案室 - 日',
+    'EXT. / INT. 档案室 - 日',
+    '内外景 档案室 - 日',
+  ])('links mixed interior/exterior scene %s without imposing a single space', (scene) => {
+    const records = [
+      asset('stable', 'scene', '档案室', '', '/room.png'),
+      asset('interior', 'scene', 'INT. 档案室', '', '/inside.png'),
+      asset('exterior', 'scene', 'EXT. 档案室', '', '/outside.png'),
+    ]
+    expect(selectShotAssetReferences(records, { prompt: `场景：${scene}` }).map((item) => item.id)).toEqual([
+      'stable',
+    ])
+    expect(
+      selectShotAssetReferences([asset('mixed', 'scene', 'INT./EXT. 档案室', '', '/mixed.png')], {
+        prompt: `场景：${scene}`,
+      }).map((item) => item.id),
+    ).toEqual(['mixed'])
+  })
+
   it('keeps all participant identities before optional outfits when the provider reference limit is reached', () => {
     const references = [
       { videoUrl: 'asset://first', url: '/first.png', appearanceUrl: '/first-outfit.png' },

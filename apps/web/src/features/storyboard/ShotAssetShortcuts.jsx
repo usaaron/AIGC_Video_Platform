@@ -2,6 +2,7 @@ import { Check, Package, MapPinned, Users, Images } from 'lucide-react'
 import { characterVariantName } from '@seqora/contracts'
 import { findAssetMentions } from '../assets/AssetShortcutBar'
 import { getAssetPreviewUrl } from '../assets/assetPreview'
+import { selectShotAssetsFromIndex } from './referenceSelector'
 
 const groups = [
   { label: '人物', kinds: ['character'], Icon: Users },
@@ -19,9 +20,7 @@ export function ShotAssetShortcuts({
   referenceImages = [],
 }) {
   const relevantIds = new Set(
-    findAssetMentions(`${shot.title || ''}\n${shot.prompt || ''}\n${prompt}`, assets).map(
-      ({ asset }) => asset.id,
-    ),
+    selectShotAssetsFromIndex(null, { ...shot, prompt }, assets).map((asset) => asset.id),
   )
   const mentionedIds = new Set(findAssetMentions(prompt, assets).map(({ asset }) => asset.id))
   const available = assets.filter((asset) => groups.some((group) => group.kinds.includes(asset.kind)))
@@ -61,12 +60,13 @@ export function ShotAssetShortcuts({
                       className={mentioned ? 'mentioned' : ''}
                       disabled={disabled}
                       aria-label={`插入${label} ${name}`}
-                      title={`${name} · ${preview ? '已有参考图' : '可插入名称，图片待生成'}`}
+                      title={`${name} · ${preview ? '已有参考图' : '剧本资料已关联，图片待设计'}`}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => onInsert(name)}
                     >
                       {preview ? <img src={preview} alt="" loading="lazy" /> : <Icon size={16} />}
                       <span>{name}</span>
+                      {!preview && <small>待设计</small>}
                       {mentioned && <Check size={13} />}
                     </button>
                   )

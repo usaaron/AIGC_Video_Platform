@@ -14,7 +14,12 @@ import {
   Video,
 } from 'lucide-react'
 import { IconButton } from '../../components/ui'
-import { selectShotAssetReferencesFromIndex, taskUsesAssetReferences } from './referenceSelector'
+import {
+  assetReference,
+  selectShotAssetsFromIndex,
+  selectShotAssetReferencesFromIndex,
+  taskUsesAssetReferences,
+} from './referenceSelector'
 import { VIDEO_RESOLUTIONS } from './storyboardConstants'
 import {
   generationActionLabel,
@@ -60,6 +65,7 @@ export function ShotRow({
   const previewVideoTask = taskById(tasks, previewVideoTaskId)
   const previewVideoUrl = taskOutputUrl(previewVideoTask, 'video')
   const references = providedReferences || selectShotAssetReferencesFromIndex(assetIndex, shot, 6, assets)
+  const linkedAssets = selectShotAssetsFromIndex(assetIndex, shot, assets)
   const videoMatchesAssets = taskUsesAssetReferences(videoTask, references)
   const videoActionLabel = generationActionLabel(videoTask, videoMatchesAssets, '视频')
   const canReroll =
@@ -154,11 +160,22 @@ export function ShotRow({
             <span>电影感</span>
             <span>{shot.framing}</span>
           </div>
-          {references.length > 0 && (
-            <div className="shot-reference-assets">
-              {references.map((reference) => (
-                <span key={reference.id}>{reference.assetName}</span>
-              ))}
+          {linkedAssets.length > 0 && (
+            <div className="shot-reference-assets" aria-label="本镜头关联资产">
+              {linkedAssets.map((asset) => {
+                const reference = assetReference(asset, shot)
+                const ready = Boolean(reference.url || reference.videoUrl)
+                return (
+                  <span
+                    key={asset.id}
+                    className={ready ? '' : 'pending-design'}
+                    title={ready ? '已有图像参考' : '剧本资料已关联，图片待设计'}
+                  >
+                    {reference.assetName}
+                    {!ready && ' · 待设计'}
+                  </span>
+                )
+              })}
             </div>
           )}
           <div className="shot-generation-state">
