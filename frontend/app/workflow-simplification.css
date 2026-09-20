@@ -1,0 +1,27 @@
+.workflow-more-actions { position: relative; flex: none; color: var(--ink-soft); font-size: 12px; }
+.workflow-more-actions > summary { padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; list-style-position: inside; white-space: nowrap; }
+.workflow-more-actions > summary:hover, .workflow-more-actions[open] > summary { background: var(--surface-muted); color: var(--ink); }
+.workflow-more-actions > summary:focus-visible, .episode-planning-details > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.workflow-more-actions-content { position: absolute; top: calc(100% + 6px); right: 0; z-index: 80; display: grid; gap: 6px; width: max-content; min-width: 200px; max-width: min(300px, calc(100vw - 44px)); padding: 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--paper); box-shadow: 0 10px 28px #0005; }
+.workflow-more-actions-content > button, .workflow-more-actions-content > a { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; }
+.workflow-more-actions-content > p, .workflow-more-actions-content > small { margin: 4px; line-height: 1.6; }
+.workflow-more-actions-content .document-edit-toolbar-action span { display: inline; }
+.story-plan-node-card.is-document-node .story-plan-episode-plans .episode-planning-card { display: block; margin: 10px 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); scroll-margin-top: 125px; outline-offset: 3px; }
+.episode-planning-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.episode-planning-card-heading > strong { min-width: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.episode-planning-card-heading > span { flex: none; padding: 3px 7px; border-radius: 5px; font-size: 11px; color: var(--gold); background: var(--accent-soft); }
+.story-plan-episode-plans .episode-planning-card > .episode-planning-card-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 10px 0; font-size: 13px; line-height: 1.8; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.episode-planning-details { margin-top: 12px; border-top: 1px solid var(--line); }
+.episode-planning-details > summary { padding: 12px 0 0; color: var(--gold); font-size: 12px; cursor: pointer; list-style-position: inside; }
+.episode-planning-card-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 18px; }
+.episode-planning-card-fields > p, .episode-planning-card-fields > strong, .episode-planning-card-fields > small, .episode-planning-card-fields > details { grid-column: 1; min-width: 0; }
+.episode-planning-card-fields > p { font-size: 13px; line-height: 1.8; }
+.episode-planning-card-fields .story-plan-roadmap-review-actions { flex-wrap: wrap; gap: 10px; padding: 10px 0; }
+.episode-planning-card-fields .story-plan-roadmap-review-actions > button { min-height: 36px; font-size: 12px; }
+@media (max-width: 760px) {
+  .story-plan-node-card.is-document-node .story-plan-episode-plans .episode-planning-card { padding: 12px; scroll-margin-top: 175px; }
+  .story-bible-actions, .script-document-toolbar-actions { position: relative; width: 100%; }
+  .workflow-more-actions { position: static; }
+  .workflow-more-actions-content { left: 0; right: 0; width: auto; min-width: 0; max-width: none; }
+  .script-document-toolbar-actions .workflow-more-actions-content .document-edit-toolbar-action span { display: inline; }
+}

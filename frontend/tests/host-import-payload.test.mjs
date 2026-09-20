@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildImportMaterial } from '../lib/host-import-payload.ts';
+import { readImportMaterial } from '../lib/host-import.ts';
 import { inspirationRequestProject } from '../lib/creation-setting-flow.ts';
 import { EMPTY_INSPIRATION_BRIEF } from '../lib/story-inspiration-session.ts';
 import { userFacingError } from '../lib/api-error.ts';
@@ -9,6 +10,24 @@ const draft = { id: 'draft-1', title: '第一集', language: 'zh-CN', synopsis: 
 const shot = { shot_id: 'shot-1', duration_seconds: 5, framing: '中景', prompt: '', purpose: '见面', camera: '固定', action_sequence: ['林岚走入院子'], dialogue: ['你好'], sound: '脚步声', continuity_in: '门外', continuity_out: '院内' };
 const project = { id: 'project-1', creativePrompt: '', referenceMaterials: [], characters: [], generationSettings: { episodeCount: 2 }, episodes: [{ id: 'episode-1', episodeNumber: 1, status: 'saved', generationRun: { draft_master_script: draft } }, { id: 'episode-2', episodeNumber: 2, status: 'editing', hasLocalDraftEdits: true, generationRun: { draft_master_script: draft } }] };
 const board = { status: 'review', source_draft: draft, stale_scene_numbers: [], candidate: null, scenes: [{ scene_number: 1, shots: [shot] }] };
+
+test('script workflow reads saved scripts without fetching storyboards or validating unrelated assets', async (t) => {
+  t.mock.method(globalThis, 'fetch', () => assert.fail('script-only preparation must not fetch storyboards'));
+  const input = structuredClone({ ...project, characters: [{ name: '人'.repeat(200), description: '文'.repeat(6000) }] });
+  const before = structuredClone(input);
+  const result = await readImportMaterial(input, { scriptsOnly: true });
+  assert.deepEqual(input, before);
+  assert.equal(result.episodes.length, 1, 'unsaved local edits are excluded');
+  assert.equal(result.episodes[0].sourceEpisodeId, 'episode-1');
+  assert.match(result.episodes[0].content, /林岚/);
+  assert.equal(result.episodes[0].shots, undefined);
+  assert.deepEqual(result.assets, []);
+  assert.deepEqual(result.warnings, []);
+  const existingBoard = buildImportMaterial(input, new Map([[1, board]]), { scriptsOnly: true });
+  assert.equal(existingBoard.episodes[0].shots, undefined, 'saved Script Master boards are not handed off either');
+  assert.deepEqual(existingBoard.assets, []);
+  assert.throws(() => buildImportMaterial(input, new Map([[1, board]])), /资产名称/, 'standalone retains full validation');
+});
 
 test('empty host project uses the submitted idea for preparation without changing existing input', () => {
   const result = inspirationRequestProject(project, ' 两个人在院子重逢 ', EMPTY_INSPIRATION_BRIEF);

@@ -10,6 +10,7 @@ from app.modules.content_spec.models import (
     TagRef,
 )
 from app.modules.content_spec.market_profile import market_profile_metadata
+from app.modules.content_spec.overseas_story_profile import content_spec_overseas_story_profile
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.ontology_node.repository import OntologyNodeRepository
 from app.modules.platform_profile.repository import PlatformProfileRepository
@@ -81,6 +82,12 @@ class ContentSpecService:
         except ValueError as exc:
             raise MarketProfileConflictError(str(exc)) from exc
         content_spec = ContentSpec.model_validate(content_spec_payload)
+        metadata = dict(content_spec.metadata)
+        profile = content_spec_overseas_story_profile(content_spec)
+        metadata.pop("overseas_story_profile", None)
+        if profile is not None:
+            metadata["overseas_story_profile"] = profile
+        content_spec = content_spec.model_copy(update={"metadata": metadata})
         return self._repository.save(content_spec)
 
     def resolve_creative_intent(
@@ -130,6 +137,8 @@ class ContentSpecService:
                     "source": "creative_intent_resolution_v1",
                     "creative_intent_schema_version": payload.schema_version,
                     "story_goal_source": story_goal_source,
+                    **({"overseas_story_profile": payload.request_metadata["overseas_story_profile"]}
+                       if "overseas_story_profile" in payload.request_metadata else {}),
                 },
             )
         )

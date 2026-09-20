@@ -185,11 +185,11 @@ function visit(node) {
 }
 visit(parsed);
 const clickJs = ts.transpileModule(clickSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-for (const failedSync of [true, false]) {
-  test(`actual leaf button ${failedSync ? 'does not run after failed initial sync' : 'uses acknowledged checkpoints and leaves results unapproved'}`, async () => {
+for (const wholeOutlineConfirmation of [false, true]) for (const failedSync of [true, false]) {
+  test(`${wholeOutlineConfirmation ? 'integrated' : 'standalone'} actual leaf button ${failedSync ? 'does not run after failed initial sync' : 'uses acknowledged checkpoints and leaves results unapproved'}`, async () => {
     const { state, deps } = harness(); let job;
     const bindings = {
-      rebuildStartingRef: { current: false }, rebuildTaskActive: false, operationLocked: false,
+      rebuildStartingRef: { current: false }, rebuildTaskActive: false, operationLocked: false, wholeOutlineConfirmation,
       setBusy: () => {}, setMessage: message => { state.message = message; },
       project: deps.project, node: deps.node, getProject: () => state.current,
       syncProjectSnapshot: async () => ({ status: failedSync ? 'error' : 'synced' }),
@@ -209,7 +209,7 @@ for (const failedSync of [true, false]) {
     } else {
       assert.deepEqual(state.calls, [56, 57]);
       assert.equal(state.current.episodeRoadmaps.find(row => row.episode_number === 56).status, 'draft');
-      assert.match(state.message, /逐集复核并批准/);
+      assert.match(state.message, wholeOutlineConfirmation ? /顶部统一确认后续大纲/ : /逐集复核并批准/);
     }
   });
 }

@@ -77,7 +77,7 @@ def test_future_obligation_survives_until_actual_review_without_changing_verdict
     assert result.execution_requirements == ([] if realized else [note])
 
 
-def test_new_model_requirement_is_bound_to_current_event_and_rejects_realized_deferral():
+def test_new_model_requirement_is_bound_to_current_event_and_surfaces_realized_gap():
     service, node, request = audit_case()
     service._generate_planning_output = lambda **kwargs: StoryPlanQualityModelOutput(
         overall_summary="后续取件可在已分配事件内落实。", evaluations=[StoryPlanQualityEvaluation(
@@ -88,8 +88,79 @@ def test_new_model_requirement_is_bound_to_current_event_and_rejects_realized_de
     assert result.execution_requirements[0].node_id == node.node_id
     request.episode_plans = [quality_episode_projection({
         "source_node_id": node.node_id, "source_node_version": node.version, "episode_number": 1})]
-    with pytest.raises(StoryPlanningInputError, match="cannot be deferred"):
+    result = service.audit_story_plan_quality(request)
+    assert result.status.value == "needs_revision"
+    assert result.execution_requirements == []
+    assert result.findings[0].issue_codes == ["existing_episode_execution_gap"]
+    assert result.findings[0].repair_instruction == requirement().instruction
+    assert result.findings[0].start_episode == result.findings[0].end_episode == 1
+
+
+def test_existing_gap_review_keeps_every_instruction_and_resumes_without_a_model_call():
+    from app.modules.script_engine.planning_review_progress import quality_review_checkpoints
+
+    service, node, request = audit_case()
+    notes = [requirement().model_copy(update={"instruction": prefix + "核对已批准事件的执行依据。" * 35})
+             for prefix in ("先确认保管人：", "再确认交接后果：", "最后核对凭据：")]
+    future = requirement(8, 4)
+    request.episode_plans = [quality_episode_projection({
+        "source_node_id": node.node_id, "source_node_version": node.version, "episode_number": 1})]
+    calls = []
+    def model(**kwargs):
+        calls.append(kwargs)
+        return StoryPlanQualityModelOutput(overall_summary="已有场景仍须核对执行依据。", evaluations=[
+            StoryPlanQualityEvaluation(node_id=node.node_id, node_version=node.version,
+                status="needs_revision", summary="已有修订建议须保留。", issue_codes=["original_issue"],
+                repair_instruction="保留原审查提出的修订事项。", execution_requirements=[*notes, future])])
+    service._generate_planning_output = model
+    checkpoints = []
+    with quality_review_checkpoints({}, checkpoints.append):
+        result = service.audit_story_plan_quality(request)
+    assert len(calls) == 1 and checkpoints
+    assert result.status.value == "needs_revision"
+    instructions = [finding.repair_instruction for finding in result.findings]
+    assert instructions == ["保留原审查提出的修订事项。", *[note.instruction for note in notes]]
+    assert [note.instruction for note in result.execution_requirements] == [future.instruction]
+    service._generate_planning_output = lambda **kwargs: pytest.fail("Saved group should resume without another model call")
+    with quality_review_checkpoints(checkpoints[-1], lambda value: None):
+        restored = service.audit_story_plan_quality(request)
+    assert restored.findings == result.findings
+    assert restored.execution_requirements == result.execution_requirements
+
+
+def test_existing_model_gap_still_rejects_wrong_event_ownership():
+    service, node, request = audit_case()
+    request.episode_plans = [quality_episode_projection({
+        "source_node_id": node.node_id, "source_node_version": node.version, "episode_number": 1})]
+    service._generate_planning_output = lambda **kwargs: StoryPlanQualityModelOutput(
+        overall_summary="执行依据需核对。", evaluations=[StoryPlanQualityEvaluation(
+            node_id=node.node_id, node_version=node.version, status="pass", summary="仍有执行备注。",
+            execution_requirements=[requirement(1, 12)])])
+    with pytest.raises(StoryPlanningInputError, match="allocated to that episode"):
         service.audit_story_plan_quality(request)
+
+
+@pytest.mark.parametrize("gap_episode,index,expected_scope_status", [(1, 1, "pass"), (8, 4, "needs_revision")])
+def test_existing_execution_gap_blocks_only_its_future_review_scope(gap_episode, index, expected_scope_status):
+    service, node, request = audit_case()
+    service._future_quality_context = lambda payload: {
+        "revision_id": "revision.test", "planning_revision_epoch": 1,
+        "start_episode": 5, "end_episode": 8, "evidence_signature": "a" * 64,
+    }
+    service._build_story_plan_quality_prompt = lambda **kwargs: "核对当前分集与未来修订范围。"
+    request.episode_plans = [quality_episode_projection({
+        "source_node_id": node.node_id, "source_node_version": node.version, "episode_number": gap_episode})]
+    service._generate_planning_output = lambda **kwargs: StoryPlanQualityModelOutput.model_validate({
+        "overall_summary": "执行备注仍须落实。", "evaluations": [{
+            "node_id": node.node_id, "node_version": node.version, "status": "pass", "summary": "模型将已有场景问题误放入执行备注。",
+            "execution_requirements": [requirement(gap_episode, index).model_dump()]}],
+        "future_revision_evaluation": {"status": "pass", "summary": "固定边界无新增冲突。"},
+    })
+    result = service.audit_story_plan_quality(request)
+    assert result.status.value == "needs_revision"
+    assert result.future_revision_review.status == expected_scope_status
+    assert result.execution_requirements == []
+    assert result.findings[0].start_episode == gap_episode
 
 
 def test_same_event_model_notes_merge_losslessly_in_the_original_review_call():

@@ -1,0 +1,58 @@
+.host-stage-content .host-episode-planning-nav {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border, rgba(148, 163, 184, .22));
+  border-radius: 12px;
+}
+.host-stage-content .host-episode-planning-current { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.host-stage-content .host-episode-planning-current label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; }
+.host-stage-content .host-episode-planning-current select { width: 100%; min-width: 0; padding: 9px 10px; background: var(--surface, transparent); color: inherit; border: 1px solid var(--border, rgba(148, 163, 184, .22)); border-radius: 8px; }
+.host-stage-content .host-episode-planning-paging { display: flex; gap: 6px; }
+.host-stage-content .host-episode-planning-paging button { min-height: 36px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.host-stage-content .host-episode-planning-overview { margin-top: 0; min-width: 0; }
+.host-stage-content .host-episode-planning-overview[open] { grid-column: 1 / -1; }
+.host-stage-content .host-episode-planning-overview > summary { cursor: pointer; font-size: 12px; padding: 8px 0; color: var(--ink-soft); }
+.host-stage-content .host-episode-planning-overview > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; margin-top: 10px; max-height: 360px; overflow: auto; }
+.host-stage-content .host-episode-overview-item { text-align: left; color: inherit; background: transparent; border: 1px solid var(--border, rgba(148, 163, 184, .22)); padding: 12px; border-radius: 8px; min-width: 0; cursor: pointer; }
+.host-stage-content .host-episode-overview-item[aria-pressed="true"] { border-color: currentColor; }
+.host-stage-content .host-episode-overview-item > strong { display: block; font-size: 13px; }
+.host-stage-content .host-episode-overview-item > span { font-size: 11px; opacity: .65; }
+.host-stage-content .host-episode-overview-item > p { margin: 5px 0 0; font-size: 12px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.host-stage-content .host-planning-structure-toggle { justify-self: end; margin-top: 0; padding: 8px 0; font-size: 12px; }
+.host-stage-content .host-episode-planning-overview[open] + .host-planning-structure-toggle { grid-column: 1 / -1; }
+.host-stage-content .host-episode-planning-slot[hidden] { display: none !important; }
+.host-stage-content.is-focused-episode .story-plan-branch > .story-plan-node-card { display: none; }
+.host-stage-content.is-focused-episode .story-plan-branch:not([data-focused-roadmap="true"]):not(:has([data-focused-roadmap="true"])) { display: none; }
+.host-stage-content.is-focused-episode .story-plan-branch[data-focused-roadmap="true"] > .story-plan-node-card { display: block; }
+.host-stage-content.is-focused-episode .story-plan-node-summary,
+.host-stage-content.is-focused-episode .story-plan-children-group > summary,
+.host-stage-content.is-focused-episode .story-plan-node-document > :not(.story-plan-episode-plans):not(.inline-notice),
+.host-stage-content.is-focused-episode .story-plan-roadmap-heading { display: none; }
+.host-stage-content.is-focused-episode .story-plan-branch,
+.host-stage-content.is-focused-episode .story-plan-children-group,
+.host-stage-content.is-focused-episode .story-plan-children { margin-left: 0; padding-left: 0; border-left: 0; }
+.host-stage-content.is-focused-episode .story-plan-node-card,
+.host-stage-content.is-focused-episode .story-plan-node-content,
+.host-stage-content.is-focused-episode .story-plan-node-document { padding: 0; border: 0; }
+.host-stage-content.is-focused-episode .episode-planning-card { margin-top: 0; }
+.is-three-stage .host-planning-help { display: flex; align-items: center; gap: 6px; flex: none; margin-bottom: 10px; color: var(--ink-faint); font-size: 12px; line-height: 1.5; }
+.is-three-stage .host-planning-help .section-help { flex: none; }
+.is-three-stage .host-planning-help .section-help-popover { left: auto; right: 0; }
+.host-stage-content .story-plan-toolbar-stack { top: 0; background: var(--canvas); border-bottom: 1px solid var(--line); }
+.host-stage-content .story-plan-toolbar-stack .story-plan-document-toolbar { padding: 4px 0 8px; gap: 2px 10px; }
+.host-stage-content .story-plan-stage-actions > :is(button, a) { min-height: 34px; padding: 6px 10px; font-size: 12px; }
+.host-story-source.creator-page { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.host-story-source .creator-inspector { max-width: none; }
+.host-story-source .inspector-sticky { position: static; }
+.host-story-source .inspector-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.host-story-source .inspector-actions .full-width { width: auto; }
+@media (max-width: 760px) {
+  .host-stage-content .host-episode-planning-current { align-items: stretch; flex-wrap: wrap; }
+  .host-stage-content .host-episode-planning-current label { flex-basis: 100%; }
+  .host-stage-content .host-episode-planning-paging { width: 100%; }
+  .host-stage-content .host-episode-planning-paging button { flex: 1; min-height: 40px; }
+}

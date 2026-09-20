@@ -13,6 +13,7 @@ from app.modules.agent_runtime.models import (
 )
 from app.modules.agent_runtime.runtime import AgentSession
 from app.modules.agent_runtime.service import AgentRunService, fingerprint_input
+from app.modules.agent_runtime.stream_lifecycle import start_stream_session
 from app.modules.script_engine.generation_service import ScriptGenerationService
 from app.modules.script_engine.llm_adapter import bind_llm_log_context
 from app.modules.script_engine.result_projection import compact_generation_payload, compact_generation_result
@@ -77,7 +78,7 @@ class EpisodeScriptAgent:
         subject_ref = f"{payload.content_spec_id}:episode-{episode_number}"
         start = None
         if self._run_service is not None and self._run_service.available:
-            start = self._run_service.start_session(
+            start = start_stream_session(self._run_service, lambda: self._run_service.start_session(
                 agent_name="episode_script",
                 subject_ref=subject_ref,
                 policy=SCRIPT_AGENT_POLICY,
@@ -91,7 +92,7 @@ class EpisodeScriptAgent:
                 project_id=payload.story_project_id,
                 planning_revision_epoch=payload.planning_revision_epoch,
                 episode_number=episode_number or None,
-            )
+            ))
             if start.session is None:
                 result_payload = start.result_payload or {}
                 draft_run = ScriptGenerationDraftRun.model_validate(

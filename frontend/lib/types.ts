@@ -2,7 +2,9 @@ import type { AuthorModificationInstruction } from "./author-modification-instru
 import type { ProducedBodyResolutionRequest, ProducedBodyResolutionReceipt } from "./produced-body-resolution";
 import type { EpisodeExecutionPlan, StoryNodeExecutionContext } from "./episode-generation-planning";
 import type { MemoryRecall } from "./memory-recall";
+import type { QuickScriptState } from "./quick-script-types";
 import type { EpisodePlanImportDraft } from "./episode-plan-import-adapter";
+import { normalizeOverseasStoryProfile } from "./overseas-story-profile";
 
 export type ProjectStatus = "idea" | "generating" | "draft" | "finalizing" | "deepened" | "final";
 
@@ -156,6 +158,14 @@ export function releaseRegionForMarketProfile(
   return marketProfile === "overseas_tiktok" ? "overseas" : "cn_mainland";
 }
 
+export interface OverseasStoryProfile {
+  enabled: true;
+  country: string;
+  region: string;
+  socialContext: string;
+  storyEngine: string;
+}
+
 export interface GenerationSettings {
   mode: GenerationMode;
   episodeCountMode: EpisodeCountMode;
@@ -169,6 +179,7 @@ export interface GenerationSettings {
   failureRetryMode: FailureRetryMode;
   releaseRegion: ReleaseRegion;
   customInstructions: string;
+  overseasStoryProfile?: OverseasStoryProfile;
 }
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
@@ -192,6 +203,11 @@ export function enforceMarketDeliveryContract(
   settings: GenerationSettings,
   marketProfile: ProjectMarketProfile,
 ): GenerationSettings {
+  if (Object.hasOwn(settings, "overseasStoryProfile")) {
+    const { overseasStoryProfile: value, ...rest } = settings;
+    const profile = normalizeOverseasStoryProfile(value);
+    settings = { ...rest, ...(profile ? { overseasStoryProfile: profile } : {}) };
+  }
   if (marketProfile === "cn_mainland") {
     return {
       ...settings,
@@ -211,6 +227,10 @@ export function enforceMarketDeliveryContract(
 
 export interface ScriptProject {
   id: string;
+  /** Product workflow; absent legacy values retain the standard workflow. */
+  creationMode?: "standard" | "quick";
+  /** Server-managed quick plan, checkpoints and review provenance. */
+  quickWorkflow?: QuickScriptState;
   hostDeliveryTargetProjectId?: string;
   title: string;
   titleSource: ProjectTitleSource;
@@ -565,6 +585,7 @@ export interface StoryInspirationMessage {
   questions: StoryInspirationFrontierQuestion[];
   candidate_history?: Record<string, string[]>;
   createdAt: string;
+  progress?: import("@/lib/copilot-progress").CopilotProgress;
 }
 
 export interface StoryInspirationSession {
@@ -1308,6 +1329,7 @@ export interface MasterScriptFinalizationResult {
 export interface ProjectDraft {
   /** Host handoffs may provide the stable main-project identifier. */
   id?: string;
+  creationMode?: "standard" | "quick";
   hostDeliveryTargetProjectId?: string;
   title: string;
   titleSource: ProjectTitleSource;

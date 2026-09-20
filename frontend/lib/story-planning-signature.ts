@@ -1,6 +1,8 @@
 import type { ScriptProject } from "@/lib/types";
+import { overseasStoryProfileForApi } from "./overseas-story-profile";
 
 export function creativeDirectionInputSignature(project: ScriptProject): string {
+  const profile = overseasStoryProfileForApi(project.generationSettings);
   return JSON.stringify({
     creativePrompt: project.creativePrompt.trim(),
     referenceMaterials: referenceMaterialSignature(project),
@@ -8,10 +10,12 @@ export function creativeDirectionInputSignature(project: ScriptProject): string 
     customTags: (project.customTags ?? [])
       .map((item) => [item.id, item.label.trim()])
       .sort(([left], [right]) => left.localeCompare(right)),
+    ...(profile ? { overseasStoryProfile: profile } : {}),
   });
 }
 
 export function storyPlanningInputSignature(project: ScriptProject): string {
+  const profile = overseasStoryProfileForApi(project.generationSettings);
   return JSON.stringify({
     creativePrompt: project.creativePrompt.trim(),
     referenceMaterials: referenceMaterialSignature(project),
@@ -34,6 +38,7 @@ export function storyPlanningInputSignature(project: ScriptProject): string {
       targetTotalCharacters: project.generationSettings.targetTotalCharacters,
       storyDensity: project.generationSettings.storyDensity,
       customInstructions: project.generationSettings.customInstructions.trim(),
+      ...(profile ? { overseasStoryProfile: profile } : {}),
     },
   });
 }

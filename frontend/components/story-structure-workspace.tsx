@@ -10,6 +10,7 @@ import { SectionHelp } from "@/components/section-help";
 import { StoryPlanNodePanel } from "@/components/story-plan-node-panel";
 import { loadStoryBible, type StoryBible } from "@/lib/story-planning-client";
 import { workspaceSectionAccess } from "@/lib/workspace-stage";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import type { ScriptProject } from "@/lib/types";
 import { userFacingError } from "@/lib/api-error";
 import { useLocale } from "@/providers/locale-provider";
@@ -20,6 +21,7 @@ export function StoryStructureWorkspace() {
   const router = useRouter();
   const { getProject, isReady, updateProject } = useProjects();
   const { t } = useLocale();
+  const scriptWorkflow = useHostScriptWorkflow();
   const project = getProject(params.projectId);
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [loading, setLoading] = useState(true);
@@ -80,7 +82,10 @@ export function StoryStructureWorkspace() {
 
   return (
     <main className="planning-workspace story-structure-workspace page-reveal">
-      <header className="planning-workspace-header story-structure-header">
+      {scriptWorkflow === true ? <header className="host-planning-help">
+        <span>按集查看和调整，完成后统一确认大纲</span>
+        <SectionHelp content={t("guide.storyTree")} label="查看分集大纲操作说明" />
+      </header> : <header className="planning-workspace-header story-structure-header">
         <div>
           <span className="section-kicker">{t("storyStructure.kicker")}</span>
           <div className="section-title-with-help">
@@ -92,7 +97,7 @@ export function StoryStructureWorkspace() {
         <Link className="outline-action" href={`/projects/${project.id}/planning`}>
           {t("storyStructure.backToBible")}
         </Link>
-      </header>
+      </header>}
 
       {project.storyBibleStatus !== "approved" ? (
         <section className="story-structure-gate">

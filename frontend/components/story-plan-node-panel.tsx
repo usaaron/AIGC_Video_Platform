@@ -1,5 +1,8 @@
 "use client";
 
+import { useCopilotProgress } from "@/lib/use-copilot-progress";
+import type { CopilotProgress } from "@/lib/copilot-progress";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -32,11 +35,14 @@ import {
   planningRevisionSourceIssues, replaceRevisionRoadmap, retainRevisionRoadmaps, revisionRoadmapsForNode, startPlanningRevision,
 } from "@/lib/planning-revision";
 import { planningCharacterNameFormatter } from "@/lib/canonical-character-names";
+import { preparePlanningBatchApproval } from "@/lib/planning-batch-approval";
 import { characterMatchesReference } from "@/lib/character-reference";
 import { editStoryPlanEpisodeBoundary, editStoryPlanNodeBoundary } from "@/lib/story-plan-boundary-editing";
 import { assertStoryPlanEventEditPreservesSources } from "@/lib/story-plan-event-editing";
 
 import { ArrowIcon } from "@/components/icons";
+import { isHostScriptWorkflow } from "@/lib/host-navigation";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import { ProducedPlanAmendmentPanel } from "@/components/produced-plan-amendment-panel";
 import type { DocumentOutlineEntry } from "@/components/document-outline";
 import {
@@ -45,6 +51,8 @@ import {
   type PlanningCanvasMessage,
 } from "@/components/planning-canvas-copilot";
 import { StoryPlanDetailsEditor } from "@/components/story-plan-details-editor";
+import { StoryPlanReview, planningReviewRange, type PlanningReviewFinding } from "@/components/story-plan-review";
+import { EpisodePlanningCard } from "@/components/episode-planning-card";
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { SectionHelp } from "@/components/section-help";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
@@ -147,6 +155,7 @@ import type {
   EpisodeRoadmapItem,
   ProjectOutputMode,
   ScriptProject,
+  StoryTreeQualityAudit,
 } from "@/lib/types";
 import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
@@ -180,9 +189,11 @@ type GlobalRevisionEntry = {
 };
 
 type StoryPlanAssistantState = {
+  progress: CopilotProgress | null;
   busy: boolean;
   disabled: boolean;
   instruction: string;
+  nodeInstruction: string;
   messages: PlanningCanvasMessage[];
   onClearSelection: () => void;
   onEditMessage: (messageId: string, text: string, quote?: StoryBibleSelectionContext | null) => void;
@@ -201,12 +212,36 @@ type RoadmapRevisionMerger = (latest: EpisodeRoadmapItem) => EpisodeRoadmapItem;
 
 const STORY_PLAN_ROOT_MARKER = "system_story_bible_root.v1";
 
+function planningConfirmationProjectSnapshot(project: ScriptProject): string {
+  const { serverSync: _sync, ...content } = project;
+  return JSON.stringify(content);
+}
+
+function planningConfirmationNodeSnapshot(nodes: StoryPlanNode[]): string {
+  return JSON.stringify([...nodes].sort((left, right) => left.node_id.localeCompare(right.node_id)));
+}
+
 function storyPlanNodeAnchor(nodeId: string): string {
   return `story-plan-node-${nodeId}`;
 }
 
 function storyPlanRoadmapAnchor(nodeId: string, episodeNumber: number): string {
   return `story-plan-roadmap-${nodeId}-${episodeNumber}`;
+}
+
+function revealPlanningTarget(id: string) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  // Keep editors mounted while folded, and reveal them before any directory jump.
+  for (let parent: HTMLElement | null = target; parent; parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true;
+  }
+  if (target.hasAttribute("data-roadmap-episode")) {
+    const details = target.querySelector<HTMLDetailsElement>(".episode-planning-details");
+    if (details) details.open = true;
+  }
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  target.focus({ preventScroll: true });
 }
 
 function episodeRoadmapDisplayTitle(item: EpisodeRoadmapItem): string {
@@ -307,6 +342,9 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const { t } = useLocale();
   const { createProject, updateProject, getProject, syncProjectSnapshot, retryProjectSync, adoptServerProjectSnapshot } = useProjects();
   const router = useRouter();
+  const scriptWorkflow = useHostScriptWorkflow();
+  const [selectedPlanningEpisode, setSelectedPlanningEpisode] = useState<number | null>(null);
+  const [fullPlanningStructure, setFullPlanningStructure] = useState(false);
   const projectCopyLocked = Boolean(hostProjectId());
   const [topLevelNodes, setTopLevelNodes] = useState<StoryPlanNode[]>([]);
   const [activeTreeNodes, setActiveTreeNodes] = useState<StoryPlanNode[]>([]);
@@ -347,6 +385,11 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const [episodePlanMaterializationBlocks, setEpisodePlanMaterializationBlocks] = useState<EpisodePlanMaterializerBlock[]>([]);
   const [episodePlanRoadmapDraftBlocks, setEpisodePlanRoadmapDraftBlocks] = useState<EpisodePlanRoadmapDraftBlock[]>([]);
   const planningActionInFlightRef = useRef(false);
+  const batchConfirmationScopeRef = useRef(0);
+  useEffect(() => {
+    batchConfirmationScopeRef.current += 1;
+    return () => { batchConfirmationScopeRef.current += 1; };
+  }, [project.id, storyBible.story_bible_id, storyBible.version]);
   const latestProjectRef = useRef(project);
   const latestTreeNodesRef = useRef(activeTreeNodes);
   latestTreeNodesRef.current = activeTreeNodes;
@@ -357,8 +400,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const revisingFuturePlanning = isPlanningRevisionActive(project);
   const planningLocked = project.planningSession?.phase === "script"
     && project.planningSession.status === "approved" && !revisingFuturePlanning;
-  const qualityRevisionMessage = !planningLocked && !revisingFuturePlanning && currentQualityAudit
-    && (currentQualityAudit.status === "needs_revision" || currentQualityAudit.findings.length > 0)
+  const qualityRevisionMessage = !planningLocked && currentQualityAudit
+    && (revisingFuturePlanning
+      ? scriptWorkflow === true && currentQualityAudit.findings.some(item => item.end_episode >= project.planningRevision!.startEpisode)
+      : currentQualityAudit.status === "needs_revision" || currentQualityAudit.findings.length > 0)
     ? storyPlanQualityRevisionMessage(currentQualityAudit) : null;
   const [revisionStartEpisode, setRevisionStartEpisode] = useState(() => nextUnwrittenPlanningEpisode(project));
   useEffect(() => {
@@ -367,6 +412,11 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const planningCheckpointSaved = project.planningSession?.status === "active";
   const assistantGettersRef = useRef(new Map<string, () => StoryPlanAssistantState>());
   const [activeAssistantNodeId, setActiveAssistantNodeId] = useState<string | null>(null);
+  const [assistantFocusRequest, setAssistantFocusRequest] = useState(0);
+  const [reviewAdviceNodeId, setReviewAdviceNodeId] = useState<string | null>(null);
+  const [reviewAdviceRange, setReviewAdviceRange] = useState("");
+  const [pendingReviewAdvice, setPendingReviewAdvice] = useState<PlanningReviewFinding | null>(null);
+  const [pendingStageFocus, setPendingStageFocus] = useState(false);
   const [, setAssistantRevision] = useState(0);
   const [autoExpansionRequested, setAutoExpansionRequested] = useState(false);
   const [revisionHistory, setRevisionHistory] = useState<GlobalRevisionEntry[]>([]);
@@ -401,6 +451,29 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     ),
     [activeTreeNodes, project.episodeRoadmaps, topLevelNodes],
   );
+  const hostEpisodePlans = useMemo(() => activeTreeNodes
+    .flatMap(node => revisionRoadmapsForNode(project, node))
+    .sort((left, right) => left.episode_number - right.episode_number), [activeTreeNodes, project]);
+  const focusedEpisodePlan = hostEpisodePlans.find(item => item.episode_number === selectedPlanningEpisode)
+    ?? hostEpisodePlans.find(item => !isApprovedEpisodeRoadmap(item)) ?? hostEpisodePlans[0];
+  const focusedEpisodeNumber = scriptWorkflow === true && !fullPlanningStructure
+    ? focusedEpisodePlan?.episode_number ?? null : null;
+  const focusedEpisodeIndex = hostEpisodePlans.findIndex(item => item.episode_number === focusedEpisodePlan?.episode_number);
+  useEffect(() => {
+    setSelectedPlanningEpisode(null);
+    setFullPlanningStructure(false);
+  }, [project.id, storyBible.story_bible_id, storyBible.version]);
+  useEffect(() => {
+    if (focusedEpisodeNumber === null || !focusedEpisodePlan) return;
+    setActiveAssistantNodeId(focusedEpisodePlan.source_node_id);
+    setActiveOutlineId(storyPlanRoadmapAnchor(focusedEpisodePlan.source_node_id, focusedEpisodeNumber));
+    const frame = window.requestAnimationFrame(() => {
+      const card = document.getElementById(storyPlanRoadmapAnchor(focusedEpisodePlan.source_node_id, focusedEpisodeNumber));
+      const details = card?.querySelector<HTMLDetailsElement>(".episode-planning-details");
+      if (details) details.open = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusedEpisodeNumber, focusedEpisodePlan?.source_node_id]);
   useEffect(() => {
     setTreeAuthorInstruction("");
     setTreeInstructionOpen(false);
@@ -417,6 +490,9 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   }, [project.id, project.episodePlanImportDraft]);
   useEffect(() => {
     setRevisionHistory([]);
+    setPendingReviewAdvice(null);
+    setReviewAdviceNodeId(null);
+    setPendingStageFocus(false);
   }, [project.id, storyBible.story_bible_id, storyBible.version]);
   const topLevelTaskKey = `full-tree:${project.id}:${storyBible.story_bible_id}:${storyBible.version}:${project.planningRevisionEpoch ?? 0}`;
   const topLevelTask = useTrackedPlanningTask(topLevelTaskKey);
@@ -936,6 +1012,8 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const roadmapDraftsComplete = treeProgress.expansionComplete
     && Array.from({ length: project.generationSettings.episodeCount }, (_, index) => index + 1)
       .every((number) => draftedEpisodeNumbers.has(number));
+  const qualityAuditRetryAvailable = roadmapDraftsComplete && !currentQualityAudit
+    && !planningLocked && !revisingFuturePlanning;
   const pendingRoadmapReviewCount = treeProgress.expansionComplete
     ? (project.episodeRoadmaps ?? []).filter((item) => (
       activeRoadmapSources.has(
@@ -953,7 +1031,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     .replace("{total}", String(treeProgress.plannedEpisodeCount));
   const planningComplete = treeProgress.expansionComplete && roadmapGenerationComplete;
   const planningActionLabel = planningPartId ? "生成这一部分的下一层" : roadmapDraftsComplete && pendingRoadmapReviewCount > 0
-    ? `检查待审分集 (${pendingRoadmapReviewCount})`
+    ? `检查待确认分集（${pendingRoadmapReviewCount}集）`
     : !stepByStep
       ? !topLevelNodes.length ? "生成完整规划" : "继续生成规划"
       : !topLevelNodes.length
@@ -966,12 +1044,16 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const planningActionIcon = treeProgress.expansionComplete
         ? <ListTree aria-hidden="true" size={15} />
         : <GitBranch aria-hidden="true" size={15} />;
-  const planningProgressDetail = !stepByStep
-    ? `分集规划 ${draftedEpisodeNumbers.size}/${project.generationSettings.episodeCount} 集 · 已批准 ${treeProgress.generatedRoadmapCount} 集`
+  const planningProgressDetail = scriptWorkflow === true && roadmapDraftsComplete
+    ? `${draftedEpisodeNumbers.size} 集大纲草稿已就绪 · ${qualityRevisionMessage ? "请先处理待调整项" : "可继续修改或统一确认"}`
+    : !stepByStep
+    ? roadmapDraftsComplete
+      ? `${draftedEpisodeNumbers.size} 集规划已生成 · ${qualityRevisionMessage ? `${currentQualityAudit?.findings.length || 1} 处待调整` : qualityAuditRetryAvailable ? "待检查剧情" : pendingRoadmapReviewCount ? `${pendingRoadmapReviewCount} 集待确认` : "可以开始正文"}`
+      : `正在准备分集规划 · 已生成 ${draftedEpisodeNumbers.size}/${project.generationSettings.episodeCount} 集`
     : pendingReviewCount > 0
     ? t("storyPlanNode.layerReviewPending").replace("{count}", String(pendingReviewCount))
     : pendingRoadmapReviewCount > 0
-      ? `已有${pendingRoadmapReviewCount}集路线图待审核，请逐集批准后继续`
+      ? `还有 ${pendingRoadmapReviewCount} 集规划待确认`
     : !topLevelNodes.length
     ? t("storyPlanNode.waitingFirstLayer")
     : treeProgress.expansionComplete
@@ -1001,6 +1083,60 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       && item.storyBibleId === storyBible.story_bible_id
       && item.storyBibleVersion === storyBible.version,
   );
+
+  async function retryStoryPlanQualityAudit() {
+    if (
+      !qualityAuditRetryAvailable
+      || !onProjectUpdate
+      || planningActionInFlightRef.current
+      || busy
+      || loadError
+      || topLevelTaskActive
+      || roadmapBatchTaskActive
+      || activeBranchInteractions.size > 0
+      || episodePlanImportBusy
+      || episodePlanMaterializationBusy
+    ) return;
+    planningActionInFlightRef.current = true;
+    setBusy("review");
+    setMessage(null);
+    try {
+      const requestProject = getProject(project.id) ?? latestProjectRef.current;
+      const syncState = await syncProjectSnapshot(requestProject);
+      if (syncState.status !== "synced") {
+        setMessage(t("storyBible.syncRequired"));
+        return;
+      }
+      const leaves = storyPlanQualityFrontierNodes(latestTreeNodesRef.current);
+      await requireStoryPlanQuality({
+        runAudit: () => auditStoryPlanQuality(requestProject, storyBible, leaves),
+        onCheckpoint: async (audit) => {
+          let retained = false;
+          await persistProjectUpdate(onProjectUpdate, (current) => {
+            retained = current.id === requestProject.id
+              && (current.planningRevisionEpoch ?? 0) === (requestProject.planningRevisionEpoch ?? 0)
+              && storyPlanQualityAuditMatchesNodes(
+                audit, storyPlanQualityFrontierNodes(latestTreeNodesRef.current), current.episodeRoadmaps,
+                { project: current },
+              );
+            // Save only the audit so concurrent screenplay drafts remain intact.
+            return retained ? { storyTreeQualityAudit: audit } : {};
+          });
+          if (!retained) {
+            throw new Error("检查期间规划内容已变化，请重新检查最新规划。已有内容已保留。");
+          }
+        },
+      });
+      setMessage(scriptWorkflow === true ? "剧情检查通过。完成修改后，可统一确认大纲并进入正文。" : "剧情检查通过。请逐集查看并确认规划，再开始正文。");
+    } catch (error) {
+      setMessage(error instanceof StoryPlanQualityError
+        ? error.message
+        : userFacingError(error, "剧情质量检查未完成，请重试检查；已保存的分集规划会保留。"));
+    } finally {
+      planningActionInFlightRef.current = false;
+      setBusy(null);
+    }
+  }
 
   async function inspectEpisodePlanSource() {
     if (
@@ -1117,7 +1253,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
         && item.storyBibleVersion === episodePlanMaterializationDraft.storyBibleVersion,
     );
     if (existingReceipt) {
-      setEpisodePlanImportMessage("这份分集规划已经保存，可以继续逐集确认。");
+      setEpisodePlanImportMessage(scriptWorkflow === true ? "这份分集大纲草稿已经保存，完成修改后可统一确认。" : "这份分集规划已经保存，可以继续逐集确认。");
       return;
     }
     const roadmapPreview = buildEpisodeRoadmapDraftsFromMaterialization(
@@ -1128,7 +1264,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       },
     );
     const confirmationMessage = roadmapPreview.ok
-      ? `确认加入 ${episodePlanMaterializationDraft.mappings.length} 集分集规划？确认后仍需逐集检查，之后才能进入正文。`
+      ? scriptWorkflow === true ? `确认加入 ${episodePlanMaterializationDraft.mappings.length} 集分集大纲草稿？你可以继续修改，之后统一确认整份大纲。` : `确认加入 ${episodePlanMaterializationDraft.mappings.length} 集分集规划？确认后仍需逐集检查，之后才能进入正文。`
       : `确认保存 ${episodePlanMaterializationDraft.mappings.length} 集分集规划资料？其中还有 ${roadmapPreview.blocks.length} 项内容需要补充，本次不会加入规划。`;
     if (!window.confirm(confirmationMessage)) return;
 
@@ -1221,7 +1357,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       setEpisodePlanRoadmapDraftBlocks(roadmapResult.blocks);
       setEpisodePlanImportMessage(
         roadmapResult.ok
-          ? `已整理 ${roadmapResult.roadmaps.length} 集分集规划，逐集确认后即可进入正文。`
+          ? scriptWorkflow === true ? `已整理 ${roadmapResult.roadmaps.length} 集大纲草稿，完成修改后可统一确认并进入正文。` : `已整理 ${roadmapResult.roadmaps.length} 集分集规划，逐集确认后即可进入正文。`
           : `资料已读入，但还有 ${roadmapResult.blocks.length} 项内容需要补充，暂时不能加入分集规划。`,
       );
     } catch (error) {
@@ -1263,7 +1399,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
         throw new Error(syncState.error ?? t("storyBible.syncRequired"));
       }
       if (isPlanningRevisionActive(requestProject)) {
-        setMessage("后续规划修订草稿已保存，仍需逐集批准及完整审校。");
+        setMessage(scriptWorkflow === true ? "后续大纲草稿已保存，完成调整后点击“确认后续大纲”，系统会检查前后衔接。" : "后续规划修订草稿已保存，仍需逐集批准及完整审校。");
         return;
       }
       const planningSession = updatePlanningSession(requestProject, {
@@ -1299,7 +1435,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       latestProjectRef.current = saved;
       setRevisionHistory([]);
       setTreeRefreshToken((value) => value + 1);
-      setMessage(`第${revisionStartEpisode}集起的规划已重开，原文和原审核已保留。请修订并确认各集规划，完成时会自动核对前后衔接。`);
+      setMessage(scriptWorkflow === true ? `第${revisionStartEpisode}集起的大纲已重开，原文和原审核已保留。完成调整后统一确认后续大纲。` : `第${revisionStartEpisode}集起的规划已重开，原文和原审核已保留。请修订并确认各集规划，完成时会自动核对前后衔接。`);
     } catch (error) {
       setMessage(userFacingError(error, "未能开启后续修订，规划锁保持不变。"));
     } finally { setBusy(null); }
@@ -1411,6 +1547,10 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   }
 
   async function confirmPlanning(outputMode?: ProjectOutputMode) {
+    if (isHostScriptWorkflow()) {
+      await confirmWholePlanning();
+      return;
+    }
     if (isPlanningRevisionActive(latestProjectRef.current)) {
       await finishFuturePlanningRevision();
       return;
@@ -1428,14 +1568,17 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       showQualityRevisionSuggestions();
       return;
     }
-    if (!outputMode) {
+    const integratedScriptWorkflow = isHostScriptWorkflow();
+    const effectiveOutputMode = integratedScriptWorkflow ? "script_only" : outputMode;
+    if (!effectiveOutputMode) {
       setOutputModeChoiceOpen(true);
       return;
     }
     planningActionInFlightRef.current = true;
+    const outputModeUpdate = integratedScriptWorkflow ? {} : { productionOutputMode: outputMode };
     const requestProject = {
       ...latestProjectRef.current,
-      productionOutputMode: outputMode,
+      ...outputModeUpdate,
     };
     setOutputModeChoiceOpen(false);
     setBusy("confirm");
@@ -1484,13 +1627,14 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       const saved = await savePlanningSession(requestProject, planningSession);
       latestProjectRef.current = { ...requestProject, planningSession: saved };
       await persistProjectUpdate(onProjectUpdate, {
-        productionOutputMode: outputMode,
+        ...outputModeUpdate,
         planningSession: saved,
       });
       setRevisionHistory([]);
-      // The selected delivery path starts the script stage. Combined delivery
-      // continues into storyboard only after the saved script batch exists.
-      router.push(`/projects/${requestProject.id}/workspace?generate=1${outputMode === "script_and_storyboard" ? "&autoStoryboard=1" : ""}`);
+      // Host navigation only opens the script stage. Generation remains an
+      // explicit script action; standalone delivery keeps its existing path.
+      router.push(isHostScriptWorkflow() ? `/projects/${requestProject.id}/workspace`
+        : `/projects/${requestProject.id}/workspace?generate=1${effectiveOutputMode === "script_and_storyboard" ? "&autoStoryboard=1" : ""}`);
     } catch (error) {
       setMessage(error instanceof StoryPlanQualityError ? error.message : userFacingError(error, t("storyPlanNode.planningConfirmFailed")));
     } finally {
@@ -1499,12 +1643,229 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     }
   }
 
+  async function confirmWholePlanning() {
+    if (!isHostScriptWorkflow() || planningLocked || planningActionInFlightRef.current || busy || loadError
+      || !onProjectUpdate || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size
+      || episodePlanImportBusy || episodePlanMaterializationBusy) return;
+    if (qualityRevisionMessage) { showQualityRevisionSuggestions(); return; }
+    planningActionInFlightRef.current = true;
+    setBusy("confirm");
+    setMessage("正在核对整份大纲…");
+    const source = getProject(project.id) ?? latestProjectRef.current;
+    const requestScope = batchConfirmationScopeRef.current;
+    const projectSnapshot = planningConfirmationProjectSnapshot(source);
+    const nodeSnapshot = planningConfirmationNodeSnapshot(latestTreeNodesRef.current);
+    const assertSourceCurrent = () => {
+      const current = getProject(source.id) ?? latestProjectRef.current;
+      if (batchConfirmationScopeRef.current !== requestScope || latestProjectRef.current.id !== source.id
+        || planningConfirmationProjectSnapshot(current) !== projectSnapshot
+        || planningConfirmationNodeSnapshot(latestTreeNodesRef.current) !== nodeSnapshot) {
+        throw new Error("确认期间大纲或项目内容有了新修改，请查看最新内容后重新确认。已有内容已保留。");
+      }
+      return current;
+    };
+    try {
+      const sync = await syncProjectSnapshot(source);
+      if (sync.status !== "synced") throw new Error(sync.error ?? "大纲草稿尚未保存到服务器，请稍后重试确认。");
+      const synced = { ...assertSourceCurrent(), serverSync: sync };
+      const nodes = await loadActiveStoryPlanNodes(source.id, storyBible.story_bible_id, storyBible.version);
+      assertSourceCurrent();
+      if (planningConfirmationNodeSnapshot(nodes) !== nodeSnapshot) {
+        throw new Error("服务器上的剧情结构已有更新，请重新读取后确认大纲。");
+      }
+      const unfinishedSource = nodes.find(node => node.status !== "approved");
+      if (unfinishedSource) {
+        setFullPlanningStructure(true);
+        const anchor = storyPlanNodeAnchor(unfinishedSource.node_id);
+        setActiveOutlineId(anchor);
+        focusAssistant(unfinishedSource.node_id);
+        window.requestAnimationFrame(() => revealPlanningTarget(anchor));
+        throw new Error("请先完成上层剧情调整，并在完整剧情结构中确认修改，再统一确认大纲。");
+      }
+      const episodeRoadmaps = await preparePlanningBatchApproval({
+        project: synced, nodes, prepare: prepareEpisodePlanItem,
+        onProgress: (episodeNumber, total) => {
+          assertSourceCurrent();
+          setMessage(`正在核对第${episodeNumber}集大纲（共${total}集）…`);
+        },
+      });
+      assertSourceCurrent();
+      const prepared: ScriptProject = {
+        ...synced, episodeRoadmaps,
+        episodePlansReadyThrough: approvedDirectScriptCoverageThrough(nodes, { episodeRoadmaps, roadmapRequired: true }),
+      };
+      setBusy("review");
+      setMessage("正在检查整份大纲的剧情与前后衔接…");
+      const leaves = episodeReadyStoryPlanLeaves(nodes);
+      let audit: StoryTreeQualityAudit | undefined;
+      const retainFailedReview = async () => {
+        if (!audit) return;
+        assertSourceCurrent();
+        const currentNodes = await loadActiveStoryPlanNodes(source.id, storyBible.story_bible_id, storyBible.version);
+        assertSourceCurrent();
+        if (planningConfirmationNodeSnapshot(currentNodes) !== nodeSnapshot) {
+          throw new Error("审校期间剧情结构已有更新，原大纲已保留，请重新读取后确认。");
+        }
+        const draftRoadmaps = episodeRoadmaps.map(item => {
+          const original = synced.episodeRoadmaps?.find(previous => sameEpisodeRoadmapIdentity(previous, item));
+          return original && isApprovedEpisodeRoadmap(original) ? original : { ...item, status: "draft" as const };
+        });
+        const draftCandidate = {
+          ...synced, episodeRoadmaps: draftRoadmaps, storyTreeQualityAudit: audit,
+          episodePlansReadyThrough: approvedDirectScriptCoverageThrough(nodes, { episodeRoadmaps: draftRoadmaps, roadmapRequired: true }) || undefined,
+          updatedAt: new Date().toISOString(),
+        };
+        try {
+          latestProjectRef.current = await persistPlanningRevisionTransition(synced, draftCandidate, savePlanningRevisionSnapshot, adoptServerProjectSnapshot);
+        } catch {
+          throw new Error("剧情检查未通过，整理后的大纲草稿尚未保存。原稿已保留，请重试确认。");
+        }
+      };
+      let candidate: ScriptProject;
+      if (isPlanningRevisionActive(prepared)) {
+        audit = await auditStoryPlanQuality(prepared, storyBible, leaves);
+        assertSourceCurrent();
+        try { candidate = completePlanningRevision(prepared, nodes, audit); }
+        catch (error) { await retainFailedReview(); throw error; }
+      } else {
+        try {
+          audit = await requireStoryPlanQuality({
+            cachedAudit: storyPlanQualityAuditMatchesNodes(prepared.storyTreeQualityAudit, leaves, episodeRoadmaps, { project: prepared })
+              ? prepared.storyTreeQualityAudit : undefined,
+            runAudit: async () => {
+              audit = await auditStoryPlanQuality(prepared, storyBible, leaves);
+              assertSourceCurrent();
+              return audit;
+            },
+          });
+        } catch (error) { assertSourceCurrent(); await retainFailedReview(); throw error; }
+        candidate = {
+          ...prepared, storyTreeQualityAudit: audit,
+          planningSession: updatePlanningSession(prepared, { phase: "episode_roadmap", status: "awaiting_review", treeAuthorInstruction: "" }),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      assertSourceCurrent();
+      const currentNodes = await loadActiveStoryPlanNodes(source.id, storyBible.story_bible_id, storyBible.version);
+      assertSourceCurrent();
+      if (planningConfirmationNodeSnapshot(currentNodes) !== nodeSnapshot) {
+        throw new Error("审校期间剧情结构已有更新，请重新读取后确认大纲。");
+      }
+      setBusy("confirm");
+      setMessage("正在保存整份大纲的确认结果…");
+      const saved = await persistPlanningRevisionTransition(synced, candidate, savePlanningRevisionSnapshot, adoptServerProjectSnapshot);
+      if (batchConfirmationScopeRef.current !== requestScope) return;
+      latestProjectRef.current = saved;
+      if (!isPlanningRevisionActive(source)) {
+        const savedSnapshot = planningConfirmationProjectSnapshot(saved);
+        const approvedSession = await savePlanningSession(saved, updatePlanningSession(saved, {
+          phase: "script", status: "approved", activeNodeId: undefined, treeAuthorInstruction: "",
+        }));
+        if (batchConfirmationScopeRef.current !== requestScope) return;
+        await persistProjectUpdate(onProjectUpdate, current => {
+          if (planningConfirmationProjectSnapshot(current) !== savedSnapshot
+            || planningConfirmationNodeSnapshot(latestTreeNodesRef.current) !== nodeSnapshot) {
+            throw new Error("保存期间大纲有了新修改，请重新确认最新版本。");
+          }
+          return { planningSession: approvedSession };
+        });
+        latestProjectRef.current = { ...saved, planningSession: approvedSession };
+      }
+      setRevisionHistory([]);
+      router.push(`/projects/${source.id}/workspace`);
+    } catch (error) {
+      setMessage(error instanceof StoryPlanQualityError ? error.message
+        : userFacingError(error, "整份大纲尚未确认完成，现有草稿已保留，请重试。"));
+    } finally {
+      planningActionInFlightRef.current = false;
+      setBusy(null);
+    }
+  }
+
   function showQualityRevisionSuggestions() {
     const suggestions = document.getElementById("story-plan-quality-suggestions") as HTMLDetailsElement | null;
-    if (suggestions) suggestions.open = true;
+    if (suggestions?.tagName === "DETAILS") suggestions.open = true;
     const target = suggestions?.querySelector("summary") ?? document.getElementById("story-plan-feedback");
-    target?.scrollIntoView({ behavior: "smooth", block: "center" });
-    target?.focus({ preventScroll: true });
+    const visibleTarget = suggestions?.tagName === "DETAILS" ? target : suggestions ?? target;
+    visibleTarget?.scrollIntoView({ behavior: "smooth", block: "start" });
+    visibleTarget?.focus({ preventScroll: true });
+  }
+
+  const reviewActionsDisabled = planningLocked || Boolean(busy) || Boolean(loadError)
+    || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0
+    || episodePlanImportBusy || Boolean(episodePlanMaterializationBusy);
+
+  useEffect(() => {
+    if (!pendingStageFocus || reviewActionsDisabled) return;
+    const frame = window.requestAnimationFrame(() => {
+      const toolbar = document.getElementById("planning-stage-toolbar");
+      const action = toolbar?.querySelector<HTMLButtonElement>("button.primary-action:not(:disabled)");
+      if (!action) return;
+      toolbar?.scrollIntoView({ behavior: "smooth", block: "start" });
+      action.focus({ preventScroll: true });
+      setPendingStageFocus(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingStageFocus, reviewActionsDisabled, planningComplete, pendingRoadmapReviewCount, qualityAuditRetryAvailable]);
+
+  function canUseReviewAssistant(finding: PlanningReviewFinding) {
+    const node = latestTreeNodesRef.current.find(item => item.node_id === finding.node_id);
+    const target = assistantGettersRef.current.get(finding.node_id)?.();
+    return Boolean(node && node.version === finding.node_version && target && !target.disabled && !target.busy);
+  }
+
+  function useReviewAdvice(finding: PlanningReviewFinding, replace = false) {
+    if (reviewActionsDisabled || !canUseReviewAssistant(finding)
+      || !currentQualityAudit?.findings.some(item => item === finding)) return;
+    const target = assistantGettersRef.current.get(finding.node_id)!();
+    const advice = finding.repair_instruction?.trim() || storyPlanQualityFindingAdvice(finding);
+    if (!replace && [target.instruction, target.nodeInstruction].some(value => value.trim() && value.trim() !== advice)) {
+      setPendingReviewAdvice(finding);
+      return;
+    }
+    target.onUseNodeInstruction(advice);
+    if (scriptWorkflow === true) setFullPlanningStructure(true);
+    focusAssistant(finding.node_id);
+    setReviewAdviceNodeId(finding.node_id);
+    setReviewAdviceRange(planningReviewRange(finding));
+    setPendingReviewAdvice(null);
+    setAssistantFocusRequest(value => value + 1);
+  }
+
+  function locateReviewFinding(finding: PlanningReviewFinding) {
+    if (reviewActionsDisabled) return;
+    if (scriptWorkflow === true) setFullPlanningStructure(true);
+    focusAssistant(finding.node_id);
+    const anchor = storyPlanNodeAnchor(finding.node_id);
+    setActiveOutlineId(anchor);
+    window.requestAnimationFrame(() => revealPlanningTarget(anchor));
+  }
+
+  function showNextEpisodeReview(confirmedEpisodeNumber: number) {
+    const latest = getProject(project.id) ?? latestProjectRef.current;
+    const currentSources = new Set(latestTreeNodesRef.current.map(node => (
+      `${node.node_id}:${node.version}:${node.story_bible_version}`
+    )));
+    const pending = (latest.episodeRoadmaps ?? []).filter(item => (
+      item.episode_number !== confirmedEpisodeNumber
+      && currentSources.has(`${item.source_node_id}:${item.source_node_version}:${item.story_bible_version}`)
+      && !isApprovedEpisodeRoadmap(item)
+    )).sort((left, right) => left.episode_number - right.episode_number);
+    const next = pending.find(item => item.episode_number > confirmedEpisodeNumber) ?? pending[0];
+    if (next) {
+      if (scriptWorkflow === true) {
+        setSelectedPlanningEpisode(next.episode_number);
+        setFullPlanningStructure(false);
+      }
+      const id = storyPlanRoadmapAnchor(next.source_node_id, next.episode_number);
+      setActiveOutlineId(id);
+      focusAssistant(next.source_node_id);
+      window.requestAnimationFrame(() => revealPlanningTarget(id));
+      setMessage(`第${confirmedEpisodeNumber}集规划已确认，请继续查看第${next.episode_number}集。`);
+    } else {
+      setMessage("分集规划已逐集确认，请在顶部继续下一步。");
+      setPendingStageFocus(true);
+    }
   }
 
   function runNextPlanningStage() {
@@ -1513,23 +1874,29 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
       showQualityRevisionSuggestions();
       return;
     }
+    if (scriptWorkflow === true && roadmapDraftsComplete) {
+      void confirmWholePlanning();
+      return;
+    }
     if (planningPartId) {
       void expandFullTree(false);
       return;
     }
     if (roadmapDraftsComplete && pendingRoadmapReviewCount > 0) {
-      const pending = (project.episodeRoadmaps ?? []).find((item) => (
+      const pending = (project.episodeRoadmaps ?? []).filter((item) => (
         activeRoadmapSources.has(`${item.source_node_id}:${item.source_node_version}:${item.story_bible_version}`)
         && !isApprovedEpisodeRoadmap(item)
-      ));
+      )).sort((left, right) => left.episode_number - right.episode_number)[0];
       if (pending) {
+        if (scriptWorkflow === true) {
+          setSelectedPlanningEpisode(pending.episode_number);
+          setFullPlanningStructure(false);
+        }
         const id = storyPlanRoadmapAnchor(pending.source_node_id, pending.episode_number);
         setActiveOutlineId(id);
-        const target = document.getElementById(id);
-        target?.scrollIntoView({ behavior: "smooth", block: "center" });
-        target?.focus({ preventScroll: true });
+        window.requestAnimationFrame(() => revealPlanningTarget(id));
       }
-      setMessage("请检查每集剧情，确认后批准本集规划。草稿不会自动进入正文。");
+      setMessage("查看本集规划后，点击“确认本集规划”，再继续下一集。");
       return;
     }
     if (treeProgress.expansionComplete && activeTreeNodes.length > 0
@@ -1548,7 +1915,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     }
   }
   function exportConfirmedPlanning() {
-    if (!planningLocked || !planningComplete) return;
+    if (isHostScriptWorkflow() || !planningLocked || !planningComplete) return;
     downloadPlanningFile(
       toStoryPlanningMarkdown(project.title, activeTreeNodes, project.episodeRoadmaps ?? [], project.characters),
       storyPlanningFilename(project.title),
@@ -1560,14 +1927,19 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
   const selectOutlineEntry = useCallback((entry: DocumentOutlineEntry) => {
     const nodeEntry = outlineEntries.find((candidate) => candidate.id === entry.id);
     if (!nodeEntry) return;
+    if (scriptWorkflow === true) {
+      const episode = hostEpisodePlans.find(item => storyPlanRoadmapAnchor(item.source_node_id, item.episode_number) === entry.id);
+      setFullPlanningStructure(!episode);
+      if (episode) setSelectedPlanningEpisode(episode.episode_number);
+    }
     setActiveOutlineId(entry.id);
     focusAssistant(nodeEntry.nodeId);
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
-        document.getElementById(entry.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        revealPlanningTarget(entry.id);
       });
     }
-  }, [focusAssistant, outlineEntries]);
+  }, [focusAssistant, outlineEntries, scriptWorkflow, hostEpisodePlans]);
   const selectPlanningDirectoryEntry = useCallback((entry: DocumentOutlineEntry) => {
     if (entry.id === "workspace-section-planning") {
       setActiveOutlineId(null);
@@ -1576,8 +1948,17 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
     selectOutlineEntry(entry);
   }, [selectOutlineEntry]);
 
+  function selectPlanningEpisode(episodeNumber: number) {
+    const episode = hostEpisodePlans.find(item => item.episode_number === episodeNumber);
+    if (!episode || busy || activeBranchInteractions.size) return;
+    setSelectedPlanningEpisode(episodeNumber);
+    setFullPlanningStructure(false);
+    setActiveOutlineId(storyPlanRoadmapAnchor(episode.source_node_id, episodeNumber));
+    focusAssistant(episode.source_node_id);
+  }
+
   return (
-    <section className="story-bible-panel story-plan-node-panel">
+    <section className={`story-bible-panel story-plan-node-panel${scriptWorkflow === true ? " host-stage-content" : ""}${focusedEpisodeNumber !== null ? " is-focused-episode" : ""}`}>
       <div className="story-plan-workbench">
         <div className="story-plan-document-column">
           <SelectionEditToolbar
@@ -1596,8 +1977,34 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
               projectId={project.id}
             />
             <div className="story-plan-document-surface">
+          {scriptWorkflow === true && hostEpisodePlans.length > 0 ? <section className="host-episode-planning-nav" aria-label="分集大纲浏览">
+            <div className="host-episode-planning-current">
+              <label>当前集<select aria-label="选择分集大纲" disabled={Boolean(busy) || activeBranchInteractions.size > 0}
+                value={focusedEpisodePlan?.episode_number ?? ""} onChange={event => selectPlanningEpisode(Number(event.target.value))}>
+                {hostEpisodePlans.map(item => <option key={`${item.source_node_id}-${item.episode_number}`} value={item.episode_number}>第{item.episode_number}集 · {episodeRoadmapDisplayTitle(item)}{item.source_revision_review ? " · 待调整" : isApprovedEpisodeRoadmap(item) ? " · 已确认" : " · 草稿"}</option>)}
+              </select></label>
+              <div className="host-episode-planning-paging">
+                <button className="outline-action" type="button" disabled={Boolean(busy) || activeBranchInteractions.size > 0 || focusedEpisodeIndex <= 0}
+                  onClick={() => selectPlanningEpisode(hostEpisodePlans[focusedEpisodeIndex - 1].episode_number)}>上一集</button>
+                <button className="outline-action" type="button" disabled={Boolean(busy) || activeBranchInteractions.size > 0 || focusedEpisodeIndex >= hostEpisodePlans.length - 1}
+                  onClick={() => selectPlanningEpisode(hostEpisodePlans[focusedEpisodeIndex + 1].episode_number)}>下一集</button>
+              </div>
+            </div>
+            <details className="host-episode-planning-overview"><summary>全部分集总览 · {hostEpisodePlans.length} 集</summary>
+              <div>{hostEpisodePlans.map(item => <button className="host-episode-overview-item" type="button" key={`${item.source_node_id}-${item.episode_number}`}
+                aria-pressed={!fullPlanningStructure && focusedEpisodeNumber === item.episode_number} disabled={Boolean(busy) || activeBranchInteractions.size > 0}
+                onClick={event => { selectPlanningEpisode(item.episode_number); const details = event.currentTarget.closest("details"); if (details) details.open = false; }}>
+                <strong>第{item.episode_number}集 · {episodeRoadmapDisplayTitle(item)}</strong>
+                <span>{item.source_revision_review ? "待调整" : isApprovedEpisodeRoadmap(item) ? "已确认" : "草稿"}</span><p>{episodeRoadmapSynopsis(item)}</p>
+              </button>)}</div>
+            </details>
+            <button className="text-action host-planning-structure-toggle" type="button" aria-pressed={fullPlanningStructure}
+              disabled={Boolean(busy) || activeBranchInteractions.size > 0} onClick={() => setFullPlanningStructure(value => !value)}>
+              {fullPlanningStructure ? "返回当前集" : "查看完整剧情结构"}
+            </button>
+          </section> : null}
           <div className="story-plan-toolbar-stack">
-          <div className="document-edit-toolbar story-plan-document-toolbar" role="toolbar" aria-label="文字编辑与规划进度工具">
+          <div id="planning-stage-toolbar" className="document-edit-toolbar story-plan-document-toolbar" role="toolbar" aria-label="文字编辑与规划进度工具">
             <span className="story-plan-stage-summary">
               <small>{planningLocked ? <><LockKeyhole aria-hidden="true" size={13} />规划已确认</> : revisingFuturePlanning ? `正在修订第${project.planningRevision!.startEpisode}集起的规划` : planningProgressDetail}</small>
             </span>
@@ -1613,20 +2020,20 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
               <span>撤回</span>
             </button>
             <div className="story-plan-stage-actions">
-              {!planningLocked && !revisingFuturePlanning ? (
+              {!planningLocked && !revisingFuturePlanning && !roadmapDraftsComplete ? (
                 <div className="story-plan-round-control">
                   <button
                     aria-controls="story-tree-round-instruction"
                     aria-expanded={treeInstructionOpen}
-                    aria-label="规划选项"
+                    aria-label="生成设置"
                     className={`story-plan-round-control-toggle${treeAuthorInstruction.trim() ? " has-value" : ""}`}
                     disabled={Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
                     onClick={() => setTreeInstructionOpen((current) => !current)}
-                    title="规划选项"
+                    title="生成设置"
                     type="button"
                   >
                     <SlidersHorizontal aria-hidden="true" size={14} />
-                    <span>规划选项</span>
+                    <span>生成设置</span>
                     {treeAuthorInstruction.trim() ? <span aria-hidden="true" className="story-plan-round-control-dot" /> : null}
                     <ChevronDown aria-hidden="true" className={treeInstructionOpen ? "is-open" : undefined} size={13} />
                   </button>
@@ -1674,7 +2081,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
                       {project.episodes.length ? "进入正文工作区" : "开始创作正文"}
                     </Link>
                   ) : null}
-                  <button
+                  {scriptWorkflow === false ? <button
                     className="outline-action"
                     disabled={!planningComplete}
                     onClick={exportConfirmedPlanning}
@@ -1682,25 +2089,41 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
                   >
                     <Download aria-hidden="true" size={15} />
                     导出规划
-                  </button>
+                  </button> : null}
                 </>
               ) : (
                 <>
                   {topLevelNodes.length ? (
                     <button
                       aria-label="保存规划草稿"
-                      className="workspace-tool"
+                      className="workspace-tool planning-save-action"
                       disabled={Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
                       onClick={() => void savePlanningCheckpoint()}
                       title={busy === "save" ? "保存中" : planningCheckpointSaved ? "草稿已保存" : "保存规划草稿"}
                       type="button"
                     >
                       <Save aria-hidden="true" size={15} />
+                      <span>{busy === "save" ? "保存中…" : "保存草稿"}</span>
                     </button>
                   ) : null}
                   {qualityRevisionMessage ? (
-                    <button className="primary-action" disabled={Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
-                      onClick={showQualityRevisionSuggestions} type="button">查看修订建议</button>
+                    <button className="primary-action" disabled={reviewActionsDisabled}
+                      onClick={showQualityRevisionSuggestions} type="button">处理待调整项</button>
+                  ) : scriptWorkflow === true && (roadmapDraftsComplete || revisingFuturePlanning) ? (
+                    <button className="primary-action" disabled={reviewActionsDisabled || !onProjectUpdate}
+                      onClick={() => void confirmWholePlanning()} type="button">
+                      {busy === "review" ? "正在检查整份大纲…" : busy === "confirm" ? "正在确认大纲…"
+                        : revisingFuturePlanning ? "确认后续大纲" : "确认大纲并进入正文"}
+                    </button>
+                  ) : qualityAuditRetryAvailable ? (
+                    <button
+                      className="primary-action"
+                      disabled={!onProjectUpdate || Boolean(loadError) || Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0 || episodePlanImportBusy || Boolean(episodePlanMaterializationBusy)}
+                      onClick={() => void retryStoryPlanQualityAudit()}
+                      type="button"
+                    >
+                      {busy === "review" ? "正在检查剧情…" : "重新检查剧情"}
+                    </button>
                   ) : planningComplete || revisingFuturePlanning ? (
                     <button
                       className="primary-action"
@@ -1714,7 +2137,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
                     </button>
                   ) : (
                     <button
-                      className="primary-action"
+                      className={focusedEpisodeNumber !== null && pendingRoadmapReviewCount > 0 ? "outline-action" : "primary-action"}
                       disabled={Boolean(loadError) || revisingFuturePlanning || Boolean(busy) || topLevelTaskActive || roadmapBatchTaskActive || activeBranchInteractions.size > 0}
                       onClick={runNextPlanningStage}
                       type="button"
@@ -1754,7 +2177,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
             }}
           />
           {loadError ? <div className="inline-notice story-plan-feedback is-error" role="alert"><p>{loadError}</p><button className="outline-action" onClick={() => setLoadAttempt(attempt => attempt + 1)} type="button">重新读取已保存规划</button></div> : null}
-          {qualityRevisionMessage || message ? <div id="story-plan-feedback" tabIndex={-1} className={`inline-notice story-plan-feedback${qualityRevisionMessage || topLevelTask?.status === "failed" || roadmapBatchTask?.status === "failed" ? " is-error" : ""}`} role={qualityRevisionMessage ? "alert" : "status"}>{qualityRevisionMessage ? `有${currentQualityAudit?.findings.length || 1}处剧情需要调整，请查看下方建议。修改保存后继续规划，系统会自动核对。` : message}</div> : null}
+          {message && !(qualityRevisionMessage && message.startsWith("剧情检查发现")) ? <div id="story-plan-feedback" tabIndex={-1} className={`inline-notice story-plan-feedback${topLevelTask?.status === "failed" || roadmapBatchTask?.status === "failed" ? " is-error" : ""}`} role="status">{message}</div> : null}
           </div>
           {episodePlanImportAvailable ? (
             <section className="story-plan-import-review" aria-labelledby="episode-plan-import-title">
@@ -1898,7 +2321,17 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
             && currentQualityAudit.future_revision_review.revision_id === project.planningRevision?.revisionId ? (
               <div className="inline-notice">第{currentQualityAudit.future_revision_review.start_episode}—{currentQualityAudit.future_revision_review.end_episode}集规划已经和已有正文衔接完成，可以继续推进。</div>
             ) : null}
-          {currentQualityAudit?.findings.length ? (
+          {currentQualityAudit?.findings.length && !planningLocked ? <StoryPlanReview
+            findings={currentQualityAudit.findings}
+            pendingReplacement={pendingReviewAdvice}
+            disabled={reviewActionsDisabled}
+            canUseAssistant={canUseReviewAssistant}
+            onUseAssistant={finding => useReviewAdvice(finding)}
+            onLocate={locateReviewFinding}
+            onKeepInput={() => setPendingReviewAdvice(null)}
+            onReplaceInput={() => { if (pendingReviewAdvice) useReviewAdvice(pendingReviewAdvice, true); }}
+          /> : null}
+          {currentQualityAudit?.findings.length && planningLocked ? (
             <details id="story-plan-quality-suggestions" className="story-plan-import-review story-plan-quality-record" aria-label="剧情修订建议" open={!planningLocked}>
               <summary>{planningLocked ? `历史修改建议（${currentQualityAudit.findings.length} 项）` : "需要调整的剧情"}</summary>
               {planningLocked ? <p>当前规划已确认。以下保留此前的检查意见，供后续修订时参考。</p> : null}
@@ -1942,7 +2375,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           {busy === "generate" ? <div className="inline-notice">{expansionProgress?.level && expansionProgress.totalNodes !== undefined ? t("storyPlanNode.expandLayerProgress").replace("{level}", String(expansionProgress.level)).replace("{completed}", String(expansionProgress.completedNodes ?? 0)).replace("{total}", String(expansionProgress.totalNodes)) : expansionProgress?.nodeTitle ? t("storyPlanNode.expandAllProgress").replace("{title}", expansionProgress.nodeTitle).replace("{count}", String(expansionProgress.completedLeaves)) : t(topLevelNodes.length ? "storyPlanNode.expandAllHelp" : "storyPlanNode.generatingHelp")}</div> : null}
           {busy === "roadmap" || roadmapBatchTaskActive ? <div className="inline-notice">{roadmapGenerationProgress?.currentEpisode ? t("storyPlanNode.roadmapAllProgress").replace("{episode}", String(roadmapGenerationProgress.currentEpisode)).replace("{completed}", String(roadmapGenerationProgress.completedEpisodes)).replace("{total}", String(roadmapGenerationProgress.totalEpisodes)) : t("storyPlanNode.roadmapAllHelp")}</div> : null}
           {!busy && !loadError && !topLevelNodes.length ? <div className="story-bible-empty"><p>{t("storyPlanNode.empty")}</p></div> : null}
-          {topLevelNodes.map((node, index) => <PlanNodeBranch depth={0} initialNode={node} key={`${node.node_id}-${node.version}`} outlineNumber={String(index + 1)} planningLocked={planningLocked} project={project} storyBible={storyBible} storyPlanNodes={activeTreeNodes} onProjectUpdate={onProjectUpdate} onInteractionChange={updateBranchInteraction} onRegisterRevision={registerRevision} onRequestResplit={() => setAutoExpansionRequested(true)} onTreeSnapshotChange={setActiveTreeNodes} refreshToken={treeRefreshToken} treeBusy={busy === "review" || busy === "generate" || topLevelTaskActive || busy === "roadmap" || roadmapBatchTaskActive} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={busy === "review" || !stepByStep || busy === "roadmap" || roadmapBatchTaskActive ? new Set() : treeUnlockedNodeIds} onAssistantRegister={registerAssistant} onAssistantFocus={focusAssistant} onAssistantUpdate={notifyAssistant} />)}
+          {topLevelNodes.map((node, index) => <PlanNodeBranch wholeOutlineConfirmation={scriptWorkflow === true} focusedEpisodeNumber={focusedEpisodeNumber} depth={0} initialNode={node} key={`${node.node_id}-${node.version}`} outlineNumber={String(index + 1)} planningLocked={planningLocked} project={project} storyBible={storyBible} storyPlanNodes={activeTreeNodes} onProjectUpdate={onProjectUpdate} onInteractionChange={updateBranchInteraction} onRegisterRevision={registerRevision} onRequestResplit={() => setAutoExpansionRequested(true)} onTreeSnapshotChange={setActiveTreeNodes} refreshToken={treeRefreshToken} treeBusy={busy === "review" || busy === "generate" || topLevelTaskActive || busy === "roadmap" || roadmapBatchTaskActive} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={busy === "review" || !stepByStep || busy === "roadmap" || roadmapBatchTaskActive ? new Set() : treeUnlockedNodeIds} onRoadmapConfirmed={showNextEpisodeReview} onAssistantRegister={registerAssistant} onAssistantFocus={focusAssistant} onAssistantUpdate={notifyAssistant} />)}
             </div>
           </div>
         </div>
@@ -1950,10 +2383,15 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           busy={assistant?.busy ?? false}
           disabled={planningLocked || (assistant?.disabled ?? true)}
           instruction={assistant?.instruction ?? ""}
+          focusRequest={assistantFocusRequest}
+          instructionNotice={reviewAdviceNodeId === activeAssistantNodeId && assistant?.instruction.trim()
+            ? `修改范围：${reviewAdviceRange}。建议已填入，你可以调整后发送；发送前不会修改剧情。`
+            : undefined}
           messages={assistant?.messages ?? []}
+          progress={assistant?.progress}
           onClearSelection={assistant?.onClearSelection ?? (() => undefined)}
           onEditMessage={assistant?.onEditMessage}
-          onInstructionChange={assistant?.onInstructionChange ?? (() => undefined)}
+          onInstructionChange={value => { setReviewAdviceNodeId(null); assistant?.onInstructionChange(value); }}
           onPause={assistant?.onPause}
           onQuickAction={assistant?.onQuickAction ?? (() => undefined)}
           onSubmit={assistant?.onSubmit ?? (() => undefined)}
@@ -1964,7 +2402,7 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
           variant="document"
         />
       </div>
-      {outputModeChoiceOpen ? (
+      {scriptWorkflow === false && outputModeChoiceOpen ? (
           <dialog ref={outputModeDialogRef} aria-labelledby="output-mode-title" className="tag-dialog output-mode-dialog" onCancel={() => setOutputModeChoiceOpen(false)}>
             <button aria-label="关闭" className="tag-dialog-close" onClick={() => setOutputModeChoiceOpen(false)} type="button"><X size={17} /></button>
             <span className="section-kicker">进入剧本</span>
@@ -1988,7 +2426,9 @@ export function StoryPlanNodePanel({ onProjectUpdate, project, storyBible }: {
 
 const PlanningNameDisplayContext = createContext<(value: string) => string>((value) => value);
 
-function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegister, onAssistantUpdate, onInteractionChange, onRegisterRevision, onProjectUpdate, onRequestResplit, onTreeSnapshotChange, outlineNumber, planningLocked = false, project, refreshToken = 0, storyBible, storyPlanNodes, treeBusy = false, treeCheckpointRefreshes, treeUnlockedNodeIds }: {
+function PlanNodeBranch({ wholeOutlineConfirmation = false, focusedEpisodeNumber = null, depth, initialNode, onAssistantFocus, onAssistantRegister, onAssistantUpdate, onRoadmapConfirmed, onInteractionChange, onRegisterRevision, onProjectUpdate, onRequestResplit, onTreeSnapshotChange, outlineNumber, planningLocked = false, project, refreshToken = 0, storyBible, storyPlanNodes, treeBusy = false, treeCheckpointRefreshes, treeUnlockedNodeIds }: {
+  wholeOutlineConfirmation?: boolean;
+  focusedEpisodeNumber?: number | null;
   depth: number;
   initialNode: StoryPlanNode;
   outlineNumber?: string;
@@ -2008,6 +2448,7 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
   onAssistantRegister?: (nodeId: string, getter: () => StoryPlanAssistantState) => void;
   onAssistantFocus?: (nodeId: string) => void;
   onAssistantUpdate?: (nodeId: string) => void;
+  onRoadmapConfirmed?: (episodeNumber: number) => void;
 }) {
   const { t } = useLocale();
   const { getProject, syncProjectSnapshot, adoptServerProjectSnapshot } = useProjects();
@@ -2019,12 +2460,16 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
   >("load");
   const [message, setMessage] = useState<string | null>(null);
   const [aiInstruction, setAiInstruction] = useState("");
+  const { progress: copilotProgress, begin: beginCopilotProgress } = useCopilotProgress(`${project.id}:node:${initialNode.node_id}`);
   const aiRevisionMode: PlanningRevisionMode = "targeted";
   const [descendantDecision, setDescendantDecision] = useState<{
     candidate: StoryPlanNode;
     source: "ai" | "manual";
   } | null>(null);
   const [roadmapAiInstruction, setRoadmapAiInstruction] = useState("");
+  const [episodeAssistantDrafts, setEpisodeAssistantDrafts] = useState<Record<number, {
+    instruction: string; selection: StoryBibleSelectionContext | null;
+  }>>({});
   const roadmapAiRevisionMode: PlanningRevisionMode = "targeted";
   const [documentSelection, setDocumentSelection] = useState<StoryBibleSelectionContext | null>(null);
   const [chatMessages, setChatMessages] = useState<PlanningCanvasMessage[]>(() => (
@@ -2220,6 +2665,8 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
     ) return;
     const controller = new AbortController();
     aiAbortControllerRef.current = controller;
+    const progressRun = beginCopilotProgress(controller.signal);
+    progressRun.mark("context", "正在准备当前故事和修改要求");
     setBusy("ai");
     setMessage(null);
     setAiInstruction("");
@@ -2241,27 +2688,34 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
         aiRevisionMode,
         selectionOverride,
         controller.signal,
+        progressRun.onEvent,
       );
+      controller.signal.throwIfAborted();
+      progressRun.mark("validating", "正在保存修改后的剧情规划");
       const saved = await requestNodeSave(candidate, "ai");
-      if (!saved) return;
+      if (!saved) { progressRun.finish("error"); return; }
+      const completedProgress = progressRun.finish("completed");
       setChatMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           text: describeAppliedRevision(node, candidate, selectionOverride),
+          progress: completedProgress,
         },
       ]);
       setMessage(null);
     } catch (error) {
+      const trace = progressRun.finish(controller.signal.aborted ? "paused" : "error");
       if (isRequestAborted(error, controller.signal)) {
         setChatMessages((current) => [
           ...current,
-          { id: `assistant-paused-${Date.now()}`, role: "assistant", text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。" },
+          { id: `assistant-paused-${Date.now()}`, role: "assistant", text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。", progress: trace },
         ]);
       } else {
         const errorMessage = userFacingError(error, t("storyPlanNode.aiModifyFailed"));
         setMessage(errorMessage);
+        setChatMessages(current => [...current, { id: `assistant-error-${Date.now()}`, role: "assistant", text: errorMessage, progress: trace }]);
       }
     } finally {
       if (aiAbortControllerRef.current === controller) aiAbortControllerRef.current = null;
@@ -2282,36 +2736,39 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
       const messageIndex = current.findIndex((item) => item.id === messageId);
       return messageIndex >= 0 ? current.slice(0, messageIndex) : current;
     });
-    if (selectionTarget?.kind === "roadmap") {
-      void requestRoadmapAiModification(text, quote ?? null, selectionTarget.item);
+    if (activeSelectionTarget?.kind === "roadmap") {
+      void requestRoadmapAiModification(text, quote ?? null, activeSelectionTarget.item);
       return;
     }
     void requestAiModification(text, quote ?? null);
   }
 
   function requestQuickNodeAction(action: PlanningCanvasAction, instruction: string) {
-    const resolved = action === "continue" && !documentSelection
-      ? "请补充当前剧情节点的下一步发展，保持父节点、前置节点和后续交接压力一致。"
+    const resolved = action === "continue" && !activeDocumentSelection
+      ? activeSelectionTarget?.kind === "roadmap"
+        ? `请补充第${activeSelectionTarget.item.episode_number}集的剧情发展，保持本集目标、前后集衔接与已确认规划一致。`
+        : "请补充当前剧情节点的下一步发展，保持父节点、前置节点和后续交接压力一致。"
       : instruction;
-    setAiInstruction(resolved);
-    if (selectionTarget?.kind === "roadmap") {
-      setRoadmapAiInstruction(resolved);
-      void requestRoadmapAiModification(resolved, documentSelection, selectionTarget.item);
+    if (!focusedRoadmap) setAiInstruction(resolved);
+    if (activeSelectionTarget?.kind === "roadmap") {
+      if (!focusedRoadmap) setRoadmapAiInstruction(resolved);
+      void requestRoadmapAiModification(resolved, activeDocumentSelection, activeSelectionTarget.item);
       return;
     }
-    void requestAiModification(resolved, documentSelection);
+    void requestAiModification(resolved, activeDocumentSelection);
   }
 
   function submitCanvasInstruction() {
-    if (selectionTarget?.kind === "roadmap") {
-      void requestRoadmapAiModification(aiInstruction, documentSelection, selectionTarget.item);
+    if (activeSelectionTarget?.kind === "roadmap") {
+      void requestRoadmapAiModification(activeRoadmapInstruction, activeDocumentSelection, activeSelectionTarget.item);
       return;
     }
     void requestAiModification();
   }
 
   function capturePlanningSelection(event: SyntheticEvent<HTMLElement>) {
-    if (planningLocked) return;
+    // Keep the visible target attached to the in-flight modification.
+    if (planningLocked || aiAbortControllerRef.current) return;
     const selection = window.getSelection();
     const eventTarget = event.target instanceof HTMLElement ? event.target : null;
     if (eventTarget?.closest(".selection-edit-toolbar")) return;
@@ -2336,17 +2793,28 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
     const roadmapItem = Number.isFinite(roadmapEpisode)
       ? roadmap.find((item) => item.episode_number === roadmapEpisode)
       : undefined;
-    setSelectionTarget(roadmapItem ? { kind: "roadmap", item: roadmapItem } : { kind: "node" });
+    if (focusedRoadmap && roadmapItem?.episode_number !== focusedRoadmap.episode_number) return;
+    if (!focusedRoadmap) setSelectionTarget(roadmapItem ? { kind: "roadmap", item: roadmapItem } : { kind: "node" });
     onAssistantFocus?.(node.node_id);
     onAssistantUpdate?.(node.node_id);
     const selectedIndex = Math.max(0, fullText.indexOf(selectedText));
     const afterStart = selectedIndex + selectedText.length;
-    setDocumentSelection({
+    const nextSelection = {
       source_field: target.dataset.planningField ?? "剧情规划正文",
       selected_text: selectedText.slice(0, 4_000),
       before_text: selectedIndex > 0 ? fullText.slice(Math.max(0, selectedIndex - 320), selectedIndex) : "",
       after_text: fullText.slice(afterStart, afterStart + 320),
-    });
+    };
+    if (focusedRoadmap) updateEpisodeAssistantDraft(focusedRoadmap.episode_number, { selection: nextSelection });
+    else setDocumentSelection(nextSelection);
+  }
+
+  function updateEpisodeAssistantDraft(episodeNumber: number, patch: { instruction?: string; selection?: StoryBibleSelectionContext | null }) {
+    setEpisodeAssistantDrafts(current => ({ ...current, [episodeNumber]: {
+      instruction: current[episodeNumber]?.instruction ?? "",
+      selection: current[episodeNumber]?.selection ?? null,
+      ...patch,
+    } }));
   }
 
   function updateNodeField(
@@ -2376,10 +2844,10 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
 
   async function requestRoadmapAiModification(
     instructionOverride?: string,
-    selectionOverride: StoryBibleSelectionContext | null = documentSelection,
-    targetOverride: EpisodeRoadmapItem | null = selectionTarget?.kind === "roadmap" ? selectionTarget.item : null,
+    selectionOverride: StoryBibleSelectionContext | null = activeDocumentSelection,
+    targetOverride: EpisodeRoadmapItem | null = activeSelectionTarget?.kind === "roadmap" ? activeSelectionTarget.item : null,
   ) {
-    const submittedInstruction = (instructionOverride ?? roadmapAiInstruction).trim();
+    const submittedInstruction = (instructionOverride ?? activeRoadmapInstruction).trim();
     if (
       planningLocked
       || treeBusy
@@ -2389,9 +2857,15 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
     ) return;
     const controller = new AbortController();
     aiAbortControllerRef.current = controller;
+    const progressRun = beginCopilotProgress(controller.signal);
+    progressRun.mark("context", "正在准备当前故事和修改要求");
     setBusy("roadmap-ai");
-    setAiInstruction("");
-    setRoadmapAiInstruction("");
+    if (focusedRoadmap?.episode_number === targetOverride.episode_number) {
+      updateEpisodeAssistantDraft(targetOverride.episode_number, { instruction: "", selection: null });
+    } else {
+      setAiInstruction("");
+      setRoadmapAiInstruction("");
+    }
     setChatMessages((current) => [
       ...current,
       {
@@ -2402,7 +2876,7 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
       },
     ]);
     try {
-      setDocumentSelection((current) => current === selectionOverride ? null : current);
+      if (!focusedRoadmap) setDocumentSelection((current) => current === selectionOverride ? null : current);
       const activeNodesForMemory = storyPlanNodesRef.current;
       const acceptedPlans = roadmap.filter(
         (item) => item.episode_number < targetOverride.episode_number,
@@ -2417,25 +2891,33 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
         selectionOverride,
         controller.signal,
         activeNodesForMemory,
+        progressRun.onEvent,
       );
+      controller.signal.throwIfAborted();
+      progressRun.mark("validating", "正在保存修改后的本集规划");
       const saved = await applyRoadmapRevision(candidate, targetOverride);
-      if (!saved) return;
+      if (!saved) { progressRun.finish("error"); return; }
+      const completedProgress = progressRun.finish("completed");
       setChatMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           text: describeAppliedRevision(targetOverride, candidate, selectionOverride),
+          progress: completedProgress,
         },
       ]);
     } catch (error) {
+      const trace = progressRun.finish(controller.signal.aborted ? "paused" : "error");
       if (isRequestAborted(error, controller.signal)) {
         setChatMessages((current) => [
           ...current,
-          { id: `assistant-paused-${Date.now()}`, role: "assistant", text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。" },
+          { id: `assistant-paused-${Date.now()}`, role: "assistant", text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。", progress: trace },
         ]);
       } else {
-        setMessage(userFacingError(error, t("storyPlanNode.roadmapAiFailed")));
+        const errorMessage = userFacingError(error, t("storyPlanNode.roadmapAiFailed"));
+        setMessage(errorMessage);
+        setChatMessages(current => [...current, { id: `assistant-error-${Date.now()}`, role: "assistant", text: errorMessage, progress: trace }]);
       }
     } finally {
       if (aiAbortControllerRef.current === controller) aiAbortControllerRef.current = null;
@@ -2460,13 +2942,13 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
           project: source, node,
           getCurrent: () => getProject(source.id) ?? source,
           beforeStep: async () => { await waitForPlanningTaskResume(rebuildTaskKey); },
-          onProgress: number => setMessage(`正在按批准事件重建第${number}集；已保存结果保留，仍需逐集批准。`),
+          onProgress: number => setMessage(wholeOutlineConfirmation ? `正在按已确认剧情重建第${number}集大纲草稿…` : `正在按批准事件重建第${number}集；已保存结果保留，仍需逐集批准。`),
           generate: (current, sourceNode, item, prefix) => rebuildFutureEpisodePlan(current, sourceNode, item, prefix, storyPlanNodesRef.current),
           save: savePlanningRevisionSnapshot,
           apply: adoptServerProjectSnapshot,
         }),
         onSuccess: completed => {
-          setMessage(`本段已保存${completed.length}集重建草稿。请逐集复核并批准；下一段需在本段末集批准后继续。`);
+          setMessage(wholeOutlineConfirmation ? `本段已保存${completed.length}集重建草稿，完成调整后可在顶部统一确认后续大纲。` : `本段已保存${completed.length}集重建草稿。请逐集复核并批准；下一段需在本段末集批准后继续。`);
           setBusy(null);
         },
         onFailure: error => { setMessage(userFacingError(error, "本次重建已停止，已保存结果保留，可继续未完成项。")); setBusy(null); },
@@ -2559,7 +3041,8 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
           undefined, currentStoryPlanNodes,
         );
         if (episodeRoadmapReadinessIssues(prepared).length) {
-          throw new Error("这集的场次还没有整理好，原稿已保留，请稍后再确认。");
+          setMessage("这集的场次还没有整理好，原稿已保留，请稍后再确认。");
+          return;
         }
       }
       if (isPlanningRevisionActive(project)) {
@@ -2583,7 +3066,8 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
           }) || undefined,
         };
       });
-      setMessage(`第${item.episode_number}集路线图已批准。`);
+      setMessage(`第${item.episode_number}集规划已确认。`);
+      onRoadmapConfirmed?.(item.episode_number);
     } catch (error) {
       setMessage(userFacingError(error, t("storyPlanNode.saveFailed")));
     } finally {
@@ -2750,6 +3234,23 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
     && episodeSpan <= 12
     && node.expansion_status === "episode_ready";
   const roadmap = revisionRoadmapsForNode(project, node);
+  const focusedRoadmap = focusedEpisodeNumber === null ? undefined
+    : roadmap.find(item => item.episode_number === focusedEpisodeNumber);
+  const activeSelectionTarget = focusedRoadmap ? { kind: "roadmap" as const, item: focusedRoadmap } : selectionTarget;
+  const activeRoadmapInstruction = focusedRoadmap
+    ? episodeAssistantDrafts[focusedRoadmap.episode_number]?.instruction ?? "" : roadmapAiInstruction;
+  const activeDocumentSelection = focusedRoadmap
+    ? episodeAssistantDrafts[focusedRoadmap.episode_number]?.selection ?? null : documentSelection;
+  useEffect(() => {
+    if (focusedEpisodeNumber === null) return;
+    window.getSelection()?.removeAllRanges();
+    const frame = window.requestAnimationFrame(() => {
+      const details = document.getElementById(storyPlanRoadmapAnchor(node.node_id, focusedEpisodeNumber))
+        ?.querySelector<HTMLDetailsElement>(".episode-planning-details");
+      if (details) details.open = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusedEpisodeNumber]);
   const generatedEpisodesInRange = project.episodes.filter((episode) => (
     node.planned_start_episode !== null
     && node.planned_end_episode !== null
@@ -2777,19 +3278,31 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
   useEffect(() => {
     onAssistantRegister?.(node.node_id, () => ({
       busy: busy === "ai" || busy === "roadmap-ai",
-      disabled: planningLocked || (branchLocked && busy !== "ai" && busy !== "roadmap-ai") || (selectionTarget?.kind === "roadmap" ? roadmapItemLocked(selectionTarget.item) : nodeRevisionLocked),
-      instruction: selectionTarget?.kind === "roadmap" ? roadmapAiInstruction : aiInstruction,
+      disabled: planningLocked || (branchLocked && busy !== "ai" && busy !== "roadmap-ai") || (activeSelectionTarget?.kind === "roadmap" ? roadmapItemLocked(activeSelectionTarget.item) : nodeRevisionLocked),
+      instruction: activeSelectionTarget?.kind === "roadmap" ? activeRoadmapInstruction : aiInstruction,
+      nodeInstruction: aiInstruction,
       messages: chatMessages,
+      progress: copilotProgress,
       onClearSelection: () => {
+        if (aiAbortControllerRef.current) return;
+        if (focusedRoadmap) {
+          updateEpisodeAssistantDraft(focusedRoadmap.episode_number, { selection: null });
+          return;
+        }
         setDocumentSelection(null);
         setSelectionTarget(null);
       },
       onEditMessage: editChatMessage,
       onInstructionChange: (value: string) => {
+        if (focusedRoadmap) {
+          updateEpisodeAssistantDraft(focusedRoadmap.episode_number, { instruction: value });
+          return;
+        }
         setAiInstruction(value);
-        if (selectionTarget?.kind === "roadmap") setRoadmapAiInstruction(value);
+        if (activeSelectionTarget?.kind === "roadmap") setRoadmapAiInstruction(value);
       },
       onUseNodeInstruction: (value: string) => {
+        if (aiAbortControllerRef.current) return;
         setDocumentSelection(null);
         setSelectionTarget(null);
         setAiInstruction(value);
@@ -2797,10 +3310,10 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
       onPause: pauseAiModification,
       onQuickAction: requestQuickNodeAction,
       onSubmit: submitCanvasInstruction,
-      scopeLabel: selectionTarget?.kind === "roadmap"
-        ? `第${selectionTarget.item.episode_number}集路线图`
+      scopeLabel: activeSelectionTarget?.kind === "roadmap"
+        ? `第${activeSelectionTarget.item.episode_number}集大纲`
         : `剧情节点：${displayName(node.title)}`,
-      selection: documentSelection,
+      selection: activeDocumentSelection,
     }));
     onAssistantUpdate?.(node.node_id);
   }, [
@@ -2808,6 +3321,7 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
     branchLocked,
     busy,
     chatMessages,
+    copilotProgress,
     documentSelection,
     node.node_id,
     node.title,
@@ -2817,11 +3331,15 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
     onAssistantUpdate,
     roadmapAiInstruction,
     selectionTarget,
+    focusedEpisodeNumber,
+    project.episodeRoadmaps,
+    episodeAssistantDrafts,
   ]);
 
   return (
     <PlanningNameDisplayContext.Provider value={displayName}>
-    <div className="story-plan-branch" style={{ marginLeft: `${Math.min(depth, 5) * 18}px` }}>
+    <div className="story-plan-branch" data-focused-roadmap={focusedEpisodeNumber !== null && roadmap.some(item => item.episode_number === focusedEpisodeNumber) || undefined}
+      style={{ marginLeft: focusedEpisodeNumber === null ? `${Math.min(depth, 5) * 18}px` : 0 }}>
       <details
         className="story-plan-node-card is-document-node"
         data-depth={depth}
@@ -2971,7 +3489,7 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
               </div>
               {isPlanningRevisionActive(project) && node.status === "approved" && roadmap.some(item => item.source_revision_review) ? (
                 <div className="inline-notice">
-                  <p>按本段已批准事件重建待复核规划，保留既定预算与已批准集数。每集保存后继续，仍需逐集审核。</p>
+                  <p>{wholeOutlineConfirmation ? "按本段已确认剧情重建大纲草稿，保留既定预算与已确认内容。完成修改后统一确认。" : "按本段已批准事件重建待复核规划，保留既定预算与已批准集数。每集保存后继续，仍需逐集审核。"}</p>
                   <button className="outline-action" type="button" disabled={operationLocked || futureLeafRebuildCandidates(project, node).length === 0}
                     onClick={() => void rebuildPendingLeafRoadmaps()}>重建本段待复核规划</button>
                   {rebuildTaskActive ? <button className="outline-action" type="button"
@@ -2981,10 +3499,13 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
                 </div>
               ) : null}
               {roadmap.map((item) => (
-                <article
-                  className="continuity-card"
-                  data-roadmap-episode={item.episode_number}
-                  tabIndex={-1}
+                <div className="host-episode-planning-slot" hidden={focusedEpisodeNumber !== null && item.episode_number !== focusedEpisodeNumber}
+                  key={`${node.node_id}-roadmap-${item.episode_number}`}>
+                <EpisodePlanningCard
+                  episodeNumber={item.episode_number}
+                  title={displayName(episodeRoadmapDisplayTitle(item))}
+                  synopsis={displayName(episodeRoadmapSynopsis(item))}
+                  status={hasCurrentRoadmapRebuild(project, node, item) ? wholeOutlineConfirmation ? "草稿" : "待确认" : item.source_revision_review || item.source_node_version !== node.version ? wholeOutlineConfirmation ? "待调整" : "待复核" : isApprovedEpisodeRoadmap(item) ? "已确认" : wholeOutlineConfirmation ? "草稿" : "待确认"}
                   id={storyPlanRoadmapAnchor(node.node_id, item.episode_number)}
                   key={`${node.node_id}-roadmap-${item.episode_number}`}
                 >
@@ -3065,18 +3586,18 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
                     {item.target_duration_seconds ?? 90} 秒 · {item.planned_scene_count ?? 3} 场 · {normalizeEpisodeDialogueLines(item.planned_dialogue_line_count)} 句台词 · {item.planned_shot_count ?? 16} 镜头
                   </small>
                   <div className="story-plan-roadmap-review-actions">
-                    <small>{hasCurrentRoadmapRebuild(project, node, item) ? "已按当前上层重建，待人工批准" : item.source_revision_review || item.source_node_version !== node.version ? "上层规划已变化，原文保留待复核" : isApprovedEpisodeRoadmap(item) ? "已批准" : "待审核"}</small>
+                    <small>{wholeOutlineConfirmation ? item.source_revision_review || item.source_node_version !== node.version ? "上层大纲已变化，请检查本集后统一确认" : isApprovedEpisodeRoadmap(item) ? "已确认" : "草稿 · 完成修改后在顶部统一确认" : hasCurrentRoadmapRebuild(project, node, item) ? "已更新规划，请查看后确认" : item.source_revision_review || item.source_node_version !== node.version ? "上层规划已变化，原文保留待复核" : isApprovedEpisodeRoadmap(item) ? "已确认" : "待确认"}</small>
                     {isPlanningRevisionActive(project) && item.source_node_version !== node.version ? (
                       <button className="outline-action" disabled={roadmapItemLocked(item) || Boolean(busy)} onClick={() => void rebindRoadmapSource(item)} type="button">关联当前上层并复核</button>
                     ) : null}
-                    {!planningLocked && !isApprovedEpisodeRoadmap(item) ? (
+                    {!wholeOutlineConfirmation && !planningLocked && !isApprovedEpisodeRoadmap(item) ? (
                       <button
-                        className="outline-action"
+                        className="primary-action"
                         disabled={roadmapItemLocked(item) || Boolean(busy)}
                         onClick={() => void confirmEpisodeRoadmapItem(item)}
                         type="button"
                       >
-                        批准本集路线图
+                        确认本集规划
                       </button>
                     ) : null}
                   </div>
@@ -3237,7 +3758,8 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
                       value={item.next_episode_obligation}
                     /></p>
                   </details>
-                </article>
+                </EpisodePlanningCard>
+                </div>
               ))}
             </div>
           ) : null}
@@ -3299,7 +3821,7 @@ function PlanNodeBranch({ depth, initialNode, onAssistantFocus, onAssistantRegis
           </summary>
           <div className="story-plan-children">
               {children.map((child, index) => (
-              <PlanNodeBranch depth={depth + 1} initialNode={child} key={`${child.node_id}-${child.version}`} outlineNumber={outlineNumber ? `${outlineNumber}.${index + 1}` : String(index + 1)} onAssistantFocus={onAssistantFocus} onAssistantRegister={onAssistantRegister} onAssistantUpdate={onAssistantUpdate} onInteractionChange={onInteractionChange} onRegisterRevision={onRegisterRevision} onProjectUpdate={onProjectUpdate} onRequestResplit={onRequestResplit} onTreeSnapshotChange={onTreeSnapshotChange} planningLocked={planningLocked} project={project} refreshToken={refreshToken} storyBible={storyBible} storyPlanNodes={storyPlanNodes} treeBusy={treeBusy} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={treeUnlockedNodeIds} />
+              <PlanNodeBranch wholeOutlineConfirmation={wholeOutlineConfirmation} focusedEpisodeNumber={focusedEpisodeNumber} depth={depth + 1} initialNode={child} key={`${child.node_id}-${child.version}`} outlineNumber={outlineNumber ? `${outlineNumber}.${index + 1}` : String(index + 1)} onRoadmapConfirmed={onRoadmapConfirmed} onAssistantFocus={onAssistantFocus} onAssistantRegister={onAssistantRegister} onAssistantUpdate={onAssistantUpdate} onInteractionChange={onInteractionChange} onRegisterRevision={onRegisterRevision} onProjectUpdate={onProjectUpdate} onRequestResplit={onRequestResplit} onTreeSnapshotChange={onTreeSnapshotChange} planningLocked={planningLocked} project={project} refreshToken={refreshToken} storyBible={storyBible} storyPlanNodes={storyPlanNodes} treeBusy={treeBusy} treeCheckpointRefreshes={treeCheckpointRefreshes} treeUnlockedNodeIds={treeUnlockedNodeIds} />
             ))}
           </div>
         </details>

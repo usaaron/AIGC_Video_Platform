@@ -35,6 +35,7 @@ function legacyWorkspacePhase(project: WorkspaceStageProject): PlanningPhase {
 
 export function workspaceSectionAccess(
   project: WorkspaceStageProject,
+  options: { scriptWorkflow?: boolean } = {},
 ): WorkspaceSectionAccess {
   const session = project.planningSession;
   let phase = session?.phase ?? legacyWorkspacePhase(project);
@@ -67,7 +68,7 @@ export function workspaceSectionAccess(
     planning,
     script,
     // Projects created before the choice existed keep the historical behavior.
-    storyboard: script && project.productionOutputMode !== "script_only",
+    storyboard: !options.scriptWorkflow && script && project.productionOutputMode !== "script_only",
   };
 }
 

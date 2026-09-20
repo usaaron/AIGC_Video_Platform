@@ -8,10 +8,12 @@ import time
 from datetime import datetime, timezone
 from typing import Iterator, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 
+from app.api.copilot_stream import accepts_copilot_stream, copilot_stream_response
 from app.api.generation_errors import _generation_failure_headers
+from app.api.episode_stream_response import EpisodeStreamingResponse
 from app.dependencies import (
     get_bilingual_script_view_service,
     get_episode_script_agent,
@@ -21,6 +23,7 @@ from app.dependencies import (
 )
 from app.modules.agent_runtime.episode_roadmap import AgentOutputRejectedError
 from app.modules.agent_runtime.episode_script import EpisodeScriptAgent
+from app.modules.agent_runtime.stream_lifecycle import EpisodeStreamLifecycle
 from app.modules.agent_runtime.repository import (
     AgentRunInProgressError,
     AgentRunPersistenceConflictError,
@@ -351,10 +354,12 @@ def stream_script_draft(
     agent: EpisodeScriptAgent = Depends(get_episode_script_agent),
 ) -> StreamingResponse:
     """Stream model deltas and validation stages for one episode draft."""
+    lifecycle = EpisodeStreamLifecycle()
 
     def event_stream() -> Iterator[str]:
         events: queue.Queue[dict[str, object] | None] = queue.Queue()
-        cancel_event = threading.Event()
+        lifecycle.wake = lambda: events.put(None)
+        cancel_event = lifecycle.cancel
         generation_started_at = time.perf_counter()
         last_stage = "queued"
         episode_number = (
@@ -557,8 +562,18 @@ def stream_script_draft(
             finally:
                 events.put(None)
 
+        def run_generation() -> None:
+            try:
+                with lifecycle.bind():
+                    generate()
+            except LLMRequestCancelledError:
+                pass
+            finally:
+                lifecycle.done.set()
+                events.put(None)
+
         generation_context = copy_context()
-        threading.Thread(target=generation_context.run, args=(generate,), daemon=True).start()
+        threading.Thread(target=generation_context.run, args=(run_generation,), daemon=True).start()
         try:
             yield ": connected\n\n"
             sequence = 0
@@ -591,8 +606,9 @@ def stream_script_draft(
             # disconnect to the existing cancellable model-stream adapters.
             cancel_event.set()
 
-    return StreamingResponse(
+    return EpisodeStreamingResponse(
         event_stream(),
+        lifecycle=lifecycle,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -634,7 +650,12 @@ def review_script_draft(
 def modify_script_draft(
     payload: ScriptDraftModificationRequest,
     service: ScriptGenerationService = Depends(get_script_generation_service),
+    request: Request = None,
 ) -> ScriptDraftModificationResponse:
+    if accepts_copilot_stream(request):
+        return copilot_stream_response(
+            lambda: modify_script_draft(payload=payload, service=service)
+        )
     try:
         return ScriptDraftModificationResponse(data=compact_generation_result(service.modify_draft(payload)))
     except AuthorConflictResolutionError as exc:

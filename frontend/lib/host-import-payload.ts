@@ -1,6 +1,7 @@
 import { toEpisodePlainText } from "./episode-export.ts";
 import { resolveSavedDraft } from "./script-draft-state.ts";
 import { sameStoryboardSource, type Storyboard } from "./storyboard.ts";
+import { projectHostAssetEvidence, type PendingHostAssetEvidence } from "./host-asset-evidence.ts";
 import type { ScriptProject } from "./types.ts";
 
 export interface ImportAsset {
@@ -8,13 +9,15 @@ export interface ImportAsset {
   name: string; description: string; prompt: string; subjectType: "human" | "animal";
 }
 export interface ImportShot { sourceShotId: string; title: string; framing: string; duration: number; prompt: string; continuityNote: string }
-export interface ImportEpisode { sourceEpisodeId: string; episodeNumber: number; title: string; content: string; shots?: ImportShot[] }
+export interface ImportEpisode { sourceEpisodeId: string; episodeNumber: number; title: string; content: string; shots?: ImportShot[]; assetEvidence?: PendingHostAssetEvidence }
 export interface ImportMaterial { episodes: ImportEpisode[]; assets: ImportAsset[]; warnings: string[] }
+export interface ImportReadOptions { scriptsOnly?: boolean }
 
-export function buildImportMaterial(project: ScriptProject, boards: Map<number, Storyboard | null>): ImportMaterial {
+export function buildImportMaterial(project: ScriptProject, boards: Map<number, Storyboard | null>, options: ImportReadOptions = {}): ImportMaterial {
   const assets = new Map<string, ImportAsset>();
   const warnings: string[] = [];
   function asset(kind: ImportAsset["kind"], rawName: string, description = "") {
+    if (options.scriptsOnly) return;
     const name = rawName.trim();
     if (!name) return;
     const key = `${kind}:${name.normalize("NFKC").toLocaleLowerCase()}`;
@@ -35,6 +38,10 @@ export function buildImportMaterial(project: ScriptProject, boards: Map<number, 
       for (const prop of scene.content_manifest?.props ?? []) asset("prop", prop);
     }
     const result: ImportEpisode = { sourceEpisodeId: episode.id, episodeNumber: episode.episodeNumber, title: draft.title || `第 ${episode.episodeNumber} 集`, content: toEpisodePlainText(draft, episode.episodeNumber) };
+    const projected = projectHostAssetEvidence(draft, project.characters ?? [], episode.id, result.content);
+    if (projected.evidence) result.assetEvidence = projected.evidence;
+    if (projected.warning) warnings.push(`第 ${episode.episodeNumber} 集${projected.warning}`);
+    if (options.scriptsOnly) return result;
     const board = boards.get(episode.episodeNumber);
     if (!board) { warnings.push(`第 ${episode.episodeNumber} 集尚未保存分镜，可先导入正文和资产。`); return result; }
     if (board.status === "source_changed" || board.stale_scene_numbers.length || !sameStoryboardSource(board.source_draft, draft)) {

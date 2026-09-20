@@ -349,6 +349,7 @@ async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCh
   }));
   const constraints = options.constraints ?? Array.from({ length: range.endEpisode - first + 1 }, (_, index) => ({ episodeNumber: first + index }));
   run.project = { ...run.project, episodes: existing, storyBibleVersion: 1, episodePlansReadyThrough: range.totalEpisodes,
+    ...(options.productionOutputMode ? { productionOutputMode: options.productionOutputMode } : {}),
     generationSettings: { mode: "automatic", episodeCount: range.totalEpisodes,
       targetTotalCharacters: 100_000, preferredEpisodeDurationMinutes: 1.5, storyDensity: "balanced" },
     generationBatches: initial ? [] : [{ id: "first", batchNumber: 1 }],
@@ -364,13 +365,15 @@ async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCh
     first, "Previously interrupted",
   );
   if (failCheckpoint) run.behavior.persist = async (project) => !project.activeGenerationTask;
-  const models = [], messages = [];
+  const models = [], messages = [], destinations = [];
   let cleared = false;
   const context = {
     ...recovery, ...background, crypto,
     currentProject: run.project, project: run.project, requestedLeafRange: range,
     getProject: () => run.project, updateProject: run.updateProject,
     createScriptGenerationSession: run.createSession, createGenerationResultCommitter, storyboardHandoffHref,
+    isHostScriptWorkflow: () => options.scriptWorkflow === true,
+    router: { push: path => destinations.push(path) },
     storyQualityRejectionForEpisode, episodeReadyStoryPlanLeaves,
     seriesTextMetrics: calculateSeriesTextMetrics(existing.map((episode) => episode.generationRun.draft_master_script), 100_000, range.totalEpisodes),
     streamBatch: [],
@@ -416,7 +419,24 @@ async function executeWorkspaceBatch(t, initial, failEpisode = undefined, failCh
     await operation;
   }
   else await context.generateNextStage("Keep this direction", range);
-  return { run, models, messages, cleared, existing };
+  return { run, models, messages, cleared, existing, destinations };
+}
+
+for (const scriptWorkflow of [true, false]) {
+  for (const retryEntry of [true, false]) {
+    test(`${scriptWorkflow ? "integrated" : "standalone"} ${retryEntry ? "retry" : "continuation"} preserves the saved combined mode at completion`, async (t) => {
+      const { run, messages, destinations } = await executeWorkspaceBatch(t, false, undefined, false, () => {}, {
+        scriptWorkflow, retryEntry, productionOutputMode: "script_and_storyboard",
+      });
+      assert.equal(background.getScriptGenerationTask(run.projectId).status, "completed", messages.join("\n"));
+      assert.equal(run.project.activeGenerationTask, undefined);
+      assert.equal(run.project.productionOutputMode, "script_and_storyboard");
+      assert.deepEqual(destinations, scriptWorkflow ? [] : [
+        `/projects/${run.projectId}/storyboard?episode=2&end=3&autostart=1`,
+      ]);
+      assert.ok(run.calls.local.every(patch => !Object.hasOwn(patch, "productionOutputMode")));
+    });
+  }
 }
 
 for (const [entry, firstEpisode, episodeCount] of [["initial", 1, 8], ["continuation", 37, 2], ["retry", 71, 2]]) {

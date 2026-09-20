@@ -56,6 +56,7 @@ export function formatSeriesScaleStatus(
   metrics: Pick<SeriesTextMetrics, "scriptBodyCharacters" | "targetCharacters" | "generatedEpisodes" | "plannedEpisodes">,
   allEpisodesSaved: boolean,
   locale: string,
+  nextStep: "export" | "assets" | null = "export",
 ): string {
   const result = assessSeriesScale(metrics, allEpisodesSaved);
   const chinese = locale.startsWith("zh");
@@ -81,10 +82,13 @@ export function formatSeriesScaleStatus(
     : result.status === "below_reference" && result.rangeMinimum !== null
       ? chinese ? "已进入所选参考范围。" : " Within the selected reference range."
       : "";
-  const exportNote = allEpisodesSaved && !result.referenceReached
-    ? chinese ? "可导出当前工作稿。" : " The current work draft can be exported."
-    : "";
-  return episodes + actual + target + range + exportNote;
+  const nextStepNote = !allEpisodesSaved ? ""
+    : nextStep === "assets"
+      ? chinese ? "可同步已保存正文，继续资产设计。" : " Sync the saved episodes to continue to asset design."
+      : nextStep === "export" && !result.referenceReached
+        ? chinese ? "可导出当前工作稿。" : " The current work draft can be exported."
+        : "";
+  return episodes + actual + target + range + nextStepNote;
 }
 
 /** Surface a sustained shortfall while the author can still adjust future work. */

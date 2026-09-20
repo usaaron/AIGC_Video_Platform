@@ -1450,6 +1450,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/story-projects/{project_id}/quick-script": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Quick Script */
+        get: operations["get_quick_script_story_projects__project_id__quick_script_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/story-projects/{project_id}/quick-script/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Quick Script Action */
+        post: operations["quick_script_action_story_projects__project_id__quick_script_actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/story-projects/{project_id}/stages": {
         parameters: {
             query?: never;
@@ -7151,6 +7185,377 @@ export interface components {
          * @enum {string}
          */
         QualityLevel: "low" | "medium" | "high" | "premium";
+        /** QuickActionRequest */
+        QuickActionRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "setup" | "draft_synopsis" | "confirm_synopsis" | "draft_plan" | "confirm_plan" | "advance" | "save_episode" | "switch_standard" | "resume";
+            /** Expected Revision */
+            expected_revision: number;
+            /** Operation Id */
+            operation_id: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        /** QuickCharacter */
+        QuickCharacter: {
+            /**
+             * Abilities And Limits
+             * @default
+             */
+            abilities_and_limits: string;
+            /**
+             * Appearance
+             * @default
+             */
+            appearance: string;
+            /** Character Ref */
+            character_ref: string;
+            /**
+             * Fixed Identity
+             * @default
+             */
+            fixed_identity: string;
+            /**
+             * Motivation
+             * @default
+             */
+            motivation: string;
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @default 主要人物
+             */
+            role: string;
+        };
+        /** QuickEpisode */
+        QuickEpisode: {
+            /** Artifact Id */
+            artifact_id?: string | null;
+            /** Body Hash */
+            body_hash: string;
+            draft: components["schemas"]["DraftMasterScript"];
+            /** Episode Number */
+            episode_number: number;
+            /** History */
+            history?: {
+                [key: string]: unknown;
+            }[];
+            initial_draft?: components["schemas"]["DraftMasterScript"] | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Repair Attempts
+             * @default 0
+             */
+            repair_attempts: number;
+            /**
+             * Repair Count
+             * @default 0
+             */
+            repair_count: number;
+            review?: components["schemas"]["QuickReview"] | null;
+            /**
+             * Revision
+             * @default 1
+             */
+            revision: number;
+            /** Source Episode Hashes */
+            source_episode_hashes?: {
+                [key: string]: string;
+            };
+            /** Source Plan Hash */
+            source_plan_hash: string;
+            /**
+             * Status
+             * @default drafted
+             * @enum {string}
+             */
+            status: "drafted" | "passed" | "blocked" | "stale";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /** QuickFact */
+        QuickFact: {
+            /**
+             * Body Hash
+             * @default
+             */
+            body_hash: string;
+            /**
+             * Certainty
+             * @enum {string}
+             */
+            certainty: "established" | "suspected" | "unknown";
+            /** Episode Number */
+            episode_number: number;
+            /** Evidence Quote */
+            evidence_quote: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "knowledge" | "possession" | "location" | "relationship" | "event" | "obligation" | "ability";
+            /** Scene Number */
+            scene_number: number;
+            /** Subject */
+            subject: string;
+            /** Value */
+            value: string;
+        };
+        /** QuickIssue */
+        QuickIssue: {
+            /** Code */
+            code: string;
+            /** Episode Number */
+            episode_number?: number | null;
+            /**
+             * Evidence Quote
+             * @default
+             */
+            evidence_quote: string;
+            /** Message */
+            message: string;
+            /** Path */
+            path?: string | null;
+            /** Scene Number */
+            scene_number?: number | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "critical" | "ambiguity" | "warning";
+        };
+        /** QuickModelCall */
+        QuickModelCall: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Elapsed Ms */
+            elapsed_ms: number;
+            /** Input Upper Bound Tokens */
+            input_upper_bound_tokens: number;
+            /** Model */
+            model: string;
+            /** Output Reserve Tokens */
+            output_reserve_tokens: number;
+            /**
+             * Physical Requests
+             * @default 1
+             */
+            physical_requests: number;
+            /** Provider */
+            provider: string;
+            /** Response Model */
+            response_model?: string | null;
+            /** Stage */
+            stage: string;
+            /** Usage */
+            usage?: {
+                [key: string]: unknown;
+            };
+        };
+        /** QuickPlan */
+        QuickPlan: {
+            /** Characters */
+            characters: components["schemas"]["QuickCharacter"][];
+            /** Content Hash */
+            content_hash: string;
+            /** Ending */
+            ending: string;
+            /** Episodes */
+            episodes: components["schemas"]["EpisodePlanGenerationItem"][];
+            /** Fixed Facts */
+            fixed_facts?: string[];
+            /** Id */
+            id?: string;
+            /** Main Storyline */
+            main_storyline: string;
+            /** Opening */
+            opening: string;
+            /** Relationships */
+            relationships?: string[];
+            /** Source Synopsis Hash */
+            source_synopsis_hash: string;
+            /** Subplot */
+            subplot?: string | null;
+            /** Title */
+            title: string;
+            /** Turning Points */
+            turning_points: string[];
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+        };
+        /** QuickResponse */
+        QuickResponse: {
+            data: components["schemas"]["QuickResponseData"];
+        };
+        /** QuickResponseData */
+        QuickResponseData: {
+            /** Project Revision */
+            project_revision: number;
+            state: components["schemas"]["QuickState"] | null;
+            workspace_snapshot: components["schemas"]["StoryProjectWorkspaceSnapshot"];
+        };
+        /** QuickReview */
+        QuickReview: {
+            /** Accepted Facts */
+            accepted_facts?: components["schemas"]["QuickFact"][];
+            /** Issues */
+            issues?: components["schemas"]["QuickIssue"][];
+            /** Source Body Hashes */
+            source_body_hashes?: {
+                [key: string]: string;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "passed" | "blocked" | "needs_author";
+            /** Summary */
+            summary: string;
+        };
+        /** QuickSettings */
+        QuickSettings: {
+            /**
+             * Episode Count
+             * @default 8
+             */
+            episode_count: number;
+            /**
+             * Language
+             * @default zh
+             * @constant
+             */
+            language: "zh";
+            /**
+             * Storyline Count
+             * @default 1
+             */
+            storyline_count: number;
+            /**
+             * Target Duration Seconds
+             * @default 90
+             */
+            target_duration_seconds: number;
+            /**
+             * Target Total Characters
+             * @default 8000
+             */
+            target_total_characters: number;
+        };
+        /** QuickState */
+        QuickState: {
+            /** Active Operation */
+            active_operation?: {
+                [key: string]: unknown;
+            } | null;
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Episodes */
+            episodes?: components["schemas"]["QuickEpisode"][];
+            /** Facts */
+            facts?: components["schemas"]["QuickFact"][];
+            final_review?: components["schemas"]["QuickReview"] | null;
+            /**
+             * Idea
+             * @default
+             */
+            idea: string;
+            /** Model Calls */
+            model_calls?: components["schemas"]["QuickModelCall"][];
+            /**
+             * Next Step
+             * @default synopsis
+             * @enum {string}
+             */
+            next_step: "synopsis" | "plan" | "draft" | "review" | "repair" | "recheck" | "final_review" | "done";
+            /** Operation Records */
+            operation_records?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Phase
+             * @default setup
+             * @enum {string}
+             */
+            phase: "setup" | "synopsis" | "plan" | "writing" | "review" | "complete" | "paused" | "standard";
+            plan?: components["schemas"]["QuickPlan"] | null;
+            /**
+             * Plan Confirmed
+             * @default false
+             */
+            plan_confirmed: boolean;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /**
+             * Schema Version
+             * @default quick_script.v1
+             * @constant
+             */
+            schema_version: "quick_script.v1";
+            settings?: components["schemas"]["QuickSettings"];
+            /**
+             * Source Material
+             * @default
+             */
+            source_material: string;
+            /**
+             * Status
+             * @default idle
+             * @enum {string}
+             */
+            status: "idle" | "busy" | "blocked" | "stale" | "completed";
+            /** Supplied Characters */
+            supplied_characters?: components["schemas"]["QuickCharacter"][];
+            /**
+             * Synopsis
+             * @default
+             */
+            synopsis: string;
+            /**
+             * Synopsis Confirmed
+             * @default false
+             */
+            synopsis_confirmed: boolean;
+            /**
+             * Synopsis Hash
+             * @default
+             */
+            synopsis_hash: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
         /** RawContentRecord */
         RawContentRecord: {
             /**
@@ -7624,6 +8029,7 @@ export interface components {
              * @default
              */
             audience_effect: string;
+            production_contract?: components["schemas"]["SceneProductionContract"] | null;
             /** Purpose */
             purpose: string;
             /** Reveal Order */
@@ -7637,6 +8043,52 @@ export interface components {
             status_change: string;
             /** Transition */
             transition: string;
+        };
+        /**
+         * SceneProductionContract
+         * @description Shared production choices, separate from immutable screenplay facts.
+         */
+        SceneProductionContract: {
+            /**
+             * Axis
+             * @default
+             */
+            axis: string;
+            /**
+             * Composition
+             * @default
+             */
+            composition: string;
+            /**
+             * Continuity
+             * @default
+             */
+            continuity: string;
+            /**
+             * Lighting
+             * @default
+             */
+            lighting: string;
+            /**
+             * Optics
+             * @default
+             */
+            optics: string;
+            /**
+             * Reference Rules
+             * @default
+             */
+            reference_rules: string;
+            /**
+             * Sound
+             * @default
+             */
+            sound: string;
+            /**
+             * Visual Style
+             * @default
+             */
+            visual_style: string;
         };
         /** ScoreBreakdown */
         ScoreBreakdown: {
@@ -9398,10 +9850,20 @@ export interface components {
             /** Framing */
             framing: string;
             /**
+             * Handoff
+             * @default
+             */
+            handoff: string;
+            /**
              * Locked
              * @default false
              */
             locked: boolean;
+            /**
+             * Optics
+             * @default
+             */
+            optics: string;
             /**
              * Prompt
              * @default
@@ -14059,6 +14521,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LongStoryErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_quick_script_story_projects__project_id__quick_script_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    quick_script_action_story_projects__project_id__quick_script_actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuickActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickResponse"];
                 };
             };
             /** @description Validation Error */

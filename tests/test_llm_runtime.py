@@ -70,14 +70,15 @@ def test_llm_runtime_builds_real_adapter(monkeypatch: pytest.MonkeyPatch) -> Non
     assert config.reasoning_effort == "medium"
 
 
-def test_astra_runtime_automatically_uses_deepseek_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("fallback_model", ["deepseek-v4-pro", "deepseek-v4.1-flash", "deepseek-v4-1-flash-260910"])
+def test_astra_runtime_automatically_uses_deepseek_fallback(monkeypatch: pytest.MonkeyPatch, fallback_model) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
     monkeypatch.setenv("LLM_MODEL", "gpt-6-astra")
     monkeypatch.setenv("LLM_API_KEY", "astra-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://astra.example/v1")
     monkeypatch.setenv("LLM_WIRE_API", "responses")
     monkeypatch.setenv("LLM_ASTRA_FALLBACK_PROVIDER", "openai_compatible")
-    monkeypatch.setenv("LLM_ASTRA_FALLBACK_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_ASTRA_FALLBACK_MODEL", fallback_model)
     monkeypatch.setenv("LLM_ASTRA_FALLBACK_API_KEY", "deepseek-key")
     monkeypatch.setenv("LLM_ASTRA_FALLBACK_BASE_URL", "https://deepseek.example/v1")
     monkeypatch.setenv("LLM_ASTRA_FALLBACK_WIRE_API", "chat_completions")
@@ -86,7 +87,7 @@ def test_astra_runtime_automatically_uses_deepseek_fallback(monkeypatch: pytest.
 
     assert isinstance(adapter, ModelFailoverLLMAdapter)
     assert adapter._primary.get_model_info().model_name == "gpt-6-astra"
-    assert adapter._fallback.get_model_info().model_name == "deepseek-v4-pro"
+    assert adapter._fallback.get_model_info().model_name == fallback_model
     assert adapter._circuit_failure_threshold == 1
     assert adapter._circuit_cooldown_seconds == 600
     assert adapter._primary._request_deadline_seconds == 120
@@ -237,7 +238,7 @@ def test_astra_missing_or_invalid_fallback_never_recurses_or_inherits_primary_cr
         monkeypatch.setenv("LLM_ASTRA_FALLBACK_MODEL", fallback_model)
     adapter = build_llm_adapter_from_env()
     assert isinstance(adapter, RealLLMAdapter)
-    assert "complete deepseek-v4-pro profile is required" in caplog.text
+    assert "complete supported DeepSeek profile is required" in caplog.text
     assert "gpt-6-astra-key" not in caplog.text
 
 

@@ -197,16 +197,16 @@ test("scene instructions stay with their scene when navigating and generating a 
   await selectEntry(page, "scene-1", "01 · 档案室");
   await page.getByRole("button", { name: "调整本场", exact: true }).click();
   await expect(page.getByLabel("本场修改要求")).toHaveValue("第一场只表现左手钥匙，不揭示门外人物。");
-  await page.getByRole("button", { name: "生成候选", exact: true }).click();
-  await expect(page.getByRole("button", { name: "采用", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "生成修改稿", exact: true }).click();
+  await expect(page.getByRole("button", { name: "采用并保存", exact: true })).toBeEnabled();
   expect(control.generationRequests).toEqual([{ episode: 1, scene: 1, instruction: "第一场只表现左手钥匙，不揭示门外人物。" }]);
-  await page.getByRole("button", { name: "当前", exact: true }).click();
+  await page.getByRole("button", { name: "原分镜", exact: true }).click();
   await expect(page.locator(".storyboard-purpose")).toHaveText("保住钥匙");
-  await page.getByRole("button", { name: "候选", exact: true }).click();
+  await page.getByRole("button", { name: "修改稿", exact: true }).click();
   await expect(page.locator(".storyboard-purpose")).toContainText("候选：");
   await expect(page.getByRole("note", { name: "本场待确认事项" })).toBeVisible();
   await expect(page.getByRole("note", { name: "本场待确认事项" })).toContainText("门外人物的衣着尚未确定");
-  await page.getByRole("button", { name: "采用", exact: true }).click();
+  await page.getByRole("button", { name: "采用并保存", exact: true }).click();
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator(".storyboard-purpose")).toContainText("候选：");
 });
@@ -235,7 +235,7 @@ test("historical storyboard shows its own source and prevents edits", async ({ p
   await page.getByLabel("分镜版本").selectOption("1");
   await expect(page.locator(".storyboard-scene-heading h2")).toHaveText("INT. 旧档案室 夜");
   await expect(page.getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "返回当前版本", exact: true }).click();
   await expect(page.locator(".storyboard-scene-heading h2")).toHaveText("INT. 档案室 夜");
 });
@@ -291,13 +291,13 @@ test("a completing candidate does not relabel another scene the author is readin
   let release!: () => void;
   control.holdGeneration = new Promise<void>(resolve => { release = resolve; });
   await page.getByRole("button", { name: "调整本场", exact: true }).click();
-  await page.getByRole("button", { name: "生成候选", exact: true }).click();
+  await page.getByRole("button", { name: "生成修改稿", exact: true }).click();
   await expect.poll(() => control.generationRequests.length).toBe(1);
   await selectEntry(page, "scene-2", "02 · 走廊");
   release();
-  await expect(page.getByRole("button", { name: "采用", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "采用并保存", exact: true })).toBeEnabled();
   await expect(page.locator(".storyboard-scene-heading")).toContainText("场 02");
-  await expect(page.locator(".storyboard-scene-heading")).not.toContainText("候选");
+  await expect(page.locator(".storyboard-scene-heading")).not.toContainText("修改稿");
 });
 
 test("locked shots, split and merge keep the author in control and export the saved revision", async ({ page }) => {
@@ -317,7 +317,7 @@ test("locked shots, split and merge keep the author in control and export the sa
   await page.getByRole("button", { name: "合并下一镜", exact: true }).first().click();
   await expect(page.locator(".storyboard-shot")).toHaveCount(1);
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
   await page.locator(".storyboard-export > summary").click();
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "JSON 草稿", exact: true }).click();

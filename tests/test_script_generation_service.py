@@ -2648,21 +2648,9 @@ class ExpandingScriptBodyAdapter(StubRealScriptAdapter):
             assert "episode script appears truncated" in prompt
             assert "truncation floor" in prompt
             assert "there is no per-scene character quota" in prompt
-            scenes = payload["scenes"]
-            assert isinstance(scenes, list)
-            for scene_index, scene in enumerate(scenes, start=1):
-                assert isinstance(scene, dict)
-                actions = scene["character_actions"]
-                assert isinstance(actions, list)
-                scene["character_actions"] = [
-                    f"{action} "
-                    + (
-                        f"Visible reaction {scene_index}-{action_index} changes the blocking "
-                        "and forces an immediate physical consequence. "
-                    )
-                    * 12
-                    for action_index, action in enumerate(actions, start=1)
-                ]
+            # The base fixture completes the short source to 111 seconds.
+            # Repeating every action twelve times used to produce 653 seconds
+            # and only passed because the count gate skipped runtime checks.
         return payload
 
 
@@ -2698,21 +2686,7 @@ class BodyExpansionEditorAdapter(StubRealScriptAdapter):
                 output_schema=output_schema,
             )
         )
-        scenes = payload["scenes"]
-        assert isinstance(scenes, list)
-        for scene_index, scene in enumerate(scenes, start=1):
-            assert isinstance(scene, dict)
-            actions = scene["character_actions"]
-            assert isinstance(actions, list)
-            scene["character_actions"] = [
-                f"{action} "
-                + (
-                    f"Visible reaction {scene_index}-{action_index} changes the blocking "
-                    "and forces an immediate physical consequence. "
-                )
-                * 12
-                for action_index, action in enumerate(actions, start=1)
-            ]
+        # Complete the body within the same production-runtime contract.
         return payload
 
 
@@ -3870,8 +3844,10 @@ def test_episode_production_counts_preserve_atomic_text_after_gateway_failure() 
     service, _ = seed_dependencies(production_count_llm_adapter=adapter)
 
     original = deepcopy(incomplete)
-    with pytest.raises(InvalidDraftMasterScriptOutputError, match="无法在不新增剧情"):
+    with pytest.raises(LLMRequestError) as caught:
         service._ensure_episode_production_counts(output=incomplete, strategy=strategy)
+    assert caught.value.status_code == 502
+    assert caught.value.category == "provider_gateway"
     assert adapter.stream_call_count == 2
     assert adapter.structured_call_count == 2
     assert incomplete == original
@@ -5590,7 +5566,7 @@ def test_script_body_completion_uses_one_non_stream_editor_pass() -> None:
 
 
 def test_script_generation_service_accepts_natural_length_below_preferred_range() -> None:
-    adapter = ExpandingScriptBodyAdapter()
+    adapter = StubRealScriptAdapter()
     service, content_spec_id = seed_dependencies(llm_adapter=adapter)
 
     result = service.generate_draft(
@@ -5599,12 +5575,12 @@ def test_script_generation_service_accepts_natural_length_below_preferred_range(
             generation_strategy_id="strategy.tiktok.service_generation.v1",
             output_language="en",
             desired_scene_count=3,
-            target_script_body_characters=1600,
+            target_script_body_characters=3000,
         )
     )
 
     metadata = result.draft_master_script.llm_metadata
-    assert adapter.structured_call_count == 1
+    assert result.draft_master_script.llm_metadata["model_pass_count"] == 1
     assert metadata["script_body_expanded"] is False
     assert metadata["script_body_characters"] < metadata["script_body_preferred_min_characters"]
     assert metadata["script_body_characters"] >= metadata["script_body_truncation_floor_characters"]

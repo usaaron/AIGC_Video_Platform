@@ -70,6 +70,10 @@ function episodeInformationMarkdown(
   draft: GeneratedDraft,
   bilingualView?: BilingualScriptView,
 ): string {
+  const invalidated = (draft.llm_metadata as Record<string, unknown> | null | undefined)?.quick_asset_evidence_invalidated_scenes;
+  // An edited screenplay remains authoritative; its old generated cast/location
+  // and scene summary must not be exported as current production information.
+  if (Array.isArray(invalidated) && invalidated.length > 0) return "";
   const dialoguePresentation = overseasDialoguePresentation(bilingualView);
   const characterNames = mergeOverseasCharacterNames(new Map(), bilingualView);
   const cast = episodeCast(draft).map((name) => {

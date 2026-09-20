@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+MAX_COMPILED_PROMPT_LENGTH = 40000
+
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -35,8 +37,8 @@ class PromptPlan(Contract):
     scene_map: str = Field(default="", max_length=1000)
     first_frame: str = Field(default="", max_length=1000)
     format_mode: str = Field(default="单一连续镜头", max_length=120)
-    optics: str = Field(default="", max_length=500)
-    lighting: str = Field(default="", max_length=1000)
+    optics: str = Field(default="", max_length=800)
+    lighting: str = Field(default="", max_length=1200)
     timing: list[str] = Field(default_factory=list, max_length=30)
     physical_constraints: list[str] = Field(default_factory=list, max_length=20)
     dialogue_rules: list[str] = Field(default_factory=list, max_length=12)
@@ -54,6 +56,8 @@ class ShotContent(Contract):
     sound: str = Field(default="", max_length=1000)
     continuity_in: str = Field(min_length=1, max_length=1000)
     continuity_out: str = Field(min_length=1, max_length=1000)
+    handoff: str = Field(default="", max_length=600)
+    optics: str = Field(default="", max_length=500)
     acting_direction: ActingDirection = Field(default_factory=ActingDirection)
 
 
@@ -64,7 +68,20 @@ class StoryboardShot(ShotContent):
     shot_id: str = Field(default_factory=lambda: f"shot.{uuid4()}", min_length=3, max_length=80)
     locked: bool = False
     dialogue: list[str] = Field(default_factory=list, max_length=60)
-    prompt: str = Field(default="", max_length=20000)
+    prompt: str = Field(default="", max_length=MAX_COMPILED_PROMPT_LENGTH)
+
+
+class SceneProductionContract(Contract):
+    """Shared production choices, separate from immutable screenplay facts."""
+
+    lighting: str = Field(default="", max_length=1200)
+    visual_style: str = Field(default="", max_length=500)
+    composition: str = Field(default="", max_length=1000)
+    axis: str = Field(default="", max_length=1000)
+    optics: str = Field(default="", max_length=800)
+    continuity: str = Field(default="", max_length=1600)
+    sound: str = Field(default="", max_length=1200)
+    reference_rules: str = Field(default="", max_length=800)
 
 
 class SceneDesign(Contract):
@@ -75,6 +92,7 @@ class SceneDesign(Contract):
     transition: str = Field(min_length=1, max_length=500)
     audience_effect: str = Field(default="", max_length=500)
     status_change: str = Field(default="", max_length=500)
+    production_contract: SceneProductionContract | None = None
 
 
 class SceneProposal(Contract):

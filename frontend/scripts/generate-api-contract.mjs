@@ -20,11 +20,12 @@ function pythonExecutable() {
   return candidates.find((candidate) => !isAbsolute(candidate) || existsSync(candidate));
 }
 
-function run(command, args) {
+function run(command, args, input) {
   const result = spawnSync(command, args, {
     cwd: repositoryRoot,
     env: process.env,
-    stdio: "inherit",
+    stdio: input === undefined ? "inherit" : ["pipe", "inherit", "inherit"],
+    ...(input === undefined ? {} : { input }),
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
@@ -45,7 +46,9 @@ function generate(schemaOutput, typesOutput) {
     "--output",
     schemaOutput,
   ]);
-  run(process.execPath, [generator, schemaOutput, "--output", typesOutput]);
+  // The exporter produces a self-contained schema. Passing its bytes avoids
+  // Redocly treating percent-encoded Unicode Windows paths as literal names.
+  run(process.execPath, [generator, "--output", typesOutput], readFileSync(schemaOutput));
 }
 
 if (!checkOnly) {

@@ -60,7 +60,7 @@ test("story bible, planning, and screenplay conversations abort their active mod
     planningClient.indexOf("export async function generateStoryInspirationTurn"),
     planningClient.indexOf("export async function completeStoryBibleInteractive"),
   );
-  assert.match(inspirationClient, /apiRequest<StoryInspirationChatResponse>/);
+  assert.match(inspirationClient, /copilotRequest<StoryInspirationChatResponse>/);
   assert.doesNotMatch(inspirationClient, /generateWithAutomaticTransientRetry/);
 });
 

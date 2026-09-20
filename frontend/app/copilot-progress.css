@@ -1,0 +1,47 @@
+.copilot-thread-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.copilot-progress {
+  border: 1px solid var(--border, rgba(148, 163, 184, .22));
+  border-radius: 10px;
+  background: rgba(127, 127, 127, .045);
+  color: inherit;
+  font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.story-bible-chat-bubble .copilot-progress { margin-top: 10px; }
+.copilot-progress > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 12px;
+  cursor: pointer;
+  list-style: none;
+  line-height: 1.4;
+}
+.copilot-progress > summary::-webkit-details-marker { display: none; }
+.copilot-progress > summary:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; border-radius: 9px; }
+.copilot-progress[open] > summary > svg { transform: rotate(180deg); }
+.copilot-progress-label { flex: 1; font-weight: 600; }
+.copilot-progress-elapsed { white-space: nowrap; opacity: .66; font-variant-numeric: tabular-nums; }
+.copilot-progress-current { margin: 0; padding: 0 12px 8px; opacity: .8; }
+.copilot-progress-body { padding: 0 12px 12px; }
+.copilot-progress-body ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.copilot-progress-body li { display: grid; grid-template-columns: 19px 1fr auto; gap: 8px; align-items: start; line-height: 1.6; }
+.copilot-progress-body li > time { opacity: .55; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.copilot-progress-step-marker { width: 18px; height: 18px; text-align: center; border: 1px solid currentColor; border-radius: 50%; opacity: .6; line-height: 16px; font-size: 10px; }
+.copilot-progress-body li.is-active .copilot-progress-step-marker { opacity: 1; background: rgba(127, 127, 127, .13); }
+.copilot-progress-summary, .copilot-progress-thinking { border-top: 1px solid rgba(127, 127, 127, .18); margin-top: 12px; padding-top: 10px; }
+.copilot-progress-summary h4, .copilot-progress-thinking h4 { font-size: 11px; margin: 0 0 6px; font-weight: 600; opacity: .65; }
+.copilot-progress-summary p, .copilot-progress-thinking p { margin: 0; white-space: pre-wrap; line-height: 1.7; }
+.copilot-progress-outcome { margin: 10px 0 0; opacity: .7; }
+
+@media (prefers-reduced-motion: reduce) {
+  .copilot-progress * { transition: none; }
+}

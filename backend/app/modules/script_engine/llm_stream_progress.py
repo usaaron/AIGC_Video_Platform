@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator
 import httpx
 
 from app.modules.script_engine.llm_deadline import check_deadline
+from app.modules.script_engine.copilot_progress import check_copilot_cancelled
 
 
 class LLMStreamProgress:
@@ -79,6 +80,7 @@ class LLMStreamProgress:
         class ObservedStream(httpx.SyncByteStream):
             def __iter__(self) -> Iterator[bytes]:
                 for chunk in inner:
+                    check_copilot_cancelled()
                     check_deadline()
                     progress.body(len(chunk))
                     yield chunk

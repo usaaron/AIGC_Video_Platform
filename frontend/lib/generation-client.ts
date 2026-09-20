@@ -1,3 +1,4 @@
+import { copilotRequest, type CopilotProgressObserver } from "@/lib/copilot-client";
 import type { PriorAuthorInstruction } from "./author-modification-instructions";
 import { ApiError, apiEventStream, apiRequest } from "@/lib/api-client";
 import { buildContinuityGenerationSummary } from "@/lib/continuity";
@@ -47,6 +48,7 @@ import {
 } from "@/lib/canonical-character-names";
 import { clientDialogueSpeaker } from "@/lib/client-screenplay-format";
 import { buildEpisodeHandoff } from "@/lib/episode-handoff";
+import { overseasStoryProfileForApi, overseasStoryProfilePrompt, overseasStoryProfileMatchesSignature } from "@/lib/overseas-story-profile";
 import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
 export { buildEpisodeHandoff } from "@/lib/episode-handoff";
 import type { StoryBibleSelectionContext } from "@/lib/story-planning-client";
@@ -293,6 +295,7 @@ export async function generateSingleEpisode(
     .map((tagId) => activeNodes.get(tagId))
     .find((node) => node?.category === "Emotion");
   const resolution = project.contentSpecId && project.resolvedCreativeContext
+    && overseasStoryProfileMatchesSignature(project.generationSettings, project.storyBibleInputSignature)
     ? {
         data: {
           content_spec: { id: project.contentSpecId },
@@ -328,6 +331,7 @@ export async function generateSingleEpisode(
         asset_constraints: [],
         generation_notes: [
           project.generationSettings.customInstructions.trim(),
+          overseasStoryProfilePrompt(project.generationSettings),
           selectedCustomTagLabels.length
             ? isMainlandChina
               ? `用户自定义创作标签：${selectedCustomTagLabels.join("、")}。`
@@ -343,6 +347,8 @@ export async function generateSingleEpisode(
       character_contexts: [],
       request_metadata: {
         frontend_project_id: project.id,
+        ...(overseasStoryProfileForApi(project.generationSettings)
+          ? { overseas_story_profile: overseasStoryProfileForApi(project.generationSettings) } : {}),
         generation_planning: {
           episode_count_mode: project.generationSettings.episodeCountMode,
           total_episodes: project.generationSettings.episodeCount,
@@ -678,9 +684,10 @@ export async function modifyEpisodeDraft(
   currentProject?: ScriptProject,
   resolution?: AuthorConflictResolution,
   priorAuthorInstructions: PriorAuthorInstruction[] = [],
+  onProgress?: CopilotProgressObserver,
 ): Promise<ScriptDraftModificationResult> {
   const refreshedSourceGenerationRun = await refreshEpisodeSourceForModification(sourceGenerationRun, currentProject);
-  const response = await apiRequest<ModificationResponse>("/script-generation/modify-draft", {
+  const response = await copilotRequest<ModificationResponse>("/script-generation/modify-draft", {
     method: "POST",
     body: JSON.stringify({
       source_generation_run: {
@@ -698,7 +705,7 @@ export async function modifyEpisodeDraft(
       ...(priorAuthorInstructions.length ? { prior_author_instructions: priorAuthorInstructions } : {}),
     }),
     signal,
-  });
+  }, onProgress);
   return response.data;
 }
 

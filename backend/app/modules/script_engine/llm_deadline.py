@@ -19,6 +19,8 @@ from typing import Any, Callable, Iterator, TypeVar
 import httpcore
 import httpx
 
+from app.modules.script_engine.llm_cancellation import check_llm_cancelled
+
 
 class DeadlineExceeded(TimeoutError):
     """The cumulative budget for the named operation has expired."""
@@ -44,6 +46,7 @@ _Result = TypeVar("_Result")
 
 
 def remaining_deadline_seconds() -> float | None:
+    check_llm_cancelled()
     deadline = _ACTIVE_DEADLINE.get()
     if deadline is None:
         return None

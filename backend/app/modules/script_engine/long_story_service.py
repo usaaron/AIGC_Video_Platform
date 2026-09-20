@@ -285,6 +285,8 @@ class LongStoryService:
             project = self._require_project(repository, payload.project_id, for_update=True)
             current = repository.get_workspace_snapshot(payload.project_id)
             previous = current.workspace_payload if current else {}
+            from app.modules.quick_script.repository import validate_quick_workspace_transition
+            validate_quick_workspace_transition(previous, payload.workspace_payload)
             # Idempotent retries retain their original transition decision.
             if current and current.revision == snapshot.revision and current.workspace_payload == snapshot.workspace_payload:
                 return current

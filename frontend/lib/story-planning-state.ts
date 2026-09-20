@@ -132,7 +132,7 @@ export function storyBibleRewriteVersionSeed(
               : undefined,
           }
         : undefined,
-      generationSettings: { ...project.generationSettings },
+      generationSettings: structuredClone(project.generationSettings),
     },
     patch: {
       sourceProjectId: project.id,

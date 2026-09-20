@@ -9,7 +9,10 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { WorkspaceSectionDirectory } from "@/components/workspace-section-directory";
 import type { DocumentOutlineEntry } from "@/components/document-outline";
 import { ConfirmationDialog, ToolButton } from "@/components/workspace-controls";
-import { loadStoryboard, mergeStoryboardShot, moveStoryboardShot, readableStoryboardText, sameStoryboardSource, splitStoryboardShot, storyboardEditError, storyboardMarkdown, writeStoryboard, type Storyboard, type StoryboardScene, type StoryboardShot } from "@/lib/storyboard";
+import { loadStoryboard, mergeStoryboardShot, moveStoryboardShot, readableStoryboardText, sameStoryboardSource, splitStoryboardShot, storyboardEditError, storyboardMarkdown, storyboardSceneExecutionText, writeStoryboard, type Storyboard, type StoryboardScene, type StoryboardShot } from "@/lib/storyboard";
+import { reviewStoryboardScene } from "@/lib/storyboard-review";
+import { StoryboardProductionRules, StoryboardShootingReview } from "@/components/storyboard-director-panel";
+import directorStyles from "./storyboard-director.module.css";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import { characterReferenceNames } from "@/lib/character-reference";
 import { parseGeneratedDraft } from "@/lib/generated-draft-parser";
@@ -18,8 +21,18 @@ import type { ScriptProject } from "@/lib/types";
 import { workspaceSectionAccess } from "@/lib/workspace-stage";
 import { useProjects } from "@/providers/project-provider";
 import { BASE_PATH } from "@/lib/base-path";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 
 export function StoryboardWorkspace() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const scriptWorkflow = useHostScriptWorkflow();
+  // Resolve the entry mode before mounting any storyboard load or autostart effects.
+  if (scriptWorkflow === null) return <main className="centered-state" role="status"><LoaderCircle className="ui-spinner" size={20} />正在打开工作区...</main>;
+  if (scriptWorkflow) return <main className="centered-state"><h1>返回分集正文</h1><p>请回到正文工作区继续创作。</p><Link className="outline-action" href={`/projects/${projectId}/workspace`}>返回正文</Link></main>;
+  return <StandaloneStoryboardWorkspace />;
+}
+
+function StandaloneStoryboardWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const searchParams = useSearchParams();
   const { getProject, isReady, updateProject } = useProjects();
@@ -55,11 +68,14 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState<{ kind: "error" | "success"; text: string } | null>(null);
   const [instructions, setInstructions] = useState<Record<number, string>>({});
+  const [initialDirection, setInitialDirection] = useState("");
+  const initialDirectionId = useId();
   const [instructionOpen, setInstructionOpen] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [viewCandidate, setViewCandidate] = useState(false);
   const [historical, setHistorical] = useState<Storyboard | null>(null);
   const [mode, setMode] = useState<"read" | "edit">("read");
+  const [presentation, setPresentation] = useState<"cards" | "execution">("cards");
   const [generationMode, setGenerationMode] = useState<"episode" | "scene" | null>(null);
   const [generatingScene, setGeneratingScene] = useState<number | null>(null);
   const [pauseRequested, setPauseRequested] = useState(false);
@@ -94,7 +110,8 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
   const currentScene = display?.scenes.find(value => value.scene_number === sceneNumber);
   const scene = showingCandidate ? candidate : currentScene;
   const original = displaySource?.scenes.find(value => value.scene_number === sceneNumber);
-  const read = (value: string | null | undefined) => readableStoryboardText(value, display, sceneNumber);
+  const read = (value: string | null | undefined) => executionSourceUnavailable
+    ? value ?? "" : readableStoryboardText(value, display, sceneNumber);
   const sceneManifest = original?.content_manifest;
   const sceneCausality = original?.scene_causality;
   const sceneCharacters = characterReferenceNames(sceneManifest?.character_refs?.length ? sceneManifest.character_refs
@@ -102,6 +119,15 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
       : original?.dialogues.map(dialogue => dialogue.character_name) ?? [], project.characters);
   const sceneProps = [...new Set(sceneManifest?.props ?? [])];
   const stale = !!display?.stale_scene_numbers.includes(sceneNumber ?? 0);
+  const executionSourceUnavailable = stale && !showingCandidate;
+  const executionText = useMemo(() => display && scene && !executionSourceUnavailable
+    ? storyboardSceneExecutionText(showingCandidate
+      ? { ...display, stale_scene_numbers: display.stale_scene_numbers.filter(number => number !== scene.scene_number) } : display, scene)
+    : "", [display, scene, showingCandidate, executionSourceUnavailable]);
+  const shootingFindings = useMemo(() => display && scene && !executionSourceUnavailable
+    ? reviewStoryboardScene(showingCandidate ? { ...display, findings: [] } : display, scene) : [], [display, scene, showingCandidate, executionSourceUnavailable]);
+  const executionExportDisabled = dirty || !!busy || showingCandidate || executionSourceUnavailable
+    || (!historical && (sourcePending || sourceChanged));
   const readOnly = !!busy || !!historical || showingCandidate || stale;
   const shots = display?.scenes.flatMap(value => value.shots) ?? [];
   const duration = shots.reduce((total, shot) => total + shot.duration_seconds, 0);
@@ -226,6 +252,13 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
     await run("准备分镜", async () => {
       let next = await writeStoryboard(project.id, episode, "POST", { source_draft: source, expected_revision: plan?.revision ?? 0 });
       receive(next);
+      if (!plan && initialDirection.trim()) {
+        setPlan({ ...next, visual_direction: initialDirection.trim() });
+        next = await writeStoryboard(project.id, episode, "PUT", {
+          expected_revision: next.revision, visual_direction: initialDirection.trim(), scenes: next.scenes, candidate_action: "keep",
+        });
+        receive(next);
+      }
       for (const original of source!.scenes) {
         if (pause.current || !active.current || next.candidate) break;
         if (next.scenes.some(value => value.scene_number === original.scene_number)) continue;
@@ -274,9 +307,24 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
     if (exportMenu.current) exportMenu.current.open = false;
   }
 
-  async function copyPrompt(value: string) {
-    try { await navigator.clipboard.writeText(value); setNotice({ kind: "success", text: "视频描述已复制。" }); }
+  async function copyPrompt(value: string, label = "视频描述") {
+    try { await navigator.clipboard.writeText(value); setNotice({ kind: "success", text: `${label}已复制。` }); }
     catch { setNotice({ kind: "error", text: "复制未完成，请从描述中选择文字复制。" }); }
+  }
+
+  function locateShot(shotId: string) {
+    setPresentation("cards");
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`storyboard-shot-${shotId}`);
+      target?.scrollIntoView({ block: "start", behavior: "auto" });
+      target?.focus({ preventScroll: true });
+    });
+  }
+
+  function downloadExecution() {
+    if (executionExportDisabled || !executionText || !scene) return;
+    downloadBlob(new Blob([executionText], { type: "text/plain;charset=utf-8" }),
+      `episode-${episode}-scene-${scene.scene_number}-execution-v${display?.revision}.txt`);
   }
 
   async function showRevision(value: string) {
@@ -291,10 +339,10 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
 
   const generationDisabled = !!busy || sourcePending || dirty || !!candidate || sourceChanged || hasLocks || !original;
   const generationBlocker = sourcePending ? "本集正文有未保存或待确认的修改，请返回正文处理并保存后再编排分镜。"
-    : dirty ? "分镜有未保存的修改，请先保存，再切换集数、生成候选或导出。"
-      : candidate ? `场 ${candidate.scene_number} 的候选尚未处理，请先比较并采用或放弃。`
+    : dirty ? "分镜有未保存的修改，请先保存，再切换集数、生成修改稿或导出。"
+      : candidate ? `场 ${candidate.scene_number} 的修改稿尚未处理，请先比较，再采用并保存或保留原分镜。`
         : sourceChanged ? "请先更新正文来源，再检查受影响的场次。"
-          : hasLocks ? "本场含已锁定镜头，解锁后才能生成候选。" : null;
+          : hasLocks ? "本场含已锁定镜头，解锁后才能生成修改稿。" : null;
   const exportBlocker = dirty ? "请先保存修改，再导出分镜。"
     : !historical && sourceChanged ? "正文已更新，请先更新来源并检查分镜。" : null;
   function saveEdits() {
@@ -367,12 +415,18 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
             <Link className="outline-action" href={"/projects/" + project.id + "/workspace"}><ArrowLeft size={15} />返回正文</Link>
           </div> : !plan ? <div className="storyboard-empty"><Clapperboard size={34} /><h2>{source.title}</h2>
             <p>第 {episode} 集 · {source.scenes.length} 场 · 待编排</p>
+            <div className={directorStyles.initialDirection}><label htmlFor={initialDirectionId}>本集拍摄要求（可选）</label>
+              <textarea id={initialDirectionId} aria-describedby={`${initialDirectionId}-help`} rows={4} maxLength={4000} value={initialDirection} disabled={!!busy}
+                placeholder="例如：竖屏、真人电影写实、镜间硬切；也可说明机位、光线或节奏偏好。无需重复粘贴正文。"
+                onChange={event => setInitialDirection(event.target.value)} />
+              <small id={`${initialDirectionId}-help`}>先保存要求，再编排镜头。场景共用规则和逐镜细节可在生成后继续编辑。</small>
+            </div>
             <button className="primary-action" disabled={!!busy || sourcePending} onClick={() => void arrangeAll()}><Sparkles size={16} />编排本集分镜</button>
           </div> : <>
           <div className="storyboard-toolbar">
             <div className="storyboard-view-control" role="group" aria-label="分镜视图">
               <button aria-pressed={mode === "read"} onClick={() => setMode("read")}><Eye size={15} />阅读</button>
-              <button aria-pressed={mode === "edit"} disabled={!!historical || showingCandidate} onClick={() => setMode("edit")}><Pencil size={15} />编辑</button>
+              <button aria-pressed={mode === "edit"} disabled={!!historical || showingCandidate} onClick={() => { setMode("edit"); setPresentation("cards"); }}><Pencil size={15} />编辑</button>
             </div>
             <div className={"storyboard-save-state" + (dirty ? " is-dirty" : "")} role="status">
               {busy && !generationMode ? <LoaderCircle className="ui-spinner" size={14} /> : dirty ? <span className="unsaved-dot" /> : <CheckCheck size={15} />}
@@ -387,15 +441,15 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
                 </select>
               </label>
               <ToolButton label="撤销未保存修改" disabled={!dirty || !!busy} onClick={() => setPlan(saved)}><Undo2 size={16} /></ToolButton>
-              <button className="primary-action" disabled={!dirty || !!busy || !!historical} onClick={() => void saveEdits()}>
+              {dirty && <button className="primary-action" disabled={!dirty || !!busy || !!historical} onClick={() => void saveEdits()}>
                 <Save size={15} />保存
-              </button>
+              </button>}
             </div>
           </div>
           <div className="storyboard-overview">
             <span><Clapperboard size={16} /><strong>{display?.scenes.length}</strong> / {displaySource?.scenes.length ?? 0} 场</span>
             <span><strong>{shots.length}</strong> 镜</span><span><Clock3 size={15} />{formatDuration(duration)}</span>
-            {!!remaining.length && !historical && <button className="outline-action" disabled={!!busy || sourcePending || dirty || !!candidate || sourceChanged}
+            {!!remaining.length && !historical && <button className={dirty || candidate || sourceChanged || sourcePending || instructionOpen ? "outline-action" : "primary-action"} disabled={!!busy || sourcePending || dirty || !!candidate || sourceChanged}
               onClick={() => void arrangeAll()}><Sparkles size={14} />继续编排 · {remaining.length} 场</button>}
           </div>
           {generationMode && <div className="storyboard-generation">
@@ -422,27 +476,27 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
               : <p className="storyboard-read-copy">{display?.visual_direction || "尚未设定"}</p>}
           </details>
           {candidate && !historical && <div className="storyboard-candidate">
-            <div><Sparkles size={17} /><strong>场 {candidate.scene_number} · 新候选</strong><span>{candidate.shots.length} 镜</span></div>
+            <div><Sparkles size={17} /><strong>场 {candidate.scene_number} · 修改稿</strong><span>{candidate.shots.length} 镜</span></div>
             <div className="storyboard-candidate-actions">
               <div className="storyboard-view-control" role="group" aria-label="分镜版本比较">
-                <button aria-pressed={!showingCandidate} onClick={() => { setSelected(candidate.scene_number); setViewCandidate(false); }}>当前</button>
-                <button aria-pressed={showingCandidate} onClick={() => { setSelected(candidate.scene_number); setViewCandidate(true); setMode("read"); }}>候选</button>
+                <button aria-pressed={!showingCandidate} onClick={() => { setSelected(candidate.scene_number); setViewCandidate(false); }}>原分镜</button>
+                <button aria-pressed={showingCandidate} onClick={() => { setSelected(candidate.scene_number); setViewCandidate(true); setMode("read"); }}>修改稿</button>
               </div>
-              <button disabled={!!busy || dirty || sourceChanged} className="primary-action" onClick={() => void run("采用候选", async () => {
+              <button disabled={!!busy || dirty || sourceChanged} className="primary-action" onClick={() => void run("采用并保存修改稿", async () => {
                 receive(await persist(plan, "accept")); setViewCandidate(false);
-              })}><Check size={15} />采用</button>
-              <button disabled={!!busy || dirty} className="outline-action" onClick={() => void run("放弃候选", async () => {
+              })}><Check size={15} />采用并保存</button>
+              <button disabled={!!busy || dirty} className="outline-action" onClick={() => void run("保留原分镜", async () => {
                 receive(await persist(plan, "reject")); setViewCandidate(false);
-              })}>放弃</button>
+              })}>保留原分镜</button>
             </div>
           </div>}
           {sceneNumber !== null && <div className="storyboard-detail">
             <div className="storyboard-scene-heading">
-              <div><span className="library-kicker">场 {String(sceneNumber).padStart(2, "0")}{showingCandidate ? " · 候选" : ""}</span>
-                <h2 ref={sceneHeading}>{original?.scene_heading || original?.slug || "场 " + sceneNumber}</h2></div>
+              <div><span className="library-kicker">场 {String(sceneNumber).padStart(2, "0")}{showingCandidate ? " · 修改稿" : ""}</span>
+                <h2 ref={sceneHeading}>{executionSourceUnavailable ? `场 ${sceneNumber} · 旧分镜待核对` : original?.scene_heading || original?.slug || "场 " + sceneNumber}</h2></div>
               {!historical && (scene ? <button className="outline-action" aria-expanded={instructionOpen}
                 disabled={!!busy || !!candidate} onClick={() => setInstructionOpen(value => !value)}><Sparkles size={15} />调整本场</button>
-                : <button className="primary-action" disabled={generationDisabled} onClick={() => void generateScene()}><Sparkles size={15} />编排本场</button>)}
+                : <button className={dirty || candidate || sourceChanged || sourcePending || remaining.length ? "outline-action" : "primary-action"} disabled={generationDisabled} onClick={() => void generateScene()}><Sparkles size={15} />编排本场</button>)}
             </div>
             {stale && !showingCandidate && <div className="workspace-feedback is-warning"><TriangleAlert size={17} />
               <span>来源已变化 · 旧镜头保留于正文快照 v{scene?.source_revision}</span>
@@ -455,11 +509,15 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
               <Field label="本场修改要求" value={instruction} disabled={!!busy || !!candidate}
                 onChange={value => setInstructions(current => ({ ...current, [sceneNumber]: value }))} />
               <div>{hasLocks ? <span><Lock size={13} />本场含已锁定镜头</span> : <span />}
-                <button className="primary-action" disabled={generationDisabled} onClick={() => void generateScene()}><Sparkles size={15} />生成候选</button></div>
+                <button className={dirty || candidate || sourceChanged || sourcePending ? "outline-action" : "primary-action"} disabled={generationDisabled} onClick={() => void generateScene()}><Sparkles size={15} />生成修改稿</button></div>
             </div>}
             {scene && <>
               <p className="storyboard-purpose">{read(scene.design.purpose)}</p>
-              <details className="storyboard-scene-brief">
+              <StoryboardProductionRules value={scene.design.production_contract} editing={mode === "edit" && !historical && !showingCandidate}
+                disabled={readOnly} locked={hasLocks} onChange={production_contract => editScene(current => ({
+                  ...current, design: { ...current.design, production_contract },
+                }))} />
+              {!executionSourceUnavailable && <details className="storyboard-scene-brief">
                 <summary><List size={15} />执行摘要<span>正文事实与制作输入</span></summary>
                 <div className="storyboard-scene-brief-grid">
                   <BriefField label="地点" value={sceneManifest?.location || original?.setting_hint || original?.slug} />
@@ -473,11 +531,12 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
                   <BriefField label="进入状态" value={sceneManifest?.entry_state || "正文未明确"} />
                   <BriefField label="退出状态" value={sceneManifest?.exit_state || "正文未明确"} />
                 </div>
-              </details>
+              </details>}
               <details className="storyboard-scene-design"><summary><FileText size={15} />场景设计</summary>
                 <div className="storyboard-design-grid">
                   {(["spatial_layout", "reveal_order", "action_rhythm", "transition"] as const).map((key, i) => mode === "edit" && !readOnly
                     ? <Field key={key} label={["空间布局", "信息揭示", "动作节拍", "转场"][i]} value={scene.design[key]}
+                      disabled={hasLocks && (key === "spatial_layout" || key === "transition")}
                       onChange={value => editScene(current => ({ ...current, design: { ...current.design, [key]: value } }))} />
                     : <div key={key}><span>{["空间布局", "信息揭示", "动作节拍", "转场"][i]}</span><p>{read(scene.design[key])}</p></div>)}
                   {(["audience_effect", "status_change"] as const).map((key, i) => mode === "edit" && !readOnly
@@ -492,12 +551,34 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
                 <span className="storyboard-field-label"><TriangleAlert size={14} />本场待确认事项</span>
                 <ul>{scene.unresolved_questions.map((question, index) => <li key={index}>{read(question)}</li>)}</ul>
               </div>}
+              <StoryboardShootingReview findings={shootingFindings} onLocate={locateShot} />
+              <div className={directorStyles.viewBar}>
+                <div className="storyboard-view-control" role="group" aria-label="分镜呈现方式">
+                  <button aria-pressed={presentation === "cards"} onClick={() => setPresentation("cards")}><Clapperboard size={15} />镜头卡片</button>
+                  <button aria-pressed={presentation === "execution"} onClick={() => setPresentation("execution")}><FileText size={15} />整场执行稿</button>
+                </div>
+                <div className={directorStyles.viewActions}>
+                  <button className="outline-action" disabled={executionExportDisabled} onClick={() => void copyPrompt(executionText, "本场执行稿")}><Copy size={14} />复制本场执行稿</button>
+                  <button className="outline-action" disabled={executionExportDisabled} onClick={downloadExecution}><Download size={14} />下载本场执行稿</button>
+                </div>
+              </div>
+              {executionExportDisabled && <p className={directorStyles.help}>{showingCandidate ? "修改稿采用并保存后可复制或下载。"
+                : executionSourceUnavailable || (!historical && sourceChanged) ? "正文来源已变化，请先重编本场，或查看来源一致的历史版本。"
+                : dirty ? "执行稿随编辑预览；保存后可复制或下载。" : "请先完成当前操作，再复制或下载。"}</p>}
+              {presentation === "execution" ? <div className={directorStyles.execution}>
+                <pre aria-label="本场执行稿">{executionText || "本场引用的正文已变化，请核对来源后再生成执行稿。"}</pre>
+              </div> : <>
+              <nav className={directorStyles.shotNav} aria-label="本场镜头">{scene.shots.map((shot, index) =>
+                <button key={shot.shot_id} type="button" aria-label={`定位镜 ${scene.scene_number}-${index + 1}`} onClick={() => locateShot(shot.shot_id)}>
+                  <strong>{String(index + 1).padStart(2, "0")}</strong><span>{formatDuration(shot.duration_seconds)}</span><small>{read(shot.framing)}</small>
+                </button>)}</nav>
               <div className="storyboard-shot-list">{scene.shots.map((shot, index) => <ShotCard key={shot.shot_id} scene={scene} index={index} read={read}
                 editing={mode === "edit" && !showingCandidate && !historical} readOnly={readOnly}
-                lockDisabled={!!busy || dirty || !!historical || showingCandidate} dirty={dirty}
+                lockDisabled={!!busy || dirty || !!historical || showingCandidate} dirty={dirty} copyDisabled={executionExportDisabled}
                 onLock={() => void toggleLock(shot.shot_id)} onTransform={editScene}
                 onEdit={patch => editScene(current => ({ ...current, shots: current.shots.map(value => value.shot_id === shot.shot_id && !value.locked ? { ...value, ...patch } : value) }))}
                 onCopy={() => void copyPrompt(shot.prompt)} />)}</div>
+              </>}
             </>}
             {!scene && <div className="storyboard-scene-empty"><Clapperboard size={24} /><span>本场待编排</span></div>}
             <details className="storyboard-source"><summary><FileText size={15} />{historical ? "本版本正文快照" : "当前正文"}</summary>
@@ -511,7 +592,7 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
             {!display?.findings.length && <p><CheckCheck size={15} />正文引用检查通过，创作内容待审阅。</p>}
             <ul>{display?.findings.map((finding, index) => <li key={index} className={"finding-" + finding.severity}>
               {finding.scene_number && <button onClick={() => { setSelected(finding.scene_number!); setViewCandidate(false); }}>场 {finding.scene_number}</button>}
-              <span>{readableStoryboardText(finding.message, display, finding.scene_number)}</span>
+              <span>{display?.stale_scene_numbers.includes(finding.scene_number ?? 0) ? finding.message : readableStoryboardText(finding.message, display, finding.scene_number)}</span>
             </li>)}</ul>
           </details>
         </>}
@@ -520,8 +601,8 @@ function StoryboardEpisode({ autoEndEpisode = null, autoStart = false, project, 
   </main>;
 }
 
-function ShotCard({ scene, index, read, editing, readOnly, lockDisabled, dirty, onLock, onTransform, onEdit, onCopy }: {
-  scene: StoryboardScene; index: number; read: (value: string | null | undefined) => string; editing: boolean; readOnly: boolean; lockDisabled: boolean; dirty: boolean;
+function ShotCard({ scene, index, read, editing, readOnly, lockDisabled, dirty, copyDisabled, onLock, onTransform, onEdit, onCopy }: {
+  scene: StoryboardScene; index: number; read: (value: string | null | undefined) => string; editing: boolean; readOnly: boolean; lockDisabled: boolean; dirty: boolean; copyDisabled: boolean;
   onLock: () => void; onTransform: (transform: (scene: StoryboardScene) => StoryboardScene) => void;
   onEdit: (patch: Partial<StoryboardShot>) => void; onCopy: () => void;
 }) {
@@ -530,7 +611,7 @@ function ShotCard({ scene, index, read, editing, readOnly, lockDisabled, dirty, 
   const durationInvalid = !Number.isFinite(shot.duration_seconds) || shot.duration_seconds <= 0 || shot.duration_seconds > 600;
   const disabled = readOnly || shot.locked;
   const lockedAfter = scene.shots.slice(index + 1).some(value => value.locked);
-  return <article className={"storyboard-shot" + (shot.locked ? " is-locked" : "")} aria-label={"镜 " + scene.scene_number + "-" + (index + 1)}>
+  return <article id={`storyboard-shot-${shot.shot_id}`} tabIndex={-1} className={"storyboard-shot " + directorStyles.shot + (shot.locked ? " is-locked" : "")} aria-label={"镜 " + scene.scene_number + "-" + (index + 1)}>
     <header>
       <span className="storyboard-shot-number">{String(index + 1).padStart(2, "0")}</span>
       <div className="storyboard-shot-heading"><strong>{read(shot.purpose)}</strong><span>{read(shot.framing)}</span></div>
@@ -553,6 +634,11 @@ function ShotCard({ scene, index, read, editing, readOnly, lockDisabled, dirty, 
         onClick={() => onTransform(current => mergeStoryboardShot(current, index))}><GitMerge size={15} /></ToolButton>
     </div>}
     <div className="storyboard-shot-body">
+      {!editing && shot.handoff && <div className={directorStyles.bridge}><span>承接上一镜</span><p>{read(shot.handoff)}</p></div>}
+      {!editing && <div className={directorStyles.states}>
+        <div><span>开场画面</span><p>{read(shot.continuity_in)}</p></div>
+        <div><span>镜尾状态</span><p>{read(shot.continuity_out)}</p></div>
+      </div>}
       {editing ? <Field label="画面动作" value={shot.action_sequence.join("\n")} disabled={disabled}
         onChange={value => onEdit({ action_sequence: value.split("\n") })} />
         : <div className="storyboard-action-copy"><span className="storyboard-field-label">画面</span><ol>{shot.action_sequence.map((action, i) => <li key={i}>{read(action)}</li>)}</ol></div>}
@@ -588,14 +674,17 @@ function ShotCard({ scene, index, read, editing, readOnly, lockDisabled, dirty, 
             {(["purpose", "camera", "sound", "continuity_in", "continuity_out"] as const).map((key, i) => <Field key={key}
               label={["镜头作用", "机位与运镜", "声音", "起始状态", "结束状态"][i]} value={shot[key]} disabled={disabled}
               onChange={value => onEdit({ [key]: value })} />)}
+            <Field label="承接上一镜" value={shot.handoff ?? ""} disabled={disabled} onChange={value => onEdit({ handoff: value })} />
+            <Field label="本镜光学（覆盖本场默认）" value={shot.optics ?? ""} disabled={disabled} onChange={value => onEdit({ optics: value })} />
           </> : (["camera", "sound", "continuity_in", "continuity_out"] as const).map((key, i) => <div key={key}>
             <span className="storyboard-field-label">{["机位与运镜", "声音", "起始状态", "结束状态"][i]}</span><p>{read(shot[key]) || "未设定"}</p>
           </div>)}
+          {!editing && shot.optics && <div><span className="storyboard-field-label">本镜光学 · 覆盖本场默认</span><p>{read(shot.optics)}</p></div>}
         </div>
         <p className="storyboard-source-id">{shot.shot_id} · 正文快照 v{scene.source_revision} · {shot.source_refs.join(", ")}</p>
       </details>
       <details className="storyboard-prompt"><summary><FileText size={14} />视频描述<span>{dirty ? "保存后更新" : ""}</span></summary>
-        <div className="storyboard-prompt-actions"><ToolButton label="复制视频描述" disabled={dirty} onClick={onCopy}><Copy size={15} /></ToolButton></div>
+        <div className="storyboard-prompt-actions"><ToolButton label="复制视频描述" disabled={copyDisabled} onClick={onCopy}><Copy size={15} /></ToolButton></div>
         <pre>{shot.prompt}</pre>
       </details>
     </div>

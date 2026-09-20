@@ -13,6 +13,7 @@ import type {
   EndingMode,
   GenerationRecoveryTask,
   GenerationSettings,
+  CharacterDraft,
 } from "@/lib/types";
 import type { EpisodeThreeLayerContract } from "@/lib/types";
 import type { MemoryRecall } from "@/lib/memory-recall";
@@ -24,6 +25,7 @@ import {
 import { actingProfileForCharacter, actingProfilePrompt } from "./character-acting-profile";
 import { productionDetailInstruction } from "./production-detail-rules";
 import { characterMatchesReference } from "./character-reference";
+import { overseasVoiceSampleLines } from "./overseas-voice-samples";
 
 export {
   episodeRoadmapCoverageThrough,
@@ -161,6 +163,9 @@ export function episodeActingDirection(
     scene.dialogue_objective ? `对白目的：${scene.dialogue_objective}` : "",
     scene.turn_or_reveal ? `变化：${scene.turn_or_reveal}` : "",
   ].filter(Boolean).join("；")) ?? [];
+  if (characters.some(character => overseasVoiceSampleLines(character.actingProfile?.permanentVoicePrompt ?? "").length)) {
+    return actingDirectionWithVoiceSamples(characters, executionPlan?.scene_execution_plan ?? []);
+  }
   const rules = [
     productionDetailInstruction(),
     "表演指导：人物通过目标驱动的可见行动推进场面，抽象情绪要转成动作、停顿、视线、呼吸、重心或身体任务。",
@@ -170,6 +175,66 @@ export function episodeActingDirection(
     "尊重人物已经确认的知识、身体状态、行动能力和作者明确指令，不擅自替人物改变立场或做决定。",
   ].filter(Boolean).join(" ");
   return rules.slice(0, 3000) || undefined;
+}
+
+/** Give every relevant character and scene a share before optional detail. */
+function actingDirectionWithVoiceSamples(characters: CharacterDraft[], scenes: EpisodeSceneExecutionBeat[]): string {
+  const introduction = [
+    productionDetailInstruction(),
+    "表演指导：人物通过目标驱动的可见行动推进场面，抽象情绪要转成动作、停顿、视线、呼吸、重心或身体任务。",
+    "按本场冲突安排有因果的策略变化；安静场景可以只完成一次关键选择，不为凑节拍重复手势。没有台词的人用符合其目标的倾听和反应参与，不抢台词。",
+  ].join(" ");
+  const authority = "声音样例只示范表达方式，不是已发生的剧情。尊重人物已经确认的知识、身体状态、行动能力和作者明确指令，不擅自替人物改变立场或做决定。";
+  const sceneLabel = scenes.length ? "场次表演任务：" : "";
+  const characterLabel = "角色表演档案：";
+  const available = 3000 - introduction.length - authority.length - sceneLabel.length - characterLabel.length - 4;
+  const sceneBudget = scenes.length ? Math.min(900, Math.floor(available * 0.4)) : 0;
+  const sceneQuota = scenes.length ? Math.floor((sceneBudget - scenes.length + 1) / scenes.length) : 0;
+  const sceneText = scenes.map(scene => boundedActingDetails([
+    [`场${scene.scene_number}目标`, scene.scene_objective],
+    ["阻力", scene.opposition], ["可见行动", scene.visible_action],
+    ["对白目的", scene.dialogue_objective], ["变化", scene.turn_or_reveal],
+  ], sceneQuota)).filter(Boolean).join("\n");
+  const characterBudget = available - sceneText.length;
+  const quota = Math.max(0, Math.floor((characterBudget - characters.length + 1) / characters.length));
+  const characterText = characters.map(character => {
+    const profile = actingProfileForCharacter(character);
+    const samples = overseasVoiceSampleLines(profile.permanentVoicePrompt);
+    const name = `${character.name}：`.slice(0, Math.min(80, quota));
+    const remaining = Math.max(0, quota - name.length - 2);
+    const stateBudget = Math.min(180, Math.floor(remaining * 0.3));
+    let sampleBudget = remaining - stateBudget;
+    const omitted = samples.join("\n").length > sampleBudget
+      ? "其余声音例句因长度未纳入；沿用声音特点，勿补造。".slice(0, sampleBudget) : "";
+    if (omitted) sampleBudget = Math.max(0, sampleBudget - omitted.length - 1);
+    const selectedSamples = samples.filter(line => {
+      if (line.length > sampleBudget) return false;
+      sampleBudget -= line.length + 1;
+      return true;
+    });
+    const state = character.dynamicState;
+    const stateText = boundedActingDetails([
+      ["动机", character.motivation], ["当前目标", state?.currentGoal],
+      ["身体状态", state?.physicalState], ["行动边界", state?.actionCapabilities?.join("、")],
+      ["当前限制", state?.activeConstraints?.join("、")],
+    ], stateBudget);
+    const description = profile.permanentVoicePrompt.split(/\r?\n/)
+      .filter(line => !samples.includes(line.trim())).join("\n");
+    const performance = [description, actingProfilePrompt({ ...profile, permanentVoicePrompt: "" })].filter(Boolean).join("；");
+    const sampleText = [...selectedSamples, omitted].filter(Boolean).join("\n");
+    const detailBudget = Math.max(0, remaining - stateText.length - sampleText.length - 2);
+    return name + [stateText, performance.slice(0, detailBudget), sampleText].filter(Boolean).join("\n");
+  }).join("\n");
+  return [introduction, sceneText ? sceneLabel + sceneText : "", characterLabel + characterText, authority]
+    .filter(Boolean).join("\n");
+}
+
+function boundedActingDetails(fields: Array<[string, string | null | undefined]>, budget: number): string {
+  const present = fields.filter((field): field is [string, string] => Boolean(field[1]?.trim()));
+  if (!present.length || budget <= 0) return "";
+  const overhead = present.reduce((total, [label]) => total + label.length + 1, present.length - 1);
+  const quota = Math.max(0, Math.floor((budget - overhead) / present.length));
+  return present.map(([label, value]) => `${label}：${value.slice(0, quota)}`).join("；").slice(0, budget);
 }
 
 export function episodeGenerationExecutionPlan(

@@ -16,7 +16,8 @@ import { BrandLogo } from "@/components/brand-logo";
 import { MenuIcon } from "@/components/icons";
 import { BackgroundGenerationStatus } from "@/components/background-generation-status";
 import { LanguageToggle } from "@/components/language-toggle";
-import { ProjectSidebar, ProjectSteps } from "@/components/project-sidebar";
+import { ProjectSidebar } from "@/components/project-sidebar";
+import { HostWorkspaceFrame } from "@/components/host-workspace-frame";
 import { HostReturnLink } from "@/components/host-return-link";
 import { StudioGuide } from "@/components/studio-guide";
 import { HostImportPanel } from "@/components/host-import-panel";
@@ -26,7 +27,8 @@ import { useLocale } from "@/providers/locale-provider";
 import { useProjects } from "@/providers/project-provider";
 import { DEFAULT_GENERATION_SETTINGS } from "@/lib/types";
 import { hostProjectId as currentHostProjectId, hostProjectContext } from "@/lib/host-session";
-import { hostWorkspaceHref, isHostEmbedded, notifyHost } from "@/lib/host-navigation";
+import { hostWorkspaceHref, isHostEmbedded, isHostScriptWorkflow, notifyHost } from "@/lib/host-navigation";
+import { quickSettingsForHost, hostScriptEntryHref, isQuickScriptProject, quickScriptHref } from "@/lib/quick-script-project";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -79,12 +81,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     const existing = projects.find((project) => project.id === hostProjectId);
     if (existing) {
       hostBootstrapRef.current = hostProjectId;
-      if (pathname.split("/")[2] !== hostProjectId) router.replace(currentWorkspaceHref(existing));
+      if (pathname.split("/")[2] !== hostProjectId) router.replace(hostScriptEntryHref(existing, currentWorkspaceHref(existing), isHostScriptWorkflow()));
       return;
     }
     if (serverPersistenceAvailable !== true) return;
     hostBootstrapRef.current = hostProjectId;
     const context = hostProjectContext();
+    const quickSettings = isHostScriptWorkflow() ? quickSettingsForHost(context?.episodeDurationSeconds) : null;
+    const quick = Boolean(quickSettings);
     void createProject({
       id: hostProjectId,
       title: context?.name || "主项目长剧本",
@@ -95,16 +99,23 @@ export function AppShell({ children }: { children: ReactNode }) {
       customTags: [],
       characters: [],
       hostDeliveryTargetProjectId: hostProjectId,
-      generationSettings: { ...DEFAULT_GENERATION_SETTINGS,
+      ...(quick ? { creationMode: "quick" as const } : {}),
+      generationSettings: quickSettings ?? { ...DEFAULT_GENERATION_SETTINGS,
         preferredEpisodeDurationMinutes: context?.episodeDurationSeconds
           ? context.episodeDurationSeconds / 60 : DEFAULT_GENERATION_SETTINGS.preferredEpisodeDurationMinutes },
     }).then((created) => {
-      router.replace(currentWorkspaceHref(created));
+      router.replace(hostScriptEntryHref(created, currentWorkspaceHref(created), quick));
     }).catch(() => {
       hostBootstrapRef.current = null;
       setHostBootstrapError("暂时无法准备网剧创作，已保存内容保留，请重试。");
     });
   }, [createProject, isReady, pathname, projects, router, serverPersistenceAvailable]);
+
+  useEffect(() => {
+    if (!isReady || !currentProject || !isHostScriptWorkflow() || !isQuickScriptProject(currentProject)) return;
+    const target = quickScriptHref(currentProject.id);
+    if (pathname !== target) router.replace(target);
+  }, [currentProject, isReady, pathname, router]);
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 901px)");
@@ -190,9 +201,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <BackgroundGenerationStatus />
           <LanguageToggle compact />
         </header>}
-        {showHostReturn && currentProject && <section className="series-production-bar" aria-label="网剧制作流程">
-          {embedded ? <ProjectSteps project={currentProject} /> : <div><strong>网剧创作 · {currentProject.title}</strong><span>梗概 → 总纲 → 全剧规划 → 正文与分镜 → 资产与视频制作</span></div>}
-          {embedded && <BackgroundGenerationStatus />}
+        {!embedded && showHostReturn && currentProject && <section className="series-production-bar" aria-label="网剧制作流程">
+          <div><strong>网剧创作 · {currentProject.title}</strong><span>梗概 → 总纲 → 全剧规划 → 正文与分镜 → 资产与视频制作</span></div>
           {hostDeliveryConfigured() && <button className="primary-action" type="button" onClick={() => setHostImportOpen(true)}>同步到制作</button>}
         </section>}
         {hostImportOpen && currentProject && <HostImportPanel project={currentProject}
@@ -310,7 +320,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p>{hostBootstrapError || (serverPersistenceAvailable === false ? "暂时无法连接创作服务，请重试。" : "正在恢复当前项目的网剧创作…")}</p>
             {(hostBootstrapError || serverPersistenceAvailable === false) && <button className="outline-action" type="button" onClick={() => window.location.reload()}>重新连接</button>}
           </section>
-        ) : children}
+        ) : embedded && currentProject && !pathname.endsWith("/quick") ? <HostWorkspaceFrame project={currentProject} onImport={() => setHostImportOpen(true)}>{children}</HostWorkspaceFrame> : children}
       </div>
     </div>
   );

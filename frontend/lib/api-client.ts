@@ -69,6 +69,7 @@ export async function apiEventStream<TEvent>(
   path: string,
   init: RequestInit,
   onEvent: (event: TEvent) => void,
+  onJsonResponse?: (value: unknown) => void,
 ): Promise<void> {
   const token = await ensureHostToken();
   const signal = init.signal ? AbortSignal.any([init.signal, hostSessionSignal]) : hostSessionSignal;
@@ -94,6 +95,15 @@ export async function apiEventStream<TEvent>(
       metadata,
     );
   }
+  // Older hosts can return JSON to the same request. Never replay a mutation
+  // merely because that host has not enabled live progress yet.
+  if (onJsonResponse && response.headers.get("content-type")?.includes("application/json")) {
+    const value: unknown = await response.json();
+    assertHostSessionActive();
+    signal.throwIfAborted();
+    onJsonResponse(value);
+    return;
+  }
   if (!response.body) {
     throw new ApiError(
       "The streaming response did not contain a body.",
@@ -109,6 +119,7 @@ export async function apiEventStream<TEvent>(
 
   function consumeFrame(frame: string, endedWithoutBoundary = false) {
     assertHostSessionActive();
+    signal.throwIfAborted();
     const data = frame
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))

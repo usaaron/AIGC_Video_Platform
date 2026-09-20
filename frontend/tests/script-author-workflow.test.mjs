@@ -10,6 +10,7 @@ import * as author from "../lib/author-conflict.ts";
 import * as draftState from "../lib/script-draft-state.ts";
 import { isRequestAborted, userFacingError } from "../lib/api-error.ts";
 import { DEFAULT_GENERATION_SETTINGS } from "../lib/types.ts";
+import { bindCopilotProgress } from "./helpers/copilot-progress-runtime.mjs";
 
 const compiled = ts.transpileModule(readFileSync(new URL("../components/use-script-author-workflow.ts", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -70,6 +71,7 @@ function harness(project = fixture()) {
   const react = {
     useRef(value) { const index = cursor++; return slots[index] ??= { current: value }; },
     useMemo(factory, deps) { const index = cursor++; if (!same(slots[index]?.deps, deps)) slots[index] = { deps, value: factory() }; return slots[index].value; },
+    useCallback(callback, deps) { return react.useMemo(() => callback, deps); },
     useState(initial) {
       const index = cursor++;
       slots[index] ??= { value: typeof initial === "function" ? initial() : initial };
@@ -88,11 +90,13 @@ function harness(project = fixture()) {
       effects.push(() => { previous?.cleanup?.(); slot.cleanup = effect(); });
     },
   };
+  const useCopilotProgress = bindCopilotProgress(react);
   const context = {
     exports: {}, AbortController, process: { env: {} }, crypto: { randomUUID: () => "revision.new" },
     window: { location: { assign: (path) => calls.navigations.push(path) } },
     require(name) {
       if (name === "react") return react;
+      if (name === "@/lib/use-copilot-progress") return { useCopilotProgress };
       if (name === "@/lib/author-modification-instructions") return authorInstructions;
       if (name === "@/lib/author-conflict") return { ...author, createAuthorRevision: (...args) => { calls.revisions.push(args); return behavior.revise(...args); } };
       if (name === "@/lib/script-draft-state") return draftState;
@@ -225,15 +229,24 @@ test("a superseded request cannot replace the candidate or append a pause messag
   assert.equal(await first, false);
   assert.equal(run.project.episodes[0].modificationCandidate.candidate_generation_run.draft_master_script.title, "Second");
   assert.equal(run.hook.messages.some((item) => item.text.includes("已暂停")), false);
+  assert.equal(run.memory.get(run.project.id).filter(item => item.progress).length, 1);
+  assert.equal(run.memory.get(run.project.id).find(item => item.progress).progress.status, "completed");
 });
 
 test("switching episodes preserves an originating result without changing the visible episode", async () => {
   const run = harness();
   run.project.episodes.push({ ...run.project.episodes[0], id: "episode.second", episodeNumber: 2 });
   const gate = deferred();
-  run.behavior.modify = () => gate.promise;
+  run.behavior.modify = (...args) => {
+    args[8]({ type: "reasoning_summary", delta: "先核对第1集人物目标。" });
+    return gate.promise;
+  };
   const operation = run.hook.requestModification("Change first");
-  run.select(run.project.id, 2);
+  await setImmediate();
+  const progressId = run.hook.progress.id;
+  assert.equal(run.hook.progress.status, "running");
+  assert.equal(run.select(run.project.id, 2).progress, null);
+  assert.equal(run.hook.busyAction, null);
   const messageCount = run.calls.messages.length;
   gate.resolve({ candidate_generation_run: run.project.episodes[0].generationRun });
   assert.equal(await operation, true);
@@ -241,6 +254,63 @@ test("switching episodes preserves an originating result without changing the vi
   assert.equal(run.project.episodes[1].modificationCandidate, undefined);
   assert.equal(run.calls.views.length, 0);
   assert.equal(run.calls.messages.length, messageCount);
+  assert.equal(run.hook.progress, null);
+  assert.equal(run.hook.messages.some(item => item.progress), false);
+  const archived = run.memory.get(run.project.id).find(item => item.progress?.id === progressId);
+  assert.equal(archived.episodeId, "episode.author");
+  assert.equal(archived.progress.status, "completed");
+  assert.equal(archived.progress.summary, "先核对第1集人物目标。");
+  const returned = run.select(run.project.id, 1);
+  assert.equal(returned.progress.status, "completed");
+  assert.equal(returned.messages.find(item => item.progress?.id === progressId).progress.status, "completed");
+});
+
+test("returning to an episode during its background request exposes its real running state and pause control", async () => {
+  const run = harness();
+  run.project.episodes.push({ ...run.project.episodes[0], id: "episode.second", episodeNumber: 2 });
+  const gate = deferred();
+  run.behavior.modify = () => gate.promise;
+  const operation = run.hook.requestModification("Only first episode");
+  await setImmediate();
+  const id = run.hook.progress.id;
+  assert.equal(run.select(run.project.id, 2).progress, null);
+  run.calls.requests[0][8]({ type: "reasoning_summary", delta: "后台仍在检查第1集。" });
+  assert.equal(run.hook.progress, null);
+  const returned = run.select(run.project.id, 1);
+  assert.equal(returned.progress.id, id);
+  assert.equal(returned.progress.status, "running");
+  assert.equal(returned.progress.summary, "后台仍在检查第1集。");
+  assert.equal(returned.busyAction, "modify");
+  returned.pauseScriptModification();
+  const aborted = new Error("paused"); aborted.name = "AbortError";
+  gate.reject(aborted);
+  assert.equal(await operation, false);
+  assert.equal(run.hook.progress.status, "paused");
+  assert.equal(run.hook.messages.find(item => item.progress?.id === id).progress.status, "paused");
+});
+
+test("a background failure archives its progress in the originating episode without changing the visible error or editor", async () => {
+  const run = harness();
+  run.project.episodes.push({ ...run.project.episodes[0], id: "episode.second", episodeNumber: 2 });
+  const gate = deferred();
+  run.behavior.modify = () => gate.promise;
+  const operation = run.hook.requestModification("Change first episode");
+  await setImmediate();
+  const id = run.hook.progress.id;
+  run.calls.requests[0][8]({ type: "progress", stage: "requesting", message: "请求第1集修改" });
+  run.select(run.project.id, 2).setInstruction("第2集尚未发送的意见");
+  const messageCount = run.calls.messages.length;
+  gate.reject(new Error("第1集修改暂时失败"));
+  assert.equal(await operation, false);
+  assert.equal(run.hook.progress, null);
+  assert.equal(run.hook.error, null);
+  assert.equal(run.hook.instruction, "第2集尚未发送的意见");
+  assert.equal(run.calls.messages.length, messageCount);
+  const archived = run.memory.get(run.project.id).find(item => item.progress?.id === id);
+  assert.equal(archived.episodeId, "episode.author");
+  assert.equal(archived.progress.status, "error");
+  assert.equal(archived.progress.steps.at(-1).message, "请求第1集修改");
+  assert.equal(run.select(run.project.id, 1).messages.find(item => item.progress?.id === id).text, "workspace.modificationFailed");
 });
 
 test("switching projects aborts requests and keeps project chats separate", async () => {
@@ -258,6 +328,8 @@ test("switching projects aborts requests and keeps project chats separate", asyn
   assert.equal(run.calls.requests[0][3].aborted, true);
   assert.equal(run.memory.get("project.other").some((item) => item.text === "Only project one"), false);
   assert.equal(run.project.episodes[0].modificationCandidate, undefined);
+  assert.equal((run.memory.get(run.project.id) ?? []).some(item => item.progress), false);
+  assert.equal(run.memory.get("project.other").some(item => item.progress), false);
 });
 
 test("cancellation before the functional update executes prevents candidate persistence", async () => {
@@ -271,6 +343,10 @@ test("cancellation before the functional update executes prevents candidate pers
   gate.resolve();
   assert.equal(await operation, false);
   assert.equal(run.project.episodes[0].modificationCandidate, undefined);
+  assert.equal(run.calls.requests.length, 0);
+  const paused = run.memory.get(run.project.id).find(item => item.progress);
+  assert.equal(paused.episodeId, "episode.author");
+  assert.equal(paused.progress.status, "paused");
 });
 
 test("defer preserves the chosen direction and withdrawal preserves the source script", async () => {

@@ -14,6 +14,7 @@ from app.modules.preproduction.models import (
 )
 from app.modules.preproduction.repository import StoryboardConflictError
 from app.modules.preproduction.service import StoryboardService
+from app.modules.preproduction.generation_recovery import storyboard_output_truncated
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,9 @@ def storyboard_errors():
     except StoryboardConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except (ValidationError, LLMStructuredOutputError) as exc:
+        if storyboard_output_truncated(exc):
+            logger.warning("Storyboard provider output truncated termination=%s", exc.stream_termination)
+            raise HTTPException(503, "分镜模型输出被截断，请重试本场；已保存的内容仍保留。") from exc
         details = [
             {"loc": issue["loc"], "type": issue["type"], "msg": issue["msg"]}
             for issue in exc.errors(include_input=False, include_context=False, include_url=False)

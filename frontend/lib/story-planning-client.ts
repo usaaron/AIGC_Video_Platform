@@ -1,5 +1,6 @@
 import { planningRevisionEpoch, isPlanningRevisionActive } from "@/lib/planning-revision";
 import { ApiError, apiRequest } from "@/lib/api-client";
+import { copilotRequest, type CopilotProgressObserver } from "@/lib/copilot-client";
 import {
   type AutomaticRetryEvent,
   generateWithAutomaticTransientRetry,
@@ -53,6 +54,8 @@ import { isApprovedEpisodeRoadmap } from "@/lib/planning-coverage";
 import { requireCompleteSynopsisText, synopsisHasPendingChanges } from "@/lib/story-synopsis-context";
 import { synopsisNotesForRequest } from "@/lib/story-synopsis-notes";
 import { synopsisSourceProject } from "@/lib/story-synopsis-source";
+import { creativePromptWithOverseasProfile, overseasStoryProfileForApi, overseasStoryProfilePrompt } from "@/lib/overseas-story-profile";
+import { OverseasVoiceSampleError, overseasVoiceValidationText } from "@/lib/overseas-voice-samples";
 import {
   marketProfileForReleaseRegion,
   type CreativeDirectionCandidate,
@@ -127,8 +130,10 @@ function storyPlanningSourcePayload(
   maxPromptCharacters: number,
 ) {
   return {
-    creative_prompt: (project.creativePrompt
-      || referenceMaterialFallbackPrompt(project.referenceMaterials)).slice(0, maxPromptCharacters),
+    creative_prompt: creativePromptWithOverseasProfile(
+      project.creativePrompt || referenceMaterialFallbackPrompt(project.referenceMaterials),
+      project.generationSettings, maxPromptCharacters,
+    ),
     reference_materials: referenceMaterialsForApi(project.referenceMaterials),
     selected_tag_labels: projectTagLabels(project),
   };
@@ -613,6 +618,7 @@ export async function prepareStoryPlanningProject(
           asset_constraints: [],
           generation_notes: [
             project.generationSettings.customInstructions.trim(),
+            overseasStoryProfilePrompt(project.generationSettings),
             project.selectedCreativeDirection
               ? `用户已选择创作方向“${project.selectedCreativeDirection.title}”：`
                 + `叙事风格：${project.selectedCreativeDirection.style_description}；`
@@ -630,6 +636,8 @@ export async function prepareStoryPlanningProject(
         request_metadata: {
           frontend_project_id: project.id,
           planning_input_signature: signature,
+          ...(overseasStoryProfileForApi(project.generationSettings)
+            ? { overseas_story_profile: overseasStoryProfileForApi(project.generationSettings) } : {}),
         },
       }),
     },
@@ -893,12 +901,13 @@ export async function generateStoryInspirationTurn(
   userMessage = "",
   signal?: AbortSignal,
   candidateDecisionKey?: string,
+  onProgress?: CopilotProgressObserver,
 ): Promise<StoryInspirationChatResponse["data"]> {
   const currentSynopsis = requireCompleteSynopsisText(project.storySynopsis?.text ?? "");
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法开始寻找灵感。");
   }
-  const response = await apiRequest<StoryInspirationChatResponse>(
+  const response = await copilotRequest<StoryInspirationChatResponse>(
     `/story-projects/${project.id}/story-bibles/inspiration-chat`,
     {
       method: "POST",
@@ -922,6 +931,7 @@ export async function generateStoryInspirationTurn(
       }),
       signal,
     },
+    onProgress,
   );
   return response.data;
 }
@@ -932,12 +942,13 @@ export async function generateStorySynopsisDraft(
   currentBrief: StoryInspirationBrief,
   currentText = project.storySynopsis?.text ?? "",
   signal?: AbortSignal,
+  onProgress?: CopilotProgressObserver,
 ): Promise<StorySynopsisDraftResponse["data"]> {
   const completeText = requireCompleteSynopsisText(currentText);
   if (!project.contentSpecId || !project.generationStrategyId) {
     throw new Error("当前项目尚未形成创作规格，无法整理故事梗概。");
   }
-  const response = await apiRequest<StorySynopsisDraftResponse>(
+  const response = await copilotRequest<StorySynopsisDraftResponse>(
     `/story-projects/${project.id}/story-bibles/synopsis-draft`,
     {
       method: "POST",
@@ -958,6 +969,7 @@ export async function generateStorySynopsisDraft(
       }),
       signal,
     },
+    onProgress,
   );
   if (!response.data?.text?.trim()) throw new Error("这次未能整理出梗概，原稿已保留，请重试。");
   return response.data;
@@ -995,12 +1007,13 @@ export async function modifyStoryBibleDraft(
   revisionMode: PlanningRevisionMode = "targeted",
   selectionContext?: StoryBibleSelectionContext | null,
   signal?: AbortSignal,
+  onProgress?: CopilotProgressObserver,
 ): Promise<StoryBible> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法使用 AI 修改故事总纲。");
   }
   const response = await generateWithAutomaticTransientRetry({
-    generate: () => apiRequest<StoryBibleResponse>(
+    generate: () => copilotRequest<StoryBibleResponse>(
       `/story-projects/${project.id}/story-bibles/${storyBible.story_bible_id}/modify`,
       {
         method: "POST",
@@ -1019,6 +1032,7 @@ export async function modifyStoryBibleDraft(
         }),
         signal,
       },
+      onProgress,
     ),
     wait: waitForSharedPlanningRetry,
   });
@@ -1368,12 +1382,13 @@ export async function modifyStoryPlanNode(
   revisionMode: PlanningRevisionMode = "targeted",
   selectionContext?: StoryBibleSelectionContext | null,
   signal?: AbortSignal,
+  onProgress?: CopilotProgressObserver,
 ): Promise<StoryPlanNode> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法使用 AI 修改剧情树节点。");
   }
   const response = await generateWithAutomaticTransientRetry({
-    generate: () => apiRequest<StoryPlanNodeResponse>(
+    generate: () => copilotRequest<StoryPlanNodeResponse>(
       `/story-projects/${project.id}/plan-nodes/${node.node_id}/modify`,
       {
         method: "POST",
@@ -1393,6 +1408,7 @@ export async function modifyStoryPlanNode(
         }),
         signal,
       },
+      onProgress,
     ),
     wait: waitForSharedPlanningRetry,
   });
@@ -1825,7 +1841,7 @@ async function stableAgentRequestId(
 export const CURRENT_STORY_REVIEW_CONTRACT_VERSION = 13;
 
 type StoryPlanReviewSourceProject = Pick<ScriptProject,
-  "id" | "storyBibleVersion" | "storyBibleSynopsisOutdated" | "storySynopsis">;
+  "id" | "storyBibleVersion" | "storyBibleSynopsisOutdated" | "storySynopsis"> & Partial<Pick<ScriptProject, "generationSettings">>;
 
 function storyPlanReviewSourceSignature(
   project: StoryPlanReviewSourceProject,
@@ -1833,12 +1849,14 @@ function storyPlanReviewSourceSignature(
   storyBibleVersion: number,
 ): string {
   const synopsis = project.storySynopsis;
+  const profile = project.generationSettings && overseasStoryProfileForApi(project.generationSettings);
   const confirmed = project.storyBibleVersion === storyBibleVersion
     && project.storyBibleSynopsisOutdated !== true
     && synopsis?.status === "confirmed" && synopsis.pendingChanges !== true
     && typeof synopsis.text === "string" && !!synopsis.text.trim();
   return JSON.stringify([project.id, storyBibleId, storyBibleVersion,
-    confirmed ? [synopsis.version ?? null, "confirmed", synopsis.text] : null]);
+    confirmed ? [synopsis.version ?? null, "confirmed", synopsis.text] : null,
+    ...(profile ? [profile] : [])]);
 }
 
 export function storyPlanQualityEpisodes(
@@ -2003,6 +2021,15 @@ export async function auditStoryPlanQuality(
       ...response.data, review_contract_version: CURRENT_STORY_REVIEW_CONTRACT_VERSION,
       reviewed_episode_plans: JSON.stringify(requestBase.episode_plans),
     };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 422) {
+      throw new ApiError(
+        "分集规划已保存，但剧情质量检查未完成。请重试检查；无需重新生成已保存分集。",
+        error.status,
+        { retryable: error.retryable, failureClass: error.failureClass, errorType: error.errorType },
+      );
+    }
+    throw error;
   } finally {
     globalThis.clearTimeout(timeout);
   }
@@ -2070,13 +2097,14 @@ export async function modifyEpisodePlanItem(
   selectionContext?: StoryBibleSelectionContext | null,
   signal?: AbortSignal,
   activeNodes?: StoryPlanNode[],
+  onProgress?: CopilotProgressObserver,
 ): Promise<EpisodeRoadmapItem> {
   if (!project.generationStrategyId) {
     throw new Error("当前项目尚未形成生成策略，无法使用 AI 修改分集路线图。");
   }
   const predecessorPlan = episodeRoadmapPredecessor(project, node);
   const response = await generateWithAutomaticTransientRetry({
-    generate: () => apiRequest<{ data: RoadmapApiItem }>(
+    generate: () => copilotRequest<{ data: RoadmapApiItem }>(
       `/story-projects/${project.id}/plan-nodes/${node.node_id}`
         + `/episode-plans/${item.episode_number}/modify`,
       {
@@ -2110,6 +2138,7 @@ export async function modifyEpisodePlanItem(
         }),
         signal,
       },
+      onProgress,
     ),
     wait: waitForSharedPlanningRetry,
   });
@@ -2176,6 +2205,7 @@ export function storyBibleIdForProject(projectId: string): string {
 type MainlandNarrativeField = {
   path: string;
   value: string;
+  permanentVoice?: boolean;
 };
 
 function narrativeField(path: string, value: string | null | undefined): MainlandNarrativeField {
@@ -2194,7 +2224,10 @@ function storyBibleNarrative(storyBible: StoryBible): MainlandNarrativeField[] {
     ...storyBible.locked_facts.map((value, index) => narrativeField(`锁定事实 ${index + 1}`, value)),
     ...storyBible.avoid_patterns.map((value, index) => narrativeField(`规避模式 ${index + 1}`, value)),
     ...storyBible.character_registry.flatMap((character) => ACTING_PROFILE_FIELDS
-      .map((field) => narrativeField(`${character.name} · ${ACTING_PROFILE_LABELS[field]}`, character.acting_profile?.[field]))),
+      .map((field) => ({
+        ...narrativeField(`${character.name} · ${ACTING_PROFILE_LABELS[field]}`, character.acting_profile?.[field]),
+        ...(field === "permanentVoicePrompt" ? { permanentVoice: true } : {}),
+      }))),
     ...storyBible.story_lines.flatMap((line, index) => [
       narrativeField(`故事线 ${index + 1} 标题`, line.title),
       narrativeField(`故事线 ${index + 1} 前提`, line.premise),
@@ -2277,7 +2310,16 @@ function assertCreatorNarrativeChinese(
         ...registryNames,
       ]
     : [];
-  const issues = fields.filter((field) => mainlandTextIsEnglishDominant(field.value, allowedNames));
+  const voiceIssues: MainlandNarrativeField[] = [];
+  const issues = fields.filter((field) => {
+    if (field.permanentVoice && project?.generationSettings.releaseRegion === "overseas") {
+      const validation = overseasVoiceValidationText(field.value, allowedNames);
+      if (!validation.valid || mainlandTextIsEnglishDominant(validation.text, allowedNames)) voiceIssues.push(field);
+      return false;
+    }
+    return mainlandTextIsEnglishDominant(field.value, allowedNames);
+  });
+  if (voiceIssues.length) throw new OverseasVoiceSampleError(voiceIssues.map((field) => field.path));
   if (!issues.length) return;
   throw new CreatorNarrativeLanguageError(issues.map((field) => field.path));
 }

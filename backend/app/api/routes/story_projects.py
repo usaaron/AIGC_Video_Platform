@@ -4,6 +4,7 @@ from typing import NoReturn
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import ValidationError
 
+from app.api.copilot_stream import accepts_copilot_stream, copilot_stream_response
 from app.api.generation_errors import _generation_failure_headers
 from app.dependencies import (
     get_episode_roadmap_agent,
@@ -983,9 +984,14 @@ def generate_story_synopsis_draft(
     project_id: str,
     payload: StorySynopsisDraftRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StorySynopsisDraftResponse:
     if payload.story_project_id != project_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Synopsis draft project ID mismatch.")
+    if accepts_copilot_stream(request):
+        return copilot_stream_response(
+            lambda: generate_story_synopsis_draft(project_id=project_id, payload=payload, service=service)
+        )
     try:
         return StorySynopsisDraftResponse(data=service.generate_story_synopsis_draft(payload))
     except LongStoryNotFoundError as exc:
@@ -1012,9 +1018,14 @@ def generate_story_inspiration_turn(
     project_id: str,
     payload: StoryInspirationChatRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StoryInspirationChatResponse:
     if payload.story_project_id != project_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Inspiration chat project ID mismatch.")
+    if accepts_copilot_stream(request):
+        return copilot_stream_response(
+            lambda: generate_story_inspiration_turn(project_id=project_id, payload=payload, service=service)
+        )
     try:
         return StoryInspirationChatResponse(
             data=service.generate_story_inspiration_turn(payload)
@@ -1081,6 +1092,7 @@ def modify_story_bible(
     story_bible_id: str,
     payload: StoryBibleModificationRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StoryBibleResponse:
     if (
         payload.story_project_id != project_id
@@ -1089,6 +1101,10 @@ def modify_story_bible(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Story Bible modification path IDs must match the payload.",
+        )
+    if accepts_copilot_stream(request):
+        return copilot_stream_response(
+            lambda: modify_story_bible(project_id=project_id, story_bible_id=story_bible_id, payload=payload, service=service)
         )
     try:
         candidate = service.modify_story_bible(payload)
@@ -1226,11 +1242,16 @@ def modify_story_plan_node(
     node_id: str,
     payload: StoryPlanNodeModificationRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> StoryPlanNodeResponse:
     if payload.story_project_id != project_id or payload.node_id != node_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Story Plan Node modification path IDs must match the payload.",
+        )
+    if accepts_copilot_stream(request):
+        return copilot_stream_response(
+            lambda: modify_story_plan_node(project_id=project_id, node_id=node_id, payload=payload, service=service)
         )
     try:
         candidate = service.modify_story_plan_node(payload)
@@ -1767,6 +1788,7 @@ def modify_episode_plan_item(
     episode_number: int,
     payload: EpisodePlanItemModificationRequest,
     service: StoryPlanningService = Depends(get_story_planning_service),
+    request: Request = None,
 ) -> EpisodeRoadmapItemDraftResponse:
     if (
         payload.story_project_id != project_id
@@ -1776,6 +1798,10 @@ def modify_episode_plan_item(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Episode Plan modification path identity must match the payload.",
+        )
+    if accepts_copilot_stream(request):
+        return copilot_stream_response(
+            lambda: modify_episode_plan_item(project_id=project_id, node_id=node_id, episode_number=episode_number, payload=payload, service=service)
         )
     try:
         plan = service.modify_episode_plan_item(payload)

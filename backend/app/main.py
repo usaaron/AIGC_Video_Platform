@@ -33,6 +33,7 @@ from app.api.routes.input_readiness import router as input_readiness_router
 from app.api.routes.master_scripts import router as master_script_router
 from app.api.routes.preproduction import router as preproduction_router
 from app.api.routes.story_projects import router as story_project_router
+from app.api.routes.quick_script import router as quick_script_router
 from app.api.routes.ontology_nodes import router as ontology_node_router
 from app.api.routes.orchestrations import router as orchestration_router
 from app.api.routes.platform_profiles import router as platform_profile_router
@@ -176,6 +177,7 @@ def create_app(
     app.include_router(master_script_router)
     app.include_router(preproduction_router)
     app.include_router(story_project_router)
+    app.include_router(quick_script_router)
     app.include_router(author_revision_router)
     app.include_router(ontology_node_router)
     app.include_router(orchestration_router)

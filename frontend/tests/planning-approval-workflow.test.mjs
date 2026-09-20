@@ -34,7 +34,7 @@ test("planning saves approval before entering script and locks the approved sess
   assert.match(panel, /disabled=\{planningLocked \|\| !assistant/);
   assert.match(panel, /disabled=\{planningLocked \|\| \(assistant\?\.disabled/);
   assert.match(panel, /contentEditable=\{!locked\}/);
-  assert.match(panel, /if \(!planningLocked \|\| !planningComplete\) return;/);
+  assert.match(panel, /if \(isHostScriptWorkflow\(\) \|\| !planningLocked \|\| !planningComplete\) return;/);
   assert.match(panel, /planningLocked \? \([\s\S]*导出规划/);
 });
 

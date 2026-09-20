@@ -154,6 +154,7 @@ class AgentRunService:
     ) -> None:
         with self._runtime().session() as session:
             repository = AgentRunRepository(session)
+            repository.require_current_owner(record)
             repository.save_step(
                 record.run_id,
                 execution,
@@ -161,6 +162,11 @@ class AgentRunService:
                 checkpoint_payload=checkpoint_payload,
             )
             repository.save_record(record)
+
+    def cancel_stream_run(self, expected: AgentRunRecord) -> None:
+        """Record disconnect before the caller's request context is revoked."""
+        with self._runtime().session() as session:
+            AgentRunRepository(session).cancel_stream_run(expected)
 
     def load_tool_checkpoint(
         self,
@@ -183,9 +189,9 @@ class AgentRunService:
                 checkpoint_type,
             )
 
-    def heartbeat(self, run_id: str) -> None:
+    def heartbeat(self, expected: AgentRunRecord) -> None:
         with self._runtime().session() as session:
-            AgentRunRepository(session).heartbeat(run_id)
+            AgentRunRepository(session).heartbeat(expected)
 
     def get_run(self, run_id: str) -> AgentRunRecord | None:
         with self._runtime().session() as session:

@@ -135,6 +135,8 @@ test('a blocked acting profile names the readable field instead of an internal k
   });
 });
 
+import { createCopilotProgressRun } from '../lib/copilot-progress.ts';
+
 // Execute the actual component handlers with in-memory dependencies. This tests
 // POST -> version save -> workspace save -> success-message ordering without a
 // browser, a model, or a duplicate of the component's handler implementation.
@@ -158,6 +160,7 @@ function harness({ versionError, workspaceError, children = [], locked = false }
     treeInteractionLocked: locked, generatedRangeLocked: false, planningLocked: false, treeBusy: false,
     aiRevisionMode: 'targeted', aiInstruction: '', documentSelection: null,
     aiAbortControllerRef: { current: null },
+    beginCopilotProgress: signal => createCopilotProgressRun({ id: 'node.progress', signal, onChange: value => { state.progress = value; } }),
     setBusy: () => {}, setMessage: update('message'), setNode: update('node'), setChildren: update('children'),
     setDescendantDecision: update('decision'), setAiInstruction: () => {}, setDocumentSelection: () => {},
     setChatMessages: update('messages'), t: key => key, userFacingError: error => error.message,
@@ -186,7 +189,10 @@ for (const [label, options] of [
     await assert.rejects(direct.persistNode(candidate(), 'ai', 'invalidate'));
     const { state, requestAiModification } = harness(options);
     await requestAiModification('统一名字并修改收尾');
-    assert.equal(state.messages.filter(item => item.role === 'assistant').length, 0);
+    const replies = state.messages.filter(item => item.role === 'assistant');
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].progress.status, 'error');
+    assert.doesNotMatch(replies[0].text, /直接写入修改结果/);
     assert.match(state.message, /校验被拒绝|检查点未保存/);
     assert.equal(state.calls.filter(call => call === 'PUT workspace').length, options.versionError ? 0 : 1);
   });

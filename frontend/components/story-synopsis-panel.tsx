@@ -14,12 +14,18 @@ import { updatePlanningSession } from "@/lib/planning-session";
 import { verifiedInputFacts } from "@/lib/input-readiness";
 import { storySynopsisMarkdown, storySynopsisMarkdownFilename } from "@/lib/story-synopsis-export";
 import { downloadBlob } from "@/lib/download";
+import { isHostScriptWorkflow } from "@/lib/host-navigation";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import { extractSourceSynopsis, synopsisSourceProject } from "@/lib/story-synopsis-source";
 import { synopsisAuthorNotes } from "@/lib/story-synopsis-notes";
 import { requireCompleteSynopsisText, resolveSynopsisUnresolvedItem, synopsisAfterDiscussion, synopsisAfterManualEdit, synopsisBriefParagraphs, synopsisHasPendingChanges, synopsisOperationIsCurrent, synopsisUnresolvedItems, synopsisWithRevision, type SynopsisUnresolvedItem } from "@/lib/story-synopsis-context";
 import type { ScriptProject, StoryInspirationMessage, StorySynopsis } from "@/lib/types";
 import { useProjects } from "@/providers/project-provider";
 import { useUnsavedDocument } from "@/lib/use-unsaved-document";
+import { hostProjectId } from "@/lib/host-session";
+import { useCopilotProgress } from "@/lib/use-copilot-progress";
+import type { CopilotProgress } from "@/lib/copilot-progress";
+import { loadWorkspaceChatMessages, saveWorkspaceChatMessages } from "@/lib/workspace-section-memory";
 
 const SYNOPSIS_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
   { id: "rewrite", label: "主动修改", instruction: "请根据我的下一条要求修改故事梗概，保持主线、人物目标和因果关系清楚。" },
@@ -27,7 +33,8 @@ const SYNOPSIS_QUICK_ACTIONS: PlanningCanvasQuickAction[] = [
 ];
 
 export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
-  const { getProject, updateProject } = useProjects();
+  const scriptWorkflow = useHostScriptWorkflow();
+  const { getProject, updateProject, retryProjectSync } = useProjects();
   const router = useRouter();
   const existingSession = useMemo(() => normalizeStoryInspirationSession(project.planningSession?.storyBibleSections?.[INSPIRATION_SESSION_KEY]), [project.planningSession?.storyBibleSections]);
   const seededBrief = useMemo(() => project.storySynopsis?.conversation?.brief
@@ -40,6 +47,11 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
   const [brief, setBrief] = useState(seededBrief);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const { progress: copilotProgress, begin: beginCopilotProgress } = useCopilotProgress(`${project.id}:synopsis`);
+  const [progressArchive, setProgressArchive] = useState(() => ({
+    projectId: project.id,
+    messages: loadWorkspaceChatMessages(project.id, "synopsis-progress") as PlanningCanvasMessage[],
+  }));
   const [message, setMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const synopsisRef = useRef(synopsis);
@@ -61,6 +73,7 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
       setEditing(false);
       setInput("");
       setMessage(null);
+      setProgressArchive({ projectId: project.id, messages: loadWorkspaceChatMessages(project.id, "synopsis-progress") as PlanningCanvasMessage[] });
     }
     if (!switchedProject && (abortRef.current || editingRef.current)) return;
     const current = project.storySynopsis ?? makeSynopsisRecord(seededBrief, project);
@@ -71,6 +84,20 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
   }, [project.id, project.storySynopsis, existingSession, seededBrief]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (progressArchive.projectId === project.id) {
+      saveWorkspaceChatMessages(project.id, "synopsis-progress", progressArchive.messages);
+    }
+  }, [progressArchive, project.id]);
+
+  function archiveProgress(progress: CopilotProgress, id: string, text = "") {
+    if (visibleProjectIdRef.current !== project.id) return;
+    const entry: PlanningCanvasMessage = { id, role: "assistant", text, progress, createdAt: new Date().toISOString() };
+    setProgressArchive(current => current.projectId === project.id
+      ? { ...current, messages: [...current.messages.filter(item => item.id !== id), entry].slice(-30) }
+      : current);
+  }
 
   async function saveSynopsis(next: StorySynopsis = synopsis, nextBrief = brief, nextMessages = messages) {
     const savingController = abortRef.current;
@@ -153,6 +180,8 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
     if (!value) return;
     const controller = beginOperation();
     if (!controller) return;
+    const progressRun = beginCopilotProgress(controller.signal);
+    progressRun.mark("context", "正在准备当前故事和修改要求");
     const user: StoryInspirationMessage = { id: `synopsis.user.${crypto.randomUUID()}`, role: "user", content: value, questions: [], createdAt: new Date().toISOString() };
     const nextMessages = [...messageBase, user];
     setMessages(nextMessages);
@@ -161,16 +190,28 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
       await saveSynopsis(synopsisRef.current, brief, nextMessages);
       assertCurrentOperation(controller);
       const preparedProject = await prepareProject(controller);
-      const result = await generateStoryInspirationTurn(preparedProject, nextMessages, brief, requestedMode === "direct" ? `请直接根据这条修改意见更新故事方向：${value}` : value, controller.signal);
+      const result = await generateStoryInspirationTurn(preparedProject, nextMessages, brief, requestedMode === "direct" ? `请直接根据这条修改意见更新故事方向：${value}` : value, controller.signal, undefined, progressRun.onEvent);
       assertCurrentOperation(controller);
       const assistant: StoryInspirationMessage = { id: `synopsis.assistant.${crypto.randomUUID()}`, role: "assistant", content: result.assistant_message, questions: result.questions, createdAt: new Date().toISOString() };
       const updatedMessages = [...nextMessages, assistant];
       const updatedBrief = mergeStoryInspirationBrief(brief, result.brief);
       setMessages(updatedMessages);
       setBrief(updatedBrief);
+      progressRun.mark("validating", "正在保存这轮讨论");
       await saveSynopsis(synopsisAfterDiscussion(synopsisRef.current, brief, updatedBrief), updatedBrief, updatedMessages);
+      assertCurrentOperation(controller);
+      const completedProgress = progressRun.finish("completed");
+      archiveProgress(completedProgress, assistant.id);
+      setMessages(updatedMessages.map(item => item.id === assistant.id ? { ...item, progress: completedProgress } : item));
     } catch (error) {
-      if (isCurrentOperation(controller)) setMessage(error instanceof Error ? error.message : "这轮对话暂时没有完成，请重试。");
+      const trace = progressRun.finish(controller.signal.aborted ? "paused" : "error");
+      if (abortRef.current === controller && visibleProjectIdRef.current === project.id) {
+        const text = controller.signal.aborted ? "已暂停，当前梗概和已保存的讨论仍然保留。" : error instanceof Error ? error.message : "这轮对话暂时没有完成，请重试。";
+        const statusId = `synopsis.status.${crypto.randomUUID()}`;
+        archiveProgress(trace, statusId, text);
+        setMessage(text);
+        setMessages(current => [...current, { id: statusId, role: "assistant", content: text, questions: [], createdAt: new Date().toISOString(), progress: trace }]);
+      }
     } finally {
       endOperation(controller);
     }
@@ -191,7 +232,8 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
   }
 
   function synopsisMessages(): PlanningCanvasMessage[] {
-    return messages.map((item) => ({
+    const archive = progressArchive.projectId === project.id ? progressArchive.messages : [];
+    const currentMessages: PlanningCanvasMessage[] = messages.map((item) => ({
       id: item.id,
       role: item.role,
       text: [
@@ -202,7 +244,11 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
         ].join("\n")),
       ].filter(Boolean).join("\n\n"),
       createdAt: item.createdAt,
+      progress: archive.find(entry => entry.id === item.id)?.progress ?? item.progress,
     }));
+    const knownIds = new Set(currentMessages.map(item => item.id));
+    return [...currentMessages, ...archive.filter(entry => entry.text && !knownIds.has(entry.id))]
+      .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
   }
 
   function runSynopsisQuickAction(action: string, instruction: string) {
@@ -219,12 +265,15 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
   async function finishConversation() {
     const controller = beginOperation();
     if (!controller) return;
+    const progressRun = beginCopilotProgress(controller.signal);
+    progressRun.mark("context", "正在准备梗概和已保存的讨论");
     try {
       const previous = synopsisRef.current;
       requireCompleteSynopsisText(previous.text);
       const preparedProject = await prepareProject(controller);
-      const result = await generateStorySynopsisDraft(preparedProject, messages, brief, previous.text, controller.signal);
+      const result = await generateStorySynopsisDraft(preparedProject, messages, brief, previous.text, controller.signal, progressRun.onEvent);
       assertCurrentOperation(controller);
+      progressRun.mark("validating", "正在保存整理后的梗概");
       await saveSynopsis(synopsisWithRevision(previous, {
         ...previous,
         text: result.text,
@@ -234,8 +283,11 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
         review: result.review,
       }));
       assertCurrentOperation(controller);
+      archiveProgress(progressRun.finish("completed"), `synopsis.organized.${crypto.randomUUID()}`, "已整理成梗概，请核对后确认。");
       setMessage("已整理成梗概，请核对故事内容和下方建议后确认。");
     } catch (error) {
+      archiveProgress(progressRun.finish(controller.signal.aborted ? "paused" : "error"), `synopsis.organized.${crypto.randomUUID()}`,
+        controller.signal.aborted ? "已暂停整理，原稿和讨论已保留。" : "梗概暂时未能整理，原稿和讨论已保留。");
       if (isCurrentOperation(controller)) setMessage(error instanceof Error ? error.message : "梗概暂时未能整理，原稿和讨论已保留，请重试。");
     } finally {
       endOperation(controller);
@@ -248,6 +300,15 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
     try {
       await saveSynopsis(synopsisWithRevision(synopsisRef.current, synopsisAfterManualEdit(synopsisRef.current, editorText)));
       assertCurrentOperation(controller);
+      // updateProject acknowledges the browser copy. A bound host project also
+      // needs the shared workspace to accept the explicit save before closing.
+      if (hostProjectId() || process.env.NEXT_PUBLIC_BASE_PATH?.trim() || process.env.NEXT_PUBLIC_HOST_LAUNCH_URL?.trim()) {
+        const serverSync = await retryProjectSync(project.id);
+        assertCurrentOperation(controller);
+        if (serverSync?.status !== "synced") {
+          throw new Error("修改已保留在当前浏览器，尚未同步到服务端，请重试。");
+        }
+      }
       setEditing(false);
       setMessage("手动修改已保存。");
     } catch (error) {
@@ -297,6 +358,7 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
   }
 
   function exportSynopsis() {
+    if (isHostScriptWorkflow()) return;
     if (!synopsis.text.trim() || busy) return;
     const blob = new Blob([storySynopsisMarkdown(project.title, synopsis)], {
       type: "text/markdown;charset=utf-8",
@@ -305,22 +367,36 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
   }
 
   const pendingChanges = synopsisHasPendingChanges(synopsis);
+  const needsSynopsisDraft = !project.storySynopsis || !synopsis.text.trim() || pendingChanges;
+  const synopsisConfirmed = synopsis.status === "confirmed" && !pendingChanges;
   const unresolvedItems = synopsisUnresolvedItems(brief);
   const authorNotes = synopsisAuthorNotes(synopsis).filter((note) => !unresolvedItems.some((item) => item.kind === "unresolved" && item.label === note));
   const entries = [{ id: "story-synopsis-body", label: "故事梗概" }];
-  return <section className="story-bible-panel is-canvas-mode story-synopsis-panel">
+  return <section className={`story-bible-panel is-canvas-mode story-synopsis-panel${scriptWorkflow === true ? " host-stage-content" : ""}`}>
     <div className="story-bible-heading">
-      <div><span className="section-kicker">前期创作</span><h2>故事梗概</h2><p>先把故事讲清楚，再进入总纲规划。</p></div>
-          <div className="story-bible-actions">
-            {!editing && <button className="outline-action" disabled={busy || !synopsis.text.trim()} onClick={exportSynopsis} type="button"><Download size={15} />导出梗概</button>}
-            <button className="outline-action" disabled={busy || editing} onClick={() => void finishConversation()} type="button">{messages.length ? "完成对话并重新整理" : "整理成故事梗概"}</button>
-            {editing ? <button className="outline-action" disabled={busy} onClick={() => {
-              if (editorText !== synopsis.text && !window.confirm("放弃这次手动修改，恢复已保存的梗概吗？")) return;
-              setEditorText(synopsis.text);
-              setEditing(false);
-            }} type="button">取消编辑</button> : null}
-            {editing ? <button className="primary-action" disabled={busy} onClick={() => void saveManualEdit()} type="button"><Save size={15} />保存修改</button> : <button className="outline-action" disabled={busy} onClick={() => { setEditorText(synopsis.text); setEditing(true); }} type="button"><Pencil size={15} />编辑</button>}
-        <button className="primary-action" disabled={busy || editing || pendingChanges || !synopsis.text.trim()} onClick={() => void confirmSynopsis()} type="button"><Check size={15} />确认梗概，进入总纲</button>
+      <div><span className="section-kicker">{scriptWorkflow === true ? "故事设定" : "前期创作"}</span><h2>故事梗概</h2><p>{scriptWorkflow === true ? "确认故事主线，再完善人物与世界观。" : "先把故事讲清楚，再进入总纲规划。"}</p></div>
+      <div className="story-bible-actions">
+        {editing ? <>
+          <button className="outline-action" disabled={busy} onClick={() => {
+            if (editorText !== synopsis.text && !window.confirm("放弃这次手动修改，恢复已保存的梗概吗？")) return;
+            setEditorText(synopsis.text);
+            setEditing(false);
+          }} type="button">取消编辑</button>
+          <button className="primary-action" disabled={busy} onClick={() => void saveManualEdit()} type="button"><Save size={15} />保存修改</button>
+        </> : <>
+          <button className="outline-action" disabled={busy} onClick={() => { setEditorText(synopsis.text); setEditing(true); }} type="button"><Pencil size={15} />编辑</button>
+          {synopsis.text.trim() ? <details className="workflow-more-actions">
+            <summary>更多操作</summary>
+            <div className="workflow-more-actions-content">
+              {!needsSynopsisDraft ? <button className="outline-action" disabled={busy} onClick={() => void finishConversation()} type="button">{messages.length ? "完成对话并重新整理" : "重新整理梗概"}</button> : null}
+              {!project.storySynopsis && synopsis.text.trim() && !pendingChanges ? <button className="outline-action" disabled={busy} onClick={() => void confirmSynopsis()} type="button"><Check size={15} />{scriptWorkflow === true ? "确认梗概，继续设定" : "确认梗概，进入总纲"}</button> : null}
+              {scriptWorkflow === false && synopsis.text.trim() ? <button className="outline-action" disabled={busy} onClick={exportSynopsis} type="button"><Download size={15} />导出梗概</button> : null}
+            </div>
+          </details> : null}
+          {needsSynopsisDraft ? <button className="primary-action" disabled={busy} onClick={() => void finishConversation()} type="button">{pendingChanges ? "完成对话并重新整理" : "整理成故事梗概"}</button>
+            : synopsisConfirmed ? <Link className="primary-action" aria-disabled={busy || undefined} onClick={(event) => { if (busy) event.preventDefault(); }} href={`/projects/${project.id}/planning`}>{scriptWorkflow === true ? "完善人物与世界观" : "进入故事总纲"}</Link>
+              : <button className="primary-action" disabled={busy} onClick={() => void confirmSynopsis()} type="button"><Check size={15} />{scriptWorkflow === true ? "确认梗概，继续设定" : "确认梗概，进入总纲"}</button>}
+        </>}
       </div>
     </div>
     {busy ? <div className="inline-notice" role="status">正在处理你的故事，请稍候…</div> : null}
@@ -353,6 +429,7 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
       </div>
       <PlanningCanvasCopilot
         busy={busy}
+        progress={copilotProgress}
         disabled={editing}
         disabledReason="请先保存手动修改或取消编辑，再继续讨论故事。"
         instruction={input}
@@ -367,11 +444,10 @@ export function StorySynopsisPanel({ project }: { project: ScriptProject }) {
         quickActions={SYNOPSIS_QUICK_ACTIONS}
         scopeLabel="故事梗概"
         selection={null}
-        thinking={busy}
+        thinking={busy && copilotProgress?.status === "running"}
         variant="document"
       />
     </div>
-    {synopsis.status === "confirmed" && !pendingChanges && !editing && <p className="story-synopsis-next">梗概已确认。<Link href={`/projects/${project.id}/planning`}>进入故事总纲</Link></p>}
   </section>;
 }
 

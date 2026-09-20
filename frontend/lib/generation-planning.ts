@@ -3,6 +3,7 @@ import {
   type GenerationSettings,
   type StoryDensity,
 } from "./types.ts";
+import { normalizeOverseasStoryProfile } from "./overseas-story-profile";
 
 const MAX_EPISODES = 2000;
 export const CLIENT_MIN_SERIES_RUNTIME_MINUTES = 100;
@@ -132,6 +133,11 @@ export function normalizeGenerationSettings(
     // "manual" values must not disable recovery from network/provider faults.
     failureRetryMode: "automatic",
   };
+  if (Object.hasOwn(merged, "overseasStoryProfile")) {
+    const profile = normalizeOverseasStoryProfile(merged.overseasStoryProfile);
+    if (profile) merged.overseasStoryProfile = profile;
+    else delete merged.overseasStoryProfile;
+  }
   const normalized = {
     ...merged,
     targetTotalCharacters: clampInteger(

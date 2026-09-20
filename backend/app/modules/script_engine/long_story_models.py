@@ -5,7 +5,7 @@ from enum import Enum
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator, model_serializer
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator, model_serializer
 
 from app.character_identity import CharacterName
 from app.script_delivery_contract import (
@@ -409,6 +409,10 @@ class StoryBible(BaseModel):
     """Human-reviewable source of truth for long-story generation."""
 
     model_config = ConfigDict(extra="forbid")
+
+    # Read-only projection loaded from this Bible's ContentSpec, never persisted
+    # as another source of author truth or exposed in the model output schema.
+    _overseas_story_profile: dict[str, str] | None = PrivateAttr(default=None)
 
     schema_version: str = Field(default="v1", pattern=r"^v\d+$")
     story_bible_id: str = Field(min_length=3, max_length=120, pattern=IDENTIFIER_PATTERN)

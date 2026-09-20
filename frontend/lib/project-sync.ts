@@ -4,7 +4,7 @@ import type { components as ApiComponents } from "@/lib/generated/api-schema";
 import { shouldStartPersistenceCooldown } from "@/lib/persistence-availability";
 import { compactContinuityLedgerForGeneration } from "@/lib/continuity-checkpoint";
 import { inferProjectMarketProfile } from "@/lib/project-store";
-import { normalizeGenerationSettings } from "@/lib/generation-planning";
+import { normalizeProjectGenerationSettings } from "@/lib/quick-script-project";
 import { reconcileGenerationRecoveryTask } from "@/lib/generation-recovery";
 import {
   episodeRoadmapCoverageThrough,
@@ -250,6 +250,34 @@ export async function savePlanningRevisionSnapshot(
   };
 }
 
+/** Register a quick-action receipt before adopting its complete server snapshot.
+ * No request or autosave here: the quick endpoint has already committed it.
+ */
+export function acceptQuickWorkspaceSnapshot(
+  source: ScriptProject,
+  response: {
+    workspace_snapshot: { revision: number; workspace_payload: ScriptProject; updated_at: string };
+    project_revision: number;
+  },
+): ScriptProject {
+  const snapshot = response.workspace_snapshot;
+  if (!isScriptProject(snapshot.workspace_payload) || snapshot.workspace_payload.id !== source.id
+    || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < (source.serverSync?.workspaceRevision ?? 0)
+    || !Number.isSafeInteger(response.project_revision) || response.project_revision < (source.serverSync?.projectRevision ?? 0)) {
+    throw new ApiError("返回的创作版本已过期或不属于当前项目，请重新加载。", 409);
+  }
+  workspaceRevisions.set(source.id, snapshot.revision);
+  projectRevisions.set(source.id, response.project_revision);
+  lastSyncedProjectUpdates.set(source.id, snapshot.workspace_payload.updatedAt);
+  return {
+    ...snapshot.workspace_payload,
+    serverSync: {
+      status: "synced", projectRevision: response.project_revision,
+      workspaceRevision: snapshot.revision, lastSyncedAt: snapshot.updated_at,
+    },
+  };
+}
+
 export function forceWorkspaceOverwrite(
   project: ScriptProject,
 ): Promise<ProjectServerSyncState> {
@@ -430,7 +458,8 @@ async function loadServerProject(
       episodeRoadmaps,
       episodePlansReadyThrough: recoveredPlanningCoverage || undefined,
       generationSettings: enforceMarketDeliveryContract(
-        normalizeGenerationSettings(payload.generationSettings),
+        normalizeProjectGenerationSettings(payload.creationMode, payload.generationSettings,
+          { quickHistory: payload.quickWorkflow?.schema_version === "quick_script.v1" }),
         marketProfile,
       ),
       contentSpecId: remoteProject.content_spec_id ?? undefined,

@@ -10,6 +10,10 @@ import { SectionHelp } from "@/components/section-help";
 import { userFacingError } from "@/lib/api-error";
 import { safeFilename } from "@/lib/filename";
 import { downloadBlob } from "@/lib/download";
+import { isHostScriptWorkflow } from "@/lib/host-navigation";
+import { normalizeProjectGenerationSettings } from "@/lib/quick-script-project";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
+import { OverseasStoryProfileEditor } from "@/components/overseas-story-profile";
 import { TagSelector } from "@/components/tag-selector";
 import { apiRequest } from "@/lib/api-client";
 import {
@@ -30,7 +34,6 @@ import {
   ReferenceMaterialError,
 } from "@/lib/reference-materials";
 import {
-  normalizeGenerationSettings,
   TARGET_BODY_SCALE_BANDS,
   targetBodyScaleBand,
 } from "@/lib/generation-planning";
@@ -47,6 +50,7 @@ import {
   enforceMarketDeliveryContract,
   marketProfileForReleaseRegion,
   type InputReadinessAnalysis,
+  type GenerationSettings,
   type ProjectDraft,
   type ProjectReferenceMaterial,
   type ReleaseRegion,
@@ -79,6 +83,10 @@ export function ScriptProjectEditor(props: ScriptProjectEditorProps) {
 }
 
 function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
+  const normalizeGenerationSettings = (settings: Partial<GenerationSettings>) =>
+    normalizeProjectGenerationSettings(project?.creationMode, settings,
+      { quickHistory: project?.quickWorkflow?.schema_version === "quick_script.v1" });
+  const scriptWorkflow = useHostScriptWorkflow();
   const router = useRouter();
   const { createProject, updateProject } = useProjects();
   const { locale, t } = useLocale();
@@ -532,6 +540,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   }
 
   function exportBrief() {
+    if (isHostScriptWorkflow()) return;
     const payload = [
       `# ${draft.title || t("editor.untitled")}`,
       `## ${t("editor.creativeInput")}\n\n${draft.creativePrompt}`,
@@ -607,10 +616,10 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
   }
 
   return (
-    <main className={"creator-page" + (mode === "create" ? " is-creating" : "")}>
+    <main className={"creator-page" + (mode === "create" ? " is-creating" : "") + (scriptWorkflow === true ? " host-stage-content host-story-source" : "")}>
       <div className="creator-document page-reveal">
         <header className="creator-header">
-          <div className={`creator-breadcrumb ${styles.breadcrumb}`}><Link href="/">{t("nav.myScripts")}</Link><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></div>
+          <div className={`creator-breadcrumb ${styles.breadcrumb}`}>{scriptWorkflow === true ? <strong>故事设定 · 原始资料</strong> : <><Link href="/">{t("nav.myScripts")}</Link><i>/</i><strong>{mode === "create" ? t("editor.newScript") : draft.title}</strong></>}</div>
           <div className="autosave-state" data-save-state={saveState} role="status">
             <span className={isSaving ? "is-saving" : ""} />
             {saveLabel}
@@ -633,7 +642,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
             rows={1}
             value={draft.title}
           />
-          <p>{t("editor.intro")}</p>
+          <p>{scriptWorkflow === true ? "写下故事想法或上传已有资料，填写集数和发行地区后继续。" : t("editor.intro")}</p>
           {isReadOnly && !hasExistingEpisodes && <p className="inline-notice" role="status">
             {locale === "zh" ? "故事总纲已确认，原始资料已锁定。请在创作工作区继续修改故事。" : "The story outline is confirmed. Source materials are locked; continue editing your story in the workspace."}
           </p>}
@@ -782,6 +791,11 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                   {releaseRegionInput && <small className="field-help">{t("generation.releaseRegion.help")}</small>}
                 </label>
               </div>
+              {scriptWorkflow === false && releaseRegionInput === "overseas" && <OverseasStoryProfileEditor
+                value={draft.generationSettings.overseasStoryProfile}
+                readOnly={isReadOnly}
+                onChange={value => updateGenerationSetting("overseasStoryProfile", value)}
+              />}
             </div>
           </div>
         </section>
@@ -890,11 +904,11 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                 <button className="primary-action full-width" onClick={() => project && router.push(currentWorkspaceHref(project))} type="button">
                   {t("generation.openWorkspace")} <ArrowIcon />
                 </button>
-                <button className="outline-action full-width" disabled={isDuplicating} onClick={() => void duplicateAsNewVersion()} type="button">
+                {scriptWorkflow === false && <button className="outline-action full-width" disabled={isDuplicating} onClick={() => void duplicateAsNewVersion()} type="button">
                   {isDuplicating && <LoaderCircle className="ui-spinner" size={16} />}
                   {t("generation.createVersion")}
-                </button>
-                <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>
+                </button>}
+                {scriptWorkflow === false && <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>}
                 </>
               ) : <>
                 {workspaceAccess?.script ? (
@@ -913,7 +927,7 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
                     <ArrowIcon />
                   </button>
                 )}
-                <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>
+                {scriptWorkflow === false && <button className="outline-action full-width" onClick={exportBrief} type="button"><Download aria-hidden="true" size={15} />{t("generation.exportBrief")}</button>}
               </>
             }
           </div>
@@ -926,11 +940,12 @@ function ScriptProjectEditorForm({ project, mode }: ScriptProjectEditorProps) {
 }
 
 function toDraft(project: ScriptProject): ProjectDraft {
-  const normalizedSettings = normalizeGenerationSettings({
+  const normalizedSettings = normalizeProjectGenerationSettings(project.creationMode, {
     ...project.generationSettings,
     episodeCountMode: "custom",
   }, {
     legacy: project.generationSettings?.episodeCountMode === undefined,
+    quickHistory: project.quickWorkflow?.schema_version === "quick_script.v1",
   });
   const selectedMarketProfile = marketProfileForReleaseRegion(
     normalizedSettings.releaseRegion,

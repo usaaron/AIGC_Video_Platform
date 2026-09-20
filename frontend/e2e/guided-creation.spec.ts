@@ -17,6 +17,12 @@ async function expectReadingSection(page: Page, id: string, label: string, mobil
   else await expect(directory.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "location");
 }
 
+async function expectStageAction(page: Page, label: string) {
+  const action = page.locator(".story-bible-heading .primary-action:visible, .story-bible-generation-controls .primary-action:visible");
+  await expect(action).toHaveCount(1);
+  await expect(action).toHaveText(label);
+}
+
 function fixture(): ScriptProject {
   const project = {
     id: projectId, title: "最后一份录音", titleSource: "user", marketProfile: "cn_mainland",
@@ -235,8 +241,11 @@ test("new character performance can be reviewed, edited and confirmed with the b
   await expect(voice).toHaveValue("低声短句，先听完才追问");
   await voice.fill("语速放慢，每次只追问一个依据");
   await voice.press("Tab");
+  await expectStageAction(page, "保存草稿");
+  await expect(page.getByRole("button", { name: "确认故事总纲", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect.poll(() => state.storyBible.character_registry[0].acting_profile?.voice).toBe("语速放慢，每次只追问一个依据");
+  await expectStageAction(page, "确认故事总纲");
   await page.getByRole("button", { name: "确认故事总纲", exact: true }).click();
   await expect(page).toHaveURL(/\/planning\/structure$/);
   await expect.poll(() => state.project.characters[0]?.actingProfile?.voice).toBe("语速放慢，每次只追问一个依据");
@@ -287,13 +296,14 @@ test("guided planning pauses, requires review, and saves before entering script"
   await expect(page.locator(".story-plan-stage-summary")).toContainText("已生成 1/8 集");
   expect(state.chunks).toEqual([1]);
   await page.getByRole("button", { name: "继续", exact: true }).click();
-  const review = page.getByRole("button", { name: "检查待审分集 (8)", exact: true });
+  const review = page.getByRole("button", { name: "检查待确认分集（8集）", exact: true });
   await expect(review).toBeEnabled();
   expect(state.chunks).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-  await expect(page.locator(".story-plan-stage-summary")).toContainText("已批准 0 集");
+  await expect(page.locator(".story-plan-stage-summary")).toContainText("8 集待确认");
   await expect(page.getByRole("button", { name: "保存并进入正文", exact: true })).toHaveCount(0);
   await review.click();
   await expect(page.locator('[data-roadmap-episode="1"]')).toBeFocused();
+  await expect(page.locator('[data-roadmap-episode="1"] .episode-planning-details')).toHaveAttribute("open");
   const scene = page.locator(".roadmap-scene-blueprint").first();
   await expect(scene).not.toHaveAttribute("open");
   await scene.locator("summary").click();
@@ -302,9 +312,13 @@ test("guided planning pauses, requires review, and saves before entering script"
   await expect(scene).not.toHaveAttribute("open");
   await page.screenshot({ path: testInfo.outputPath("guided-review.png") });
   await assertPageFitsViewport(page, testInfo);
-  for (let remaining = 8; remaining > 0; remaining -= 1) {
-    await page.getByRole("button", { name: "批准本集路线图", exact: true }).first().click();
-    await expect(page.getByRole("button", { name: "批准本集路线图", exact: true })).toHaveCount(remaining - 1);
+  for (let episode = 1; episode <= 8; episode += 1) {
+    const card = page.locator(`[data-roadmap-episode="${episode}"]`);
+    await expect(card.locator(".episode-planning-details")).toHaveAttribute("open");
+    await card.getByRole("button", { name: "确认本集规划", exact: true }).click();
+    await expect(card.getByRole("button", { name: "确认本集规划", exact: true })).toHaveCount(0);
+    await expect.poll(() => state.project.episodeRoadmaps?.filter(item => item.status === "approved").length).toBe(episode);
+    if (episode < 8) await expect(page.locator(`[data-roadmap-episode="${episode + 1}"]`)).toBeFocused();
   }
   expect(state.preparedEpisodes).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   state.failApprovalSave = true;
@@ -332,7 +346,7 @@ test("guided planning preserves checkpoints and resumes at the failed episode", 
   await expect(page.getByText(/规划未全部完成，已生成的内容已保留/)).toBeVisible();
   await expect(page.locator(".story-plan-stage-summary")).toContainText("已生成 2/8 集");
   await page.getByRole("button", { name: "继续生成规划", exact: true }).click();
-  await expect(page.getByRole("button", { name: "检查待审分集 (8)", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "检查待确认分集（8集）", exact: true })).toBeEnabled();
   expect(state.chunks).toEqual([1, 2, 3, 3, 4, 5, 6, 7, 8]);
   expect(state.topLevelRequests).toBe(1);
   expect(state.project.episodeRoadmaps?.every((item) => item.status === "draft")).toBe(true);
@@ -393,9 +407,11 @@ test("existing direction opens editable synopsis and saves confirmation before e
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const edited = "林澈带着残缺录音寻找失踪父亲。苏宁发现剪辑发生在火灾之前，两人必须赶在证人离开前公开完整证据。";
   await page.getByRole("textbox", { name: "故事梗概正文" }).fill(edited);
-  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toHaveCount(0);
+  await expectStageAction(page, "保存修改");
   await page.getByRole("button", { name: "保存修改", exact: true }).click();
   await expect.poll(() => state.project.storySynopsis?.text).toBe(edited);
+  await expectStageAction(page, "确认梗概，进入总纲");
   await page.getByRole("textbox", { name: "回复剧本大师" }).fill("保留这版方向，帮我检查冲突。");
   await page.getByRole("button", { name: "发送修改指令", exact: true }).click();
   await expect.poll(() => state.inspirationPrompts.length).toBe(1);
@@ -431,9 +447,56 @@ test("partially organized existing directions open review instead of repeating t
   await expect(page.getByRole("dialog", { name: "确认故事方向" })).toHaveCount(0);
   await expect(page.locator(".story-synopsis-text")).toContainText("一段被篡改的录音牵出旧厂火灾真相。");
   await expect(page.locator(".story-synopsis-text")).toContainText("档案负责人试图销毁唯一原件。");
+  await expectStageAction(page, "整理成故事梗概");
+  await page.locator(".story-synopsis-panel .workflow-more-actions summary").click();
   await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "导出梗概", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "编辑", exact: true })).toBeEnabled();
   await expect(page.getByRole("textbox", { name: "回复剧本大师" })).toBeEnabled();
+});
+
+test("confirmed synopsis and bible continue without another approval while more actions retain export and editing", async ({ page }) => {
+  const project = fixture();
+  project.storySynopsis = { text: project.creativePrompt, status: "confirmed", version: 2, source: "user", updatedAt: timestamp };
+  project.storyBibleInputSignature = storyPlanningInputSignature(project);
+  const { state, errors } = await mockPlanning(page, project);
+  await page.goto(`/projects/${projectId}/synopsis`);
+  await expectStageAction(page, "进入故事总纲");
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "导出梗概", exact: true })).toBeHidden();
+  const synopsisMore = page.locator(".story-synopsis-panel .workflow-more-actions");
+  await synopsisMore.locator("summary").click();
+  await expect(synopsisMore.getByRole("button", { name: "重新整理梗概", exact: true })).toBeEnabled();
+  const synopsisDownload = page.waitForEvent("download");
+  await synopsisMore.getByRole("button", { name: "导出梗概", exact: true }).click();
+  expect((await synopsisDownload).suggestedFilename()).toMatch(/\.md$/);
+  await synopsisMore.locator("summary").click();
+  await page.getByRole("link", { name: "进入故事总纲", exact: true }).click();
+  await expectStageAction(page, "进入剧情规划");
+  expect(state.project.storySynopsis?.version).toBe(2);
+  expect(state.bibleVersionWrites).toEqual([]);
+  const bibleMore = page.locator(".story-bible-heading .workflow-more-actions");
+  await expect(page.getByRole("button", { name: "导出已确认总纲", exact: true })).toBeHidden();
+  await bibleMore.locator("summary").click();
+  await expect(bibleMore.getByRole("button", { name: "创建修改版本", exact: true })).toBeEnabled();
+  const bibleDownload = page.waitForEvent("download");
+  await bibleMore.getByRole("button", { name: "导出已确认总纲", exact: true }).click();
+  expect((await bibleDownload).suggestedFilename()).toMatch(/\.md$/);
+  await bibleMore.locator("summary").click();
+  await page.getByRole("link", { name: "进入剧情规划", exact: true }).click();
+  await expect(page).toHaveURL(/\/planning\/structure$/);
+  expect(state.bibleVersionWrites).toEqual([]);
+  await page.goto(`/projects/${projectId}/planning`);
+  await expectStageAction(page, "进入剧情规划");
+  await bibleMore.locator("summary").click();
+  await bibleMore.getByRole("button", { name: "创建修改版本", exact: true }).click();
+  await expectStageAction(page, "确认故事总纲");
+  await expect.poll(() => state.bibleVersionWrites.length).toBe(1);
+  expect(state.bibleVersionWrites[0].status).toBe("draft");
+  expect(state.synopsisRequests).toEqual([]);
+  expect(state.bibleRequests).toEqual([]);
+  expect(state.scriptRequests).toBe(0);
+  expect(errors).toEqual([]);
 });
 
 test("synopsis changes survive reload and preserve the author draft through synthesis failure", async ({ page }) => {
@@ -446,19 +509,22 @@ test("synopsis changes survive reload and preserve the author draft through synt
   await page.getByRole("textbox", { name: "回复剧本大师" }).fill("把主角目标改为保护妹妹，结局先不决定，蓝色钥匙设定保留。");
   await page.getByRole("button", { name: "发送修改指令", exact: true }).click();
   await expect.poll(() => state.project.storySynopsis?.pendingChanges).toBe(true);
-  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toHaveCount(0);
+  await expectStageAction(page, "完成对话并重新整理");
   expect(state.project.storySynopsis?.text).toBe(original);
   expect(state.project.storySynopsis?.source).toBe("user");
   // A stale separate planning session must not undo the synopsis conversation.
   state.project.planningSession = { ...state.project.planningSession!, storyBibleSections: {} };
   await page.reload();
-  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toHaveCount(0);
+  await expectStageAction(page, "完成对话并重新整理");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const authored = `${original}\n\n妹妹坚持亲自带走钥匙，不肯让林澈替她作决定。`;
   await page.getByRole("textbox", { name: "故事梗概正文" }).fill(authored);
   await page.getByRole("button", { name: "保存修改", exact: true }).click();
   await expect.poll(() => state.project.storySynopsis?.text).toBe(authored);
-  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toHaveCount(0);
+  await expectStageAction(page, "完成对话并重新整理");
   state.failSynopsis = true;
   await page.getByRole("button", { name: /重新整理/ }).click();
   await expect(page.getByText("请求暂未完成，已保存的内容不会丢失，请稍后重试。", { exact: true })).toBeVisible();
@@ -496,7 +562,8 @@ test("pausing synopsis synthesis keeps the saved author text and pending decisio
   await expect(page.getByRole("button", { name: /重新整理|整理成故事梗概/ })).toBeEnabled();
   expect(state.project.storySynopsis?.text).toBe(project.storySynopsis.text);
   expect(state.project.storySynopsis?.pendingChanges).toBe(true);
-  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toHaveCount(0);
+  await expectStageAction(page, "完成对话并重新整理");
   expect(errors).toEqual([]);
 });
 
@@ -523,7 +590,8 @@ test("author can resolve one completed synopsis question while preserving unappl
   expect(state.project.storySynopsis?.conversation?.brief.must_avoid).toEqual(["不增加超自然能力。"]);
   expect(state.project.storySynopsis?.history?.at(-1)?.conversation?.brief.unresolved).toEqual(["妹妹结局尚未决定。", "父亲下落尚未决定。"]);
   await page.reload();
-  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认梗概，进入总纲" })).toHaveCount(0);
+  await expectStageAction(page, "完成对话并重新整理");
   await expect(page.getByText("待作者决定：父亲下落尚未决定。", { exact: true })).toBeVisible();
   expect(state.synopsisRequests).toEqual([]);
   expect(errors).toEqual([]);
@@ -595,6 +663,7 @@ test("bible generation keeps progress, errors and retry beside its action", asyn
   const button = page.getByRole("button", { name: "生成故事总纲", exact: true });
   const assistant = page.getByRole("complementary", { name: "故事总纲生成助手" });
   await expect(button).toBeEnabled();
+  await expectStageAction(page, "生成故事总纲");
   await expect(page.locator(".story-bible-synopsis-preview")).toContainText(project.creativePrompt);
   await assertPageFitsViewport(page, testInfo);
   const directoryBox = (await page.locator(".workspace-section-directory").boundingBox())!;
@@ -624,6 +693,7 @@ test("bible generation keeps progress, errors and retry beside its action", asyn
   await button.click();
   await expect.poll(() => state.bibleRequests.length).toBe(2);
   await expect(page.getByRole("button", { name: "确认故事总纲", exact: true })).toBeEnabled();
+  await expectStageAction(page, "确认故事总纲");
   await expect(page.locator("#story-bible-overview")).toContainText("调查员核验父亲留下的录音。");
   await expect(assistant).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "故事总纲修改助手" })).toBeVisible();
@@ -696,7 +766,8 @@ test("bible undo restores content from before a saved manual edit", async ({ pag
   await page.goto(`/projects/${projectId}/planning`);
   const premise = page.locator('[data-story-bible-field="这个故事讲什么"] [contenteditable="true"]');
   await premise.fill("调查员保护证人，并公开完整的火灾录音。");
-  await expect(page.getByRole("button", { name: "确认故事总纲", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "确认故事总纲", exact: true })).toHaveCount(0);
+  await expectStageAction(page, "保存草稿");
   await expect(page.getByRole("button", { name: "保存草稿", exact: true })).toBeEnabled();
   page.once("dialog", dialog => dialog.dismiss());
   await page.locator('.workspace-section-directory a').filter({ hasText: "故事输入" }).filter({ visible: true }).first().click();

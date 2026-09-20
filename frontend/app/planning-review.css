@@ -1,0 +1,34 @@
+.planning-review { margin: 18px 0 24px; outline-offset: 4px; }
+.planning-review-heading { margin-bottom: 14px; }
+.planning-review-step { color: var(--gold); font-size: 11px; font-weight: 600; }
+.planning-review-heading h3 { margin: 5px 0 8px; font-size: 19px; font-weight: 600; }
+.planning-review-heading > p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.7; }
+.planning-review-list { display: grid; gap: 12px; }
+.planning-review-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.planning-review-card > header { display: flex; align-items: flex-start; gap: 10px; }
+.planning-review-number { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 7px; color: var(--gold); background: var(--accent-soft); font-size: 12px; }
+.planning-review-card > header > div { flex: 1; min-width: 0; }
+.planning-review-card > header strong { display: block; font-size: 14px; }
+.planning-review-scope { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-faint); font-size: 12px; }
+.planning-review-badge { flex: none; padding: 4px 7px; border-radius: 5px; background: var(--accent-soft); color: var(--gold); font-size: 11px; }
+.planning-review-summary { margin: 15px 0 10px; color: var(--ink); line-height: 1.8; font-size: 13px; overflow-wrap: anywhere; }
+.planning-review-detail > summary { width: fit-content; cursor: pointer; color: var(--ink-soft); font-size: 12px; padding: 5px 0; }
+.planning-review-detail > div { margin: 10px 0 0; padding: 14px; background: var(--surface-muted); border-radius: 7px; font-size: 12px; }
+.planning-review-detail p { margin: 7px 0 16px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.planning-review-detail p:last-child { margin-bottom: 0; }
+.planning-review-card > footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.planning-review-card > footer .primary-action { min-height: 36px; padding: 8px 12px; font-size: 12px; }
+.planning-review-locate { display: inline-flex; align-items: center; gap: 5px; padding: 8px; border: 0; background: transparent; color: var(--ink-soft); font: inherit; font-size: 12px; cursor: pointer; }
+.planning-review-locate:disabled { opacity: .5; cursor: default; }
+.planning-review-card > footer > small { flex-basis: 100%; color: var(--ink-faint); font-size: 11px; line-height: 1.6; }
+.planning-review-replace { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.planning-review-replace p { color: var(--ink-soft); font-size: 12px; line-height: 1.7; }
+.planning-review-replace > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.planning-review-replace button { font-size: 12px; }
+.planning-canvas-instruction-notice { margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--ink-soft); font-size: 12px; line-height: 1.65; }
+.story-plan-document-toolbar .planning-save-action { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 7px 10px; font-size: 12px; }
+@media (max-width: 760px) {
+  .planning-review-card { padding: 14px; }
+  .planning-review-heading h3 { font-size: 17px; }
+  .planning-review-card > footer { gap: 6px; }
+}

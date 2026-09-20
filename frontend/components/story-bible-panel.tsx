@@ -1,5 +1,7 @@
 "use client";
 
+import { useCopilotProgress } from "@/lib/use-copilot-progress";
+
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -25,6 +27,9 @@ import { WorkspaceSectionDirectory } from "@/components/workspace-section-direct
 import { SelectionEditToolbar } from "@/components/selection-edit-toolbar";
 import { isRequestAborted, userFacingError } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/download";
+import { isHostScriptWorkflow } from "@/lib/host-navigation";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
+import { OverseasStoryProfileSummary } from "@/components/overseas-story-profile";
 import { hostProjectId } from "@/lib/host-session";
 import type { AutomaticRetryEvent } from "@/lib/generation-retry";
 import {
@@ -109,6 +114,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
 }) {
   const { t } = useLocale();
   const router = useRouter();
+  const scriptWorkflow = useHostScriptWorkflow();
   const { createProject, getProject, retryProjectSync, syncProjectSnapshot, updateProject } = useProjects();
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -118,6 +124,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [generationStage, setGenerationStage] = useState<"prepare" | "save" | "generate" | null>(null);
   const [aiInstruction, setAiInstruction] = useState("");
+  const { progress: copilotProgress, begin: beginCopilotProgress } = useCopilotProgress(`${project.id}:story-bible`);
   const [documentSelection, setDocumentSelection] = useState<StoryBibleSelectionContext | null>(null);
   const [chatMessages, setChatMessages] = useState<PlanningCanvasMessage[]>(() => (
     loadWorkspaceChatMessages(project.id, "story-bible") as PlanningCanvasMessage[]
@@ -457,6 +464,8 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     ) return;
     const controller = new AbortController();
     aiAbortControllerRef.current = controller;
+    const progressRun = beginCopilotProgress(controller.signal);
+    progressRun.mark("context", "正在准备当前故事和修改要求");
     setBusy("ai");
     setMessage(null);
     try {
@@ -492,17 +501,23 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
         revisionMode,
         selectionOverride,
         controller.signal,
+        progressRun.onEvent,
       );
+      controller.signal.throwIfAborted();
+      progressRun.mark("validating", "正在应用本次修改");
       applyAiModification(candidate, sourceStoryBible, selectionOverride, !wasEditing);
+      const completedProgress = progressRun.finish("completed");
       setChatMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           text: describeAppliedRevision(sourceStoryBible, candidate, selectionOverride),
+          progress: completedProgress,
         },
       ]);
     } catch (error) {
+      const trace = progressRun.finish(controller.signal.aborted ? "paused" : "error");
       setAiInstruction(current => current || submittedInstruction);
       if (isRequestAborted(error, controller.signal)) {
         setChatMessages((current) => [
@@ -511,11 +526,13 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
             id: `assistant-paused-${Date.now()}`,
             role: "assistant",
             text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。",
+            progress: trace,
           },
         ]);
       } else {
         const errorMessage = userFacingError(error, t("storyBible.aiModifyFailed"));
         setMessage(errorMessage);
+        setChatMessages(current => [...current, { id: `assistant-error-${Date.now()}`, role: "assistant", text: errorMessage, progress: trace }]);
       }
     } finally {
       if (aiAbortControllerRef.current === controller) aiAbortControllerRef.current = null;
@@ -655,6 +672,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
   }
 
   function exportConfirmedStoryBible() {
+    if (isHostScriptWorkflow()) return;
     if (!storyBible || storyBible.status !== "approved") return;
     const blob = new Blob([storyBibleMarkdown(project.title, storyBible)], {
       type: "text/markdown;charset=utf-8",
@@ -808,13 +826,33 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
     } : current);
   }
 
+  const versionAction = storyBible && !pendingProgress
+    && (storyBible.status === "approved" || regenerationLocked) ? (
+      <button
+        className="outline-action"
+        disabled={Boolean(busy) || (regenerationLocked && projectCopyLocked)}
+        aria-describedby={regenerationLocked && projectCopyLocked ? "host-project-copy-hint" : undefined}
+        onClick={() => void (storyBible.status === "approved" ? createEditableVersion() : createRewriteVersion())}
+        type="button"
+      >
+        <RefreshCw aria-hidden="true" size={15} />
+        {busy === "version"
+          ? t("storyBible.creatingRewriteVersion")
+          : rewriteCopyId
+            ? "继续创建改写版本"
+            : regenerationLocked
+              ? t("storyBible.createRewriteVersion")
+              : t("storyBible.createEditableVersion")}
+      </button>
+    ) : null;
+
   return (
-    <section className="story-bible-panel is-canvas-mode">
+    <section className={`story-bible-panel is-canvas-mode${scriptWorkflow === true ? " host-stage-content" : ""}`}>
       <div className="story-bible-heading">
         <div>
-          <span className="section-kicker">{t("storyBible.kicker")}</span>
+          <span className="section-kicker">{scriptWorkflow === true ? "故事设定" : t("storyBible.kicker")}</span>
           <div className="section-title-with-help">
-            <h2>{t("storyBible.title")}</h2>
+            <h2>{scriptWorkflow === true ? "人物与世界观" : t("storyBible.title")}</h2>
             <SectionHelp content={t("guide.storyBible")} label={t("guide.openHelp")} />
           </div>
         </div>
@@ -826,55 +864,35 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
               {busy === "save" ? t("storyBible.saving") : t("storyBible.save")}
             </button>
           ) : null}
-          {storyBible && storyBible.status === "approved" && !pendingProgress ? (
+          {rewriteCopyId ? versionAction : null}
+          {(!rewriteCopyId && versionAction) || (scriptWorkflow === false && storyBible?.status === "approved") ? <details className="workflow-more-actions">
+            <summary>更多操作</summary>
+            <div className="workflow-more-actions-content">
+              {!rewriteCopyId ? versionAction : null}
+              {scriptWorkflow === false && storyBible?.status === "approved" ? (
+                <button className="outline-action" disabled={Boolean(busy)} onClick={exportConfirmedStoryBible} type="button">
+                  <Download aria-hidden="true" size={15} />
+                  {t("storyBible.export")}
+                </button>
+              ) : null}
+            </div>
+          </details> : null}
+          {storyBible && storyBible.status !== "approved" && !pendingProgress && !storyBibleCanBeRevised && !regenerationLocked ? (
             <button
-              className="outline-action"
-              disabled={Boolean(busy) || (regenerationLocked && projectCopyLocked)}
-              aria-describedby={regenerationLocked && projectCopyLocked ? "host-project-copy-hint" : undefined}
-              onClick={() => void createEditableVersion()}
+              className="primary-action"
+              disabled={Boolean(busy) || Boolean(loadError)}
+              onClick={() => void generateDraft()}
               type="button"
             >
               <RefreshCw aria-hidden="true" size={15} />
-              {busy === "version"
-                ? t("storyBible.creatingRewriteVersion")
-                : rewriteCopyId
-                  ? "继续创建改写版本"
-                  : regenerationLocked
-                  ? t("storyBible.createRewriteVersion")
-                  : t("storyBible.createEditableVersion")}
+              {busy === "generate" ? t("storyBible.generating") : t("storyBible.generateFromUpdatedInput")}
             </button>
           ) : null}
-          {storyBible?.status === "approved" ? (
-            <button className="outline-action" disabled={Boolean(busy)} onClick={exportConfirmedStoryBible} type="button">
-              <Download aria-hidden="true" size={15} />
-              {t("storyBible.export")}
-            </button>
-          ) : null}
-          {storyBible && storyBible.status !== "approved" && !pendingProgress && (!storyBibleCanBeRevised || regenerationLocked) ? (
-            <button
-              className="outline-action"
-              disabled={Boolean(busy) || (regenerationLocked && projectCopyLocked)}
-              aria-describedby={regenerationLocked && projectCopyLocked ? "host-project-copy-hint" : undefined}
-              onClick={() => void (regenerationLocked ? createRewriteVersion() : generateDraft())}
-              type="button"
-            >
-              <RefreshCw aria-hidden="true" size={15} />
-              {busy === "version"
-                ? t("storyBible.creatingRewriteVersion")
-                : rewriteCopyId
-                  ? "继续创建改写版本"
-                  : regenerationLocked
-                  ? t("storyBible.createRewriteVersion")
-                  : busy === "generate"
-                    ? t("storyBible.generating")
-                    : t("storyBible.generateFromUpdatedInput")}
-            </button>
-          ) : null}
-          {storyBible?.status === "approved" && !pendingProgress ? <Link className="primary-action" href={`/projects/${project.id}/planning/structure`}>进入剧情规划</Link> : null}
-          {storyBible?.status === "draft" && storyBibleCanBeRevised ? (
-            <button className="primary-action" disabled={Boolean(busy) || isEditing} onClick={() => void confirmDraft()} type="button">
+          {storyBible?.status === "approved" && !pendingProgress ? <Link className="primary-action" aria-disabled={Boolean(busy) || undefined} onClick={(event) => { if (busy) event.preventDefault(); }} href={`/projects/${project.id}/planning/structure`}>{scriptWorkflow === true ? "进入分集大纲" : "进入剧情规划"}</Link> : null}
+          {storyBible?.status === "draft" && storyBibleCanBeRevised && !isEditing ? (
+            <button className="primary-action" disabled={Boolean(busy)} onClick={() => void confirmDraft()} type="button">
               <Check aria-hidden="true" size={15} />
-              {busy === "confirm" ? t("storyBible.confirming") : t("storyBible.confirm")}
+              {busy === "confirm" ? t("storyBible.confirming") : scriptWorkflow === true ? "确认设定，进入分集大纲" : t("storyBible.confirm")}
             </button>
           ) : null}
         </div>
@@ -936,7 +954,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
               {regenerationLocked ? <p role="status">{t("storyBible.regenerationLocked")}</p> : null}
               <button className="primary-action" disabled={Boolean(busy) || Boolean(loadError) || regenerationLocked || project.storySynopsis?.status !== "confirmed"}
                 onClick={() => void generateDraft()} type="button">
-                {busy === "generate" ? "正在生成故事总纲…" : "生成故事总纲"}
+                {busy === "generate" ? scriptWorkflow === true ? "正在完善故事设定…" : "正在生成故事总纲…" : scriptWorkflow === true ? "生成人物与世界观" : "生成故事总纲"}
               </button>
             </div>
           </aside>
@@ -994,6 +1012,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
                   <div><span>创作市场</span><strong>{project.marketProfile === "overseas_tiktok" ? "海外短剧" : "中文短剧"}</strong></div>
                   <div><span>目标体量</span><strong>{project.generationSettings.episodeCount} 集</strong></div>
                 </div>
+                {scriptWorkflow === false && project.generationSettings.releaseRegion === "overseas" && <OverseasStoryProfileSummary value={project.generationSettings.overseasStoryProfile} />}
               </section>
 
               <section className="story-bible-chapter" id="story-bible-overview">
@@ -1014,6 +1033,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
                     <strong><InlineStoryBibleText onChange={(value) => updateCharacterRegistry(index, "name", value)} onStartEditing={() => setIsEditing(true)} value={character.name} /></strong>
                     <span><InlineStoryBibleText onChange={(value) => updateCharacterRegistry(index, "role", value)} onStartEditing={() => setIsEditing(true)} value={character.role} /></span>
                     <CharacterActingProfileDisclosure
+                      overseasSamples={scriptWorkflow === false && project.generationSettings.releaseRegion === "overseas"}
                       profile={character.acting_profile ?? project.characters.find((item) => item.name.trim() === character.name.trim())?.actingProfile}
                       onChange={(field, value) => updateCharacterActingProfile(character.character_ref, field, value)}
                       onStartEditing={() => setIsEditing(true)}
@@ -1107,6 +1127,7 @@ export function StoryBiblePanel({ onProjectUpdate, project }: {
           <PlanningCanvasCopilot
             busy={busy === "ai"}
             messages={chatMessages}
+            progress={copilotProgress}
             disabled={!storyBibleCanBeRevised || regenerationLocked || (busy !== null && busy !== "ai")}
             disabledReason={busy && busy !== "ai" ? "正在保存或读取故事总纲，请稍候。" : loadError ? "请先重新读取故事总纲，再继续修改。" : !isCurrentInput ? "故事资料已更新，请先根据新资料生成总纲。" : regenerationLocked ? projectCopyLocked ? "已有正文。另起一版请在主站新建项目。" : "已有后续规划或正文。需要调整故事方向时，可在顶部创建改写版本。" : "总纲已确认。如需修改，请先在顶部创建可编辑版本。"}
             instruction={aiInstruction}
@@ -1151,10 +1172,12 @@ function StoryBibleChapterHeading({
 
 function CharacterActingProfileDisclosure({
   profile: suppliedProfile,
+  overseasSamples = false,
   onChange,
   onStartEditing,
 }: {
   profile?: CharacterActingProfile | null;
+  overseasSamples?: boolean;
   onChange: (field: keyof CharacterActingProfile, value: string) => void;
   onStartEditing: () => void;
 }) {
@@ -1165,13 +1188,15 @@ function CharacterActingProfileDisclosure({
       <summary>表演档案<span>人物的长期表演特征</span></summary>
       <div className="story-bible-acting-profile-grid">
         {ACTING_PROFILE_FIELDS.map((field) => (
-          <label key={field}>
-            <span>{ACTING_PROFILE_LABELS[field]}</span>
+          <label key={field} className={overseasSamples && field === "permanentVoicePrompt" ? "story-bible-voice-samples" : undefined}>
+            <span>{overseasSamples && field === "permanentVoicePrompt" ? "声音特点与原创对白示例" : ACTING_PROFILE_LABELS[field]}</span>
+            {overseasSamples && field === "permanentVoicePrompt" && <small>用中文说明声音特点，再补 2–3 句符合这个人物的原创英文对白及中文对照。可选拒绝、撒谎、示弱、亲近者或对手情境；例句只作表达参考。每句按下方格式单独一行，整段最多 600 字符。</small>}
             <textarea
               key={profile[field]}
               readOnly={!editable}
-              placeholder="尚未设定，可根据人物特征补充"
-              rows={3}
+              maxLength={overseasSamples && field === "permanentVoicePrompt" ? 600 : undefined}
+              placeholder={overseasSamples && field === "permanentVoicePrompt" ? "中文声音特点与压力下的变化…\n拒绝｜EN: [人物的原创英文台词]｜中译: [对应中文]" : "尚未设定，可根据人物特征补充"}
+              rows={overseasSamples && field === "permanentVoicePrompt" ? 5 : 3}
               defaultValue={profile[field]}
               onInput={(event) => {
                 if (editable && event.currentTarget.value !== profile[field]) onStartEditing();

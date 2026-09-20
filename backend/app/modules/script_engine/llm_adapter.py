@@ -20,7 +20,11 @@ from urllib.parse import urlparse
 import httpx
 
 from app.modules.script_engine.models import GenerationStrategy, LLMModelInfo
-from app.modules.content_spec.market_profile import canonical_market_profile
+from app.modules.script_engine.llm_cancellation import LLMRequestCancelledError
+from app.modules.content_spec.market_profile import (
+    CREATOR_INTERACTION_LANGUAGE_CONTRACT,
+    canonical_market_profile,
+)
 from app.modules.script_engine.llm_deadline import (
     LLMDeadlineExceeded,
     cap_timeout,
@@ -30,6 +34,19 @@ from app.modules.script_engine.llm_deadline import (
     remaining_deadline_seconds,
 )
 from app.modules.script_engine.llm_stream_progress import LLMStreamProgress
+from app.modules.script_engine.copilot_progress import (
+    check_copilot_cancelled,
+    copilot_deepseek_thinking_event,
+    copilot_request_started,
+    copilot_stage,
+    copilot_stream_redirect,
+    copilot_summaries_allowed,
+    copilot_summary_event,
+    copilot_validation_started,
+    current_copilot_progress,
+    should_stream_copilot_request,
+    suppress_copilot_summaries,
+)
 from app.modules.script_engine.llm_protocol import ModelProtocol
 from app.modules.script_engine.json_schema_contract import compact_json_schema
 from app.modules.script_engine.planning_call_budget import (
@@ -49,9 +66,22 @@ _LLM_MARKET_PATH: ContextVar[str | None] = ContextVar("llm_market_path", default
 _DEEPSEEK_FULL_EPISODE_STREAM: ContextVar[bool] = ContextVar(
     "deepseek_full_episode_stream", default=False,
 )
+_DEEPSEEK_OUTPUT_RECOVERY: ContextVar[bool] = ContextVar(
+    "deepseek_output_recovery", default=False,
+)
 _LLM_LOCAL_OUTPUT_SCHEMA: ContextVar[dict[str, Any] | None] = ContextVar(
     "llm_local_output_schema", default=None,
 )
+
+
+@contextmanager
+def bind_deepseek_output_recovery(enabled: bool = True):
+    """Reserve a bounded repair's shared token allowance for its actual answer."""
+    token = _DEEPSEEK_OUTPUT_RECOVERY.set(enabled)
+    try:
+        yield
+    finally:
+        _DEEPSEEK_OUTPUT_RECOVERY.reset(token)
 
 
 @contextmanager
@@ -159,8 +189,20 @@ class LLMRequestError(RuntimeError):
         self.recoverable = recoverable
 
 
-class LLMRequestCancelledError(Exception):
-    """Stop a model request when its streaming client disconnects."""
+def is_reasoning_output_exhaustion(error: Exception) -> bool:
+    """Recognize only an explicit token ceiling with reasoning and no answer."""
+    termination = str(getattr(error, "stream_termination", "") or "").casefold()
+    reasoning_characters = getattr(error, "reasoning_characters", 0)
+    return (
+        ((isinstance(error, LLMRequestError) and error.category == "empty_response")
+         or (isinstance(error, LLMStructuredOutputError) and error.empty_response))
+        and not getattr(error, "refusal", False)
+        and not getattr(error, "raw_content", None)
+        and isinstance(reasoning_characters, int)
+        and reasoning_characters > 0
+        and any(marker in termination for marker in ("length", "max_output", "token_limit"))
+        and not any(marker in termination for marker in ("refusal", "content_filter", "failed"))
+    )
 
 
 class _HedgedRequestCancelled(LLMRequestCancelledError):
@@ -177,13 +219,25 @@ def deadline_request_error(error: LLMDeadlineExceeded) -> LLMRequestError:
     return failure
 
 
+@contextmanager
+def llm_operation_deadline(seconds: float, *, scope: str):
+    """Keep the cumulative cap while exposing the normal upstream error type."""
+    try:
+        with deadline_scope(seconds, scope=scope):
+            yield
+    except LLMDeadlineExceeded as error:
+        raise deadline_request_error(error) from error
+
+
 def _bounded_llm_request(operation: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(operation)
     def bounded(self: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             with deadline_scope(self._request_deadline_seconds, scope="request"):
+                check_copilot_cancelled()
                 check_deadline()
                 result = operation(self, *args, **kwargs)
+                check_copilot_cancelled()
                 check_deadline()
                 return result
         except LLMDeadlineExceeded as error:
@@ -193,6 +247,7 @@ def _bounded_llm_request(operation: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    check_copilot_cancelled()
     if cancel_event is not None and cancel_event.is_set():
         raise _HedgedRequestCancelled()
 
@@ -579,6 +634,19 @@ class RealLLMAdapter(LLMAdapter):
         strategy: GenerationStrategy,
         output_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        check_copilot_cancelled()
+        if should_stream_copilot_request():
+            # Opt-in feedback uses the same route/schema and existing bounded
+            # fallbacks; consume the redirect to prevent an SSE/JSON loop.
+            token = _DEEPSEEK_FULL_EPISODE_STREAM.set(False)
+            try:
+                with copilot_stream_redirect():
+                    return self._generate_structured_output_stream(
+                        prompt, strategy=strategy, output_schema=output_schema,
+                        on_delta=None, cancel_event=None,
+                    )
+            finally:
+                _DEEPSEEK_FULL_EPISODE_STREAM.reset(token)
         if _DEEPSEEK_FULL_EPISODE_STREAM.get() and self._is_deepseek:
             # Keep market/pool/failover on the existing ordinary-call chain.
             # Consume the preference here so a legitimate SSE->JSON fallback
@@ -601,6 +669,7 @@ class RealLLMAdapter(LLMAdapter):
         )
 
         response_payload = self._post_with_retries(payload)
+        copilot_validation_started()
         adapter_model_pass_count = 1
         try:
             structured_output = self._extract_structured_output(
@@ -708,7 +777,7 @@ class RealLLMAdapter(LLMAdapter):
             structured_output["_meta"]["schema_container_issues"] = deferred_container_issues[:20]
         if self._is_deepseek or self._is_glm or self._is_qwen:
             structured_output["_meta"]["thinking_mode"] = (
-                self._thinking_mode or "enabled"
+                payload.get("thinking", {}).get("type", self._thinking_mode or "enabled")
             )
         usage = response_payload.get("usage")
         if isinstance(usage, dict):
@@ -782,11 +851,12 @@ class RealLLMAdapter(LLMAdapter):
             if cancel_event is not None and cancel_event.is_set():
                 raise _HedgedRequestCancelled() from error
             try:
-                fallback = self.generate_structured_output(
-                    prompt,
-                    strategy=strategy,
-                    output_schema=output_schema,
-                )
+                with copilot_stream_redirect():
+                    fallback = self.generate_structured_output(
+                        prompt,
+                        strategy=strategy,
+                        output_schema=output_schema,
+                    )
             except (LLMRequestError, LLMStructuredOutputError) as fallback_error:
                 # Preserve transport history across pooled-key rotation so the
                 # episode service does not submit a third copy of the same
@@ -809,6 +879,7 @@ class RealLLMAdapter(LLMAdapter):
         if cancel_event is not None and cancel_event.is_set():
             raise _HedgedRequestCancelled()
 
+        copilot_validation_started()
         try:
             structured_output = self._parse_json_content(
                 text,
@@ -894,7 +965,7 @@ class RealLLMAdapter(LLMAdapter):
             structured_output["_meta"]["schema_container_issues"] = deferred_container_issues[:20]
         if self._is_deepseek or self._is_glm or self._is_qwen:
             structured_output["_meta"]["thinking_mode"] = (
-                self._thinking_mode or "enabled"
+                payload.get("thinking", {}).get("type", self._thinking_mode or "enabled")
             )
         if usage is not None:
             structured_output["_meta"]["usage"] = usage
@@ -1588,6 +1659,7 @@ class RealLLMAdapter(LLMAdapter):
                         "You generate structured dramatic scripts. When JSON is "
                         "requested, return exactly one valid JSON object with no "
                         "Markdown or explanatory text and follow its field shape exactly."
+                        "\n" + CREATOR_INTERACTION_LANGUAGE_CONTRACT
                     ),
                 },
                 {"role": "user", "content": structured_prompt},
@@ -1595,10 +1667,21 @@ class RealLLMAdapter(LLMAdapter):
         }
         if self._is_deepseek:
             thinking_mode = self._thinking_mode or "enabled"
+            reasoning_effort = self._effective_reasoning_effort
+            if current_copilot_progress() is not None:
+                # The interactive assistant explicitly requests visible thinking;
+                # leave all ordinary generation-role parameters unchanged.
+                thinking_mode = "enabled"
+                if reasoning_effort == "none":
+                    reasoning_effort = "low"
+            if _DEEPSEEK_OUTPUT_RECOVERY.get():
+                # Only the explicit bounded repair can override visible thinking;
+                # the first attempt retains the configured interactive behavior.
+                thinking_mode = "disabled"
             payload["thinking"] = {"type": thinking_mode}
             if thinking_mode == "enabled":
-                if self._effective_reasoning_effort is not None:
-                    payload["reasoning_effort"] = self._effective_reasoning_effort
+                if reasoning_effort is not None:
+                    payload["reasoning_effort"] = reasoning_effort
             else:
                 payload["temperature"] = strategy.temperature
                 payload["top_p"] = strategy.top_p
@@ -1948,6 +2031,7 @@ Return exactly one json object now."""
                         "You generate structured dramatic scripts. "
                         "Follow the supplied JSON schema exactly. "
                         "When JSON object mode is used, return valid json."
+                        "\n" + CREATOR_INTERACTION_LANGUAGE_CONTRACT
                     ),
                 },
                 {
@@ -1958,6 +2042,9 @@ Return exactly one json object now."""
         }
         if self._effective_reasoning_effort is not None:
             payload["reasoning"] = {"effort": self._effective_reasoning_effort}
+        observer = current_copilot_progress()
+        if copilot_summaries_allowed() and observer is not None and observer.allows_summary_for(self):
+            payload.setdefault("reasoning", {})["summary"] = "auto"
         if output_schema and self._send_response_format:
             normalized_schema = self._provider_json_schema(output_schema)
             if self._use_strict_schema and self._supports_strict_json_schema(normalized_schema):
@@ -2199,6 +2286,7 @@ Return exactly one json object now."""
         attempt: int,
         payload: dict[str, Any] | None = None,
     ) -> None:
+        copilot_request_started()
         provider, model, gateway, wire_api = self._route_log_context()
         project_id, episode, stage, agent_run_id = _llm_log_context_fields()
         prompt_chars = 0
@@ -2245,8 +2333,10 @@ Return exactly one json object now."""
             agent_run_id,
             prompt_chars,
             output_budget if output_budget is not None else "none",
-            self._reasoning_effort or "provider_default",
-            self._thinking_mode or "provider_default",
+            (payload.get("reasoning_effort", "none" if payload.get("thinking", {}).get("type") == "disabled" else "provider_default")
+             if isinstance(payload, dict) else self._reasoning_effort or "provider_default"),
+            (payload.get("thinking", {}).get("type", self._thinking_mode or "provider_default")
+             if isinstance(payload, dict) else self._thinking_mode or "provider_default"),
         )
 
     def _log_route_finished(
@@ -2315,6 +2405,10 @@ Return exactly one json object now."""
 
     def _stream_progress(self, started: float, attempt: int, transport: str) -> LLMStreamProgress:
         def emit(state: dict[str, Any]) -> None:
+            if state.get("reason") == "first_reasoning" and state.get("first_text_seconds") is None:
+                copilot_stage("thinking")
+            elif state.get("reason") == "first_text":
+                copilot_stage("writing")
             provider, model, gateway, wire_api = self._route_log_context()
             project, episode, stage, run = _llm_log_context_fields()
             logger.warning(
@@ -2478,10 +2572,50 @@ Return exactly one json object now."""
                 )
         return total
 
+    @staticmethod
+    def _without_reasoning_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        reasoning = payload.get("reasoning")
+        if not isinstance(reasoning, dict) or "summary" not in reasoning:
+            return payload
+        result = {**payload, "reasoning": {key: value for key, value in reasoning.items() if key != "summary"}}
+        if not result["reasoning"]:
+            result.pop("reasoning")
+        return result
+
+    def _without_disabled_copilot_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        observer = current_copilot_progress()
+        if observer is not None and (not copilot_summaries_allowed() or not observer.allows_summary_for(self)):
+            return self._without_reasoning_summary(payload)
+        return payload
+
+    def _summary_compatibility_payload(
+        self, payload: dict[str, Any], *, status_code: int, detail: str,
+    ) -> dict[str, Any] | None:
+        observer = current_copilot_progress()
+        reasoning = payload.get("reasoning")
+        normalized = detail.lower()
+        summary_parameter_rejected = "summary" in normalized or (
+            isinstance(reasoning, dict) and set(reasoning) == {"summary"}
+            and bool(re.search(r"(?:parameter|argument|field)\s*[:=]?\s*['\"]?reasoning\b", normalized))
+        )
+        if (observer is None or self._wire_api != "responses" or status_code not in {400, 422}
+                or not isinstance(reasoning, dict) or reasoning.get("summary") != "auto"
+                or not summary_parameter_rejected
+                or not any(word in normalized for word in (
+                    "unsupported", "not supported", "unknown", "unrecognized", "not permitted", "not allowed",
+                ))):
+            return None
+        # Only a rejected parameter request can take this compatibility path.
+        # Successful/partial generations are never reissued to obtain a summary.
+        observer.reject_summary_for(self)
+        return self._without_reasoning_summary(payload)
+
     @_bounded_llm_request
-    def _post_with_retries(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_with_retries(self, payload: dict[str, Any], *, first_attempt: int = 0) -> dict[str, Any]:
+        payload = self._without_disabled_copilot_summary(payload)
         last_error: Exception | None = None
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(first_attempt, self._max_retries + 1):
+            check_copilot_cancelled()
             check_deadline()
             charge_planning_model_request()
             started = time.monotonic()
@@ -2561,6 +2695,9 @@ Return exactly one json object now."""
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
                 response_detail = self._extract_error_detail(exc.response)
+                compatible = self._summary_compatibility_payload(payload, status_code=status_code, detail=response_detail)
+                if compatible is not None:
+                    return self._post_with_retries(compatible, first_attempt=attempt)
                 category = "provider_http" if status_code < 500 else "provider_gateway"
                 # A 524 is the upstream gateway's execution deadline. In the
                 # success-first script profile, spend the configured bounded
@@ -2687,10 +2824,12 @@ Return exactly one json object now."""
         first_attempt: int = 0,
         retained_content: list[str] | None = None,
     ) -> tuple[str, dict[str, Any] | None, str | None, str | None]:
+        payload = self._without_disabled_copilot_summary(payload)
         endpoint = "responses" if self._wire_api == "responses" else "chat/completions"
         stream_payload = {**payload, "stream": True}
         last_error: Exception | None = None
         for attempt in range(first_attempt, self._max_retries + 1):
+            check_copilot_cancelled()
             check_deadline()
             if cancel_event is not None and cancel_event.is_set():
                 raise _HedgedRequestCancelled()
@@ -2728,6 +2867,7 @@ Return exactly one json object now."""
                         response.read()
                     response.raise_for_status()
                     for line in response.iter_lines():
+                        check_copilot_cancelled()
                         check_deadline()
                         if cancel_event is not None and cancel_event.is_set():
                             raise _HedgedRequestCancelled()
@@ -2746,6 +2886,9 @@ Return exactly one json object now."""
                             continue
                         if not isinstance(event, dict):
                             continue
+                        copilot_summary_event(event)
+                        if self._is_deepseek and self._wire_api == "chat_completions":
+                            copilot_deepseek_thinking_event(event)
                         event_reasoning_chars = self._stream_event_reasoning_char_count(event)
                         reasoning_characters += event_reasoning_chars
                         delta = self._stream_event_text_delta(event)
@@ -2867,6 +3010,12 @@ Return exactly one json object now."""
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
                 response_detail = self._extract_error_detail(exc.response)
+                compatible = self._summary_compatibility_payload(payload, status_code=status_code, detail=response_detail)
+                if not received and compatible is not None:
+                    return self._stream_text(
+                        compatible, on_delta=on_delta, cancel_event=cancel_event,
+                        first_attempt=attempt, retained_content=retained_content,
+                    )
                 category = "provider_http" if status_code < 500 else "provider_gateway"
                 gateway_deadline = status_code == 524
                 will_retry = (
@@ -3783,11 +3932,12 @@ class AdaptiveTransportLLMAdapter(LLMAdapter):
         if cancel_event is not None and cancel_event.is_set():
             raise _HedgedRequestCancelled()
         try:
-            result = self._adapter.generate_structured_output(
-                prompt,
-                strategy=strategy,
-                output_schema=output_schema,
-            )
+            with copilot_stream_redirect():
+                result = self._adapter.generate_structured_output(
+                    prompt,
+                    strategy=strategy,
+                    output_schema=output_schema,
+                )
         except (LLMRequestError, LLMStructuredOutputError) as error:
             setattr(error, "adaptive_transport_attempted", True)
             if isinstance(error, LLMRequestError):
@@ -4108,13 +4258,14 @@ class ModelFailoverLLMAdapter(LLMAdapter):
             delta_callback: Callable[[str, bool], None],
         ) -> None:
             try:
-                result = adapter.generate_structured_output_stream_cancellable(
-                    prompt,
-                    strategy=strategy,
-                    output_schema=output_schema,
-                    on_delta=delta_callback,
-                    cancel_event=cancel_event,
-                )
+                with suppress_copilot_summaries():
+                    result = adapter.generate_structured_output_stream_cancellable(
+                        prompt,
+                        strategy=strategy,
+                        output_schema=output_schema,
+                        on_delta=delta_callback,
+                        cancel_event=cancel_event,
+                    )
             except Exception as error:  # noqa: BLE001 - carried back to request thread
                 completion_queue.put((route_name, None, error))
             else:

@@ -138,8 +138,9 @@ def story_bible_non_chinese_fields(
 ) -> list[str]:
     """Validate Chinese narrative while preserving overseas English identities."""
     from app.modules.content_spec.market_profile import market_profile_contract
-    names = [entry.name for entry in output.character_registry] if not market_profile_contract(market_profile).is_mainland else []
-    return story_bible_chinese_issues(output, allowed_names=names)
+    overseas = not market_profile_contract(market_profile).is_mainland
+    names = [entry.name for entry in output.character_registry] if overseas else []
+    return story_bible_chinese_issues(output, allowed_names=names, allow_voice_samples=overseas)
 
 
 _KINSHIP_PREFIX_PATTERN = re.compile(

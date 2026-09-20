@@ -15911,7 +15911,7 @@
           },
           "lighting": {
             "default": "",
-            "maxLength": 1000,
+            "maxLength": 1200,
             "title": "Lighting",
             "type": "string"
           },
@@ -15925,7 +15925,7 @@
           },
           "optics": {
             "default": "",
-            "maxLength": 500,
+            "maxLength": 800,
             "title": "Optics",
             "type": "string"
           },
@@ -16123,6 +16123,887 @@
         ],
         "title": "QualityLevel",
         "type": "string"
+      },
+      "QuickActionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "setup",
+              "draft_synopsis",
+              "confirm_synopsis",
+              "draft_plan",
+              "confirm_plan",
+              "advance",
+              "save_episode",
+              "switch_standard",
+              "resume"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "operation_id": {
+            "maxLength": 160,
+            "minLength": 8,
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "action",
+          "operation_id",
+          "expected_revision"
+        ],
+        "title": "QuickActionRequest",
+        "type": "object"
+      },
+      "QuickCharacter": {
+        "additionalProperties": false,
+        "properties": {
+          "abilities_and_limits": {
+            "default": "",
+            "maxLength": 800,
+            "title": "Abilities And Limits",
+            "type": "string"
+          },
+          "appearance": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Appearance",
+            "type": "string"
+          },
+          "character_ref": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Character Ref",
+            "type": "string"
+          },
+          "fixed_identity": {
+            "default": "",
+            "maxLength": 800,
+            "title": "Fixed Identity",
+            "type": "string"
+          },
+          "motivation": {
+            "default": "",
+            "maxLength": 800,
+            "title": "Motivation",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "default": "主要人物",
+            "maxLength": 200,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_ref",
+          "name"
+        ],
+        "title": "QuickCharacter",
+        "type": "object"
+      },
+      "QuickEpisode": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "body_hash": {
+            "title": "Body Hash",
+            "type": "string"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/DraftMasterScript"
+          },
+          "episode_number": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "initial_draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftMasterScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "repair_attempts": {
+            "default": 0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Repair Attempts",
+            "type": "integer"
+          },
+          "repair_count": {
+            "default": 0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Repair Count",
+            "type": "integer"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuickReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_episode_hashes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Source Episode Hashes",
+            "type": "object"
+          },
+          "source_plan_hash": {
+            "title": "Source Plan Hash",
+            "type": "string"
+          },
+          "status": {
+            "default": "drafted",
+            "enum": [
+              "drafted",
+              "passed",
+              "blocked",
+              "stale"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "episode_number",
+          "draft",
+          "source_plan_hash",
+          "body_hash"
+        ],
+        "title": "QuickEpisode",
+        "type": "object"
+      },
+      "QuickFact": {
+        "additionalProperties": false,
+        "properties": {
+          "body_hash": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Body Hash",
+            "type": "string"
+          },
+          "certainty": {
+            "enum": [
+              "established",
+              "suspected",
+              "unknown"
+            ],
+            "title": "Certainty",
+            "type": "string"
+          },
+          "episode_number": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Episode Number",
+            "type": "integer"
+          },
+          "evidence_quote": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence Quote",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "knowledge",
+              "possession",
+              "location",
+              "relationship",
+              "event",
+              "obligation",
+              "ability"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "scene_number": {
+            "minimum": 1.0,
+            "title": "Scene Number",
+            "type": "integer"
+          },
+          "subject": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "subject",
+          "value",
+          "certainty",
+          "episode_number",
+          "scene_number",
+          "evidence_quote"
+        ],
+        "title": "QuickFact",
+        "type": "object"
+      },
+      "QuickIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "episode_number": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Number"
+          },
+          "evidence_quote": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Evidence Quote",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "scene_number": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Number"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "ambiguity",
+              "warning"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "QuickIssue",
+        "type": "object"
+      },
+      "QuickModelCall": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "elapsed_ms": {
+            "minimum": 0.0,
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "input_upper_bound_tokens": {
+            "minimum": 0.0,
+            "title": "Input Upper Bound Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_reserve_tokens": {
+            "minimum": 1.0,
+            "title": "Output Reserve Tokens",
+            "type": "integer"
+          },
+          "physical_requests": {
+            "default": 1,
+            "minimum": 0.0,
+            "title": "Physical Requests",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "response_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Model"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "title": "Usage",
+            "type": "object"
+          }
+        },
+        "required": [
+          "stage",
+          "provider",
+          "model",
+          "input_upper_bound_tokens",
+          "output_reserve_tokens",
+          "elapsed_ms"
+        ],
+        "title": "QuickModelCall",
+        "type": "object"
+      },
+      "QuickPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "characters": {
+            "items": {
+              "$ref": "#/components/schemas/QuickCharacter"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Characters",
+            "type": "array"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "ending": {
+            "maxLength": 800,
+            "minLength": 5,
+            "title": "Ending",
+            "type": "string"
+          },
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodePlanGenerationItem"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Episodes",
+            "type": "array"
+          },
+          "fixed_facts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Fixed Facts",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "main_storyline": {
+            "maxLength": 1000,
+            "minLength": 5,
+            "title": "Main Storyline",
+            "type": "string"
+          },
+          "opening": {
+            "maxLength": 800,
+            "minLength": 5,
+            "title": "Opening",
+            "type": "string"
+          },
+          "relationships": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 15,
+            "title": "Relationships",
+            "type": "array"
+          },
+          "source_synopsis_hash": {
+            "title": "Source Synopsis Hash",
+            "type": "string"
+          },
+          "subplot": {
+            "anyOf": [
+              {
+                "maxLength": 800,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subplot"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 2,
+            "title": "Title",
+            "type": "string"
+          },
+          "turning_points": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Turning Points",
+            "type": "array"
+          },
+          "version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title",
+          "characters",
+          "main_storyline",
+          "opening",
+          "turning_points",
+          "ending",
+          "episodes",
+          "source_synopsis_hash",
+          "content_hash"
+        ],
+        "title": "QuickPlan",
+        "type": "object"
+      },
+      "QuickResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/QuickResponseData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "QuickResponse",
+        "type": "object"
+      },
+      "QuickResponseData": {
+        "additionalProperties": false,
+        "properties": {
+          "project_revision": {
+            "title": "Project Revision",
+            "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuickState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspace_snapshot": {
+            "$ref": "#/components/schemas/StoryProjectWorkspaceSnapshot"
+          }
+        },
+        "required": [
+          "state",
+          "workspace_snapshot",
+          "project_revision"
+        ],
+        "title": "QuickResponseData",
+        "type": "object"
+      },
+      "QuickReview": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_facts": {
+            "items": {
+              "$ref": "#/components/schemas/QuickFact"
+            },
+            "maxItems": 100,
+            "title": "Accepted Facts",
+            "type": "array"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/QuickIssue"
+            },
+            "maxItems": 40,
+            "title": "Issues",
+            "type": "array"
+          },
+          "source_body_hashes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Source Body Hashes",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "blocked",
+              "needs_author"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "summary"
+        ],
+        "title": "QuickReview",
+        "type": "object"
+      },
+      "QuickSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "episode_count": {
+            "default": 8,
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Episode Count",
+            "type": "integer"
+          },
+          "language": {
+            "const": "zh",
+            "default": "zh",
+            "title": "Language",
+            "type": "string"
+          },
+          "storyline_count": {
+            "default": 1,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Storyline Count",
+            "type": "integer"
+          },
+          "target_duration_seconds": {
+            "default": 90,
+            "maximum": 115.0,
+            "minimum": 75.0,
+            "title": "Target Duration Seconds",
+            "type": "integer"
+          },
+          "target_total_characters": {
+            "default": 8000,
+            "maximum": 10000.0,
+            "minimum": 1000.0,
+            "title": "Target Total Characters",
+            "type": "integer"
+          }
+        },
+        "title": "QuickSettings",
+        "type": "object"
+      },
+      "QuickState": {
+        "additionalProperties": false,
+        "properties": {
+          "active_operation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Operation"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/QuickEpisode"
+            },
+            "maxItems": 12,
+            "title": "Episodes",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/QuickFact"
+            },
+            "maxItems": 200,
+            "title": "Facts",
+            "type": "array"
+          },
+          "final_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuickReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idea": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "Idea",
+            "type": "string"
+          },
+          "model_calls": {
+            "items": {
+              "$ref": "#/components/schemas/QuickModelCall"
+            },
+            "title": "Model Calls",
+            "type": "array"
+          },
+          "next_step": {
+            "default": "synopsis",
+            "enum": [
+              "synopsis",
+              "plan",
+              "draft",
+              "review",
+              "repair",
+              "recheck",
+              "final_review",
+              "done"
+            ],
+            "title": "Next Step",
+            "type": "string"
+          },
+          "operation_records": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operation Records",
+            "type": "array"
+          },
+          "phase": {
+            "default": "setup",
+            "enum": [
+              "setup",
+              "synopsis",
+              "plan",
+              "writing",
+              "review",
+              "complete",
+              "paused",
+              "standard"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuickPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan_confirmed": {
+            "default": false,
+            "title": "Plan Confirmed",
+            "type": "boolean"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "quick_script.v1",
+            "default": "quick_script.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/QuickSettings"
+          },
+          "source_material": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Source Material",
+            "type": "string"
+          },
+          "status": {
+            "default": "idle",
+            "enum": [
+              "idle",
+              "busy",
+              "blocked",
+              "stale",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "supplied_characters": {
+            "items": {
+              "$ref": "#/components/schemas/QuickCharacter"
+            },
+            "maxItems": 6,
+            "title": "Supplied Characters",
+            "type": "array"
+          },
+          "synopsis": {
+            "default": "",
+            "maxLength": 8000,
+            "title": "Synopsis",
+            "type": "string"
+          },
+          "synopsis_confirmed": {
+            "default": false,
+            "title": "Synopsis Confirmed",
+            "type": "boolean"
+          },
+          "synopsis_hash": {
+            "default": "",
+            "title": "Synopsis Hash",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "QuickState",
+        "type": "object"
       },
       "RawContentRecord": {
         "additionalProperties": false,
@@ -17635,6 +18516,16 @@
             "title": "Audience Effect",
             "type": "string"
           },
+          "production_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SceneProductionContract"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "purpose": {
             "maxLength": 1000,
             "minLength": 1,
@@ -17674,6 +18565,62 @@
           "transition"
         ],
         "title": "SceneDesign",
+        "type": "object"
+      },
+      "SceneProductionContract": {
+        "additionalProperties": false,
+        "description": "Shared production choices, separate from immutable screenplay facts.",
+        "properties": {
+          "axis": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Axis",
+            "type": "string"
+          },
+          "composition": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Composition",
+            "type": "string"
+          },
+          "continuity": {
+            "default": "",
+            "maxLength": 1600,
+            "title": "Continuity",
+            "type": "string"
+          },
+          "lighting": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Lighting",
+            "type": "string"
+          },
+          "optics": {
+            "default": "",
+            "maxLength": 800,
+            "title": "Optics",
+            "type": "string"
+          },
+          "reference_rules": {
+            "default": "",
+            "maxLength": 800,
+            "title": "Reference Rules",
+            "type": "string"
+          },
+          "sound": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Sound",
+            "type": "string"
+          },
+          "visual_style": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Visual Style",
+            "type": "string"
+          }
+        },
+        "title": "SceneProductionContract",
         "type": "object"
       },
       "ScoreBreakdown": {
@@ -22848,14 +23795,26 @@
             "title": "Framing",
             "type": "string"
           },
+          "handoff": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Handoff",
+            "type": "string"
+          },
           "locked": {
             "default": false,
             "title": "Locked",
             "type": "boolean"
           },
+          "optics": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Optics",
+            "type": "string"
+          },
           "prompt": {
             "default": "",
-            "maxLength": 20000,
+            "maxLength": 40000,
             "title": "Prompt",
             "type": "string"
           },
@@ -29599,6 +30558,100 @@
         "summary": "Save Story Project Planning Session",
         "tags": [
           "Long Story Planning"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/quick-script": {
+      "get": {
+        "operationId": "get_quick_script_story_projects__project_id__quick_script_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuickResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Quick Script",
+        "tags": [
+          "Quick Script"
+        ]
+      }
+    },
+    "/story-projects/{project_id}/quick-script/actions": {
+      "post": {
+        "operationId": "quick_script_action_story_projects__project_id__quick_script_actions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuickActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuickResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quick Script Action",
+        "tags": [
+          "Quick Script"
         ]
       }
     },

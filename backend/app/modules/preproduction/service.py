@@ -9,16 +9,18 @@ from typing import ClassVar
 
 from app.modules.master_script.models import CharacterProfile, DraftMasterScript, DraftSceneCard
 from app.modules.script_engine.models import GenerationStrategy
-from app.modules.script_engine.llm_adapter import bind_llm_log_context
+from app.modules.script_engine.llm_adapter import bind_llm_log_context, llm_operation_deadline
 from app.modules.script_engine.screenplay_duration import estimate_scene_duration, estimate_spoken_line_duration
 from app.modules.script_engine.scene_heading_metadata import scene_metadata_conflicts
 from .models import (
-    PreflightFinding, PreproductionStoryboard, SceneProposal, StoryboardEditRequest,
+    MAX_COMPILED_PROMPT_LENGTH, PreflightFinding, PreproductionStoryboard, SceneDesign, SceneProposal, StoryboardEditRequest,
     StoryboardScene, StoryboardShot,
 )
 from .prompt_director import build_prompt_plan, compile_cinematic_prompt, derive_acting_direction
 from .production_detail_skill import production_detail_instruction
+from .director_contract import DIRECTOR_CONTRACT_INSTRUCTION
 from .proposal_repair import validate_scene_proposal
+from .generation_recovery import generate_scene_output
 from .repository import PreproductionRepository, StoryboardConflictError
 
 
@@ -150,6 +152,7 @@ class StoryboardService:
         prompt = (
             "你是文字分镜编排师，同时遵守内部制作细化 Skill。将提供的本场完整正文编成可执行摄影镜头。只返回符合 Schema 的 JSON。\n"
             + production_detail_instruction(storyboard_translation=True) + "\n"
+            + DIRECTOR_CONTRACT_INSTRUCTION + "\n"
             "遵守视觉方向和作者指令，摄影设计不得新增剧情事实或未来信息。"
             "按叙事、情绪和空间需要合并动作与对白，不要每个动作机械生成一镜。"
             "为场景设计填写 audience_effect 和 status_change；为每个镜头填写 acting_direction，把目标、阻力、利害、策略、节拍、潜台词、身体行为、台词表达、重音停顿和本镜变化写成可观察内容。"
@@ -160,7 +163,7 @@ class StoryboardService:
             "scene 是当前正文依据；source_changed 为 true 时旧镜头已过期，须据当前正文重新编排本场，不能因 action:N 编号相同而沿用旧动作。"
             "镜头起止状态只能从本场正文推导。对白与动作可以重叠，时长按可执行节拍估计。"
             "continuity_in 只写动作开始前已成立的人物位置和物件状态；开门、走近、放下等过程依次放入 action_sequence，不能把结束状态提前放进首帧。"
-            "单一连续镜头不夹带剪辑切换；确需多镜头序列时，在 camera 中逐段说明切点、顺序与时间，全部计入本项总时长。构图与摄影机运动必须能覆盖所要求的可见动作。"
+            "默认一条 shot 对应一个单一连续镜头，不夹带剪辑切换；只有作者明确要求一条 shot 包含多镜头序列时，才可在 camera 中逐段说明切点、顺序与时间，全部计入本项总时长。构图与摄影机运动必须能覆盖所要求的可见动作。"
             "逐镜核对引用台词的口播时间，不能把多句对白和额外停顿硬塞进短镜头；场景预算是参考。"
             "若必要口播已超过预算，保留可执行时长并在 unresolved_questions 标明节奏冲突，不删台词凑时间。"
             "正文没交代而又影响执行的信息放入 unresolved_questions，不凭空补成事实。"
@@ -178,14 +181,11 @@ class StoryboardService:
             }], prompt_ids=["prompt.storyboard.v1"],
             temperature=0.4, max_tokens=12000,
         )
-        with bind_llm_log_context(project_id=project_id, episode=episode_number,
-                                  stage=f"storyboard.scene_{scene_number}"):
-            output = adapter.generate_structured_output_stream(prompt, strategy=strategy, output_schema=schema)
+        with llm_operation_deadline(600, scope="storyboard_scene_generation"), bind_llm_log_context(
+                project_id=project_id, episode=episode_number, stage=f"storyboard.scene_{scene_number}"):
+            output = generate_scene_output(adapter=adapter, prompt=prompt, strategy=strategy, schema=schema)
             proposal = validate_scene_proposal(output, adapter=adapter, strategy=strategy,
-                                               source=source, scene_number=scene_number)
-        refs = [ref for shot in proposal.shots for ref in shot.source_refs]
-        if refs != source.body_order:
-            raise StoryboardConflictError("分镜候选遗漏、重复或重排了正文引用；原分镜已保留，请重试本场。")
+                                               source=source, scene_number=scene_number, original_prompt=prompt)
         retained_ids = ({tuple(shot.source_refs): shot.shot_id for shot in existing.shots}
                         if existing and scene_number not in plan.stale_scene_numbers else {})
         candidate = StoryboardScene(
@@ -212,6 +212,12 @@ class StoryboardService:
         for scene in request.scenes:
             if scene.scene_number not in old_scenes or scene.source_revision != old_scenes[scene.scene_number].source_revision:
                 raise StoryboardConflictError("分镜来源版本不能由编辑请求改写。")
+            old_scene = old_scenes[scene.scene_number]
+            if any(shot.locked for shot in old_scene.shots) and any(
+                getattr(old_scene.design, field) != getattr(scene.design, field)
+                for field in ("production_contract", "spatial_layout", "transition")
+            ):
+                raise StoryboardConflictError("本场制作约定、空间或剪辑会影响已锁定镜头，请先单独解锁。")
         for shot_id, old in old_shots.items():
             if not old.locked:
                 continue
@@ -228,9 +234,11 @@ class StoryboardService:
             if not plan.candidate:
                 raise StoryboardConflictError("没有待采用的分镜候选。")
             scene_number = plan.candidate.scene_number
+            original_scene = old_scenes.get(scene_number)
             existing = next((s for s in plan.scenes if s.scene_number == scene_number), None)
-            if existing and any(shot.locked for shot in existing.shots):
-                raise StoryboardConflictError("本场已锁定，请先解锁。")
+            if ((original_scene and any(shot.locked for shot in original_scene.shots))
+                    or (existing and any(shot.locked for shot in existing.shots))):
+                raise StoryboardConflictError("本场已锁定，请先单独解锁，再采用候选。")
             plan.scenes = [s for s in plan.scenes if s.scene_number != scene_number] + [plan.candidate]
             plan.stale_scene_numbers = [n for n in plan.stale_scene_numbers if n != scene_number]
             plan.candidate = None
@@ -265,7 +273,7 @@ class StoryboardService:
                                 if s.scene_number == scene.scene_number)
                 self._enrich_scene_design(scene, original)
                 for shot in scene.shots:
-                    self._compile_shot(shot, original, plan.visual_direction, previous_source.characters)
+                    self._compile_shot(shot, original, plan.visual_direction, previous_source.characters, scene.design)
                 findings.append(PreflightFinding(code="source_changed", severity="error", scene_number=scene.scene_number,
                                                 message="正文来源已变化，旧分镜已保留，需重新编排并核对。"))
                 continue
@@ -278,7 +286,7 @@ class StoryboardService:
                 findings.append(PreflightFinding(code="source_coverage", severity="error", scene_number=scene.scene_number,
                                                 message="正文动作或对白存在遗漏、重复或顺序变化。"))
             for shot_index, shot in enumerate(scene.shots, start=1):
-                self._compile_shot(shot, original, plan.visual_direction, source.characters)
+                self._compile_shot(shot, original, plan.visual_direction, source.characters, scene.design)
                 spoken_seconds = sum(
                     estimate_spoken_line_duration(original.dialogues[int(ref.split(":")[1])].text)
                     for ref in shot.source_refs if ref.startswith("dialogue:")
@@ -295,7 +303,7 @@ class StoryboardService:
             original = source_scenes[plan.candidate.scene_number]
             self._enrich_scene_design(plan.candidate, original)
             for shot in plan.candidate.shots:
-                self._compile_shot(shot, original, plan.visual_direction, source.characters)
+                self._compile_shot(shot, original, plan.visual_direction, source.characters, plan.candidate.design)
         if sum(shot.duration_seconds for scene in plan.scenes for shot in scene.shots) > source.target_duration_seconds:
             findings.append(PreflightFinding(code="duration_budget", severity="warning", message="分镜预计总时长超出正文目标时长。"))
         if not plan.visual_direction.strip():
@@ -320,7 +328,7 @@ class StoryboardService:
 
     @staticmethod
     def _compile_shot(shot: StoryboardShot, original: DraftSceneCard, visual: str,
-                      characters: list[CharacterProfile]) -> None:
+                      characters: list[CharacterProfile], design: SceneDesign | None = None) -> None:
         derived_acting = derive_acting_direction(original, shot)
         existing_acting = shot.acting_direction
         shot.acting_direction = existing_acting.model_copy(update={
@@ -344,5 +352,8 @@ class StoryboardService:
             else:
                 source_order.append(f"{ref} {original.character_actions[int(index)]}")
         shot.dialogue = dialogue
-        shot.prompt_plan = build_prompt_plan(original, shot, visual, characters)
-        shot.prompt = compile_cinematic_prompt(original, shot, visual)
+        shot.prompt_plan = build_prompt_plan(original, shot, visual, characters, design)
+        prompt = compile_cinematic_prompt(original, shot, visual, design, characters)
+        if len(prompt) > MAX_COMPILED_PROMPT_LENGTH:
+            raise StoryboardConflictError("单镜执行提示词超过容量，请缩短拍摄要求或拆分镜头动作；原分镜已保留。")
+        shot.prompt = prompt

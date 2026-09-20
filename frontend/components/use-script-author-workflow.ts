@@ -1,5 +1,7 @@
 "use client";
 
+import { useCopilotProgress } from "@/lib/use-copilot-progress";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuthorConflictDialogDraft } from "@/components/author-conflict-dialog";
@@ -45,7 +47,8 @@ export function useScriptAuthorWorkflow({
   const { getProject, updateProject, syncProjectSnapshot } = projectStore;
   const { pendingInlineDraftsRef, candidateBaseInlineEditsRef } = draftEditing;
   const [ui, setUi] = useState(() => initialState(projectId, episode?.id));
-  const operations = useMemo(() => ({ active: true, controller: null as AbortController | null, decision: false }), [projectId]);
+  const { progress: copilotProgress, begin: beginCopilotProgress } = useCopilotProgress(`${projectId}:script`);
+  const operations = useMemo(() => ({ active: true, controller: null as AbortController | null, decision: false, progressEpisodeId: undefined as string | undefined }), [projectId]);
   const visibleScope = useRef({ projectId, episodeId: episode?.id });
   visibleScope.current = { projectId, episodeId: episode?.id };
 
@@ -101,8 +104,22 @@ export function useScriptAuthorWorkflow({
     operations.controller?.abort();
     const controller = new AbortController();
     operations.controller = controller;
+    operations.progressEpisodeId = sourceEpisode.id;
+    const progressRun = beginCopilotProgress(controller.signal);
+    progressRun.mark("context", "正在保存作者要求并核对当前正文");
     const ownsRequest = () => operations.active && visibleScope.current.projectId === projectId
       && !controller.signal.aborted && operations.controller === controller;
+    let replyArchived = false;
+    function archiveReply(reply: PlanningCanvasMessage) {
+      if (!operations.active || visibleScope.current.projectId !== projectId
+        || operations.controller !== controller || !currentEpisode(getProject(projectId))) return;
+      // A request may finish while another episode is visible. Preserve its
+      // source episode's history before deciding whether to update the UI.
+      const saved = loadWorkspaceChatMessages(projectId, "script") as PlanningCanvasMessage[];
+      saveWorkspaceChatMessages(projectId, "script", [...saved.filter(item => item.id !== reply.id), reply]);
+      replyArchived = true;
+      if (isVisible()) patchUi(current => ({ messages: [...current.messages.filter(item => item.id !== reply.id), reply] }));
+    }
     patchUi({ busyAction: "modify", error: null });
     onMessage(null);
     try {
@@ -151,9 +168,10 @@ export function useScriptAuthorWorkflow({
         };
       });
       const result = await modifyEpisodeDraft(sourceEpisode.generationRun, sourceDraft, instruction, controller.signal,
-        selectionOverride, acknowledgedProject, resolution, prepared.prior);
+        selectionOverride, acknowledgedProject, resolution, prepared.prior, progressRun.onEvent);
       if (!ownsRequest()) return false;
       if (!result.conflict_review && !result.candidate_generation_run) throw new Error("本次未返回可审阅的修改结果，请重试。原稿已保留。");
+      progressRun.mark("validating", "正在保存可供审阅的修改结果");
       const revisionRequestId = result.conflict_review ? crypto.randomUUID() : undefined;
       const completedAt = new Date().toISOString();
       let applied = false;
@@ -175,26 +193,34 @@ export function useScriptAuthorWorkflow({
       if (!ownsRequest()) return false;
       if (!applied) throw new Error("正文、规划或待处理要求已变化，请重新检查影响。原稿已保留。");
       if (!saved) throw new Error("审阅结果未能保存，请重试。");
+      const completedProgress = progressRun.finish("completed");
+      archiveReply({
+        id: `assistant-${completedProgress.id}`, role: "assistant", episodeId: sourceEpisode.id, createdAt: completedAt,
+        progress: completedProgress,
+        text: result.conflict_review ? "这次要求涉及已有设定，请审阅冲突依据和影响后决定处理方式。" : "已生成正文修改候选，请在正文区审阅后确认采用。",
+      });
       if (!isVisible()) return true;
-      patchUi((current) => ({
-        conflictOpen: Boolean(result.conflict_review),
-        messages: [...current.messages, {
-          id: `assistant-${Date.now()}`, role: "assistant", episodeId: sourceEpisode.id, createdAt: completedAt,
-          text: result.conflict_review ? "这次要求涉及已有设定，请审阅冲突依据和影响后决定处理方式。" : "已生成正文修改候选，请在正文区审阅后确认采用。",
-        }],
-      }));
+      patchUi({ conflictOpen: Boolean(result.conflict_review) });
       if (!result.conflict_review) { onViewChange("modification"); onMessage(t("workspace.modificationReady")); }
       return true;
     } catch (error) {
-      if (!isVisible() || operations.controller !== controller) return false;
+      const trace = progressRun.finish(controller.signal.aborted ? "paused" : "error");
+      if (!operations.active || visibleScope.current.projectId !== projectId || operations.controller !== controller) return false;
       if (isRequestAborted(error, controller.signal)) {
-        patchUi((current) => ({ messages: [...current.messages, { id: `assistant-paused-${Date.now()}`, role: "assistant", episodeId: sourceEpisode.id, createdAt: new Date().toISOString(), text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。" }] }));
+        archiveReply({ id: `assistant-paused-${trace.id}`, role: "assistant", episodeId: sourceEpisode.id, createdAt: new Date().toISOString(), text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。", progress: trace });
       } else {
         const message = errorMessage(error, t("workspace.modificationFailed"));
+        archiveReply({ id: `assistant-error-${trace.id}`, role: "assistant", episodeId: sourceEpisode.id, createdAt: new Date().toISOString(), text: message, progress: trace });
+        if (!isVisible()) return false;
         patchUi((current) => ({ error: message, instruction: current.instruction || instruction, selection: current.selection ?? selectionOverride })); onMessage(message);
       }
       return false;
     } finally {
+      const trace = progressRun.finish(controller.signal.aborted ? "paused" : "error");
+      if (!replyArchived && trace.status === "paused") {
+        archiveReply({ id: `assistant-paused-${trace.id}`, role: "assistant", episodeId: sourceEpisode.id,
+          createdAt: new Date().toISOString(), text: "已暂停本次思考。你可以编辑刚才的消息后重新发送。", progress: trace });
+      }
       if (operations.controller === controller) { operations.controller = null; patchUi({ busyAction: null }); }
     }
   }
@@ -399,9 +425,11 @@ export function useScriptAuthorWorkflow({
   }));
   const messages = [...ui.messages.filter((item) => item.role === "assistant"), ...durableMessages]
     .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  const visibleProgress = operations.progressEpisodeId === episode?.id ? copilotProgress : null;
 
   return {
-    ...ui, messages, requestModification, applyModification, deferAuthorConflict, withdrawAuthorConflict,
+    ...ui, busyAction: visibleProgress?.status === "running" ? "modify" : ui.busyAction,
+    progress: visibleProgress, messages, requestModification, applyModification, deferAuthorConflict, withdrawAuthorConflict,
     recheckAuthorConflict, confirmAuthorConflict, editScriptChatMessage, withdrawScriptChatMessage,
     pauseScriptModification: () => operations.controller?.abort(),
     setInstruction: (instruction: string) => patchUi({ instruction }),

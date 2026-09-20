@@ -1255,6 +1255,8 @@ select:focus-visible {
 .story-bible-acting-profile > summary span { color: var(--ink-faint); font-size: 11px; }
 .story-bible-acting-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .story-bible-acting-profile-grid label { display: grid; gap: 5px; }
+.story-bible-acting-profile-grid .story-bible-voice-samples { grid-column: 1 / -1; }
+.story-bible-voice-samples > small { color: var(--ink-faint); font-size: 11px; line-height: 1.7; }
 .story-bible-acting-profile-grid label > span { color: var(--ink-soft); font-size: 11px; }
 .story-bible-acting-profile-grid textarea { width: 100%; min-height: 58px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); background: var(--paper-deep); font: 12px/1.7 var(--sans); resize: vertical; }
 .story-bible-relationships { grid-column: 1 / -1; }

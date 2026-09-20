@@ -1290,7 +1290,7 @@ def _with_astra_fallback(
     *,
     settings_prefix: str,
 ) -> LLMAdapter:
-    """Attach one DeepSeek Pro fallback to every Astra-backed role.
+    """Attach one explicitly supported DeepSeek fallback to every Astra-backed role.
 
     A single fallback namespace reuses the configured mainland screenplay
     gateway by default, so credentials and endpoint settings are not copied
@@ -1321,7 +1321,9 @@ def _with_astra_fallback(
         model = os.getenv(f"{candidate}_MODEL", "").strip()
         base_url = os.getenv(f"{candidate}_BASE_URL", "").strip()
         has_key = bool(os.getenv(f"{candidate}_API_KEY", "").strip() or _role_api_key_pool(candidate))
-        if model.casefold() == "deepseek-v4-pro" and base_url and has_key:
+        if model.casefold() in {
+            "deepseek-v4-pro", "deepseek-v4.1-flash", "deepseek-v4-1-flash-260910",
+        } and base_url and has_key:
             fallback_prefix = candidate
             break
         if candidate in {"LLM_ASTRA_FALLBACK", f"{settings_prefix}_FALLBACK"} and (
@@ -1330,7 +1332,7 @@ def _with_astra_fallback(
             break
     if fallback_prefix is None:
         logger.warning(
-            "Astra fallback is unavailable for %s: a complete deepseek-v4-pro profile is required.",
+            "Astra fallback is unavailable for %s: a complete supported DeepSeek profile is required.",
             settings_prefix,
         )
         return primary

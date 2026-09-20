@@ -27,7 +27,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function confirmationHarness({ pauseAt = "confirmation" } = {}) {
+function confirmationHarness({ pauseAt = "confirmation", scriptWorkflow = false } = {}) {
   const network = deferred();
   const paused = deferred();
   const importedRoadmap = {
@@ -55,15 +55,16 @@ function confirmationHarness({ pauseAt = "confirmation" } = {}) {
   let message;
   let savedSessions = 0;
   let updaterThrew = false;
+  const confirmations = [];
   const waitAt = async (step) => {
     if (pauseAt === step) { paused.resolve(); await network.promise; }
   };
   const context = {
     episodePlanMaterializationDraft: draft, episodePlanImportDraft: {}, episodePlanImportDraftIsCurrent: true,
-    episodePlanMaterializationBusy: null, planningLocked: false, latestProjectRef, latestTreeNodesRef,
+    episodePlanMaterializationBusy: null, planningLocked: false, scriptWorkflow, latestProjectRef, latestTreeNodesRef,
     project: current, storyBible: { version: 1 }, importedPlanningSnapshot: { document: "Source text" },
     buildEpisodeRoadmapDraftsFromMaterialization: () => ({ ok: true, roadmaps: [importedRoadmap], blocks: [] }),
-    window: { confirm: () => true }, setEpisodePlanMaterializationBusy() {},
+    window: { confirm: (text) => { confirmations.push(text); return true; } }, setEpisodePlanMaterializationBusy() {},
     setEpisodePlanImportMessage: (value) => { message = value; },
     buildCurrentEpisodePlanMaterialization: async () => ({ ok: true, draft }),
     syncProjectSnapshot: async () => ({ status: "synced" }),
@@ -103,11 +104,13 @@ function confirmationHarness({ pauseAt = "confirmation" } = {}) {
     get message() { return message; },
     get savedSessions() { return savedSessions; },
     get updaterThrew() { return updaterThrew; },
+    confirmations,
   };
 }
 
-test("import confirmation merges concurrent edits and audit receipts from the latest project", async () => {
-  const harness = confirmationHarness();
+for (const scriptWorkflow of [false, true]) {
+test(`${scriptWorkflow ? "integrated" : "standalone"} import confirmation merges concurrent edits and audit receipts from the latest project`, async () => {
+  const harness = confirmationHarness({ scriptWorkflow });
   const operation = harness.run();
   await harness.paused;
   harness.update({
@@ -120,7 +123,10 @@ test("import confirmation merges concurrent edits and audit receipts from the la
   assert.equal(harness.current.episodeRoadmaps.find((item) => item.episode_number === 20).episode_title, "Author edited title");
   assert.equal(harness.current.episodeRoadmaps.find((item) => item.episode_number === 1).status, "draft");
   assert.deepEqual(Array.from(harness.current.episodePlanMaterializations, (item) => item.materializationId).sort(), ["concurrent-receipt", "import-receipt"]);
+  assert.match(harness.confirmations[0], scriptWorkflow ? /统一确认整份大纲/ : /逐集检查/);
+  assert.match(harness.message, scriptWorkflow ? /统一确认并进入正文/ : /逐集确认后即可进入正文/);
 });
+}
 
 for (const conflict of ["roadmap", "body", "node_version", "bible_version", "source", "approval"]) {
   test(`import confirmation preserves a concurrent ${conflict} change without throwing inside the project updater`, async () => {

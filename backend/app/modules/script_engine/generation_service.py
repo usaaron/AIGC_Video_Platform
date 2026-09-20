@@ -37,6 +37,10 @@ from app.modules.script_engine.setup_payoff_provenance import validate_same_epis
 
 from app.modules.content_spec.models import ResolvedCreativeContext
 from app.modules.content_spec.market_profile import content_spec_market_contract
+from app.modules.content_spec.overseas_story_profile import (
+    content_spec_overseas_story_profile,
+    overseas_story_profile_contract,
+)
 from app.modules.content_spec.repository import ContentSpecRepository
 from app.modules.master_script.models import (
     CharacterProfile,
@@ -63,12 +67,15 @@ from app.modules.script_engine.llm_adapter import (
     LLMStructuredOutputError,
     MockLLMAdapter,
     bind_deepseek_full_episode_stream,
+    bind_deepseek_output_recovery,
     bind_llm_log_context,
     bind_llm_market,
     deadline_request_error,
     is_recoverable_llm_request_error,
+    is_reasoning_output_exhaustion,
 )
 from app.modules.script_engine.llm_deadline import LLMDeadlineExceeded, check_deadline, deadline_scope
+from app.modules.script_engine.copilot_progress import check_copilot_cancelled
 from app.modules.script_engine.creative_deepening import (
     CreativeDeepeningService,
     build_deepening_qc_comparison,
@@ -1056,7 +1063,7 @@ class ScriptGenerationService:
                     estimate_screenplay_duration(draft_master_script).total_seconds  # type: ignore[arg-type]
                 ),
             )
-            editor_kwargs = {}
+            editor_kwargs = self._overseas_editor_context(payload.content_spec_id)
             canonical_names: dict[str, str] = {}
             if payload.episode_context and payload.episode_context.canonical_character_names:
                 canonical_names = dict(
@@ -1155,6 +1162,7 @@ class ScriptGenerationService:
             draft_master_script, dialogue_pair_repair_count = (
                 self._script_post_editor.ensure_overseas_dialogue_pairs(
                     draft_master_script,
+                    **self._overseas_editor_context(payload.content_spec_id),
                     strategy=self._with_full_draft_repair_output_budget(
                         generation_strategy
                     ),
@@ -1398,6 +1406,11 @@ class ScriptGenerationService:
             )
         return result
 
+    def _overseas_editor_context(self, content_spec_id: str) -> dict[str, object]:
+        content_spec = self._content_spec_repository.get(content_spec_id)
+        profile = content_spec_overseas_story_profile(content_spec) if content_spec is not None else None
+        return {"overseas_story_profile": profile} if profile is not None else {}
+
     @_bind_draft_market
     def finalize_pre_edit_draft(
         self,
@@ -1435,7 +1448,7 @@ class ScriptGenerationService:
             )
             if pre_editor_continuity_report.blocking_issue_count:
                 raise BlockingContinuityConflictError(pre_editor_continuity_report)
-            editor_kwargs = {}
+            editor_kwargs = self._overseas_editor_context(source_run.content_spec_id)
             canonical_names: dict[str, str] = {}
             if source_run.episode_context and source_run.episode_context.canonical_character_names:
                 canonical_names = dict(
@@ -1610,6 +1623,7 @@ class ScriptGenerationService:
             draft_master_script, dialogue_pair_repair_count = (
                 self._script_post_editor.ensure_overseas_dialogue_pairs(
                     draft_master_script,
+                    **self._overseas_editor_context(source_run.content_spec_id),
                     strategy=self._with_full_draft_repair_output_budget(
                         generation_strategy
                     ),
@@ -1897,6 +1911,8 @@ class ScriptGenerationService:
             except (ValueError, TypeError, AttributeError) as exc:
                 raise InvalidDraftMasterScriptOutputError("修改影响审阅尚未形成可核对结果，请重新检查。") from exc
             if review.conflicts:
+                check_copilot_cancelled()
+                check_deadline()
                 self._author_conflict_repository.save(StoredAuthorConflictReview(
                     id=review.review_id, review=review, source_project_id=source_run.story_project_id,
                 ))
@@ -2059,7 +2075,7 @@ class ScriptGenerationService:
             ),
         )
         if self._script_editor_enabled and not self._is_mock_output(raw_output):
-            editor_kwargs = {}
+            editor_kwargs = self._overseas_editor_context(source_run.content_spec_id)
             canonical_names: dict[str, str] = {}
             if source_run.episode_context and source_run.episode_context.canonical_character_names:
                 canonical_names = dict(
@@ -2676,6 +2692,7 @@ class ScriptGenerationService:
             "cultural_fit_requirement": (
                 f"Write for {content_spec.audience_goal.summary} in {output_language} "
                 "with clear, export-ready language."
+                + "\n" + overseas_story_profile_contract(content_spec_overseas_story_profile(content_spec))
             ),
             "platform_constraints": json.dumps(
                 {
@@ -3591,7 +3608,11 @@ class ScriptGenerationService:
             raise InvalidDraftMasterScriptOutputError(
                 f"本集正文场景数必须为{EPISODE_SCENE_MIN}至{EPISODE_SCENE_MAX}个。"
             )
-        if self._episode_production_counts_are_valid(dialogue_count, shot_count):
+        if self._episode_production_counts_are_valid(dialogue_count, shot_count) and (
+            EPISODE_RUNTIME_MIN_SECONDS
+            <= duration_estimate.total_seconds
+            <= EPISODE_RUNTIME_MAX_SECONDS
+        ):
             self._record_episode_production_counts(
                 output,
                 scene_count=scene_count,
@@ -3706,6 +3727,7 @@ class ScriptGenerationService:
         best_repaired: dict[str, object] | None = None
         best_repaired_distance: int | None = None
         last_repair_error: ValidationError | ValueError | None = None
+        last_request_error: LLMRequestError | None = None
         for repair_attempt in range(2):
             attempt_prompt = repair_prompt
             if repair_attempt and repair_outputs and last_repair_error is not None:
@@ -3726,6 +3748,7 @@ class ScriptGenerationService:
             except LLMRequestError as error:
                 if not is_recoverable_llm_request_error(error):
                     raise
+                last_request_error = error
                 last_repair_error = ValueError(
                     "数量修复服务暂时未返回可用补丁，将使用已生成正文进行本地收敛。"
                 )
@@ -3765,6 +3788,7 @@ class ScriptGenerationService:
                     continue
                 break
             except LLMStructuredOutputError as error:
+                last_request_error = None
                 last_repair_error = ValueError(
                     "数量修复补丁结构无效，将使用已生成正文进行本地收敛。"
                 )
@@ -3780,6 +3804,7 @@ class ScriptGenerationService:
                     # an empty/truncated patch.
                     continue
                 break
+            last_request_error = None
             repair_outputs.append(raw_patch)
             try:
                 normalized_patch = self._normalize_draft_fragment_contract(
@@ -3878,10 +3903,14 @@ class ScriptGenerationService:
             repaired_dialogue_count,
             repaired_shot_count,
         ):
+            if last_request_error is not None:
+                raise last_request_error
             raise InvalidDraftMasterScriptOutputError(
                 "本集正文缺少足够的可拆分动作或台词，无法在不新增剧情的前提下满足生产数量。"
             ) from last_repair_error
         if not EPISODE_RUNTIME_MIN_SECONDS <= repaired_duration.total_seconds <= EPISODE_RUNTIME_MAX_SECONDS:
+            if last_request_error is not None:
+                raise last_request_error
             raise InvalidDraftMasterScriptOutputError(
                 "正文数量修复后预计时长不符合交付要求："
                 f"{repaired_duration.total_seconds}秒，必须保持在"
@@ -5486,6 +5515,8 @@ class ScriptGenerationService:
         scene_characters = self._script_body_scene_character_counts(validated)
         actual_characters = sum(scene_characters)
         guidance = script_body_length_guidance(target_characters)
+        _, dialogue_count, shot_count = self._episode_production_counts(validated)
+        duration = estimate_screenplay_duration(validated).total_seconds
         self._emit_progress(
             progress_callback,
             "stage",
@@ -5494,6 +5525,9 @@ class ScriptGenerationService:
             target_characters=guidance.reference_characters,
             preferred_min_characters=guidance.preferred_min_characters,
             preferred_max_characters=guidance.preferred_max_characters,
+            dialogue_count=dialogue_count,
+            shot_count=shot_count,
+            estimated_duration_seconds=duration,
         )
         if actual_characters >= guidance.truncation_floor_characters:
             self._record_script_body_metrics(
@@ -5502,6 +5536,29 @@ class ScriptGenerationService:
                 guidance=guidance,
                 scene_characters=scene_characters,
                 expanded=False,
+            )
+            return output
+
+        # A reference character shortfall is not proof that a playable episode
+        # was truncated. Give mandatory count/runtime convergence priority over
+        # expanding an already long or over-populated body merely to meet it.
+        if (
+            duration >= EPISODE_RUNTIME_MIN_SECONDS
+            or dialogue_count > EPISODE_DIALOGUE_LINE_MAX
+            or shot_count > EPISODE_SHOT_UNIT_MAX
+        ):
+            self._record_script_body_metrics(
+                output, actual_characters=actual_characters, guidance=guidance,
+                scene_characters=scene_characters, expanded=False,
+            )
+            metadata = output.setdefault("_meta", {})
+            if isinstance(metadata, dict):
+                metadata["script_body_completion_deferred_reason"] = "production_runtime_priority"
+            logger.info(
+                "Body completion deferred to production contract characters=%s floor=%s "
+                "dialogues=%s actions=%s duration_seconds=%s",
+                actual_characters, guidance.truncation_floor_characters,
+                dialogue_count, shot_count, duration,
             )
             return output
 
@@ -5548,7 +5605,7 @@ class ScriptGenerationService:
                 expanded=False,
             )
             return preserved
-        repaired = self._normalize_mechanical_draft_contract(
+        repaired = self._normalize_draft_fragment_contract(
             draft_contract.unwrap_response_envelope(repaired),
             ending_mode=validated.ending_mode,
         )
@@ -5614,10 +5671,14 @@ class ScriptGenerationService:
                 )
         expanded_scene_characters = self._script_body_scene_character_counts(expanded)
         expanded_characters = sum(expanded_scene_characters)
-        if expanded_characters < guidance.truncation_floor_characters:
+        _, expanded_dialogues, expanded_shots = self._episode_production_counts(expanded)
+        expanded_duration = estimate_screenplay_duration(expanded).total_seconds
+        if not self._episode_production_counts_are_valid(expanded_dialogues, expanded_shots) or not (
+            EPISODE_RUNTIME_MIN_SECONDS <= expanded_duration <= EPISODE_RUNTIME_MAX_SECONDS
+        ):
             raise InvalidDraftMasterScriptOutputError(
-                "Script body still appears truncated after one bounded completion attempt "
-                f"({expanded_characters}/{guidance.truncation_floor_characters} hard floor)."
+                "正文补写违反生产数量或时长要求；保留原稿供必需生产修复，"
+                f"候选为{expanded_dialogues}句、{expanded_shots}个动作、{expanded_duration}秒。"
             )
         self._record_script_body_metrics(
             expanded_payload,
@@ -6128,23 +6189,43 @@ class ScriptGenerationService:
         use_compact_recovery = bool(compact_recovery_prompt) and (
             reasoning_length_exhausted or last_request_error is not None
         )
+        # Only proven reasoning-only exhaustion on the same DeepSeek model
+        # changes this existing recovery's thinking mode. Ordinary transport
+        # failure and a partially written screenplay keep their existing path.
+        recovery_model = ""
+        use_output_recovery = False
+        if use_compact_recovery and any(
+                is_reasoning_output_exhaustion(error)
+                for error in (last_request_error, last_error) if error is not None):
+            recovery_model = self._initial_fallback_llm_adapter.get_model_info().model_name
+            use_output_recovery = (
+                "deepseek" in recovery_model.casefold()
+                and recovery_model == self._llm_adapter.get_model_info().model_name
+            )
         try:
             if cancel_event is not None and cancel_event.is_set():
                 raise LLMRequestCancelledError()
             # The primary route already exercised the SSE transport. Use the
             # same configured model through a bounded non-streaming request so a
             # gateway-specific streaming failure is not repeated verbatim.
-            fallback = self._initial_fallback_llm_adapter.generate_structured_output(
-                (
-                    compact_recovery_prompt
-                    if use_compact_recovery
-                    else self._build_initial_draft_regeneration_fallback_prompt(
-                        prompt=prompt
-                    )
-                ),
-                strategy=self._with_full_draft_repair_output_budget(strategy),
-                output_schema=schema,
-            )
+            if use_output_recovery:
+                logger.warning(
+                    "Initial draft compact recovery reserves output for the screenplay "
+                    "without thinking model=%s max_tokens=%d",
+                    recovery_model, self._with_full_draft_repair_output_budget(strategy).max_tokens,
+                )
+            with bind_deepseek_output_recovery(use_output_recovery):
+                fallback = self._initial_fallback_llm_adapter.generate_structured_output(
+                    (
+                        compact_recovery_prompt
+                        if use_compact_recovery
+                        else self._build_initial_draft_regeneration_fallback_prompt(
+                            prompt=prompt
+                        )
+                    ),
+                    strategy=self._with_full_draft_repair_output_budget(strategy),
+                    output_schema=schema,
+                )
         except LLMStructuredOutputError as fallback_error:
             if self._structured_output_error_is_transient(fallback_error):
                 raise LLMRequestError(
@@ -6251,6 +6332,8 @@ class ScriptGenerationService:
             metadata["initial_generation_retried"] = primary_attempt_count > 1
             metadata["initial_generation_fallback_used"] = True
             metadata["initial_generation_failure_diagnostics"] = failure_diagnostics
+            if use_output_recovery:
+                metadata["initial_generation_output_recovery_used"] = True
             if use_compact_recovery:
                 metadata["initial_generation_compact_recovery_used"] = True
         preview = draft_contract.without_metadata(fallback)
@@ -6542,7 +6625,7 @@ Return one complete JSON object only."""
             else "Market path: cn_mainland."
         )
         return f"""{market_contract_marker}
-本集正文已经通过剧情结构和连续性校验，但台词或镜头执行单元数量不符合交付规则。
+本集正文已经通过剧情结构和连续性校验，但台词或镜头执行单元数量不符合交付规则，或预计时长需要收敛。
 本次响应的max_tokens是模型token预算，不是本集或全剧正文总字数配额；优先返回完整可用的JSON补丁，最终正文总字数由程序统计。
 
 当前程序估算成片约{current_duration_seconds}秒。数量修订后必须仍处于
@@ -6630,6 +6713,10 @@ The previous episode script appears truncated; its truncation floor is
 There is no per-scene character quota; there is no per-scene character quota.
 偏好范围为{guidance.preferred_min_characters}-{guidance.preferred_max_characters}，以剧情完成
 和可拍摄性为准，不要为了凑字数灌水。
+生产合同优先于字数参考：全集团队可执行的对白必须为{EPISODE_DIALOGUE_LINE_MIN}至{EPISODE_DIALOGUE_LINE_MAX}句，
+动作必须为{EPISODE_SHOT_UNIT_MIN}至{EPISODE_SHOT_UNIT_MAX}个，预计成片必须为
+{EPISODE_RUNTIME_MIN_SECONDS}至{EPISODE_RUNTIME_MAX_SECONDS}秒。已满足数量的条目保持原数，
+不要因为字数目标增加对白或动作条目。若时长无法支持字数参考，保留真实字数缺口，不得填充或拉长。
 
 只返回一个场景正文补丁JSON，顶层只能有scenes。必须完整返回全部原场景，保持场景编号、数量、
 顺序、人物身份、剧情事实、冲突、信息揭示、因果、状态变化、伏笔、结尾悬念和语言路径不变。

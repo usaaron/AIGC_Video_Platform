@@ -1,0 +1,91 @@
+.host-import-dialog.is-embedded-sync {
+  width: min(660px, calc(100vw - 24px));
+}
+
+.host-import-dialog.is-embedded-sync header p {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.host-sync-project {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.host-sync-project span,
+.host-sync-confirmation small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.host-sync-project span {
+  flex-shrink: 0;
+}
+
+.host-sync-project strong {
+  overflow-wrap: anywhere;
+}
+
+.host-sync-refresh {
+  margin-top: 16px;
+}
+
+.host-sync-loading {
+  padding: 18px 0;
+  color: var(--muted);
+}
+
+.is-embedded-sync fieldset legend {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.host-sync-empty {
+  margin: 14px 0;
+  padding: 24px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.host-sync-empty p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.host-sync-confirmation {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.host-sync-confirmation p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.host-sync-confirmation small {
+  display: block;
+  line-height: 1.65;
+}
+
+.host-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+@media (max-width: 600px) {
+  .host-sync-actions > button {
+    flex: 1 1 auto;
+  }
+}

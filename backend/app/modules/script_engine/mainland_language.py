@@ -23,6 +23,10 @@ _LATIN_PATTERN = re.compile(r"[A-Za-z]")
 _COMMON_ABBREVIATION_PATTERN = re.compile(
     r"(?<![A-Za-z])[A-Z]{1,4}(?:-?\d{1,4})?(?![A-Za-z])"
 )
+_VOICE_SAMPLE_PATTERN = re.compile(
+    r"(?:拒绝|撒谎|示弱|亲近者|对手)｜EN:[ \t]*(?P<english>[^|｜\r\n]+)｜中译:[ \t]*(?P<translation>[^|｜\r\n]+)"
+)
+_VOICE_SAMPLE_MARKER_PATTERN = re.compile(r"[|｜]|\bEN\s*[:：]|中译\s*[:：]", re.IGNORECASE)
 
 
 def mainland_text_violates_language_contract(value: str | None, *, allowed_names: Iterable[str] = ()) -> bool:
@@ -40,6 +44,48 @@ def mainland_text_violates_language_contract(value: str | None, *, allowed_names
     return latin_count >= max(4, round(chinese_count * 0.25))
 
 
+def permanent_voice_prompt_violates_language_contract(
+    value: str | None,
+    *,
+    allowed_names: Iterable[str] = (),
+    allow_english_samples: bool = False,
+) -> bool:
+    """Allow only marked bilingual voice examples inside an overseas style field.
+
+    This checks the bounded language/format contract, not fluency or whether a
+    sample describes a true story event. Examples never establish story facts.
+    """
+    if not allow_english_samples:
+        return mainland_text_violates_language_contract(value, allowed_names=allowed_names)
+    if value is None or not value.strip():
+        return False
+    names = tuple(allowed_names)
+    sample_count = 0
+    for raw_line in value.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        sample = _VOICE_SAMPLE_PATTERN.fullmatch(line)
+        if sample is None:
+            if _VOICE_SAMPLE_MARKER_PATTERN.search(line):
+                return True
+            if mainland_text_violates_language_contract(line, allowed_names=names):
+                return True
+            continue
+        sample_count += 1
+        if sample_count > 3:
+            return True
+        english = sample.group("english").strip()
+        translation = sample.group("translation").strip()
+        if not _LATIN_PATTERN.search(english) or _CHINESE_PATTERN.search(english):
+            return True
+        if not _CHINESE_PATTERN.search(translation):
+            return True
+        if mainland_text_violates_language_contract(translation, allowed_names=names):
+            return True
+    return False
+
+
 def _without_identity_names(value: object, names: Iterable[str]) -> object:
     if isinstance(value, str):
         return without_known_english_names(value, names)
@@ -50,8 +96,15 @@ def _without_identity_names(value: object, names: Iterable[str]) -> object:
     return value
 
 
-def story_bible_chinese_issues(output: StoryBibleGenerationOutput, *, allowed_names: Iterable[str] = ()) -> list[str]:
-    output = _without_identity_names(output, english_language_name_exceptions(allowed_names))  # type: ignore[assignment]
+def story_bible_chinese_issues(
+    output: StoryBibleGenerationOutput,
+    *,
+    allowed_names: Iterable[str] = (),
+    allow_voice_samples: bool = False,
+) -> list[str]:
+    names = english_language_name_exceptions(allowed_names)
+    original_output = output
+    output = _without_identity_names(output, names)  # type: ignore[assignment]
 
     issues: list[str] = []
 
@@ -75,7 +128,18 @@ def story_bible_chinese_issues(output: StoryBibleGenerationOutput, *, allowed_na
         check(f"character_registry.{index}.role", character.role)
         if character.acting_profile:
             for field, value in character.acting_profile.model_dump().items():
-                check(f"character_registry.{index}.acting_profile.{field}", value)
+                path = f"character_registry.{index}.acting_profile.{field}"
+                if field == "permanentVoicePrompt" and allow_voice_samples:
+                    original_profile = original_output.character_registry[index].acting_profile
+                    assert original_profile is not None
+                    if permanent_voice_prompt_violates_language_contract(
+                        original_profile.permanentVoicePrompt,
+                        allowed_names=names,
+                        allow_english_samples=True,
+                    ):
+                        issues.append(path)
+                else:
+                    check(path, value)
     for index, arc in enumerate(output.character_arc_targets):
         check(f"character_arc_targets.{index}.external_goal", arc.external_goal)
         check(f"character_arc_targets.{index}.internal_need", arc.internal_need)

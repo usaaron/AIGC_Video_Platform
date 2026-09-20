@@ -24,6 +24,9 @@ def dump(path, value):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--real", action="store_true")
+    parser.add_argument("--config", type=Path, help="Safely parse model settings; never execute dotenv contents.")
+    parser.add_argument("--current-flow", action="store_true", help="Include synopsis and the current semantic quality gate.")
+    parser.add_argument("--planning-episodes", type=int, choices=(8, 48), default=48)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--release-region", choices=("cn_mainland", "overseas"), default="cn_mainland")
     parser.add_argument("--episodes", type=int, choices=(1, 2, 3), default=2)
@@ -31,11 +34,20 @@ def main():
     parser.add_argument("--deadline-seconds", type=float, default=1500)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.config:
+        if not args.real:
+            parser.error("--config requires --real")
+        from scripts.run_local_preview_backend import configure_environment, parse_env
+        configure_environment(parse_env(args.config.read_text(encoding="utf-8-sig")))
+    total_episodes = args.planning_episodes
+    target_characters = 80000 if total_episodes == 48 else total_episodes * 1667
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=args.resume)
     previous = json.loads((output / "summary.json").read_text()) if args.resume else None
     if previous and (previous.get("release_region", "cn_mainland") != args.release_region
-                     or previous["requested_body_episodes"] != args.episodes):
+                     or previous["requested_body_episodes"] != args.episodes
+                     or previous.get("planning_episodes", 48) != total_episodes
+                     or previous.get("current_flow", False) != args.current_flow):
         raise ValueError("Resume must retain the original market and episode count.")
     if previous:
         dump(output / f"summary-before-resume-{uuid4().hex[:8]}.json", previous)
@@ -68,6 +80,7 @@ def main():
     summary = {"mode": "real" if args.real else "mock", "status": "running", "steps": [],
                "simulated_test_approvals": True, "whole_work_quality_accepted": False,
                "requested_body_episodes": args.episodes, "release_region": args.release_region,
+               "planning_episodes": total_episodes, "current_flow": args.current_flow,
                "model_role_settings": {
                    name: value for name, value in sorted(os.environ.items())
                    if name.startswith("LLM_") and name.endswith((
@@ -135,7 +148,7 @@ def main():
                 *review_case["review_criteria"],
             ])
             intent["request_metadata"] = {"source": "isolated_full_workflow_review", "generation_planning": {
-                "episode_count_mode": "custom", "total_episodes": 48, "target_total_characters": 80000,
+                "episode_count_mode": "custom", "total_episodes": total_episodes, "target_total_characters": target_characters,
                 "preferred_episode_duration_minutes": 1.5, "story_density": "balanced", "batch_size": args.episodes}}
             creative_source = intent["free_creative_prompt"]
             intent["free_creative_prompt"] = "调查记者苏晚拿到姐姐矿难死亡补偿单，付款早于公司宣称的事故时刻。她必须先核验付款性质和真伪，在保护证人与失去公开机会之间选择，与尚不知真相的未婚夫顾沉舟逐步查明责任链。"
@@ -153,25 +166,34 @@ def main():
                 intent["selected_tag_ids"] = ["hook.immediate_conflict" if tag == "hook.crisis_opening" else
                     "cliffhanger.unanswered_threat" if tag == "cliffhanger.new_threat" else tag for tag in intent["selected_tag_ids"]]
             call("input-readiness", "POST", "/input-readiness/analyze", {
-                "creative_prompt": creative_source, "episode_count": 48, "target_total_characters": 80000})
+                "creative_prompt": creative_source, "episode_count": total_episodes, "target_total_characters": target_characters})
             resolution = call("resolve-intent", "POST", "/content-specs/resolve-creative-intent", intent)
             pid = f"story_project.review.{uuid4().hex[:12]}"
             project = StoryProject(project_id=pid, title=intent["title"], content_spec_id=resolution["content_spec"]["id"],
-                                   output_language="en" if overseas else "zh", target_total_characters=80000, planned_episode_count=48,
+                                   output_language="en" if overseas else "zh", target_total_characters=target_characters, planned_episode_count=total_episodes,
                                    default_batch_size=args.episodes).model_dump(mode="json")
             project = call("project-create", "PUT", f"/story-projects/{pid}", project)
             pid = project["project_id"]
             summary["project_id"] = pid
             strategy = OVERSEAS_STRATEGY_ID if overseas else STRATEGY_ID
+            synopsis = None
+            if args.current_flow:
+                synopsis = call("synopsis-generate", "POST", f"/story-projects/{pid}/story-bibles/synopsis-draft", {
+                    "story_project_id": pid, "content_spec_id": project["content_spec_id"],
+                    "generation_strategy_id": strategy, "creative_prompt": creative_source,
+                    "target_episode_count": total_episodes})
+                summary["synopsis_review"] = synopsis["review"]
             chars = [StoryBibleCharacterInput.model_validate({k:v for k,v in c.items() if k in StoryBibleCharacterInput.model_fields}).model_dump(mode="json") for c in intent["character_contexts"]]
             bible = call("bible-generate", "POST", f"/story-projects/{pid}/story-bibles/draft", {
                 "story_project_id": pid, "content_spec_id": project["content_spec_id"], "generation_strategy_id": strategy,
-                "creative_prompt": creative_source, "characters": chars, "target_episode_count": 48,
+                "creative_prompt": creative_source, "characters": chars, "target_episode_count": total_episodes,
+                **({"confirmed_synopsis": synopsis["text"],
+                    "synopsis_review_notes": [issue["message"] for issue in synopsis["review"]["issues"]]} if synopsis else {}),
                 "author_instruction": "只根据作者原始设定规划，保持有证据的推断、真实可演的选择与代价。"})
             bible = approve_bible(bible)
             nodes = call("tree-generate", "POST", f"/story-projects/{pid}/plan-nodes/top-level/draft", {
                 "story_project_id": pid, "story_bible_id": bible["story_bible_id"], "story_bible_version": bible["version"],
-                "generation_strategy_id": strategy, "target_episode_count": 48})
+                "generation_strategy_id": strategy, "target_episode_count": total_episodes})
             node = min(nodes, key=lambda n:n["planned_start_episode"])
             for depth in range(6):
                 node = approve_node(node, depth)
@@ -196,11 +218,12 @@ def main():
             project = call("project-readback", "GET", f"/story-projects/{pid}")
             names = OVERSEAS_NAMES.copy() if overseas else {c["name"]:c["name"] for c in bible["character_registry"]}
             state = {"project": project, "bible": bible, "node": node, "plans": [
-                {**p, "status":"approved", "source_node_id": node["node_id"], "source_node_version":node["version"],
+                {**p, "status":"draft" if args.current_flow else "approved", "source_node_id": node["node_id"], "source_node_version":node["version"],
                  "story_bible_version":bible["version"]} for p in plans], "resolution":resolution, "intent":intent,
                 "drafts":[], "workspace_revision":0, "release_region":args.release_region, "strategy_id":strategy, "canonical_names":names}
             state["workspace"] = _workspace(state)
             state["workspace"]["generationSettings"]["batchSize"] = args.episodes
+            state["workspace"]["generationSettings"].update(episodeCount=total_episodes, targetTotalCharacters=target_characters)
             state["workspace"]["episodePlansReadyThrough"] = node["planned_end_episode"]
             # On a resumed probe the isolated database already contains the
             # workspace written by the original run.  Reconstructing a fresh
@@ -219,6 +242,28 @@ def main():
             if not resumed_workspace:
                 _save_workspace(client, state)
             dump(output / "planning-state.json", state)
+            if args.current_flow:
+                from app.modules.script_engine.planning_review_cache import quality_episode_projection
+                reviewed = [quality_episode_projection(p).model_dump(mode="json") for p in state["plans"]]
+                audit = call("quality-audit", "POST", f"/story-projects/{pid}/plan-nodes/quality-audit/agent-run", {
+                    "story_project_id": pid, "story_bible_id": bible["story_bible_id"],
+                    "story_bible_version": bible["version"], "generation_strategy_id": strategy,
+                    "node_refs": [{"node_id": node["node_id"], "node_version": node["version"]}],
+                    "episode_plans": reviewed, "agent_request_id": f"review.quality.{pid}",
+                    "planning_revision_epoch": 0, "execution_requirements": []})
+                audit = audit.get("audit", audit)
+                state["workspace"]["storyTreeQualityAudit"] = {
+                    **audit, "review_contract_version": 13,
+                    "reviewed_episode_plans": json.dumps(reviewed, ensure_ascii=False, separators=(",", ":"))}
+                summary["quality_status"] = audit["status"]
+                _save_workspace(client, state)
+                dump(output / "planning-state.json", state)
+                if audit["status"] != "pass":
+                    raise RuntimeError("Generated planning requires revision; body generation was not approved.")
+                state["plans"] = [{**p, "status": "approved"} for p in state["plans"]]
+                state["workspace"]["episodeRoadmaps"] = state["plans"]
+                _save_workspace(client, state)
+                dump(output / "planning-state.json", state)
             if len(plans) < args.episodes:
                 raise RuntimeError("The first planning leaf has fewer episodes than requested by this probe.")
             for plan in plans[:args.episodes]:
@@ -251,7 +296,7 @@ def main():
                     content_spec_id=project["content_spec_id"], generation_strategy_id=strategy, release_region=args.release_region,
                     output_language=project["output_language"], desired_scene_count=plan["planned_scene_count"], target_episode_duration_seconds=plan["target_duration_seconds"],
                     target_script_body_characters=1667, resolved_creative_context=resolution["resolved_creative_context"],
-                    episode_context={"generation_mode":"full", "memory_layer":"provisional", "episode_number":number, "total_episodes":48,
+                    episode_context={"generation_mode":"full", "memory_layer":"provisional", "episode_number":number, "total_episodes":total_episodes,
                         "ending_mode":plan["ending_mode"], "previous_episode_handoff":projection["previousEpisodeHandoff"],
                         "episode_instruction":"完整演出已批准路线图的行动、变化与代价。只写本集。",
                         "relevant_character_refs":plan["character_refs"], "planned_story_line_refs":plan["story_line_refs"],

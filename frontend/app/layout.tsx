@@ -1,6 +1,13 @@
 import "./globals.css";
 import "./workspace-ui.css";
 import "./studio-theme.css";
+import "./host-workspace.css";
+import "./host-copilot.css";
+import "./host-sync-ux.css";
+import "./planning-review.css";
+import "./workflow-simplification.css";
+import "./copilot-progress.css";
+import "./host-stage-content.css";
 
 import type { Metadata } from "next";
 import type { ReactNode } from "react";

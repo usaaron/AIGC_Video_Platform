@@ -9,6 +9,7 @@ import hashlib
 import json
 
 from app.modules.script_engine.long_story_service import LongStoryNotFoundError
+from app.modules.content_spec.overseas_story_profile import normalize_overseas_story_profile
 
 
 SOURCE_INHERITANCE_CONTRACT = """已确认故事的事件继承合同：
@@ -33,6 +34,9 @@ def planning_source_context(story_bible, workspace=None) -> dict[str, object]:
         "confirmed_synopsis": None,
         "imported_source_document": getattr(story_bible, "imported_source_document", None),
     }
+    profile = normalize_overseas_story_profile(getattr(story_bible, "_overseas_story_profile", None))
+    if profile is not None:
+        context["overseas_story_profile"] = profile
     if not project_id or not version or not isinstance(workspace, Mapping):
         return context
     if (workspace.get("id") != project_id or workspace.get("storyBibleVersion") != version
@@ -80,9 +84,11 @@ def planning_source_fingerprint(context: dict[str, object]) -> str:
 def planning_source_signature(context: dict[str, object]) -> str:
     """A synchronous client-comparable binding; Bible versions bind imported text."""
     synopsis = context.get("confirmed_synopsis")
+    profile = normalize_overseas_story_profile(context.get("overseas_story_profile"))
     return json.dumps([
         context.get("story_project_id"), context.get("story_bible_id"),
         context.get("story_bible_version"),
         [synopsis.get("version"), "confirmed", synopsis["text"]]
         if isinstance(synopsis, Mapping) else None,
+        *([profile] if profile is not None else []),
     ], ensure_ascii=False, separators=(",", ":"))

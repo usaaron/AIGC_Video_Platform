@@ -49,6 +49,21 @@ test("reaching the effective body reference is reported without asserting overal
   assert.ok(!summary.includes("还差"));
 });
 
+test("integrated completion points to asset design while standalone retains export guidance", () => {
+  for (const total of [63_845, 100_000]) {
+    const metrics = metricsWithBodyTotal(total);
+    const chinese = formatSeriesScaleStatus(metrics, true, "zh", "assets");
+    assert.match(chinese, /可同步已保存正文，继续资产设计/);
+    assert.doesNotMatch(chinese, /导出/);
+    const english = formatSeriesScaleStatus(metrics, true, "en", "assets");
+    assert.match(english, /Sync the saved episodes to continue to asset design/);
+    assert.doesNotMatch(english, /export/);
+    assert.doesNotMatch(formatSeriesScaleStatus(metrics, true, "zh", null), /导出|资产设计/);
+    assert.doesNotMatch(formatSeriesScaleStatus(metrics, false, "zh", "assets"), /可同步/);
+  }
+  assert.match(formatSeriesScaleStatus(metricsWithBodyTotal(63_845), true, "zh"), /可导出当前工作稿/);
+});
+
 test("the approximate range and reference midpoint remain distinct", () => {
   const metrics = metricsWithBodyTotal(85_000);
   const result = assessSeriesScale(metrics, true);

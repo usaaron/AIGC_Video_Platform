@@ -1952,7 +1952,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     "planningWorkspace.openPlanning": "进入剧情规划",
     "planningWorkspace.continuePlanning": "继续故事规划",
     "storyStructure.kicker": "剧情规划",
-    "storyStructure.description": "在已确认的总纲基础上展开递归剧情树，并继续生成分集路线图。每个剧情分支都保留自己的文档和针对性助手上下文。",
+    "storyStructure.description": "把总纲安排成每一集的剧情。先检查和调整，再逐集确认，最后开始写正文。",
     "storyStructure.backToBible": "返回故事总纲",
     "storyStructure.entryTitle": "总纲已确认",
     "storyStructure.entryText": "进入独立的剧情规划页面，展开递归剧情树并生成分集路线图，再开始正式正文创作。",

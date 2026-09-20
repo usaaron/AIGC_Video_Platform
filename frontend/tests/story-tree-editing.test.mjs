@@ -117,7 +117,14 @@ test("confirmed outline enters planning and confirms only after a saved complete
   assert.match(panel, /syncProjectSnapshot\((?:project|requestProject)\)/);
   assert.match(panel, /savePlanningCheckpoint/);
   assert.match(panel, /storyPlanNode\.confirmPlanning/);
-  assert.match(panel, /router\.push\([^)]*workspace\?generate=1/);
+  // Evaluate the actual route expression so nested host checks do not invalidate
+  // the old no-closing-parenthesis regex, and both surface contracts are checked.
+  const navigation = panel.match(/router\.push\((isHostScriptWorkflow\(\) \? `\/projects\/[\s\S]*?)\);/)?.[1];
+  assert.ok(navigation, "planning confirmation must select a script workspace route");
+  const destination = new Function("isHostScriptWorkflow", "requestProject", "effectiveOutputMode", `return (${navigation});`);
+  assert.equal(destination(() => true, { id: "story" }, "script_only"), "/projects/story/workspace");
+  assert.equal(destination(() => false, { id: "story" }, "script_only"), "/projects/story/workspace?generate=1");
+  assert.equal(destination(() => false, { id: "story" }, "script_and_storyboard"), "/projects/story/workspace?generate=1&autoStoryboard=1");
   assert.doesNotMatch(panel, /storyPlanNode\.generateEpisodeScript/);
   assert.doesNotMatch(panel, /storyPlanNode\.roadmapPending/);
   assert.doesNotMatch(panel, /story-plan-episode-script-link/);

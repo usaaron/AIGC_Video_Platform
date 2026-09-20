@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import json
 import math
@@ -10,6 +10,10 @@ import time
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.modules.content_spec.overseas_story_profile import (
+    normalize_overseas_story_profile,
+    overseas_story_profile_contract,
+)
 from app.modules.master_script.models import (
     DraftMasterScript,
     DraftSceneCard,
@@ -304,6 +308,7 @@ class ScriptPostEditor:
         draft: DraftMasterScript,
         *,
         strategy: GenerationStrategy,
+        overseas_story_profile: Mapping[str, str] | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> tuple[DraftMasterScript, int]:
@@ -317,6 +322,7 @@ class ScriptPostEditor:
             source=draft,
             paths=paths,
             strategy=strategy,
+            overseas_story_profile=overseas_story_profile,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
         )
@@ -335,6 +341,7 @@ class ScriptPostEditor:
         strategy: GenerationStrategy,
         target_duration_seconds: int | None,
         overseas_release: bool = False,
+        overseas_story_profile: Mapping[str, str] | None = None,
         canonical_character_names: Mapping[str, str] | None = None,
         require_overseas_narrative_language: bool = False,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
@@ -429,6 +436,7 @@ class ScriptPostEditor:
                     assessment=source_assessment,
                     paths=language_paths,
                     canonical_names=canonical_names,
+                    overseas_story_profile=overseas_story_profile,
                     progress_callback=progress_callback,
                     cancel_event=cancel_event,
                 )
@@ -481,6 +489,7 @@ class ScriptPostEditor:
                 previous_patch=previous_patch,
                 editable_scene_numbers=editable_scene_numbers,
                 approved_speaker_source=draft,
+                overseas_story_profile=overseas_story_profile if overseas_release else None,
             )
             attempt_started_at = time.perf_counter()
             try:
@@ -656,6 +665,7 @@ class ScriptPostEditor:
                             source=draft,
                             paths=language_paths,
                             strategy=strategy,
+                            overseas_story_profile=overseas_story_profile,
                             progress_callback=progress_callback,
                             include_narrative=require_overseas_narrative_language,
                             cancel_event=cancel_event,
@@ -820,6 +830,7 @@ class ScriptPostEditor:
         assessment: ScriptEditorialAssessment,
         paths: list[str],
         canonical_names: Mapping[str, str],
+        overseas_story_profile: Mapping[str, str] | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None,
         cancel_event: threading.Event | None,
     ) -> ScriptPostEditResult:
@@ -842,6 +853,7 @@ class ScriptPostEditor:
             try:
                 self._apply_language_field_patch(
                     payload, paths=paths, strategy=strategy, focused=attempt > 1,
+                    overseas_story_profile=overseas_story_profile,
                     cancel_event=cancel_event,
                 )
                 candidate = DraftMasterScript.model_validate(payload)
@@ -1353,6 +1365,7 @@ class ScriptPostEditor:
         source: DraftMasterScript,
         paths: list[str],
         strategy: GenerationStrategy,
+        overseas_story_profile: Mapping[str, str] | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None,
         include_narrative: bool = False,
         cancel_event: threading.Event | None = None,
@@ -1406,6 +1419,7 @@ class ScriptPostEditor:
                     paths=pending_paths,
                     strategy=strategy,
                     focused=False,
+                    overseas_story_profile=overseas_story_profile,
                     cancel_event=cancel_event,
                 )
                 repair_attempt_count += 1
@@ -1436,6 +1450,7 @@ class ScriptPostEditor:
                     paths=remaining_paths,
                     strategy=strategy,
                     focused=True,
+                    overseas_story_profile=overseas_story_profile,
                     cancel_event=cancel_event,
                 )
                 repair_attempt_count += 1
@@ -1461,15 +1476,50 @@ class ScriptPostEditor:
         paths: list[str],
         strategy: GenerationStrategy,
         focused: bool,
+        overseas_story_profile: Mapping[str, str] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
         if cancel_event is not None and cancel_event.is_set():
             raise LLMRequestCancelledError()
-        repair_items = [self._language_field_repair_item(payload, path) for path in paths]
+        profile = normalize_overseas_story_profile(overseas_story_profile)
+        has_profile = profile is not None
+        repair_items = [
+            self._language_field_repair_item(payload, path, overseas_story_profile=profile)
+            for path in paths
+        ]
+        scene_indices = {
+            int(match.group(1))
+            for path in paths
+            if (match := re.match(r"^scenes\.(\d+)\.", path)) is not None
+        }
+        scenes = payload.get("scenes")
+        voice_reference = self._character_voice_reference(
+            payload,
+            scenes=[scene for index, scene in enumerate(scenes) if index in scene_indices]
+            if isinstance(scenes, list) else [],
+        )
+        english_rule = (
+            "符合既定国家、地区与社会环境的自然、简洁、可表演英语，保留原句含义和潜台词。\n"
+            "未指定背景时保留已有用法，不默认美国，不推断口音或文化细节。"
+            if has_profile else "自然、简洁、可表演的美式英语，保留原句含义和潜台词。"
+        )
+        nonverbal_rule = (
+            "不改变剧情事实、符合既定背景的简短英语可说台词。"
+            if has_profile else "不改变剧情事实的简短美式英语可说台词。"
+        )
+        retry_dialogue_rule = (
+            "符合原意与既定背景的简短英语台词。"
+            if has_profile else "符合原意的简短美式英语台词。"
+        )
+        voice_rule = (
+            "8. character_voice_reference是只读声音参考，仅用于说话方式、措辞与关系差异；其中声音样本\n"
+            "不是已发生的故事事实，不得直接复制到本集对白，不得据此补出人物经历、事件或信息来源。\n"
+            if voice_reference else ""
+        )
         retry_rule = (
             "\n这是上一次字段补丁未通过语言校验后的最后一次窄修复。"
             "dialogues.text必须至少包含一个可说的英文词和两个拉丁字母，不能只返回省略号、"
-            "标点、中文、拼音或中英混写；沉默、犹豫或反应也要写成符合原意的简短美式英语台词。"
+            f"标点、中文、拼音或中英混写；沉默、犹豫或反应也要写成{retry_dialogue_rule}"
             "chinese_translation必须是对应当前英文text的自然简体中文，不得返回英文。"
             "人物名沿用稳定英文名，chinese_character_name不补写。"
             if focused
@@ -1483,12 +1533,13 @@ class ScriptPostEditor:
 """
             + OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT
             + "\n" + SHORT_DRAMA_PACING_CONTRACT
-            + """
+            + ("\n" + overseas_story_profile_contract(profile, planning=False) if has_profile else "")
+            + f"""
 
 规则：
 1. title、logline、synopsis、hook、episode_goal、next_episode_question、人物资料、状态信息、
    场景标题/描述、scene_causality、character_actions和dialogues.intent用简体中文；其中出现的人名沿用稳定英文名。
-2. dialogues.text只用自然、简洁、可表演的美式英语，保留原句含义和潜台词。
+2. dialogues.text只用{english_rule}
 3. dialogues.chinese_translation只用简体中文，必须准确对应同一条dialogues.text的
 含义、语气、称谓和信息量，不得另写剧情或翻译其他字段。
 逐句保留动作主体、具体行为、对象、因果、否定、时态与确定程度；不得把明确执行者的具体行为
@@ -1498,9 +1549,13 @@ class ScriptPostEditor:
 5. 每个给定path必须且只能返回一次，path必须原样复制，不得返回其他字段。
 6. value只填写修复后的纯文本，不要解释，不要Markdown。
 7. dialogues.text不能只写省略号或标点；即使原值表示沉默或犹豫，也必须根据说话人、intent和
-相邻台词改成不改变剧情事实的简短美式英语可说台词。
+相邻台词改成{nonverbal_rule}
 """
+            + voice_rule
             + retry_rule
+            + ("\n只读声音参考：\n"
+               + json.dumps({"character_voice_reference": voice_reference}, ensure_ascii=False, separators=(",", ":"))
+               if voice_reference else "")
             + """
 
 待修字段：
@@ -1542,7 +1597,14 @@ class ScriptPostEditor:
         cls,
         payload: dict[str, object],
         path: str,
+        *,
+        overseas_story_profile: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
+        english_language = (
+            "natural English dialogue consistent with the established setting, with at least one spoken word"
+            if normalize_overseas_story_profile(overseas_story_profile) is not None
+            else "natural American English dialogue with at least one spoken word"
+        )
         item: dict[str, object] = {
             "path": path,
             "current_value": cls._language_field_value(payload, path),
@@ -1552,7 +1614,7 @@ class ScriptPostEditor:
                 else "旧数据兼容别名，不生成或补写"
                 if path.endswith(".chinese_character_name")
                 else
-                "natural American English dialogue with at least one spoken word"
+                english_language
                 if path.endswith(".text")
                 else "简体中文场景标题，保留内外景、地点、时间和连续转场信息，不增加动作"
                 if path.endswith(".slug")
@@ -1785,6 +1847,44 @@ class ScriptPostEditor:
         return episode_production_counts(draft)
 
     @staticmethod
+    def _character_voice_reference(
+        payload: Mapping[str, object],
+        *,
+        scenes: Sequence[object],
+    ) -> list[dict[str, str]]:
+        """Project only bounded voice fields for speakers in the current scene context."""
+        speakers: set[str] = set()
+        for scene in scenes:
+            if not isinstance(scene, Mapping):
+                continue
+            dialogues = scene.get("dialogues")
+            if not isinstance(dialogues, list):
+                continue
+            for dialogue in dialogues:
+                if isinstance(dialogue, Mapping) and isinstance(name := dialogue.get("character_name"), str):
+                    speakers.add(ScriptPostEditor._speaker_identity(name))
+        characters = payload.get("characters")
+        if not isinstance(characters, list):
+            return []
+        reference: list[dict[str, str]] = []
+        for character in characters:
+            if not isinstance(character, Mapping) or not isinstance(name := character.get("name"), str):
+                continue
+            if ScriptPostEditor._speaker_identity(name) not in speakers:
+                continue
+            profile = character.get("acting_profile")
+            if not isinstance(profile, Mapping):
+                continue
+            voice = {
+                field: value.strip()[:600]
+                for field in ("voice", "permanentVoicePrompt")
+                if isinstance(value := profile.get(field), str) and value.strip()
+            }
+            if voice:
+                reference.append({"character_name": name, **voice})
+        return reference
+
+    @staticmethod
     def _build_prompt(
         *,
         draft: DraftMasterScript,
@@ -1799,16 +1899,23 @@ class ScriptPostEditor:
         previous_patch: dict[str, object] | None,
         editable_scene_numbers: list[int],
         approved_speaker_source: DraftMasterScript | None = None,
+        overseas_story_profile: Mapping[str, str] | None = None,
     ) -> str:
         if overseas_release:
+            profile = normalize_overseas_story_profile(overseas_story_profile)
+            dialogue_setting_rule = (
+                "既定国家、地区与社会环境的自然英语用法，以及短剧的口语、节奏、打断、反击和潜台词习惯。"
+                "未指定背景时保留已有用法，不默认美国，不推断口音或文化细节。"
+                if profile is not None else "美国短剧的口语、节奏、打断、反击和潜台词习惯。"
+            )
             language_rule = (
                 "你现在同时是剧本大师和语言大师。"
                 f"{OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT}"
                 "所有可见叙事字段必须保持简体中文；动作、画面描述和intent中提到人物时"
                 "只使用已确认的稳定英文名，不音译或展示双名；"
                 "character_name保持原稿中的稳定英文连续性人物标识，不得擅自改名；每条"
-                "dialogue.chinese_character_name填写null。逐句检查并润色英文对白，使其符合美国短剧的"
-                "口语、节奏、打断、反击和潜台词习惯。只优化语言表达，不得改变剧情内容、"
+                f"dialogue.chinese_character_name填写null。逐句检查并润色英文对白，使其符合{dialogue_setting_rule}"
+                "只优化语言表达，不得改变剧情内容、"
                 "人物意图、事实、关系、信息量、语气强弱、剧情顺序或结尾钩子。当前字段只写"
                 "润色后的英文对白；每条dialogue.chinese_translation同时写该条最终英文"
                 "dialogue.text准确、自然的简体中文对照。英文一旦修改，中文对照必须同步更新，"
@@ -1817,6 +1924,7 @@ class ScriptPostEditor:
                 "不得将可能受伤译成必然死亡。不得把明确执行者的具体行为改写为无主体的结果，"
                 "也不得擅自补出原句未指明的执行者；屏幕、材料和受众的指代须与当前动作一致。"
                 "不要在同一个dialogue.text中混写中英版本。"
+                + ("\n" + overseas_story_profile_contract(profile, planning=False) if profile is not None else "")
             )
         else:
             language_rule = (
@@ -1978,6 +2086,16 @@ class ScriptPostEditor:
             "duration_budget_seconds": duration_budget,
             "scenes": scene_context,
         }
+        if overseas_release:
+            voice_reference = ScriptPostEditor._character_voice_reference(
+                speaker_source.model_dump(mode="json"), scenes=scene_context,
+            )
+            if voice_reference:
+                editable_context["character_voice_reference"] = voice_reference
+                language_rule += (
+                    "character_voice_reference是只读声音参考，仅用于说话方式、措辞与关系差异；"
+                    "其中声音样本不是已发生的故事事实，不得直接复制到本集对白，不得据此补出经历或事件。"
+                )
         ending_contract_rule = (
             "本集是连载集：不得削弱原稿的结尾义务；最后可见动作或最后一句对白必须真正执行"
             "原稿的cliffhanger和next_episode_question，并让观众明确感到下一集必须发生什么。"

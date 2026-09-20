@@ -3,7 +3,7 @@ import {
   type ProjectMarketProfile,
   type ScriptProject,
 } from "@/lib/types";
-import { normalizeGenerationSettings } from "@/lib/generation-planning";
+import { normalizeProjectGenerationSettings } from "@/lib/quick-script-project";
 import {
   episodeRoadmapCoverageThrough,
   normalizeEpisodeRoadmaps,
@@ -143,9 +143,11 @@ export async function listStoredProjects(): Promise<ScriptProject[]> {
             role: character.role ?? "",
           })),
           generationSettings: enforceMarketDeliveryContract(
-            normalizeGenerationSettings(
+            normalizeProjectGenerationSettings(
+              project.creationMode,
               { ...project.generationSettings, mode: generationMode },
-              { legacy: project.generationSettings?.episodeCountMode === undefined },
+              { legacy: project.generationSettings?.episodeCountMode === undefined,
+                quickHistory: project.quickWorkflow?.schema_version === "quick_script.v1" },
             ),
             marketProfile,
           ),

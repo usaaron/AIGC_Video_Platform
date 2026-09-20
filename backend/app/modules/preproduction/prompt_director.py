@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from app.modules.master_script.models import CharacterProfile, DraftSceneCard
-from .models import ActingDirection, PromptPlan, StoryboardShot
+from .models import ActingDirection, PromptPlan, SceneDesign, StoryboardShot
 
 
 def uses_multiple_shots(camera: str) -> bool:
@@ -35,9 +35,13 @@ def derive_acting_direction(original: DraftSceneCard, shot: StoryboardShot) -> A
         f"如果失败，{causality.outcome}无法发生。"
         if causality else f"如果失败，本场的变化无法成立：{original.beat_summary}"
     )
+    if len(stakes) > 240:
+        stakes = "失败代价以本场已有目标、阻力和结果为依据，通过可见行动体现，不新增剧情结果。"
     actions = [item.strip() for item in shot.action_sequence if item.strip()]
     beat_changes = actions[:4]
     business = actions[0] if actions else "保持与当前场景有关的身体任务。"
+    if len(business) > 240:
+        business = "依序完成本镜完整动作时序中的身体任务，保持原文物件控制与动作先后。"
     listening = (
         "说话前先出现短暂评估；未说话的人保持倾听和可见反应，不替台词抢戏。"
         if shot.dialogue else "用视线、呼吸和动作变化回应现场信息。"
@@ -78,6 +82,7 @@ def build_prompt_plan(
     shot: StoryboardShot,
     visual_direction: str,
     characters: list[CharacterProfile] | None = None,
+    design: SceneDesign | None = None,
 ) -> PromptPlan:
     # Scene references may be registry IDs; the immutable source body and cast
     # supply display names without guessing identity from list order or roles.
@@ -87,15 +92,17 @@ def build_prompt_plan(
         *(character.name for character in characters or []
           if any(character.name in action for action in original.character_actions)),
     ]))
-    scene_map = "; ".join(filter(None, [
-        original.scene_heading or original.setting_hint,
-        f"活跃人物：{'、'.join(references)}" if references else "",
-        f"进入：{shot.continuity_in}",
-        f"退出：{shot.continuity_out}",
-    ]))
+    # Spatial layout already has the same bound as scene_map. Cast names and
+    # incoming/outgoing states have their own compiled sections; joining them
+    # here would make otherwise valid long fields exceed this field's bound.
+    scene_map = design.spatial_layout if design else original.scene_heading or original.setting_hint
     multi_shot = uses_multiple_shots(shot.camera)
     format_mode = "受控多镜头序列" if multi_shot else "单一连续镜头"
-    lighting = visual_direction.strip() or "保持场景真实光线方向和曝光关系，不用平坦正面补光。"
+    contract = design.production_contract if design else None
+    lighting = ((contract.lighting.strip() if contract else "")
+                or "本场未单独指定灯光；依据正文环境与完整作者拍摄要求核对光源、方向和曝光，缺失事实不得补造。")
+    optics = (shot.optics.strip() or (contract.optics.strip() if contract else "")
+              or f"{shot.framing}；摄影机结果保持稳定，不在镜头中无理由漂移。")
     return PromptPlan(
         active_references=references,
         scene_map=scene_map,
@@ -103,7 +110,7 @@ def build_prompt_plan(
         # must preserve their incoming state rather than depict them completed.
         first_frame=shot.continuity_in,
         format_mode=format_mode,
-        optics=f"{shot.framing}；摄影机结果保持稳定，不在镜头中无理由漂移。",
+        optics=optics,
         lighting=lighting,
         timing=[f"动作区间 {index + 1}：{action}" for index, action in enumerate(shot.action_sequence)],
         physical_constraints=[
@@ -112,8 +119,13 @@ def build_prompt_plan(
             "动作必须有因果关系，不瞬移、不漂浮。",
         ],
         dialogue_rules=(
-            ["只说引用中的指定台词，不增加台词。", "说话角色之外的人保持安静倾听，除非正文明确安排回应。"]
-            if shot.dialogue else []
+            ["只说引用中的指定台词，不增加台词。", "说话角色之外的人保持安静倾听，听者不动嘴，除非正文明确安排回应。",
+             "每句原文只录制一条连续音轨；跨镜剪辑承接该音轨的切点，不重新从句首配音。",
+             "中文对照仅供阅读，不入画、不配音；正文原本为中文时，仍按中文原句配音。"]
+            if shot.dialogue else [
+                "本镜没有新对白；仅在入镜承接明确要求时接续上一镜已经录制的音轨切点，不生成新句、不重新从句首配音。",
+                "中文对照仅供阅读，不入画、不配音；正文原本为中文时，仍按中文原句配音。",
+            ]
         ),
         positive_locks=[
             "保持正文事实、人物位置、视线关系和道具状态。",
@@ -127,6 +139,8 @@ def compile_cinematic_prompt(
     original: DraftSceneCard,
     shot: StoryboardShot,
     visual_direction: str,
+    design: SceneDesign | None = None,
+    characters: list[CharacterProfile] | None = None,
 ) -> str:
     acting = shot.acting_direction
     plan = shot.prompt_plan
@@ -135,18 +149,34 @@ def compile_cinematic_prompt(
         kind, index = ref.split(":")
         if kind == "dialogue":
             line = original.dialogues[int(index)]
-            source_order.append(f"{ref} {line.character_name}: {line.text}")
+            text = f"{ref} {line.character_name}: {line.text}"
+            if line.chinese_translation:
+                text += f"\n中文对照（仅阅读，不入画、不配音）：{line.chinese_translation}"
+            source_order.append(text)
         else:
             source_order.append(f"{ref} {original.character_actions[int(index)]}")
+    contract = design.production_contract if design else None
+    shared = "\n".join(
+        f"{label}：{getattr(contract, key)}" for key, label in [
+            ("visual_style", "风格"), ("composition", "构图"), ("axis", "机位与关系轴"),
+            ("continuity", "人物与道具连续性"), ("sound", "全场声音"),
+            ("reference_rules", "参考约束"),
+        ] if contract and getattr(contract, key).strip()
+    )
+    voices = source_voice_directions(original, shot, characters or [])
     sections = [
         ("场景上下文", f"{original.scene_heading or original.setting_hint}。{original.beat_summary}"),
         ("当前引用", "、".join(plan.active_references) or "本场正文人物"),
+        ("参考绑定状态", "当前引用仅为正文人物名称，不代表已绑定参考图；人物、场景与道具图片均待绑定核对，不能据此承诺图像一致性。"),
+        ("本场制作约定", shared),
         ("场景地图", plan.scene_map),
         ("正文引用顺序", "\n".join(source_order)),
+        ("入镜承接", shot.handoff),
         ("首帧与空间调度", plan.first_frame),
         ("格式模式", plan.format_mode),
         ("镜头时长", f"当前分配 {shot.duration_seconds:g} 秒；动作和对白按先后或明确的同时关系执行，不用异常加速掩盖时长不足。"),
         ("光学", plan.optics),
+        ("本镜光学例外", "本镜光学填写了独立设置，以上光学值替代全场默认；不叠加执行全场另一组光学值。" if shot.optics.strip() else ""),
         ("摄影机", shot.camera),
         ("动作时序", "；".join(plan.timing)),
         ("表演", "；".join(filter(None, [
@@ -165,9 +195,37 @@ def compile_cinematic_prompt(
         ]))),
         ("物理", "；".join(plan.physical_constraints)),
         ("灯光", plan.lighting),
+        ("整体视觉方向（本场与本镜明确约定优先）", visual_direction if visual_direction.strip() else ""),
         ("对白约束", "；".join(plan.dialogue_rules)),
+        ("人物声音档案", voices),
         ("音频", shot.sound),
+        ("镜尾状态", shot.continuity_out),
+        ("镜间剪辑", design.transition if design and design.transition.strip() else "镜间默认硬切，不使用溶解或淡入淡出；保持上一镜结束与本镜开场的状态承接。"),
         ("正向约束", "；".join(plan.positive_locks)),
         ("局部锁定", "；".join(plan.negative_locks)),
     ]
     return "\n".join(f"{title}\n{value}" for title, value in sections if value)
+
+
+def source_voice_directions(
+    original: DraftSceneCard, shot: StoryboardShot, characters: list[CharacterProfile],
+) -> str:
+    """Read only voice facts for speakers in this shot; names are not identities inferred from roles."""
+    speakers = set()
+    for ref in shot.source_refs:
+        if ref.startswith("dialogue:"):
+            line = original.dialogues[int(ref.split(":")[1])]
+            speakers.update(filter(None, (line.character_name, line.chinese_character_name)))
+    voices = []
+    for character in characters:
+        if character.name not in speakers or not character.acting_profile:
+            continue
+        profile = character.acting_profile
+        parts = list(dict.fromkeys(value.strip() for key in ("voice", "permanentVoicePrompt")
+                                   if isinstance(value := profile.get(key), str) and value.strip()))
+        if parts:
+            voices.append(f"{character.name}：{'；'.join(parts)}")
+    if not voices:
+        return ""
+    return ("仅复用当前正文人物档案，不补造年龄、口音或声线；档案中的例句仅说明表达方式，不是待配音台词。\n"
+            + "\n".join(voices))

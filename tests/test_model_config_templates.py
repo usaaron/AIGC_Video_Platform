@@ -51,20 +51,20 @@ def test_config_templates_wire_requested_editors_and_astra_fallbacks(layout, mon
         planning = dependencies.get_story_planning_service()
         assert planning._episode_plan_chunk_size == 1
         classifier = get_input_readiness_service()._llm_adapter
-        assert classifier.get_model_info().model_name == "deepseek-v4-pro"
+        assert classifier.get_model_info().model_name == "deepseek-v4-1-flash-260910"
         assert classifier._wire_api == "chat_completions"
         assert classifier._effective_reasoning_effort == "none"
         assert classifier._request_deadline_seconds == 60
         dialogue = dependencies.get_bilingual_script_view_service()._llm_adapter
         for route in (dialogue._mainland, dialogue._overseas):
-            assert route.get_model_info().model_name == "deepseek-v4-pro"
+            assert route.get_model_info().model_name == "deepseek-v4-1-flash-260910"
             assert route._effective_reasoning_effort == "none"
-        assert planning._planning_editor_llm_adapter.get_model_info().model_name == "deepseek-v4-pro"
+        assert planning._planning_editor_llm_adapter.get_model_info().model_name == "deepseek-v4-1-flash-260910"
         for role in ("_creative_llm_adapter", "_story_bible_llm_adapter",
                      "_story_architect_llm_adapter", "_episode_plan_llm_adapter"):
             for route in (getattr(planning, role)._mainland, getattr(planning, role)._overseas):
                 assert isinstance(route, ModelFailoverLLMAdapter)
-                assert route._primary.get_model_info().model_name == "deepseek-v4-pro"
+                assert route._primary.get_model_info().model_name == "deepseek-v4-1-flash-260910"
                 assert route._primary._wire_api == "chat_completions"
                 assert route._primary._send_response_format is True
                 assert route._fallback.get_model_info().model_name == "gpt-6-astra"
@@ -75,7 +75,7 @@ def test_config_templates_wire_requested_editors_and_astra_fallbacks(layout, mon
                     assert route._fallback._request_deadline_seconds == 600
         for route in (planning._inspiration_llm_adapter._mainland, planning._inspiration_llm_adapter._overseas):
             assert isinstance(route, ModelFailoverLLMAdapter)
-            assert route._primary.get_model_info().model_name == "deepseek-v4-pro"
+            assert route._primary.get_model_info().model_name == "deepseek-v4-1-flash-260910"
             assert route._primary._request_deadline_seconds == 45
             assert route._fallback.get_model_info().model_name == "gpt-6-astra"
             assert route._fallback._effective_reasoning_effort == "max"
@@ -85,18 +85,18 @@ def test_config_templates_wire_requested_editors_and_astra_fallbacks(layout, mon
         generation = dependencies.get_script_generation_service()
         editor = generation._conversation_editor_adapter()
         assert isinstance(editor, MarketRoutedLLMAdapter)
-        assert editor._mainland.get_model_info().model_name == "deepseek-v4-pro"
+        assert editor._mainland.get_model_info().model_name == "deepseek-v4-1-flash-260910"
         assert editor._mainland._send_response_format is True
-        assert editor._overseas.get_model_info().model_name == "deepseek-v4-pro"
+        assert editor._overseas.get_model_info().model_name == "deepseek-v4-1-flash-260910"
         assert editor._overseas._wire_api == "chat_completions"
         assert generation._script_editor_enabled is False
         for adapter in (generation._llm_adapter, generation._repair_llm_adapter):
-            assert adapter._mainland.get_model_info().model_name == "deepseek-v4-pro"
+            assert adapter._mainland.get_model_info().model_name == "deepseek-v4-1-flash-260910"
             mainland = adapter._mainland
             if isinstance(mainland, AdaptiveTransportLLMAdapter):
                 mainland = mainland._adapter
             assert mainland._send_response_format is True
-            assert adapter._overseas.get_model_info().model_name == "deepseek-v4-pro"
+            assert adapter._overseas.get_model_info().model_name == "deepseek-v4-1-flash-260910"
     finally:
         dependencies._get_story_planning_service.cache_clear()
         dependencies._get_script_generation_service.cache_clear()

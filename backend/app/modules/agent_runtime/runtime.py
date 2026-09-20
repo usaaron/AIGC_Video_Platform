@@ -46,7 +46,7 @@ class AgentRunStore(Protocol):
         tool_name: str,
     ) -> tuple[str, dict[str, Any]] | None: ...
 
-    def heartbeat(self, run_id: str) -> None: ...
+    def heartbeat(self, expected: AgentRunRecord) -> None: ...
 
 
 class AgentPolicyViolationError(RuntimeError):
@@ -185,11 +185,12 @@ class AgentSession:
         if self._store is None:
             return operation()
         stopped = threading.Event()
+        owner = self._record.model_copy(deep=True)
 
         def renew_lease() -> None:
             while not stopped.wait(AGENT_HEARTBEAT_INTERVAL_SECONDS):
                 try:
-                    self._store.heartbeat(self._record.run_id)
+                    self._store.heartbeat(owner)
                 except Exception as error:
                     logger.warning(
                         "Agent heartbeat failed run=%s error_type=%s",

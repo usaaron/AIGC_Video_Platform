@@ -1,0 +1,233 @@
+/* Embedded assistants share the host workspace's scroll area and keep drafts mounted. */
+.host-workspace-content .planning-canvas-copilot.is-host-copilot {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  align-self: start;
+  flex-direction: column;
+  width: 100%;
+  height: min(720px, calc(100dvh - 100px));
+  min-height: 360px;
+  max-height: none;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--sidebar);
+  scroll-margin-top: 12px;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > [hidden] {
+  display: none !important;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .story-bible-copilot-heading {
+  flex: 0 0 auto;
+  min-height: 58px;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--paper-bright);
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot .story-bible-copilot-identity {
+  gap: 8px;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot .story-bible-copilot-heading h3 {
+  margin: 0 0 2px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot .story-bible-chat-status {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-copilot-toggle {
+  display: inline-flex;
+  min-width: 62px;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.host-copilot-toggle:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.host-copilot-toggle:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .story-bible-chat-thread {
+  min-height: 80px;
+  flex: 1 1 auto;
+  gap: 14px;
+  padding: 16px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .planning-canvas-actions,
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .story-bible-chat-composer {
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .story-bible-chat-composer {
+  margin: 0;
+  padding: 12px;
+  border-radius: 0;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .muted,
+.host-workspace-content .planning-canvas-copilot.is-host-copilot > .inline-notice {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* Full-height canvases size both columns from the space left by the host toolbar. */
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench):has(> .planning-canvas-copilot.is-host-copilot) {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.host-workspace-content .story-structure-workspace > .story-plan-node-panel:has(> .story-plan-workbench > .planning-canvas-copilot.is-host-copilot),
+.host-workspace-content .story-structure-workspace > .story-plan-node-panel > .story-plan-workbench:has(> .planning-canvas-copilot.is-host-copilot) {
+  height: 100%;
+  min-height: 0;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench):has(> .planning-canvas-copilot.is-host-copilot) > .planning-canvas-copilot {
+  position: relative;
+  top: 0;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench):has(> .planning-canvas-copilot.is-host-copilot) > :not(.planning-canvas-copilot) {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A collapsed assistant becomes a toolbar, with no empty chat column left behind. */
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-collapsed) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-collapsed) > .planning-canvas-copilot {
+  position: static;
+  grid-column: 1;
+  grid-row: 1;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  border-radius: 8px;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-collapsed) > :not(.planning-canvas-copilot) {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 0;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-collapsed > .story-bible-copilot-heading {
+  min-height: 48px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: 0;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-collapsed .story-bible-copilot-identity > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.host-workspace-content .planning-canvas-copilot.is-host-collapsed .story-bible-copilot-heading h3 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Container width, rather than the outer browser width, determines reading space. */
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-compact) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Expanded compact layouts scroll as one page, so neither column gets squeezed. */
+.host-workspace-content .planning-workspace:has(.planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)),
+.host-workspace-content .story-bible-panel.is-canvas-mode:has(> .story-bible-workbench > .planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)),
+.host-workspace-content .story-structure-workspace:has(.planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)),
+.host-workspace-content .script-workspace.is-unified:has(.planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)) {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.host-workspace-content .story-structure-workspace > .story-plan-node-panel:has(> .story-plan-workbench > .planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)) {
+  height: auto;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)) {
+  flex: none;
+  height: auto;
+  min-height: 0;
+  grid-template-rows: auto auto;
+}
+
+.host-workspace-content .story-structure-workspace > .story-plan-node-panel > .story-plan-workbench:has(> .planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)) {
+  height: auto;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)) > :not(.planning-canvas-copilot) {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  border-right: 0;
+}
+
+.host-workspace-content :is(.story-bible-workbench, .story-plan-workbench, .script-workbench, .script-document-chat-layout):has(> .planning-canvas-copilot.is-host-compact:not(.is-host-collapsed)) > .planning-canvas-copilot {
+  position: static;
+  height: min(620px, calc(100dvh - 100px));
+  min-height: 360px;
+  max-height: none;
+  margin-top: 16px;
+}
+
+@media (max-width: 480px) {
+  .host-workspace-content .planning-canvas-copilot.is-host-collapsed .story-bible-copilot-identity > div {
+    display: block;
+  }
+
+  .host-workspace-content .planning-canvas-copilot.is-host-copilot .story-bible-chat-status {
+    max-width: 160px;
+  }
+}

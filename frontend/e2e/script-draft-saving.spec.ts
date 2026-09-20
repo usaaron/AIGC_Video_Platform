@@ -255,6 +255,7 @@ test("save stays available while inspecting continuity", async ({ page }) => {
   const { synopsis, health, unexpected } = await openWorkspace(page);
   await synopsis.fill("核对人物关系后仍能保存这一集。");
   await synopsis.blur();
+  await page.locator(".workflow-more-actions > summary").click();
   await page.getByRole("button", { name: "人物与剧情", exact: true }).click();
   await page.getByRole("button", { name: "保存本集", exact: true }).click();
   await expect.poll(async () => (await storedEpisode(page)).hasLocalDraftEdits).toBe(false);
@@ -265,6 +266,7 @@ test("save stays available while inspecting continuity", async ({ page }) => {
 
 test("export confirmation failures stay inside the dialog and can be retried", async ({ page }, testInfo) => {
   const { health, unexpected } = await openWorkspace(page);
+  await page.locator(".workflow-more-actions > summary").click();
   await page.getByRole("button", { name: "导出全剧", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "导出已生成剧本", exact: true });
   await page.evaluate(() => {
@@ -373,10 +375,12 @@ test("scrolling script scenes highlights the current episode children and keeps 
   await scrollTo("script-scene-2");
   await expectActive("script-scene-2", /^场景 2 · 1-2/);
 
+  await page.locator(".workflow-more-actions > summary").click();
   await page.getByRole("button", { name: "人物与剧情", exact: true }).click();
   await expect(children.locator(".is-nested")).toHaveCount(0);
   await expect(page.locator("#script-scene-2")).toHaveCount(0);
   await expectActive("script-episode-1", /^第 1 集 ·/);
+  await page.locator(".workflow-more-actions > summary").click();
   await page.getByRole("button", { name: "人物与剧情", exact: true }).click();
   await expect(children.locator(".is-nested")).toHaveCount(4);
   expect(control.reviews).toBe(0);

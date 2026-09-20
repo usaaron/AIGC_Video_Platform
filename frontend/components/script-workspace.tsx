@@ -22,6 +22,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -53,6 +54,7 @@ import {
 } from "@/lib/bilingual-dialogue";
 import { clientDialogueSpeaker } from "@/lib/client-screenplay-format";
 import { ProjectContinuityPanel } from "@/components/project-continuity-panel";
+import { SerialContinuityReview } from "@/components/serial-continuity-review";
 import {
   buildEmbeddedOverseasDialogueView,
   deepenEpisodeDraft,
@@ -146,6 +148,8 @@ import {
   isSeriesDeliveryConfirmationCurrent,
 } from "@/lib/episode-delivery-confirmation";
 import { hostDeliveryConfigured } from "@/lib/host-delivery";
+import { isHostEmbedded, isHostScriptWorkflow } from "@/lib/host-navigation";
+import { useHostScriptWorkflow } from "@/lib/use-host-script-workflow";
 import { HostImportPanel } from "@/components/host-import-panel";
 import { orderedScreenplayBody } from "@/lib/screenplay-body-order";
 import {
@@ -401,6 +405,7 @@ export function ScriptWorkspace() {
   const projectStore = useProjects();
   const { getProject, isReady, updateProject } = projectStore;
   const { locale, t } = useLocale();
+  const scriptWorkflow = useHostScriptWorkflow();
   const project = getProject(params.projectId);
   const backgroundScriptTask = useScriptGenerationTask(params.projectId);
   const [activeEpisodeNumber, setActiveEpisodeNumber] = useState(project?.activeEpisodeNumber ?? 1);
@@ -413,6 +418,7 @@ export function ScriptWorkspace() {
   );
   const [seriesExportOpen, setSeriesExportOpen] = useState(false);
   const [hostImportOpen, setHostImportOpen] = useState(false);
+  const [embedded, setEmbedded] = useState(false);
   const [seriesExportMode, setSeriesExportMode] = useState<SeriesExportMode>("episodes");
   const [seriesExportFormats, setSeriesExportFormats] = useState<Record<EpisodeDocumentFormat, boolean>>({
     markdown: true,
@@ -443,6 +449,8 @@ export function ScriptWorkspace() {
     confirmation: unknown;
     value: boolean;
   } | null>(null);
+
+  useEffect(() => { setEmbedded(isHostEmbedded()); }, []);
 
   useEffect(() => {
     if (!project?.episodes.length) return;
@@ -535,8 +543,13 @@ export function ScriptWorkspace() {
     project?.storyLines.length,
   ]);
 
+  // This view controls recovery behavior only. Persisted project settings and
+  // generation/sync payloads continue to use the original project.
+  const recoveryProject = useMemo(() => project && scriptWorkflow === true
+    ? { ...project, productionOutputMode: "script_only" as const }
+    : project, [project, scriptWorkflow]);
   const generateNextStageRef = useScriptGenerationRecovery({
-    project,
+    project: recoveryProject,
     scriptAccessible,
     generationIntent,
     busy: busyAction !== null,
@@ -568,7 +581,7 @@ export function ScriptWorkspace() {
         onClearIntent={() => router.replace(`/projects/${project.id}/workspace`)}
         onConsumeIntent={() => setGenerationIntentConsumed(true)}
         onComplete={() => {
-          router.replace(storyboardHandoffHref(project, requestedLeafRange)
+          router.replace((isHostScriptWorkflow() ? null : storyboardHandoffHref(project, requestedLeafRange))
             ?? `/projects/${project.id}/workspace`);
         }}
         project={project}
@@ -591,7 +604,7 @@ export function ScriptWorkspace() {
         onClearIntent={() => router.replace(`/projects/${project.id}/workspace`)}
         onConsumeIntent={() => setGenerationIntentConsumed(true)}
         onComplete={() => {
-          router.replace(storyboardHandoffHref(project, requestedLeafRange)
+          router.replace((isHostScriptWorkflow() ? null : storyboardHandoffHref(project, requestedLeafRange))
             ?? `/projects/${project.id}/workspace`);
         }}
         project={project}
@@ -749,18 +762,25 @@ export function ScriptWorkspace() {
     && !currentEpisode.modificationCandidate
     && !currentEpisode.deepeningRun?.candidate_draft_master_script;
   const draftActionHint = currentEpisodeHasDirectEdits
-    ? (locale === "en" ? "Save this episode before generating more or exporting."
-      : "本集有未保存的修改，请先保存本集，再继续生成或导出。")
+    ? (scriptWorkflow !== false
+      ? locale === "en" ? "Save this episode before generating more or syncing to asset design."
+        : "本集有未保存的修改，请先保存本集，再继续生成或同步到资产设计。"
+      : locale === "en" ? "Save this episode before generating more or exporting."
+        : "本集有未保存的修改，请先保存本集，再继续生成或导出。")
     : modificationDraft || deepeningDraft
-      ? (locale === "en" ? "Compare the candidate, then save it or keep the current draft before continuing."
-        : "请先比较候选，选择保存修改或保留当前正文，再继续生成或导出。") : null;
+      ? (scriptWorkflow !== false
+        ? locale === "en" ? "Compare the candidate, then save it or keep the current draft before generating more or syncing to asset design."
+          : "请先比较候选，选择保存修改或保留当前正文，再继续生成或同步到资产设计。"
+        : locale === "en" ? "Compare the candidate, then save it or keep the current draft before continuing."
+          : "请先比较候选，选择保存修改或保留当前正文，再继续生成或导出。") : null;
   const projectedSummary = seriesTextMetrics.estimatedEpisodesToTarget === null
     ? t("workspace.length.projectionPending")
     : t("workspace.length.projectionValue")
         .replace("{planned}", numberFormatter.format(seriesTextMetrics.plannedEpisodes))
         .replace("{projected}", numberFormatter.format(seriesTextMetrics.projectedCharactersAtPlannedEpisodes))
         .replace("{estimated}", numberFormatter.format(seriesTextMetrics.estimatedEpisodesToTarget));
-  const seriesScaleSummary = formatSeriesScaleStatus(seriesTextMetrics, allPlannedEpisodesSaved, locale);
+  const seriesScaleSummary = formatSeriesScaleStatus(seriesTextMetrics, allPlannedEpisodesSaved, locale,
+    scriptWorkflow === null ? null : scriptWorkflow ? "assets" : "export");
   const seriesScaleProjection = formatSeriesScaleProjection(seriesTextMetrics, locale);
   const episodeBodyScaleWarning = formatEpisodeBodyScaleWarning(displayedDraft, locale);
 
@@ -1257,7 +1277,7 @@ export function ScriptWorkspace() {
       setMessage(t("workspace.batchComplete")
         .replace("{start}", String(batchRange.startEpisode))
         .replace("{end}", String(batchRange.endEpisode)));
-      const storyboardHref = storyboardHandoffHref(
+      const storyboardHref = isHostScriptWorkflow() ? null : storyboardHandoffHref(
         getProject(currentProject.id) ?? currentProject, recoveryTask,
       );
       if (storyboardHref) router.push(storyboardHref);
@@ -1338,6 +1358,7 @@ export function ScriptWorkspace() {
   }
 
   function downloadSeriesData() {
+    if (isHostScriptWorkflow()) return;
     if (!allPlannedEpisodesSaved) {
       setMessage(t("workspace.exportSaveRequiredSeries"));
       return;
@@ -1380,6 +1401,7 @@ export function ScriptWorkspace() {
   }
 
   async function downloadSeriesDocuments() {
+    if (isHostScriptWorkflow()) return;
     const formats = (Object.entries(seriesExportFormats) as Array<[EpisodeDocumentFormat, boolean]>)
       .filter(([, selected]) => selected)
       .map(([format]) => format);
@@ -1547,7 +1569,7 @@ export function ScriptWorkspace() {
   }
 
   return (
-    <main className="script-workspace is-unified page-reveal">
+    <main className={`script-workspace is-unified page-reveal${scriptWorkflow === true ? " host-stage-content" : ""}`}>
       {authorConflictOpen && currentEpisode.pendingAuthorConflict && !currentEpisode.pendingAuthorConflict.resolved ? (
         <AuthorConflictDialog
           busy={authorConflictBusy || busyAction === "modify"}
@@ -1608,7 +1630,8 @@ export function ScriptWorkspace() {
                   ) : null}
                   {hasRemainingEpisodes && recoverableEpisode === null ? (
                     <button
-                      className="document-edit-toolbar-action"
+                      className={currentEpisodeHasDirectEdits || modificationDraft || deepeningDraft
+                        ? "document-edit-toolbar-action" : "primary-action"}
                       disabled={busyAction !== null || scriptGenerationActive || currentEpisodeHasDirectEdits || Boolean(modificationDraft || deepeningDraft)}
                       onClick={() => void generateNextStage()}
                       title={t("workspace.generateNextPart")}
@@ -1618,10 +1641,25 @@ export function ScriptWorkspace() {
                       <span>{t("workspace.generateNextPart")}</span>
                     </button>
                   ) : null}
-                  <button aria-pressed={workspaceView === "continuity"} className="document-edit-toolbar-action" onClick={() => setWorkspaceView((current) => current === "script" ? "continuity" : "script")} title={t("workspace.continuityView")} type="button"><Activity aria-hidden="true" size={14} /><span>{t("workspace.continuityView")}</span></button>
-                  <button aria-expanded={lengthDetailsOpen} className="document-edit-toolbar-action" onClick={() => setLengthDetailsOpen((current) => !current)} title={t("workspace.length.title")} type="button"><ShieldCheck aria-hidden="true" size={14} /><span>{progressPercent.toFixed(0)}%</span></button>
-                  {allPlannedEpisodesSaved ? <button className="document-edit-toolbar-action is-export-ready" onClick={() => setSeriesExportOpen(true)} title={t("workspace.exportAll")} type="button"><Download aria-hidden="true" size={14} /><span>{t("workspace.exportAll")}</span></button> : null}
-                  {hostDeliveryConfigured() && (currentProject.characters.length > 0 || currentProject.episodes.some(episode => resolveSavedDraft(episode))) ? <button className="document-edit-toolbar-action" onClick={() => setHostImportOpen(true)} type="button">批量导入主项目</button> : null}
+                  <details className="workflow-more-actions" onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) event.currentTarget.open = false;
+                  }} onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.currentTarget.open = false;
+                      event.currentTarget.querySelector("summary")?.focus();
+                    }
+                  }}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.open = false;
+                    }}>
+                    <summary className="outline-action"><span>{t("workspace.moreActions")}</span><ChevronDown aria-hidden="true" size={13} /></summary>
+                    <div className="workflow-more-actions-content">
+                      <button aria-pressed={workspaceView === "continuity"} className="document-edit-toolbar-action" onClick={() => setWorkspaceView((current) => current === "script" ? "continuity" : "script")} title={t("workspace.continuityView")} type="button"><Activity aria-hidden="true" size={14} /><span>{t("workspace.continuityView")}</span></button>
+                      <button aria-expanded={lengthDetailsOpen} className="document-edit-toolbar-action" onClick={() => setLengthDetailsOpen((current) => !current)} title={t("workspace.length.title")} type="button"><ShieldCheck aria-hidden="true" size={14} /><span>{t("workspace.length.title")} · {progressPercent.toFixed(0)}%</span></button>
+                      {scriptWorkflow === false && allPlannedEpisodesSaved ? <button className="document-edit-toolbar-action is-export-ready" onClick={() => setSeriesExportOpen(true)} title={t("workspace.exportAll")} type="button"><Download aria-hidden="true" size={14} /><span>{t("workspace.exportAll")}</span></button> : null}
+                      {!embedded && hostDeliveryConfigured() && (currentProject.characters.length > 0 || currentProject.episodes.some(episode => resolveSavedDraft(episode))) ? <button className="document-edit-toolbar-action" onClick={() => setHostImportOpen(true)} type="button">批量导入主项目</button> : null}
+                    </div>
+                  </details>
                 </div>
               </div>
 
@@ -1655,7 +1693,10 @@ export function ScriptWorkspace() {
               ) : null}
 
               {workspaceView === "continuity" ? (
-                <ProjectContinuityPanel project={currentProject} />
+                <>
+                  {scriptWorkflow === false && <SerialContinuityReview project={currentProject} />}
+                  <ProjectContinuityPanel project={currentProject} />
+                </>
               ) : (
           <>
           <div className="workspace-toolbar episode-actions is-compact">
@@ -1728,6 +1769,7 @@ export function ScriptWorkspace() {
           instruction={scriptChatInstruction}
           instructionMaxLength={SCRIPT_MODIFICATION_INSTRUCTION_MAX_LENGTH}
           messages={scriptChatMessages}
+          progress={authorWorkflow.progress}
           onClearSelection={() => setScriptDocumentSelection(null)}
           onEditMessage={editScriptChatMessage}
           onWithdrawMessage={(id) => void authorWorkflow.withdrawScriptChatMessage(id)}
@@ -1744,7 +1786,7 @@ export function ScriptWorkspace() {
       </div>
 
       {hostImportOpen && <HostImportPanel project={currentProject} onTarget={id => void updateProject(currentProject.id, { hostDeliveryTargetProjectId: id })} onClose={() => setHostImportOpen(false)} />}
-      {seriesExportOpen && allPlannedEpisodesSaved ? (
+      {scriptWorkflow === false && seriesExportOpen && allPlannedEpisodesSaved ? (
         <div className="tag-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !seriesExportBusy) setSeriesExportOpen(false); }}>
           <div aria-labelledby="series-export-title" aria-modal="true" className="tag-dialog series-export-dialog" role="dialog">
             <button aria-label={t("tags.cancelCustom")} className="tag-dialog-close" disabled={seriesExportBusy} onClick={() => setSeriesExportOpen(false)} type="button"><CloseIcon /></button>
@@ -1829,7 +1871,7 @@ export function ScriptWorkspace() {
               </div>
             ) : null}
             <div className="tag-dialog-actions">
-              {hostDeliveryConfigured() ? (
+              {!embedded && hostDeliveryConfigured() ? (
                 <button
                   className="text-action series-export-data"
                   disabled={seriesExportBusy}

@@ -1,5 +1,7 @@
 # Script Master 独立生产部署
 
+主项目中文快速剧本的本地候选说明见 [快速剧本流程](QUICK_SCRIPT_2026-09-20.md)。独立剧本大师继续保留标准流程；本项尚未发布。
+
 2026-09-20 本地新版候选尚未发布；新前后端需要配套更新，详见 [新版 final2 融合记录](UPSTREAM_REFRESH_2026-09-20.md)。本文中的命令不是已执行的发布记录。
 
 宿主是 SEQORA，生产路径为 `https://xumutv.com/script-master`。此目录包含

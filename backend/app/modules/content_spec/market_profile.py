@@ -6,7 +6,7 @@ the higher-level market path that every planning and generation stage must obey.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.script_delivery_contract import OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT
@@ -15,6 +15,29 @@ from app.script_delivery_contract import OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONT
 CN_MAINLAND_MARKET = "cn_mainland"
 OVERSEAS_TIKTOK_MARKET = "overseas_tiktok"
 SUPPORTED_MARKET_PROFILES = frozenset({CN_MAINLAND_MARKET, OVERSEAS_TIKTOK_MARKET})
+
+
+CREATOR_INTERACTION_LANGUAGE_CONTRACT = (
+    "创作者交互语言合同：无论大陆还是海外发行，所有面向创作者的助手回复、解释、"
+    "建议、确认、问题、审校意见、大纲、规划、场景动作和画面描述都使用简体中文。"
+    "若接口提供可展示的模型思考过程或摘要，也必须使用简体中文，不因上下文、"
+    "技术说明或引用材料含英文而改用英文解释。过程信息仅使用接口原有的过程通道，"
+    "不得混入最终正文或JSON结果，不得新增思考字段或改变要求的输出结构。"
+    "海外路径的正式剧本人物对白使用英文：dialogues.text保留英文原句，"
+    "dialogues.chinese_translation在同一次输出中逐句提供对应的简体中文翻译；"
+    "不要将英文对白翻译后替换原句，也不要在同一text字段混写中英台词。"
+    "另有一项严格受限的引文例外：仅当当前任务明确授权海外人物声音样本时，"
+    "acting_profile.permanentVoicePrompt中按“情境｜EN: …｜中译: …”格式逐行提供的"
+    "原创对白风格引文，其EN部分允许英文；情境仅取拒绝、撒谎、示弱、亲近者、对手，"
+    "最多三条，每条必须附准确中文释义，字段其余描述仍用简体中文。"
+    "这些引文仅作声音风格参考，不是已发生的剧情事实，也不是英文助手回复；"
+    "不得直接复制为本集剧情，不得将例外扩展到解释、建议、审校、规划叙述或其他人物字段。"
+    "大陆路径及当前任务未明确授权时不启用该引文例外。"
+    "大陆路径人物对白直接使用简体中文，按既有合同将chinese_translation填写null。"
+    "保留已确认的稳定人物身份和专名：海外人物在中文叙述及译文中仍沿用其稳定英文姓名；"
+    "不要翻译或改写JSON键名、枚举值、标识符以及INT./EXT.等技术标记。"
+    "OutputLanguage=en仅指定海外正式对白的语言，不改变其余创作者交互语言。"
+)
 
 
 @dataclass(frozen=True)
@@ -46,6 +69,7 @@ _CONTRACTS = {
             "You are creating a Chinese mainland serialized comic story. Follow "
             "Chinese-mainland language and cultural context. Do not switch "
             "to English output or overseas cultural assumptions."
+            + "\n" + CREATOR_INTERACTION_LANGUAGE_CONTRACT
         ),
     ),
     OVERSEAS_TIKTOK_MARKET: MarketProfileContract(
@@ -80,6 +104,7 @@ _CONTRACTS = {
             "specific country; country-specific profiles will be added later. Do not "
             "apply Chinese-mainland cultural assumptions. "
             + OVERSEAS_EPISODE_LANGUAGE_WORKFLOW_CONTRACT
+            + "\n" + CREATOR_INTERACTION_LANGUAGE_CONTRACT
         ),
     ),
 }
@@ -126,8 +151,26 @@ def content_spec_market_profile(content_spec: Any) -> str:
     )
 
 
-def content_spec_market_contract(content_spec: Any) -> MarketProfileContract:
-    return market_profile_contract(content_spec_market_profile(content_spec))
+def content_spec_market_contract(content_spec: Any, *, planning: bool = False) -> MarketProfileContract:
+    from app.modules.content_spec.overseas_story_profile import content_spec_overseas_story_profile
+    contract = market_profile_contract(content_spec_market_profile(content_spec))
+    return market_contract_with_overseas_story_profile(
+        contract, content_spec_overseas_story_profile(content_spec), planning=planning,
+    )
+
+
+def market_contract_with_overseas_story_profile(
+    contract: MarketProfileContract, value: object, *, planning: bool = False,
+) -> MarketProfileContract:
+    from app.modules.content_spec.overseas_story_profile import normalize_overseas_story_profile, overseas_story_profile_contract
+    profile = normalize_overseas_story_profile(value)
+    if contract.is_mainland or profile is None:
+        return contract
+    prompt = contract.prompt_contract.replace(
+        "specific country; country-specific profiles will be added later.",
+        "specific country unless the author or approved story explicitly establishes it.",
+    )
+    return replace(contract, prompt_contract=prompt + "\n" + overseas_story_profile_contract(profile, planning=planning))
 
 
 def market_profile_metadata(

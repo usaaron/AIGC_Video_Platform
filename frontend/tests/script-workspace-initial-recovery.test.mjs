@@ -8,6 +8,7 @@ import ts from "typescript";
 import * as recovery from "../lib/generation-recovery.ts";
 import { workspaceSectionAccess } from "../lib/workspace-stage.ts";
 import { storyboardHandoffHref } from "../lib/production-handoff.ts";
+import { bindCopilotProgress } from "./helpers/copilot-progress-runtime.mjs";
 
 const source = fs.readFileSync(new URL("../components/script-workspace.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("script-workspace.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -54,11 +55,12 @@ function projectFixture() {
 }
 
 // Execute the real component branches and effects with only their UI dependencies stubbed.
-function workspaceHarness(project) {
+function workspaceHarness(project, { scriptWorkflow = false, runtimeScriptWorkflow = scriptWorkflow === true } = {}) {
   const effects = [];
   const timers = [];
   const batchRequests = [];
   const requestedRanges = [];
+  const continuationDecisions = [];
   let url = new URL(`http://localhost/projects/${project.id}/workspace`);
   const context = {
     exports: {},
@@ -66,6 +68,13 @@ function workspaceHarness(project) {
     ...recovery,
     workspaceSectionAccess,
     storyboardHandoffHref,
+    useHostScriptWorkflow: () => scriptWorkflow,
+    isHostScriptWorkflow: () => runtimeScriptWorkflow,
+    nextReadyScriptPartEpisode: () => 1,
+    shouldAutomaticallyContinueScriptGeneration: input => {
+      continuationDecisions.push(input);
+      return recovery.shouldAutomaticallyContinueScriptGeneration(input);
+    },
     useParams: () => ({ projectId: project.id }),
     useRouter: () => ({
       replace: (path) => { url = new URL(path, url); },
@@ -99,6 +108,7 @@ function workspaceHarness(project) {
       return { started: false, task: request };
     },
   };
+  context.useCopilotProgress = bindCopilotProgress(context);
   vm.createContext(context);
   vm.runInContext(compiled, context);
   return {
@@ -106,9 +116,13 @@ function workspaceHarness(project) {
     requestedRanges,
     timers,
     effects,
+    continuationDecisions,
     render: () => context.exports.ScriptWorkspace(),
     runRecoveryEffect() {
       effects.find((effect) => String(effect).includes("shouldAutoResumeGenerationRecovery"))();
+    },
+    runContinuationEffect() {
+      effects.find((effect) => String(effect).includes("shouldAutomaticallyContinueScriptGeneration"))();
     },
     get url() { return url; },
   };
@@ -159,6 +173,36 @@ for (const mode of ["script_only", "script_and_storyboard"]) {
     }
   });
 }
+
+test("integrated script recovery never hands a saved combined batch to storyboards", () => {
+  const project = { ...projectFixture(), productionOutputMode: "script_and_storyboard", storyboards: [{ id: "existing-board" }] };
+  const before = structuredClone(project);
+  const harness = workspaceHarness(project, { scriptWorkflow: true });
+  harness.render().props.onRetryEpisode(1);
+  const launcher = harness.render();
+  launcher.props.onComplete();
+  assert.equal(harness.url.pathname, `/projects/${project.id}/workspace`);
+  assert.equal(harness.url.search, "");
+  assert.deepEqual(project, before);
+});
+
+test("integrated recovery uses script-only behavior without changing the stored delivery choice", () => {
+  const project = { ...projectFixture(), productionOutputMode: "script_and_storyboard" };
+  const harness = workspaceHarness(project, { scriptWorkflow: true });
+  harness.render();
+  harness.runContinuationEffect();
+  assert.equal(harness.continuationDecisions[0].productionOutputMode, "script_only");
+  assert.equal(project.productionOutputMode, "script_and_storyboard");
+});
+
+test("initial completion checks live host mode even before the mode hook resolves", () => {
+  const project = { ...projectFixture(), productionOutputMode: "script_and_storyboard" };
+  const harness = workspaceHarness(project, { scriptWorkflow: null, runtimeScriptWorkflow: true });
+  harness.render().props.onRetryEpisode(1);
+  harness.render().props.onComplete();
+  assert.equal(harness.url.pathname, `/projects/${project.id}/workspace`);
+  assert.equal(project.productionOutputMode, "script_and_storyboard");
+});
 
 for (const blockedState of ["new", "paused", "completed", "awaiting_review"]) {
   test(`empty ${blockedState} workspace does not create generation intent on refresh`, () => {

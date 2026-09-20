@@ -60,4 +60,6 @@ def approved_story_bible_context(bible: StoryBible) -> StoryBible:
     updates = {key: clean(values[key], inline=key != "avoid_patterns") for key in _NARRATIVE_FIELDS}
     if all(updates[key] == values[key] for key in updates):
         return bible
-    return StoryBible.model_validate({**values, **updates, "market_profile": bible.market_profile})
+    approved = StoryBible.model_validate({**values, **updates, "market_profile": bible.market_profile})
+    approved._overseas_story_profile = bible._overseas_story_profile
+    return approved

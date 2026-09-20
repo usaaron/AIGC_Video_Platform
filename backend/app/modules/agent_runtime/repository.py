@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import update
 from sqlmodel import Session, col, select
 
 from app.modules.agent_runtime.models import (
@@ -62,10 +63,11 @@ class AgentRunRepository:
         *,
         lease_seconds: int = DEFAULT_AGENT_LEASE_SECONDS,
     ) -> AgentRunStart:
+        self._lock_sqlite_write(request_key=record.request_key)
         existing = self._session.exec(
             select(AgentRunRecordTable).where(
                 AgentRunRecordTable.request_key == record.request_key
-            )
+            ).with_for_update()
         ).first()
         if existing is None:
             existing = self._find_compatible_revision_run(record)
@@ -308,6 +310,7 @@ class AgentRunRepository:
             )
             .order_by(col(AgentRunRecordTable.updated_at).desc())
             .limit(20)
+            .with_for_update()
         ).all()
         return next(
             (
@@ -336,7 +339,7 @@ class AgentRunRepository:
             statement = statement.where(
                 AgentRunRecordTable.run_id != exclude_run_id
             )
-        active = self._session.exec(statement).first()
+        active = self._session.exec(statement.with_for_update()).first()
         if active is None:
             return
         current = self._from_table(active)
@@ -396,7 +399,7 @@ class AgentRunRepository:
         *,
         result_payload: dict[str, Any] | None = None,
     ) -> AgentRunRecord:
-        table_record = self._session.get(AgentRunRecordTable, record.run_id)
+        table_record = self.require_current_owner(record)
         if table_record is None:
             raise AgentRunPersistenceConflictError(
                 f"Agent run {record.run_id} does not exist."
@@ -418,6 +421,62 @@ class AgentRunRepository:
                 )
         self._save_record(table_record, record, result_payload=result_payload)
         return record
+
+    def require_current_owner(self, expected: AgentRunRecord) -> AgentRunRecordTable:
+        self._lock_sqlite_write(run_id=expected.run_id)
+        table = self._session.exec(select(AgentRunRecordTable).where(
+            AgentRunRecordTable.run_id == expected.run_id).with_for_update()
+            .execution_options(populate_existing=True)).first()
+        if table is None:
+            raise AgentRunPersistenceConflictError("Agent run no longer exists.")
+        current = self._from_table(table)
+        if current.status != AgentRunStatus.running or any(
+            getattr(current, key) != getattr(expected, key)
+            for key in ("request_key", "input_fingerprint", "owner_instance_id", "attempt_count", "project_id")
+        ):
+            raise AgentRunPersistenceConflictError("Agent run no longer owns this active lease.")
+        return table
+
+    def _lock_sqlite_write(self, *, run_id: str | None = None, request_key: str | None = None) -> None:
+        # SQLite ignores FOR UPDATE. Acquire its write lock before reading the
+        # lease so a heartbeat cannot later write a stale payload over cancel or
+        # a resumed attempt. The statement deliberately changes no values.
+        if self._session.get_bind().dialect.name != "sqlite":
+            return
+        statement = update(AgentRunRecordTable).values(updated_at=AgentRunRecordTable.updated_at)
+        if run_id is not None:
+            statement = statement.where(AgentRunRecordTable.run_id == run_id)
+        else:
+            statement = statement.where(AgentRunRecordTable.request_key == request_key)
+        self._session.execute(statement.execution_options(synchronize_session=False))
+
+    def cancel_stream_run(self, expected: AgentRunRecord) -> None:
+        # The record comes from this request's locked start_session, never from
+        # client fields. Do not overwrite completed or replaced-owner results.
+        try:
+            table = self.require_current_owner(expected)
+        except AgentRunPersistenceConflictError:
+            return
+        current = self._from_table(table)
+        now = datetime.now(timezone.utc)
+        executions = []
+        for execution in current.tool_executions:
+            if execution.status == AgentToolStatus.running:
+                execution = execution.model_copy(update={
+                    "status": AgentToolStatus.failed, "completed_at": now,
+                    "error_type": "LLMRequestCancelledError",
+                })
+                saved_step = self._session.get(AgentStepRecordTable, (current.run_id, execution.attempt, execution.step))
+                if saved_step is not None:
+                    saved_step.status = AgentToolStatus.failed.value
+                    saved_step.completed_at = now
+                    saved_step.error_type = "LLMRequestCancelledError"
+            executions.append(execution)
+        closed = current.model_copy(update={
+            "status": AgentRunStatus.failed, "updated_at": now, "completed_at": now,
+            "failure_type": "LLMRequestCancelledError", "tool_executions": executions,
+        })
+        self._save_record(table, closed)
 
     def save_step(
         self,
@@ -625,10 +684,8 @@ class AgentRunRepository:
             return None
         return record.checkpoint_type or "agent.checkpoint.v1", record.checkpoint_payload
 
-    def heartbeat(self, run_id: str) -> None:
-        record = self._session.get(AgentRunRecordTable, run_id)
-        if record is None or record.status != AgentRunStatus.running.value:
-            return
+    def heartbeat(self, expected: AgentRunRecord) -> None:
+        record = self.require_current_owner(expected)
         now = datetime.now(timezone.utc)
         payload = dict(record.payload)
         payload["updated_at"] = now.isoformat()

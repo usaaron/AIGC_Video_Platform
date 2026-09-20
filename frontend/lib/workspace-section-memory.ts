@@ -1,6 +1,6 @@
 import { projectStorageKey } from "@/lib/host-session";
 
-export type WorkspaceSectionMemoryId = "story-bible" | "planning" | "script";
+export type WorkspaceSectionMemoryId = "story-bible" | "planning" | "script" | "synopsis-progress";
 
 export type WorkspaceSectionChatMessage = {
   id: string;
