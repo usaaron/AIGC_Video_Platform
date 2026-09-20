@@ -1,9 +1,12 @@
 import {
+  FORCE_EPISODE_BREAK_MARKER,
   characterIdentity,
   characterVariantName,
   characterVariantKey,
   type ScriptAssetSuggestion,
 } from '@seqora/contracts'
+import { isNaturalScreenplayHeader, parseNaturalScreenplayFields } from './screenplayParsing.js'
+import { normalizeScriptMasterScreenplay } from './scriptMasterScreenplay.js'
 
 export const SCRIPT_ASSET_FIELD_BOUNDARIES = [
   '场次',
@@ -57,6 +60,14 @@ export const SCRIPT_ASSET_STOP_WORDS = new Set(SCRIPT_ASSET_FIELD_BOUNDARIES)
 export type ScriptAssetKind = ScriptAssetSuggestion['kind']
 export type ScriptAssetNameIndex = Record<ScriptAssetKind, string[]>
 
+export const SCRIPT_ASSET_NAME_FIELDS: Record<ScriptAssetKind, string[]> = {
+  character: ['角色', '人物', '主角'],
+  scene: ['场景', '地点'],
+  prop: ['关键物件', '关键道具', '物件', '道具', '产品'],
+  costume: ['服装', '衣装', '外观'],
+  brand: ['品牌', '品牌标识', 'Logo', 'logo'],
+}
+
 export type ScriptAssetManifestItem = {
   kind: ScriptAssetKind
   name: string
@@ -91,14 +102,29 @@ function emptyScriptAssetManifest(): ScriptAssetManifest {
 /** Reads the visible line-oriented asset block without another model call. */
 export function extractScriptAssetManifest(script: string): ScriptAssetManifest {
   const starts = [...script.matchAll(/(?:^|\n)\s*资产\s*[：:]/gu)].map((match) => match.index!)
+  return mergeScriptAssetManifests(
+    starts.map((start, index) => extractSingleAssetManifest(script.slice(start, starts[index + 1]))),
+  )
+}
+
+/** Preserve source order and the longest explicit fact for each exact asset name. */
+export function mergeScriptAssetManifests(manifests: readonly ScriptAssetManifest[]): ScriptAssetManifest {
   const merged = emptyScriptAssetManifest()
-  starts.forEach((start, index) => {
-    const manifest = extractSingleAssetManifest(script.slice(start, starts[index + 1]))
+  const byKind = {
+    character: new Map<string, ScriptAssetManifestItem>(),
+    scene: new Map<string, ScriptAssetManifestItem>(),
+    prop: new Map<string, ScriptAssetManifestItem>(),
+    costume: new Map<string, ScriptAssetManifestItem>(),
+    brand: new Map<string, ScriptAssetManifestItem>(),
+  }
+  for (const manifest of manifests) {
     for (const kind of Object.keys(merged) as ScriptAssetKind[]) {
       for (const item of manifest[kind]) {
-        const existing = merged[kind].find((candidate) => candidate.name === item.name)
+        const existing = byKind[kind].get(item.name)
         if (!existing) {
-          merged[kind].push(item)
+          const copy = { ...item, facts: { ...item.facts } }
+          merged[kind].push(copy)
+          byKind[kind].set(item.name, copy)
           continue
         }
         for (const [label, detail] of Object.entries(item.facts)) {
@@ -109,7 +135,7 @@ export function extractScriptAssetManifest(script: string): ScriptAssetManifest 
           .join('；')
       }
     }
-  })
+  }
   return merged
 }
 
@@ -236,7 +262,47 @@ export function namesFromManifestOrFields(
   return extractAssetNames(script, fields, fallback, limit, kind)
 }
 
-export function extractScriptAssetNameIndex(script: string): ScriptAssetNameIndex {
+export type PreparedScriptAssetIndex = {
+  manifest: ScriptAssetManifest
+  fieldNames: ScriptAssetNameIndex
+}
+
+/** Uses the same per-kind limits as the original normalizer, without rescanning. */
+export function namesFromPreparedScriptAssets(
+  { manifest, fieldNames }: PreparedScriptAssetIndex,
+  kind: ScriptAssetKind,
+  limit = Number.POSITIVE_INFINITY,
+): string[] {
+  const fields = fieldNames[kind].slice(0, limit)
+  if (!manifest[kind].length) return fields
+  return [
+    ...new Set([
+      ...manifest[kind].map((item) => item.name),
+      ...fields.filter(
+        (name) =>
+          kind !== 'character' ||
+          !manifest.character.some((item) =>
+            characterIdentity(name).name === name
+              ? characterIdentity(item.name).name === name
+              : characterVariantKey(item.name) === characterVariantKey(name),
+          ),
+      ),
+    ]),
+  ].slice(0, limit)
+}
+
+export function extractScriptAssetNameIndex(
+  script: string,
+  prepared?: PreparedScriptAssetIndex,
+): ScriptAssetNameIndex {
+  if (prepared)
+    return {
+      character: namesFromPreparedScriptAssets(prepared, 'character', 8),
+      scene: namesFromPreparedScriptAssets(prepared, 'scene', 8),
+      prop: namesFromPreparedScriptAssets(prepared, 'prop', 10),
+      costume: namesFromPreparedScriptAssets(prepared, 'costume', 8),
+      brand: namesFromPreparedScriptAssets(prepared, 'brand', 4),
+    }
   const manifest = extractScriptAssetManifest(script)
   return {
     character: namesFromManifestOrFields(script, manifest, 'character', ['角色', '人物', '主角'], [], 8),
@@ -277,13 +343,74 @@ export function extractAssetNames(
   limit: number,
   kind: ScriptAssetKind,
 ): string[] {
-  const values = extractScriptFieldValues(script, fields).flatMap((value) => splitAssetNameList(value, kind))
-  const cleanedValues = values
+  const uniqueValues = deduplicateExtractedAssetNames(extractAssetNameCandidates(script, fields, kind), kind)
+  return (uniqueValues.length ? uniqueValues : fallback).slice(0, limit)
+}
+
+function extractAssetNameCandidates(
+  script: string,
+  fields: string[],
+  kind: ScriptAssetKind,
+  screenplay = extractScreenplayAssetFields(script),
+): string[] {
+  const values = [...extractScriptFieldValues(script, fields), ...screenplay[kind]].flatMap((value) =>
+    splitAssetNameList(value, kind),
+  )
+  return values
     .map((value) => cleanAssetName(value, kind))
     .filter((value) => isPlausibleAssetName(value, kind))
     .filter((value) => !SCRIPT_ASSET_STOP_WORDS.has(value))
-  const uniqueValues = deduplicateExtractedAssetNames(cleanedValues, kind)
-  return (uniqueValues.length ? uniqueValues : fallback).slice(0, limit)
+}
+
+/** Only explicit scene headings and dialogue cues supply fallback identities. */
+function extractScreenplayAssetFields(script: string): ScriptAssetNameIndex {
+  const result: ScriptAssetNameIndex = { character: [], scene: [], prop: [], costume: [], brand: [] }
+  const screenplay = script.split(FORCE_EPISODE_BREAK_MARKER).map(normalizeScriptMasterScreenplay)
+  for (const episode of screenplay) {
+    let scene: string[] = []
+    const flush = () => {
+      if (!scene.length) return
+      const fields = parseNaturalScreenplayFields(scene.join('\n'))
+      if (fields.场景) result.scene.push(fields.场景)
+      if (fields.角色) result.character.push(fields.角色)
+      scene = []
+    }
+    for (const line of episode.split(/\r?\n/u)) {
+      const heading = isNaturalScreenplayHeader(line)
+      if (heading || /^\s*(?:场次\s*[：:]|第\s*\d+\s*集)/u.test(line)) flush()
+      if (heading || scene.length) scene.push(line)
+    }
+    flush()
+  }
+  return result
+}
+
+/** Keep candidates until the full request is known: scene-prefix dedup is order-sensitive. */
+export function extractScriptAssetFieldCandidates(
+  script: string,
+  kinds: readonly ScriptAssetKind[] = Object.keys(SCRIPT_ASSET_NAME_FIELDS) as ScriptAssetKind[],
+): ScriptAssetNameIndex {
+  const screenplay = extractScreenplayAssetFields(script)
+  return Object.fromEntries(
+    (Object.keys(SCRIPT_ASSET_NAME_FIELDS) as ScriptAssetKind[]).map((kind) => [
+      kind,
+      kinds.includes(kind)
+        ? extractAssetNameCandidates(script, SCRIPT_ASSET_NAME_FIELDS[kind], kind, screenplay)
+        : [],
+    ]),
+  ) as ScriptAssetNameIndex
+}
+
+export function mergeScriptAssetFieldNames(indexes: readonly ScriptAssetNameIndex[]): ScriptAssetNameIndex {
+  return Object.fromEntries(
+    (Object.keys(SCRIPT_ASSET_NAME_FIELDS) as ScriptAssetKind[]).map((kind) => [
+      kind,
+      deduplicateExtractedAssetNames(
+        indexes.flatMap((index) => index[kind]),
+        kind,
+      ),
+    ]),
+  ) as ScriptAssetNameIndex
 }
 
 function extractScriptFieldValues(script: string, fields: string[]): string[] {
@@ -386,7 +513,10 @@ function cleanCharacterName(value: string): string {
 }
 
 function cleanSceneName(value: string): string {
-  return cleanAssetNameBase(value)
+  // Structured screenplay manifests may contain the complete scene heading.
+  // Remove its marker before the generic sentence splitter sees the dot in INT.
+  const location = value.replace(/^\s*(?:(?:INT|EXT)(?:\.?\s*\/\s*(?:INT|EXT))?\.?|I\/E\.?)\s+/iu, '')
+  return cleanAssetNameBase(location)
     .replace(/^(?:内景|外景|室内|室外)[：:]?\s*/u, '')
     .replace(
       /^(?:次日|当天|清晨|黎明|上午|中午|下午|傍晚|黄昏|夜晚|深夜|午夜|雨夜|雪夜)(?:前|后|时)?(?:的)?\s*/u,

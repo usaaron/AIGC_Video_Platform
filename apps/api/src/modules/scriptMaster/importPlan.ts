@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
   createAssetSchema,
   createShotSchema,
@@ -11,6 +12,7 @@ import {
 } from '@seqora/contracts'
 import { defaultAssetAttributes } from '../../infra/storeNormalization.js'
 import { AppError } from '../../core/errors.js'
+import { productionHistory, PRODUCTION_HISTORY_KEY, reviseProduction } from './productionRevision.js'
 
 export type ImportWorkspace = {
   project: Project
@@ -54,10 +56,21 @@ export function planImport(
   const episodes: ScriptEpisode[] = []
   const assets: Asset[] = []
   const shots: Shot[] = []
+  const removedShotIds = new Set<string>()
   const incomingOrder = new Map<string, number>()
+  let episodeTextChanged = false
   let nextOrder = Math.max(0, ...workspace.shots.map((s) => s.order))
   const common = { projectId: project.id, tenantId: project.tenantId, createdAt: now, updatedAt: now }
   for (const entry of input.episodes.slice().sort((a, b) => a.episodeNumber - b.episodeNumber)) {
+    if (
+      entry.assetEvidence &&
+      entry.assetEvidence.contentHash !== createHash('sha256').update(entry.content.trim()).digest('hex')
+    )
+      throw new AppError(
+        400,
+        'IMPORT_ASSET_EVIDENCE_HASH_MISMATCH',
+        `第 ${entry.episodeNumber} 集的资产依据与正文不一致，请重新读取后导入`,
+      )
     const id = importedId(input, 'episode', entry.sourceEpisodeId)
     const current = workspace.scriptEpisodes.find((e) => e.id === id)
     if (workspace.scriptEpisodes.some((e) => e.episodeNumber === entry.episodeNumber && e.id !== id))
@@ -72,9 +85,24 @@ export function planImport(
         'IMPORT_EPISODE_RENUMBERED',
         '来源集数编号已变化，请导入新项目以保留原镜头对应关系',
       )
-    const changed = !current || current.content !== entry.content || current.title !== entry.title
+    const textChanged = !current || current.content !== entry.content || current.title !== entry.title
+    const evidenceChanged = !isDeepStrictEqual(
+      current?.continuityState.scriptAssetEvidence,
+      entry.assetEvidence,
+    )
+    episodeTextChanged ||= textChanged
     const existingShots = workspace.shots.filter((shot) => shot.scriptEpisodeId === id)
-    if (changed && existingShots.length && entry.shots === undefined)
+    const revision =
+      textChanged && current && existingShots.length && input.storyboardRevision === 'preserve-history'
+        ? reviseProduction(current, entry, existingShots, now, (index) =>
+            importedId(
+              input,
+              'revision-shot',
+              `${entry.sourceEpisodeId}:${current.revision + 1}:${input.sourceRevision}:${index}`,
+            ),
+          )
+        : undefined
+    if (textChanged && existingShots.length && entry.shots === undefined && !revision)
       throw new AppError(
         409,
         'IMPORT_STORYBOARD_REQUIRED',
@@ -91,7 +119,28 @@ export function planImport(
           `第 ${entry.episodeNumber} 集有主站新增或来源已删除的镜头，请导入新项目以保留原制作版本`,
         )
     }
-    if (changed) {
+    if (textChanged || evidenceChanged) {
+      const history = current ? productionHistory(current) : []
+      const continuityState: ScriptEpisode['continuityState'] = textChanged
+        ? history.length
+          ? { [PRODUCTION_HISTORY_KEY]: history }
+          : {}
+        : { ...current!.continuityState }
+      if (revision) {
+        continuityState[PRODUCTION_HISTORY_KEY] = revision.history
+        revision.removedShotIds.forEach((shotId) => removedShotIds.add(shotId))
+        revision.shots.forEach((shot, index) => {
+          shots.push(shot)
+          incomingOrder.set(shot.id, index)
+        })
+        receipt.revisionSummary ??= { episodeNumbers: [], preservedShots: 0, renewedShots: 0 }
+        receipt.revisionSummary.episodeNumbers.push(entry.episodeNumber)
+        receipt.revisionSummary.preservedShots += revision.preservedShots
+        receipt.revisionSummary.renewedShots += revision.shots.length - revision.preservedShots
+        receipt.importedShots += revision.shots.length - revision.preservedShots
+      }
+      if (entry.assetEvidence) continuityState.scriptAssetEvidence = structuredClone(entry.assetEvidence)
+      else delete continuityState.scriptAssetEvidence
       episodes.push({
         ...common,
         ...current,
@@ -99,10 +148,10 @@ export function planImport(
         episodeNumber: entry.episodeNumber,
         title: entry.title,
         content: entry.content,
-        draftContent: '',
-        status: 'saved',
-        summary: entry.content.replace(/\s+/g, ' ').slice(0, 500),
-        continuityState: {},
+        draftContent: textChanged ? '' : current!.draftContent,
+        status: textChanged ? 'saved' : current!.status,
+        summary: textChanged ? entry.content.replace(/\s+/g, ' ').slice(0, 500) : current!.summary,
+        continuityState,
         revision: (current?.revision ?? 0) + 1,
         lastEditedBy: actorId,
         updatedAt: now,
@@ -206,13 +255,18 @@ export function planImport(
   }
   const byId = new Map(workspace.scriptEpisodes.map((e) => [e.id, e]))
   episodes.forEach((e) => byId.set(e.id, e))
-  const script = [...byId.values()]
-    .filter((e) => e.status === 'saved')
-    .sort((a, b) => a.episodeNumber - b.episodeNumber)
-    .map((e) => e.content.trim())
-    .join('\n\n【强制下一集】\n\n')
+  const script =
+    input.episodes.length && !episodeTextChanged
+      ? project.script
+      : [...byId.values()]
+          .filter((e) => e.status === 'saved')
+          .sort((a, b) => a.episodeNumber - b.episodeNumber)
+          .map((e) => e.content.trim())
+          .join('\n\n【强制下一集】\n\n')
   // Importing episode 2 before episode 1 must still produce the correct playback order.
-  const ordered = new Map(workspace.shots.map((s) => [s.id, s]))
+  const ordered = new Map(
+    workspace.shots.filter((shot) => !removedShotIds.has(shot.id)).map((s) => [s.id, s]),
+  )
   shots.forEach((s) => ordered.set(s.id, s))
   const changedShots = new Map(shots.map((s) => [s.id, s]))
   ;[...ordered.values()]
@@ -228,6 +282,7 @@ export function planImport(
     episodes,
     assets,
     shots: [...changedShots.values()],
+    removedShotIds: [...removedShotIds],
     project: { ...project, script, updatedAt: now },
     receipt,
   }

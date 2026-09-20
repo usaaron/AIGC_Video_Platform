@@ -1,6 +1,5 @@
 import type { Asset, ScriptAssetSuggestion, ScriptCreativeDirection } from '@seqora/contracts'
 import {
-  escapeRegExp,
   extractScriptAssetManifest,
   manifestDetails,
   manifestFact,
@@ -9,6 +8,8 @@ import {
   resolveAssetSuggestionName,
 } from './assetSuggestionExtraction.js'
 import type { ScriptAssetManifestItem, ScriptAssetNameIndex } from './assetSuggestionExtraction.js'
+import { createCharacterEvidenceContext, exactAgeFromText } from './characterEvidence.js'
+import type { CharacterEvidenceContext } from './characterEvidence.js'
 
 export {
   extractAssetNames,
@@ -47,6 +48,7 @@ export function normalizeScriptAssetSuggestion(
   sourceContext = '',
   projectVisualStyle: ProjectVisualStyle = 'cinematic-cg',
   manifest = extractScriptAssetManifest(sourceContext),
+  characterEvidence?: CharacterEvidenceContext,
 ): ScriptAssetSuggestion | null {
   if (isDiscardableScriptAssetSuggestion(suggestion)) return null
   const name = resolveAssetSuggestionName(suggestion, sourceNames)
@@ -68,13 +70,14 @@ export function normalizeScriptAssetSuggestion(
     description: stripNarrativeAssetFacts(namedSuggestionBase.description),
     prompt: stripNarrativeAssetFacts(namedSuggestionBase.prompt),
     sourceFacts: reusableAssetFacts({
-      ...manifestItem?.facts,
       ...namedSuggestionBase.sourceFacts,
+      ...manifestItem?.facts,
     }),
   }
   const stylePrompt = `项目统一视觉风格：${projectVisualStyleLabel(projectVisualStyle)}，后续资产和视频必须保持这一风格，不要自行切换风格`
 
   if (namedSuggestion.kind === 'character') {
+    const evidenceContext = characterEvidence ?? createCharacterEvidenceContext(sourceContext)
     const animal = namedSuggestion.attributes.subjectType === 'animal'
     const evidence = [
       namedSuggestion.name,
@@ -82,9 +85,9 @@ export function normalizeScriptAssetSuggestion(
       namedSuggestion.prompt,
       namedSuggestion.reason,
     ].join('，')
-    const nearbyScriptEvidence = characterEvidenceWindow(namedSuggestion.name, sourceContext)
+    const nearbyScriptEvidence = evidenceContext.evidenceFor(namedSuggestion.name)
     const profileEvidence = [evidence, nearbyScriptEvidence].filter(Boolean).join('，')
-    const inferredGender = inferScriptCharacterGender(profileEvidence)
+    const inferredGender = inferManifestGender(manifestItem, profileEvidence)
     const gender = animal
       ? 'unspecified'
       : inferredGender === 'unspecified'
@@ -92,14 +95,15 @@ export function normalizeScriptAssetSuggestion(
         : inferredGender
     const exactAge = animal
       ? null
-      : inferScriptCharacterExactAge(namedSuggestion.name, sourceContext) ||
+      : inferManifestExactAge(manifestItem) ||
+        evidenceContext.exactAgeFor(namedSuggestion.name) ||
         namedSuggestion.attributes.exactAge
     const ageSignal = inferScriptCharacterAgeSignal(profileEvidence)
     const ageGroup = animal
       ? namedSuggestion.attributes.ageGroup
       : exactAge
         ? ageGroupFromExactAge(exactAge)
-        : ageSignal || namedSuggestion.attributes.ageGroup
+        : inferManifestAgeGroup(manifestItem, ageSignal || namedSuggestion.attributes.ageGroup)
     const identityTags = inferScriptCharacterIdentityTags(profileEvidence)
     const profileFacts = animal
       ? identityTags
@@ -365,43 +369,42 @@ export function fallbackAssetSuggestions(
   direction: ScriptCreativeDirection,
   projectVisualStyle: ProjectVisualStyle = 'cinematic-cg',
   manifest = extractScriptAssetManifest(script),
+  sourceNames?: ScriptAssetNameIndex,
+  characterEvidence?: CharacterEvidenceContext,
 ): { summary: string; assets: ScriptAssetSuggestion[] } {
+  const evidenceContext = characterEvidence ?? createCharacterEvidenceContext(script)
   const visualStyle = projectVisualStyle || suggestionVisualStyle(direction)
-  const characters = namesFromManifestOrFields(
-    script,
-    manifest,
-    'character',
-    ['角色', '人物', '主角'],
-    [],
-    2_000,
-  )
-  const scenes = namesFromManifestOrFields(script, manifest, 'scene', ['场景', '地点'], [], 2_000)
-  const props = namesFromManifestOrFields(
-    script,
-    manifest,
-    'prop',
-    ['关键物件', '关键道具', '物件', '道具', '产品'],
-    [],
-    2_000,
-  )
-  const costumes = namesFromManifestOrFields(script, manifest, 'costume', ['服装', '衣装', '外观'], [], 2_000)
-  const brands = namesFromManifestOrFields(
-    script,
-    manifest,
-    'brand',
-    ['品牌', '品牌标识', 'Logo', 'logo'],
-    [],
-    2_000,
-  )
+  const characters =
+    sourceNames?.character.slice(0, 2_000) ??
+    namesFromManifestOrFields(script, manifest, 'character', ['角色', '人物', '主角'], [], 2_000)
+  const scenes =
+    sourceNames?.scene.slice(0, 2_000) ??
+    namesFromManifestOrFields(script, manifest, 'scene', ['场景', '地点'], [], 2_000)
+  const props =
+    sourceNames?.prop.slice(0, 2_000) ??
+    namesFromManifestOrFields(
+      script,
+      manifest,
+      'prop',
+      ['关键物件', '关键道具', '物件', '道具', '产品'],
+      [],
+      2_000,
+    )
+  const costumes =
+    sourceNames?.costume.slice(0, 2_000) ??
+    namesFromManifestOrFields(script, manifest, 'costume', ['服装', '衣装', '外观'], [], 2_000)
+  const brands =
+    sourceNames?.brand.slice(0, 2_000) ??
+    namesFromManifestOrFields(script, manifest, 'brand', ['品牌', '品牌标识', 'Logo', 'logo'], [], 2_000)
   const assets: ScriptAssetSuggestion[] = [
     ...characters.map((name): ScriptAssetSuggestion => {
       const manifestItem = manifest.character.find((item) => item.name === name)
-      const evidence = [name, manifestDetails(manifestItem), characterEvidenceWindow(name, script)].join('，')
+      const evidence = [name, manifestDetails(manifestItem), evidenceContext.evidenceFor(name)].join('，')
       const subjectType = inferScriptCharacterSubjectType(
         manifestItem ? `${name}，${manifestDetails(manifestItem)}` : name,
       )
       const gender = subjectType === 'animal' ? 'unspecified' : inferManifestGender(manifestItem, evidence)
-      const exactAge = inferManifestExactAge(manifestItem) || inferScriptCharacterExactAge(name, script)
+      const exactAge = inferManifestExactAge(manifestItem) || evidenceContext.exactAgeFor(name)
       const ageGroup = exactAge
         ? ageGroupFromExactAge(exactAge)
         : inferManifestAgeGroup(manifestItem, inferScriptCharacterAge(evidence))
@@ -649,122 +652,12 @@ function inferScriptCharacterAgeSignal(
   return null
 }
 
-function inferScriptCharacterExactAge(name: string, script: string): number | null {
-  const exactFromContext = exactAgeNearCharacterName(name, script)
-  if (exactFromContext) return exactFromContext
-  return exactAgeFromText(name)
-}
-
-function exactAgeNearCharacterName(name: string, script: string): number | null {
-  const nearby = characterEvidenceWindow(name, script)
-  const nearbyAge = exactAgeFromText(nearby)
-  if (nearbyAge) return nearbyAge
-
-  const escapedName = escapeRegExp(name)
-  const ageToken = '[0-9零〇一二三四五六七八九十百两]{1,4}'
-  const patterns = [
-    new RegExp(`(${ageToken})岁(?:的)?[^\\n|｜。；;，,、]{0,12}${escapedName}`, 'u'),
-    new RegExp(`${escapedName}[^\\n|｜。；;，,、]{0,12}(${ageToken})岁`, 'u'),
-  ]
-  for (const pattern of patterns) {
-    const match = script.match(pattern)
-    const parsed = match ? parseAgeToken(match[1] || '') : null
-    if (parsed) return parsed
-  }
-  return null
-}
-
-function characterEvidenceWindow(name: string, script: string): string {
-  if (!name || !script) return ''
-  const occurrences: string[] = []
-  let searchFrom = 0
-  while (searchFrom < script.length) {
-    const index = script.indexOf(name, searchFrom)
-    if (index < 0) break
-    const lineStart = Math.max(
-      script.lastIndexOf('\n', index),
-      script.lastIndexOf('｜', index),
-      script.lastIndexOf('|', index),
-    )
-    const lineEndCandidates = [
-      script.indexOf('\n', index),
-      script.indexOf('｜', index),
-      script.indexOf('|', index),
-    ].filter((boundary) => boundary >= 0)
-    const lineEnd = lineEndCandidates.length ? Math.min(...lineEndCandidates) : script.length
-    const line = script.slice(lineStart + 1, lineEnd)
-    const listPart = line.split(/[、；;]/u).find((part) => part.includes(name))
-    occurrences.push((listPart || line).trim())
-    searchFrom = index + name.length
-  }
-  return (
-    occurrences.find((value) =>
-      /\d{1,3}\s*岁|男性|女性|男|女|老年|中年|青年|少年|少女|儿童|镖师|剑客|长老|导演|医生|将军/u.test(value),
-    ) ||
-    occurrences[0] ||
-    ''
-  )
-}
-
 function ageGroupFromExactAge(age: number): 'child' | 'teen' | 'young' | 'middle' | 'senior' {
   if (age < 13) return 'child'
   if (age <= 18) return 'teen'
   if (age < 30) return 'young'
   if (age < 50) return 'middle'
   return 'senior'
-}
-
-function exactAgeFromText(text: string): number | null {
-  const digitMatch = text.match(/(\d{1,3})岁/u)
-  if (digitMatch) return parseAgeToken(digitMatch[1] || '')
-  const chineseMatch = text.match(/([零〇一二三四五六七八九十百两]+)岁/u)
-  if (!chineseMatch) return null
-  return parseAgeToken(chineseMatch[1] || '')
-}
-
-function parseAgeToken(value: string): number | null {
-  const parsed = /^\d+$/u.test(value) ? Number(value) : parseChineseAge(value)
-  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 120 ? parsed : null
-}
-
-function parseChineseAge(value: string): number {
-  const trimmed = value.trim()
-  if (!trimmed) return NaN
-  const digitMap: Record<string, number> = {
-    零: 0,
-    〇: 0,
-    一: 1,
-    二: 2,
-    两: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-    六: 6,
-    七: 7,
-    八: 8,
-    九: 9,
-  }
-  let total = 0
-  let current = 0
-  let hasUnit = false
-  for (const char of trimmed) {
-    if (char === '百') {
-      total += (current || 1) * 100
-      current = 0
-      hasUnit = true
-      continue
-    }
-    if (char === '十') {
-      total += (current || 1) * 10
-      current = 0
-      hasUnit = true
-      continue
-    }
-    const digit = digitMap[char]
-    if (digit === undefined) return NaN
-    current = digit
-  }
-  return hasUnit ? total + current : current
 }
 
 function inferScriptCharacterIdentityTags(text: string): string[] {

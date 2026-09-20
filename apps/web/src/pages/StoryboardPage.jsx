@@ -22,6 +22,7 @@ import {
 import { IconButton, PageHeader } from '../components/ui'
 import { ShotRow } from '../features/storyboard/StoryboardComponents'
 import { ShotHistoryModal } from '../features/storyboard/ShotHistoryModal'
+import { ScriptRevisionHistory } from '../features/storyboard/ScriptRevisionHistory'
 import {
   createShotAssetReferenceIndex,
   selectShotAssetReferencesFromIndex,
@@ -500,6 +501,7 @@ export function StoryboardPage({
               : `批量下载 ${downloadableVideos.length} 条`}
         </button>
       </PageHeader>
+      <ScriptRevisionHistory scriptEpisodes={scriptEpisodes} tasks={tasks} />
       {pendingBatchMode && (
         <div className="storyboard-batch-confirm" role="alert">
           <div>

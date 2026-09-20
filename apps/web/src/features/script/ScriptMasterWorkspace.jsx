@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { LoaderCircle, RefreshCw } from 'lucide-react'
+import { ArrowLeft, History, LoaderCircle, RefreshCw } from 'lucide-react'
 import { api } from '../../services/apiClient'
+import { subscribeScriptMasterMessages } from './scriptMasterMessages'
 
 // Both applications are served by the host gateway; never embed a ticket on another origin.
 export function scriptMasterFrameUrl(launch, origin) {
@@ -17,8 +18,11 @@ export function scriptMasterFrameUrl(launch, origin) {
   return url.href
 }
 
-export function ScriptMasterWorkspace({ projectId, onSynced, onNavigate }) {
+export function ScriptMasterWorkspace({ projectId, surface = 'script', onSynced, onNavigate }) {
   const frame = useRef(null)
+  const callbacks = useRef({ onSynced, onNavigate })
+  callbacks.current = { onSynced, onNavigate }
+  const standalone = surface === 'standalone'
   const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState({ url: '', status: 'loading', error: '' })
 
@@ -47,48 +51,36 @@ export function ScriptMasterWorkspace({ projectId, onSynced, onNavigate }) {
       active = false
       window.clearTimeout(timeout)
     }
-  }, [projectId, attempt])
+  }, [projectId, attempt, surface])
 
   useEffect(() => {
-    function receive(event) {
-      if (
-        event.origin !== window.location.origin ||
-        !frame.current ||
-        event.source !== frame.current.contentWindow
-      )
-        return
-      const message = event.data
-      if (!message || message.projectId !== (projectId ?? null)) return
-      if (message.type === 'seqora:script-master:ready') {
-        setState((current) => ({ ...current, status: 'ready', error: '' }))
-      } else if (message.type === 'seqora:script-master:synced') {
-        void Promise.resolve()
-          .then(() => onSynced?.())
-          .catch(() => {
-            setState((current) => ({ ...current, error: '内容已同步，但制作稿暂未刷新；请重新打开制作稿。' }))
-          })
-      } else if (
-        message.type === 'seqora:script-master:navigate' &&
-        ['script', 'assets', 'storyboard'].includes(message.view)
-      ) {
-        onNavigate?.(message.view)
-      }
-    }
-    window.addEventListener('message', receive)
-    return () => window.removeEventListener('message', receive)
-  }, [projectId, onSynced, onNavigate])
+    return subscribeScriptMasterMessages({
+      hostWindow: window,
+      projectId,
+      getFrameWindow: () => frame.current?.contentWindow,
+      onReady: () => setState((current) => ({ ...current, status: 'ready', error: '' })),
+      onSynced: () => callbacks.current.onSynced?.(),
+      onNavigate: (view) => callbacks.current.onNavigate?.(view),
+      onError: (error) => setState((current) => ({ ...current, error })),
+    })
+  }, [projectId, attempt, surface])
 
   return (
     <section
       className="script-master-workspace"
-      aria-label="网剧创作工作台"
+      aria-label={standalone ? '独立剧本创作工作台' : '网剧创作工作台'}
+      data-surface={surface}
       aria-busy={state.status === 'loading'}
     >
       {state.status === 'loading' && (
         <div className="script-master-connection" role="status">
           <LoaderCircle size={22} className="spin" />
-          <strong>正在恢复当前项目的创作…</strong>
-          <span>设定、全剧规划、正文与分镜将在这里展开</span>
+          <strong>{standalone ? '正在打开剧本大师…' : '正在恢复当前项目的创作…'}</strong>
+          <span>
+            {standalone
+              ? '梗概、总纲、规划、正文、分镜与文件导出将在这里展开'
+              : '写下故事想法，确认安排后生成剧本，完成后进入资产设计'}
+          </span>
         </div>
       )}
       {state.error && (
@@ -103,8 +95,9 @@ export function ScriptMasterWorkspace({ projectId, onSynced, onNavigate }) {
       {state.url && (
         <iframe
           ref={frame}
-          key={state.url + attempt}
-          title="网剧创作"
+          key={state.url + attempt + surface}
+          title={standalone ? '剧本大师（测试中）' : '网剧创作'}
+          name={standalone ? 'seqora-script-master-standalone' : 'seqora-script-master-script'}
           src={state.url}
           referrerPolicy="no-referrer"
           className={state.status === 'loading' ? 'is-connecting' : ''}
@@ -126,26 +119,27 @@ export function SeriesCreationWorkspace({
 }) {
   return (
     <>
-      <nav className="series-workspace-tabs" aria-label="剧本工作区">
+      <nav className="series-workspace-header" aria-label="剧本工作区">
+        <div className="series-workspace-heading">
+          <strong>{view === 'production' ? '已交付版本' : '剧本创作'}</strong>
+          {view === 'production' && episodeCount > 0 && <small>{episodeCount} 集</small>}
+        </div>
         <button
           type="button"
-          aria-current={view === 'creation' ? 'page' : undefined}
+          className="series-workspace-secondary"
           disabled={busy}
-          onClick={onOpenCreation}
+          onClick={view === 'production' ? onOpenCreation : () => onViewChange('production')}
+          title={view === 'production' ? '返回当前项目的剧本创作' : '查看用于资产与分镜制作的剧本版本'}
         >
-          剧本创作 <small>设定 · 规划 · 正文 · 分镜</small>
-        </button>
-        <button
-          type="button"
-          aria-current={view === 'production' ? 'page' : undefined}
-          onClick={() => onViewChange('production')}
-        >
-          制作稿 <small>{episodeCount ? `${episodeCount} 集已同步` : '导入与编辑已有剧本'}</small>
+          {view === 'production' ? <ArrowLeft size={14} /> : <History size={14} />}
+          <span>{view === 'production' ? '返回剧本创作' : '已交付版本'}</span>
+          {view !== 'production' && episodeCount > 0 && <small>{episodeCount} 集</small>}
         </button>
       </nav>
       <div className="series-creation-pane" hidden={view !== 'creation'}>
         <ScriptMasterWorkspace
           projectId={projectId}
+          surface="script"
           onSynced={onSynced}
           onNavigate={(view) => {
             if (view === 'script') onViewChange('production')
@@ -154,9 +148,15 @@ export function SeriesCreationWorkspace({
         />
       </div>
       {view === 'production' && (
-        <p className="series-production-note">
-          这里是用于资产与视频制作的剧本。创作修改请切换「剧本创作」，完成后选择「同步到制作」；制作稿编辑不会回写创作源稿。
-        </p>
+        <section className="series-delivery-note" aria-label="交付版本说明">
+          {episodeCount === 0 && <strong>暂无已交付剧集</strong>}
+          <p>
+            {episodeCount === 0
+              ? '在剧本创作中同步已保存的分集正文后，这里会保留用于资产与分镜制作的版本。'
+              : '这些剧本供后续资产与分镜制作使用。'}
+            此处编辑不会回写「剧本创作」。
+          </p>
+        </section>
       )}
     </>
   )

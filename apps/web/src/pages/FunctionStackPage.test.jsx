@@ -16,10 +16,22 @@ describe('function stack pages', () => {
   it('shows a safe connection state while the external module is unavailable', () => {
     const html = renderToStaticMarkup(<FunctionStackPage tool="writing-studio" />)
 
-    expect(html).toContain('正在恢复当前项目的创作…')
-    expect(html).toContain('返回项目剧本')
+    expect(html).toContain('正在打开剧本大师…')
+    expect(html).toContain('返回项目库')
+    expect(html).toContain('测试中')
+    expect(html).toContain('正文、分镜与文件导出')
+    expect(html).toContain('data-surface="standalone"')
     expect(html).not.toContain('<iframe')
     expect(html).not.toContain('长剧本能力尚未接入当前版本')
+  })
+
+  it('keeps the standalone studio available within an existing project', () => {
+    const html = renderToStaticMarkup(
+      <FunctionStackPage tool="writing-studio" project={{ id: 'project-1' }} />,
+    )
+    expect(html).toContain('返回项目剧本')
+    expect(html).toContain('data-surface="standalone"')
+    expect(html).not.toContain('创建项目')
   })
 
   it('renders image-studio as the formal image2 workspace', () => {

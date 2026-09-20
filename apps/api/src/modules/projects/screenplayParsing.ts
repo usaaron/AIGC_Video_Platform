@@ -29,7 +29,7 @@ export function parseNaturalScreenplayFields(paragraph: string): NaturalScreenpl
 
   const metadata = headerParts.slice(1)
   const duration = metadata.find((part) => /^\d{1,3}(?:\.\d+)?\s*秒$/u.test(part)) || ''
-  const spatial = metadata.find((part) => /^(?:内景|外景|室内|室外)$/u.test(part)) || ''
+  const spatial = metadata.find((part) => /^(?:内景|外景|内外景|室内|室外)$/u.test(part)) || ''
   const moment =
     metadata.find((part) =>
       /^(?:凌晨|黎明|清晨|早晨|上午|中午|午后|下午|傍晚|黄昏|入夜|夜晚|深夜|午夜|白天)$/u.test(part),
@@ -43,8 +43,12 @@ export function parseNaturalScreenplayFields(paragraph: string): NaturalScreenpl
   const actionLines: string[] = []
 
   for (const line of bodyLines) {
+    if (line.startsWith('△')) {
+      actionLines.push(line)
+      continue
+    }
     const tagged = line.match(
-      /^\[(对白|台词|画外音|旁白|内心独白|音效|环境声|音乐|音乐\/环境声)\]\s*(?:([^：:\n]{1,16})[：:])?\s*[“"]?(.+?)[”"]?$/u,
+      /^\[(对白|台词|画外音|旁白|内心独白|音效|环境声|音乐|音乐\/环境声)\]\s*(?:([^：:\n]{1,120})[：:])?\s*[“"]?(.+?)[”"]?$/u,
     )
     if (tagged?.[1] && tagged[3]) {
       const kind = tagged[1] === '旁白' ? '画外音' : tagged[1]

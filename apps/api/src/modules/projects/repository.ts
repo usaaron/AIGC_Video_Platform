@@ -64,6 +64,7 @@ import {
   upsertShot,
 } from './repositoryData.js'
 import { readWorkspaceVersion, readWorkspaceVersionFromStore } from './workspaceVersion.js'
+import { insertionOrderFor, renumberProjectShots, renumberShotsInDatabase } from './shotOrdering.js'
 import {
   refreshProjectWorkspaceRuntimeCache,
   type ProjectRuntimeCacheOptions,
@@ -702,9 +703,14 @@ export class ProjectRepository {
           episode.content = content
           episode.draftContent = ''
           episode.status = 'saved'
-          episode.continuityState = episode.continuityState.batchGenerationKey
-            ? { batchGenerationKey: episode.continuityState.batchGenerationKey }
-            : {}
+          episode.continuityState = {
+            ...(episode.continuityState.batchGenerationKey
+              ? { batchGenerationKey: episode.continuityState.batchGenerationKey }
+              : {}),
+            ...(Array.isArray(episode.continuityState.scriptProductionHistory)
+              ? { scriptProductionHistory: episode.continuityState.scriptProductionHistory }
+              : {}),
+          }
           episode.title = title?.trim() || episode.title
           episode.summary = summarizeEpisodeContent(content)
           episode.lastEditedBy = principal.userId
@@ -734,7 +740,9 @@ export class ProjectRepository {
         const updated = await client.query<ScriptEpisodeRow>(
           `UPDATE script_episodes
            SET content = $4, draft_content = '', status = 'saved', title = $5, summary = $6,
-               continuity_state = CASE WHEN continuity_state ? 'batchGenerationKey' THEN jsonb_build_object('batchGenerationKey', continuity_state->'batchGenerationKey') ELSE '{}'::jsonb END, revision = revision + 1, last_edited_by = $7, updated_at = $8
+               continuity_state = (CASE WHEN continuity_state ? 'batchGenerationKey' THEN jsonb_build_object('batchGenerationKey', continuity_state->'batchGenerationKey') ELSE '{}'::jsonb END)
+                 || (CASE WHEN jsonb_typeof(continuity_state->'scriptProductionHistory') = 'array' THEN jsonb_build_object('scriptProductionHistory', continuity_state->'scriptProductionHistory') ELSE '{}'::jsonb END),
+               revision = revision + 1, last_edited_by = $7, updated_at = $8
            WHERE id = $1 AND project_id = $2 AND tenant_id = $3
            RETURNING ${scriptEpisodeColumns}`,
           [
@@ -2139,38 +2147,6 @@ export class ProjectRepository {
     }
     return this.store
   }
-}
-
-function insertionOrderFor(shots: Shot[], insertAfterShotId: string | null | undefined): number | null {
-  if (insertAfterShotId === undefined) return shots.length + 1
-  if (insertAfterShotId === null) return 1
-  const anchor = shots.find((shot) => shot.id === insertAfterShotId)
-  return anchor ? anchor.order + 1 : null
-}
-
-function renumberProjectShots(shots: Shot[], projectId: string, tenantId: string): void {
-  shots
-    .filter((shot) => shot.projectId === projectId && shot.tenantId === tenantId)
-    .sort((left, right) => left.order - right.order)
-    .forEach((shot, index) => {
-      shot.order = index + 1
-    })
-}
-
-async function renumberShotsInDatabase(
-  queryable: Queryable,
-  projectId: string,
-  tenantId: string,
-): Promise<void> {
-  await queryable.query(
-    `WITH ranked AS (
-       SELECT id, ROW_NUMBER() OVER (ORDER BY shot_order ASC, created_at ASC, id ASC) AS next_order
-       FROM shots WHERE project_id = $1 AND tenant_id = $2
-     )
-     UPDATE shots shot SET shot_order = ranked.next_order
-     FROM ranked WHERE shot.id = ranked.id`,
-    [projectId, tenantId],
-  )
 }
 
 async function insertProjectFromStore(client: PoolClient, project: Project): Promise<boolean> {

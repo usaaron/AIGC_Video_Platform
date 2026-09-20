@@ -1,6 +1,7 @@
 import type { CreateShot, GenerateShotsRequest } from '@seqora/contracts'
 import { FORCE_EPISODE_BREAK_MARKER, FORCE_SHOT_BREAK_MARKER } from '@seqora/contracts'
 import { isNaturalScreenplayHeader, parseNaturalScreenplayFields } from './screenplayParsing.js'
+import { normalizeScriptMasterScreenplay } from './scriptMasterScreenplay.js'
 
 const COMPLETE_SCENE_FIELDS = [
   '场次',
@@ -73,7 +74,11 @@ export type ScriptParagraph = {
 }
 
 export function splitScriptParagraphs(script: string): ScriptParagraph[] {
-  const lines = scriptBodyWithoutAssetManifest(script)
+  const screenplay = script
+    .split(FORCE_EPISODE_BREAK_MARKER)
+    .map(normalizeScriptMasterScreenplay)
+    .join(FORCE_EPISODE_BREAK_MARKER)
+  const lines = scriptBodyWithoutAssetManifest(screenplay)
     .replaceAll(FORCE_EPISODE_BREAK_MARKER, `\n${FORCE_EPISODE_BREAK_MARKER}\n`)
     .replaceAll(FORCE_SHOT_BREAK_MARKER, `\n${FORCE_SHOT_BREAK_MARKER}\n`)
     .replace(/(?:｜|\|)\s*(?=(?:#{1,6}\s*|\*{1,2})?场次\s*[：:])/gu, '\n')
@@ -216,48 +221,75 @@ function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[
   const fields = parseShotFields(paragraph.text)
   if (fields.场次 && (fields.镜头1 || fields.镜头2 || fields.镜头3)) return [paragraph]
   const direction = parseSceneDirectionFields(paragraph.text)
-  const narrativeField = (['动作', '剧情', '对白'] as const)
-    .map((field) => ({ field, value: fields[field]?.trim() || '' }))
-    .sort((left, right) => right.value.length - left.value.length)[0]
-  const narrative =
-    narrativeField && narrativeField.value.length >= LONG_SCRIPT_PARAGRAPH_THRESHOLD / 2
-      ? narrativeField.value
-      : paragraph.text
-  const chunks = splitLongNarrative(narrative)
-  if (chunks.length < 2) return [paragraph]
+  const withBreaks = (text: string, index: number): ScriptParagraph => ({
+    text,
+    forceEpisodeBreakBefore: index === 0 && paragraph.forceEpisodeBreakBefore,
+    ...(index === 0 && paragraph.forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
+  })
+  const sceneNumber = (index: number) => `${fields.场次}-${String(index + 1).padStart(2, '0')}`
 
-  const structured = Boolean(fields.场次) && narrative !== paragraph.text && narrativeField
-  return chunks.map((chunk, index) => {
-    if (!structured || !narrativeField) {
-      return {
-        text: chunk,
-        forceEpisodeBreakBefore: index === 0 && paragraph.forceEpisodeBreakBefore,
-        ...(index === 0 && paragraph.forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
-      }
-    }
+  // Keep screenplay performance order and whole dialogue cues. Splitting the
+  // largest parsed field used to discard (or repeat) the other body fields.
+  if (isNaturalScreenplayHeader(paragraph.text.split('\n')[0] || '')) {
+    const [header = '', ...body] = paragraph.text.split('\n')
+    const chunks = groupNarrativeUnits(body, '\n')
+    if (chunks.length < 2) return [paragraph]
+    return chunks.map((chunk, index) =>
+      withBreaks(
+        `${header.replace(/(场次\s*[：:]\s*)[^｜|\s]+/u, `$1${sceneNumber(index)}`)}\n${chunk}`,
+        index,
+      ),
+    )
+  }
 
-    const sceneNumber = `${fields.场次}-${String(index + 1).padStart(2, '0')}`
+  const bodyFields = ['动作', '剧情', '对白'] as const
+  const narrative = bodyFields
+    .filter((field) => Boolean(fields[field]) && !(field === '剧情' && fields.剧情 === fields.动作))
+    .map((field) => ({
+      field,
+      chunks:
+        field === '对白' && /\[(?:对白|台词|画外音|内心独白|音效|环境声|音乐)/u.test(fields[field] || '')
+          ? groupNarrativeUnits(splitTaggedAudioCues(fields[field] || ''), '；')
+          : splitLongNarrative(fields[field] || ''),
+    }))
+  if (!fields.场次 || !narrative.length) {
+    const chunks = splitLongNarrative(paragraph.text)
+    return chunks.length < 2 ? [paragraph] : chunks.map(withBreaks)
+  }
+  const chunkCount = Math.max(...narrative.map((item) => item.chunks.length))
+  if (chunkCount < 2) return [paragraph]
+  return Array.from({ length: chunkCount }, (_, index) => {
     const row = [
-      `场次：${sceneNumber}`,
-      `${narrativeField.field}：${chunk}`,
+      `场次：${sceneNumber(index)}`,
+      ...narrative.filter((item) => item.chunks[index]).map((item) => `${item.field}：${item.chunks[index]}`),
       ...SHOT_FIELD_NAMES.filter(
         (field) =>
           field !== '场次' &&
-          field !== narrativeField.field &&
+          !(bodyFields as readonly string[]).includes(field) &&
           Boolean(fields[field]) &&
-          (fields[field]?.length || 0) <= 600,
+          (field !== '声音' || index === 0),
       ).map((field) => `${field}：${fields[field]}`),
       ...SCENE_DIRECTION_FIELD_NAMES.filter((field) => Boolean(direction[field])).map(
         (field) => `${field}：${direction[field]}`,
       ),
     ].join('｜')
 
-    return {
-      text: row,
-      forceEpisodeBreakBefore: index === 0 && paragraph.forceEpisodeBreakBefore,
-      ...(index === 0 && paragraph.forceShotBreakBefore ? { forceShotBreakBefore: true } : {}),
-    }
+    return withBreaks(row, index)
   })
+}
+
+function groupNarrativeUnits(units: string[], separator: string): string[] {
+  const chunks: string[] = []
+  let current = ''
+  for (const unit of units.map((item) => item.trim()).filter(Boolean)) {
+    if (current && current.length + separator.length + unit.length > LONG_SCRIPT_CHUNK_TARGET) {
+      chunks.push(current)
+      current = ''
+    }
+    current = current ? `${current}${separator}${unit}` : unit
+  }
+  if (current) chunks.push(current)
+  return chunks
 }
 
 function splitLongNarrative(value: string): string[] {
@@ -434,8 +466,11 @@ export function splitScriptIntoBeatShots(
     const paragraph = scriptParagraph.text
     const fields = parseShotFields(paragraph)
     const direction = parseSceneDirectionFields(paragraph)
-    const beats = splitFieldBeats(fields.动作 || fields.剧情 || paragraph).slice(0, 4)
+    const action = fields.动作 || fields.剧情 || (fields.对白 ? '' : paragraph)
+    const beats = action ? splitFieldBeats(action).slice(0, 4) : ['']
     const dialogueBeats = spokenDialogueCues(fields.对白)
+    const dialogueShotCount = Math.max(1, Math.min(beats.length, maxShots - shots.length))
+    const dialogueGroupSize = Math.max(1, dialogueBeats.length / dialogueShotCount)
     const soundCues = nonSpokenSoundCues(fields.对白)
     const sceneNumber = fields.场次 || String(sceneIndex + 1)
     const previousParagraph = paragraphs[sceneIndex - 1]
@@ -445,12 +480,11 @@ export function splitScriptIntoBeatShots(
       scenesShareVisualContinuity(previousParagraph?.text || '', paragraph)
     for (const [beatIndex, beat] of beats.entries()) {
       if (shots.length >= maxShots) return shots
-      const spokenDialogue =
-        dialogueBeats.length > 1
-          ? dialogueBeats[beatIndex] || ''
-          : beatIndex === 0
-            ? dialogueBeats[0] || ''
-            : ''
+      // Keep whole cues in order, including when there are fewer emitted shots than lines.
+      // Sparse dialogue retains its original one-line-per-early-shot placement.
+      const spokenDialogue = dialogueBeats
+        .slice(Math.ceil(beatIndex * dialogueGroupSize), Math.ceil((beatIndex + 1) * dialogueGroupSize))
+        .join('；')
       const dialogue = [spokenDialogue, beatIndex === 0 ? soundCues.join('；') : '']
         .filter(Boolean)
         .join('；')
@@ -490,6 +524,7 @@ export function splitScriptIntoSceneShots(
     const fields = parseShotFields(paragraph)
     const direction = parseSceneDirectionFields(paragraph)
     const structured = Object.keys(fields).length > 1
+    const action = fields.动作 || fields.剧情 || (fields.对白 ? '' : paragraph)
     const previousParagraph = paragraphs[index - 1]
     const continuesPreviousScene =
       index > 0 &&
@@ -499,11 +534,9 @@ export function splitScriptIntoSceneShots(
       title: `镜头 ${String(index + 1).padStart(2, '0')}`,
       framing: sceneFraming(fields, index),
       duration: structured
-        ? estimateShotDuration(fields.动作 || fields.剧情 || paragraph, fields.对白, fields, isWebSeries)
+        ? estimateShotDuration(action, fields.对白, fields, isWebSeries)
         : Math.min(15, Math.max(isWebSeries ? 3 : 4, Math.ceil(paragraph.length / 18))),
-      prompt: structured
-        ? compactShotPrompt(fields, direction, fields.动作 || fields.剧情 || paragraph, fields.对白, 0, 1)
-        : paragraph,
+      prompt: structured ? compactShotPrompt(fields, direction, action, fields.对白, 0, 1) : paragraph,
       negativePrompt: '',
       imageUrl: null,
       episodeBreakBefore: scriptParagraph.forceEpisodeBreakBefore,

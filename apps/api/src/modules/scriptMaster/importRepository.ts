@@ -182,6 +182,10 @@ export class ScriptMasterImportRepository {
         shots: state.shots.filter(belongs),
       }
       const plan = planImport(workspace, input, principal.userId)
+      if (plan.removedShotIds.length) {
+        const removed = new Set(plan.removedShotIds)
+        state.shots = state.shots.filter((shot) => !removed.has(shot.id) || !belongs(shot))
+      }
       mergeImported(state.scriptEpisodes, plan.episodes)
       mergeImported(state.assets, plan.assets)
       mergeImported(state.shots, plan.shots)

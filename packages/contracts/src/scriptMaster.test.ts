@@ -9,6 +9,23 @@ const base = {
   idempotencyKey: 'import-test-key',
 }
 describe('Script Master v2 import contract', () => {
+  it('requires an explicit scripts-only request for preserving production history', () => {
+    const episode = { sourceEpisodeId: 'ep', episodeNumber: 1, title: '第一集', content: '正文' }
+    const input = { ...base, storyboardRevision: 'preserve-history', episodes: [episode] }
+    expect(scriptMasterImportRequestSchema.parse(input).storyboardRevision).toBe('preserve-history')
+    expect(
+      scriptMasterImportRequestSchema.safeParse({ ...input, episodes: [{ ...episode, shots: [] }] }).success,
+    ).toBe(false)
+    expect(
+      scriptMasterImportRequestSchema.safeParse({
+        ...input,
+        assets: [{ sourceAssetId: 'a', kind: 'character', name: '林岚' }],
+      }).success,
+    ).toBe(false)
+    expect(
+      scriptMasterImportRequestSchema.safeParse({ ...input, storyboardRevision: 'overwrite' }).success,
+    ).toBe(false)
+  })
   it('requires selected content and accepts asset-only deliveries', () => {
     expect(scriptMasterImportRequestSchema.safeParse(base).success).toBe(false)
     expect(

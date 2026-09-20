@@ -8,6 +8,7 @@ export function useAssetSuggestions({
   script,
   autoSource = '',
   scopeFingerprint = '',
+  autoScopeFingerprint = '',
   direction,
   latestTask,
   activeTask,
@@ -29,9 +30,19 @@ export function useAssetSuggestions({
   const [editor, setEditor] = useState(null)
   const fastRequestRef = useRef(0)
   const automaticFingerprintRef = useRef('')
+  const fastRequestModeRef = useRef(null)
+  const pendingFastRequestRef = useRef(null)
+  const observedTaskRef = useRef(null)
+  const ignoredTaskRef = useRef(null)
+  const automaticScope = autoSource.trim()
+    ? autoScopeFingerprint || scriptSuggestionFingerprint(autoSource)
+    : ''
 
-  const reset = () => {
+  const reset = ({ preserveAutomatic = false } = {}) => {
+    if (preserveAutomatic && fastRequestModeRef.current === 'automatic') return
     fastRequestRef.current += 1
+    fastRequestModeRef.current = null
+    pendingFastRequestRef.current = null
     setStatus('idle')
     setResult(null)
     setError('')
@@ -40,6 +51,8 @@ export function useAssetSuggestions({
 
   useEffect(() => {
     automaticFingerprintRef.current = ''
+    observedTaskRef.current = null
+    ignoredTaskRef.current = null
     reset()
     setCreatingKeys(new Set())
     setCreatedKeys(new Set())
@@ -48,7 +61,31 @@ export function useAssetSuggestions({
   }, [projectId])
 
   useEffect(() => {
+    automaticFingerprintRef.current = ''
+    reset()
+    return () => {
+      // Covers a changed/empty saved scope, a different project, and unmount.
+      fastRequestRef.current += 1
+      pendingFastRequestRef.current = null
+    }
+  }, [projectId, automaticScope])
+
+  useEffect(() => {
     if (!latestTask) return
+    const taskKey = `${projectId}:${latestTask.id}`
+    if (ignoredTaskRef.current === taskKey) return
+    if (observedTaskRef.current?.key !== taskKey) {
+      observedTaskRef.current = { key: taskKey, scope: automaticScope, status: '' }
+    }
+    const observed = observedTaskRef.current
+    // Polling returns new task objects. Only apply a status transition once,
+    // and never restore a task first seen for an older saved scope.
+    if (observed.scope !== automaticScope || observed.status === latestTask.status) return
+    observed.status = latestTask.status
+    automaticFingerprintRef.current = automaticScope
+    fastRequestRef.current += 1
+    pendingFastRequestRef.current = null
+    fastRequestModeRef.current = 'manual'
     if (['queued', 'paused', 'running'].includes(latestTask.status)) {
       setStatus('suggesting')
       setError('')
@@ -77,11 +114,14 @@ export function useAssetSuggestions({
       setError('')
       setStatus((current) => (current === 'extracting' ? current : 'idle'))
     }
-  }, [latestTask])
+  }, [latestTask, projectId, automaticScope])
 
   const suggest = async (value) => {
     const source = value.trim()
     if (!source) return
+    const requestId = ++fastRequestRef.current
+    fastRequestModeRef.current = 'manual'
+    pendingFastRequestRef.current = null
     setStatus('suggesting')
     setResult(null)
     setError('')
@@ -92,6 +132,7 @@ export function useAssetSuggestions({
         direction,
         scopeFingerprint || scriptSuggestionFingerprint(source),
       )
+      if (fastRequestRef.current !== requestId) return
       if (!isQueuedTextTask(task)) {
         const cachedResult = task?.metadata?.textResult
         setResult(cachedResult && typeof cachedResult === 'object' ? cachedResult : task)
@@ -99,6 +140,7 @@ export function useAssetSuggestions({
       }
       setCreatedKeys(new Set())
     } catch (suggestError) {
+      if (fastRequestRef.current !== requestId) return
       setError(suggestError.message)
       setStatus('ready')
     }
@@ -122,17 +164,33 @@ export function useAssetSuggestions({
   const runFastExtraction = async (value, cancelActiveTask = false) => {
     const source = value.trim()
     if (!source || !onSuggestAssetsFast || stoppingTaskId) return
+    const requestKey = JSON.stringify([projectId, automaticScope, source, direction])
+    if (pendingFastRequestRef.current?.key === requestKey) return
     const requestId = fastRequestRef.current + 1
     fastRequestRef.current = requestId
+    fastRequestModeRef.current = cancelActiveTask ? 'manual' : 'automatic'
+    if (cancelActiveTask) automaticFingerprintRef.current = automaticScope
+    pendingFastRequestRef.current = { id: requestId, key: requestKey }
     setStatus('extracting')
     setResult(null)
     setError('')
     setDismissedKeys(new Set())
     try {
       if (cancelActiveTask && activeTask && onCancelTask) {
+        const taskKey = `${projectId}:${activeTask.id}`
+        const previousIgnoredTask = ignoredTaskRef.current
+        ignoredTaskRef.current = taskKey
         setStoppingTaskId(activeTask.id)
-        await onCancelTask(activeTask.id, '已切换为剧本快速提取')
+        try {
+          await onCancelTask(activeTask.id, '已切换为剧本快速提取')
+        } catch (cancelError) {
+          // Cancellation failed, so the model task may still finish. Resume
+          // accepting its updates without undoing a newer request's marker.
+          if (ignoredTaskRef.current === taskKey) ignoredTaskRef.current = previousIgnoredTask
+          throw cancelError
+        }
       }
+      if (fastRequestRef.current !== requestId) return
       const nextResult = await onSuggestAssetsFast(source, direction)
       if (!isAssetSuggestionResult(nextResult)) throw new Error('快速提取没有返回有效资产，请重试')
       if (fastRequestRef.current !== requestId) return
@@ -144,6 +202,7 @@ export function useAssetSuggestions({
       setError(extractError.message)
       setStatus('ready')
     } finally {
+      if (pendingFastRequestRef.current?.id === requestId) pendingFastRequestRef.current = null
       if (cancelActiveTask) setStoppingTaskId(null)
     }
   }
@@ -152,12 +211,13 @@ export function useAssetSuggestions({
 
   useEffect(() => {
     const source = autoSource.trim()
-    if (!source || !onSuggestAssetsFast || activeTask) return
-    const fingerprint = scopeFingerprint || scriptSuggestionFingerprint(source)
-    if (automaticFingerprintRef.current === fingerprint) return
-    automaticFingerprintRef.current = fingerprint
+    if (!source || !onSuggestAssetsFast || activeTask || stoppingTaskId) return
+    if (automaticFingerprintRef.current === automaticScope) return
+    // Record attempts as well as successes: a failed scan can be retried by the
+    // user, but unrelated renders must not create an automatic retry loop.
+    automaticFingerprintRef.current = automaticScope
     void runFastExtraction(source)
-  }, [autoSource, scopeFingerprint, activeTask?.id, onSuggestAssetsFast])
+  }, [projectId, autoSource, automaticScope, activeTask?.id, onSuggestAssetsFast, stoppingTaskId])
 
   const openEditor = (asset) => {
     const key = assetSuggestionKey(asset)
@@ -205,8 +265,10 @@ export function useAssetSuggestions({
         suggestions.forEach((suggestion) => next.add(assetSuggestionKey(suggestion)))
         return next
       })
+      return true
     } catch (importError) {
       setError(importError.message)
+      return false
     }
   }
 

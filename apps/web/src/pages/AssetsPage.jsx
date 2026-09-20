@@ -29,6 +29,7 @@ import {
   latestAssetImageTask,
 } from '../features/assets/assetTaskState'
 import { compactAssetDescription, summarizeAsset } from '../features/assets/promptCompiler'
+import { DeliveredScriptAssets } from '../features/assets/DeliveredScriptAssets'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
 const emptyAssetCopy = {
@@ -43,10 +44,13 @@ const emptyAssetCopy = {
 export function AssetsPage({
   project,
   assets,
+  scriptEpisodes = [],
   tasks,
   imageModels,
   billing,
   onCreate,
+  onSuggestAssetsFast,
+  onImportAssets,
   onUpdate,
   onDelete,
   onUpload,
@@ -152,6 +156,18 @@ export function AssetsPage({
         )}
       </PageHeader>
 
+      {project.contentType === 'short-drama' && onSuggestAssetsFast && (
+        <DeliveredScriptAssets
+          key={project.id}
+          project={project}
+          scriptEpisodes={scriptEpisodes}
+          assets={assets}
+          onSuggestAssetsFast={onSuggestAssetsFast}
+          onCreateAsset={onCreate}
+          onImportAssets={onImportAssets}
+          onUpload={onUpload}
+        />
+      )}
       <div className="asset-tabs asset-tabs-six">
         {assetTabs.map(([kind, label]) => (
           <button key={kind} className={tab === kind ? 'active' : ''} onClick={() => setTab(kind)}>

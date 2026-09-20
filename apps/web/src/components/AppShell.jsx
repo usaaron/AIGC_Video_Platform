@@ -107,7 +107,7 @@ export function AppHeader({
         {onNavigate && <StudioGuide onNavigate={onNavigate} />}
         <div className="queue-indicator">
           <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
-          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '暂无生成任务'}
         </div>
         <div
           ref={notificationCenterRef}
@@ -257,10 +257,10 @@ export function AppSidebar({
       </button>
       <div className="sidebar-group-heading">
         <span>功能栈</span>
-        <small>02</small>
+        <small>{String(FUNCTION_STACK_ITEMS.length).padStart(2, '0')}</small>
       </div>
       <nav className="sidebar-tool-nav" aria-label="功能栈">
-        {FUNCTION_STACK_ITEMS.filter((item) => item.id !== 'writing-studio').map((item) => {
+        {FUNCTION_STACK_ITEMS.map((item) => {
           const Icon = FUNCTION_STACK_ICONS[item.id]
           return (
             <button
@@ -272,7 +272,13 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>{item.availability === 'coming-soon' ? '筹备中' : '已启用'}</small>
+              <small>
+                {item.availability === 'coming-soon'
+                  ? '筹备中'
+                  : item.availability === 'testing'
+                    ? '测试中'
+                    : '已启用'}
+              </small>
             </button>
           )
         })}

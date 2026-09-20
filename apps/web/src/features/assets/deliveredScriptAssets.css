@@ -1,0 +1,15 @@
+@layer studio {
+  .delivered-script-assets {
+    margin-bottom: 20px;
+    min-width: 0;
+  }
+  .delivered-script-assets > summary {
+    cursor: pointer;
+    padding: 12px 0;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .delivered-script-assets .script-asset-suggestions {
+    margin-top: 0;
+  }
+}

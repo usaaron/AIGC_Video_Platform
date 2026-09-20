@@ -2,7 +2,6 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Check, LoaderCircle, LogOut, RefreshCw, X } from 'lucide-react'
 import './App.css'
 import { AppHeader, AppSidebar, NewProjectModal } from './components/AppShell'
-import { IconButton } from './components/ui'
 import {
   ProjectMenu,
   WorkspaceErrorBoundary,
@@ -40,6 +39,7 @@ import {
   writeProjectTaskCache,
 } from './features/generation/projectTaskCache'
 import { useTaskNotifications } from './features/notifications/useTaskNotifications'
+import { NotificationToasts } from './features/notifications/NotificationToasts'
 import { exportProject } from './features/projects/exportProject'
 import { projectLinkTarget } from './features/projects/projectLink'
 import {
@@ -680,6 +680,27 @@ function App() {
         <AssetsPage
           project={project}
           assets={workspace.assets}
+          scriptEpisodes={workspace.scriptEpisodes}
+          onSuggestAssetsFast={(script, direction) =>
+            api.suggestScriptAssets(
+              project.id,
+              script,
+              direction,
+              ASSET_SUGGESTION_MODEL,
+              crypto.randomUUID(),
+              'fast',
+            )
+          }
+          onImportAssets={async (inputs) => {
+            const results = await Promise.allSettled(
+              inputs.map((input) => api.createAsset(project.id, input)),
+            )
+            await refreshWorkspace()
+            const failed = results.find((result) => result.status === 'rejected')
+            if (failed)
+              throw new Error(failed.reason?.message || '部分资产未能加入，已加入的资产已保留，请重试。')
+            setToast(`已加入 ${results.length} 项资产，可以开始设计形象`)
+          }}
           tasks={tasks}
           imageModels={providerHealth?.imageModels}
           concurrency={billing.concurrency}
@@ -963,32 +984,11 @@ function App() {
           }}
         />
       )}
-      {notificationPopups.length > 0 && (
-        <div className="notification-toast-stack" aria-live="polite">
-          {notificationPopups.map((notification) => (
-            <article key={notification.id} className={`notification-toast ${notification.status}`}>
-              <span className="notification-status-dot" />
-              <button
-                type="button"
-                className="notification-toast-open"
-                onClick={() => void openNotification(notification)}
-              >
-                <strong>{notification.title}</strong>
-                <small>
-                  {notification.projectName} · {notification.label}
-                </small>
-              </button>
-              <IconButton
-                label="关闭提示"
-                className="notification-toast-close"
-                onClick={() => dismissNotificationPopup(notification.id)}
-              >
-                <X size={15} />
-              </IconButton>
-            </article>
-          ))}
-        </div>
-      )}
+      <NotificationToasts
+        notifications={notificationPopups}
+        onOpen={openNotification}
+        onDismiss={dismissNotificationPopup}
+      />
       {toast && (
         <div className="toast">
           <Check size={16} /> {toast}

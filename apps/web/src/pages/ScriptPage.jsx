@@ -32,15 +32,14 @@ import {
   ScriptFlowActions,
 } from '../features/script/ScriptPageSupport'
 import {
-  assetSuggestionRevision,
   deriveScriptTaskState,
   formatEpisodeDuration,
-  scriptSuggestionFingerprint,
   scriptTaskStage,
   textPreviewStageLabel,
 } from '../features/script/scriptTaskState'
 import { useScriptTaskPreview } from '../features/script/useScriptTaskPreview'
 import { useAssetSuggestions } from '../features/script/useAssetSuggestions'
+import { useScriptAssetScope } from '../features/script/useScriptAssetScope'
 import { useScriptGeneration } from '../features/script/useScriptGeneration'
 import { SeriesCreationWorkspace } from '../features/script/ScriptMasterWorkspace'
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
@@ -131,12 +130,8 @@ export function ScriptPage({
   const count = script.replace(/\s/g, '').length
   const paragraphCount = script.split(/\n+/).filter(Boolean).length
   const estimatedMinutes = script.trim() ? Math.max(1, Math.ceil(count / 120)) : 0
-  const savedScripts = orderedEpisodes
-    .filter((episode) => episode.status === 'saved')
-    .map((episode) => episode.content)
-  const assetScanSource = script.trim() || savedScripts.at(-1) || ''
-  const assetSuggestionFingerprint = scriptSuggestionFingerprint([...savedScripts, script].join('\n\n'))
-  const currentAssetRevision = useMemo(() => assetSuggestionRevision(assets), [assets])
+  const { assetScanSource, assetSuggestionFingerprint, currentAssetRevision, automaticAssetScope } =
+    useScriptAssetScope({ orderedEpisodes, script, assets, project, direction })
 
   useEffect(() => {
     if (!scriptModelCapabilityKey || !selectedScriptModelUnavailable) return
@@ -173,17 +168,11 @@ export function ScriptPage({
     activePreviewValidation,
     latestTextTiming,
   } = scriptTaskState
-  const autoAssetSuggestionSource =
-    activeTaskDraftText ||
-    (completedScriptText && scriptSuggestionFingerprint(completedScriptText) === assetSuggestionFingerprint
-      ? completedScriptText
-      : '') ||
-    (saved && looksLikeDevelopedScript(script) ? script : '')
   const assetSuggestions = useAssetSuggestions({
     projectId: project.id,
     script: assetScanSource,
     scopeFingerprint: assetSuggestionFingerprint,
-    autoSource: autoAssetSuggestionSource || savedScripts.at(-1) || '',
+    ...automaticAssetScope,
     direction,
     latestTask: latestAssetSuggestionTask,
     activeTask: activeAssetSuggestionTask,
@@ -331,12 +320,12 @@ export function ScriptPage({
   const update = (value) => {
     setScript(value)
     setSaved(false)
-    assetSuggestions.reset()
+    assetSuggestions.reset({ preserveAutomatic: true })
   }
 
   const openEpisode = (episode) => {
     if (!saved && script.trim() && !window.confirm('当前修改尚未保存，切换后会丢失。继续吗？')) return
-    assetSuggestions.reset()
+    assetSuggestions.reset({ preserveAutomatic: true })
     setActiveEpisodeId(episode.id)
     setScript(episode.draftContent || episode.content)
     setSaved(episode.status === 'saved')
@@ -352,7 +341,7 @@ export function ScriptPage({
     setError('')
     try {
       await onDeleteEpisode(episode.id)
-      assetSuggestions.reset()
+      assetSuggestions.reset({ preserveAutomatic: true })
       setActiveEpisodeId(null)
       setScript('')
       setSaved(true)
@@ -373,7 +362,7 @@ export function ScriptPage({
     setError('')
     try {
       await onClearEpisodes()
-      assetSuggestions.reset()
+      assetSuggestions.reset({ preserveAutomatic: true })
       setActiveEpisodeId(null)
       setScript('')
       setSaved(true)
@@ -403,12 +392,12 @@ export function ScriptPage({
 
   return (
     <div
-      className={`page editor-page script-page-redesign${isSeries && seriesView === 'creation' ? ' is-inline-creation' : ''}`}
+      className={`page editor-page script-page-redesign${isSeries ? ' is-series-workspace' : ''}${isSeries && seriesView === 'creation' ? ' is-inline-creation' : ''}`}
     >
       <PageHeader
-        eyebrow="AI 创作工作台"
+        eyebrow={isSeries ? undefined : 'AI 创作工作台'}
         title={`《${project.name}》${contentConfig.pageTitle}`}
-        description={contentConfig.pageDescription}
+        description={isSeries ? undefined : contentConfig.pageDescription}
       >
         <div hidden={isSeries && seriesView === 'creation'} className="script-document-actions">
           <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />

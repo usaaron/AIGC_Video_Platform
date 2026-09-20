@@ -1,6 +1,7 @@
 import { AppError } from '../../core/errors.js'
-import type { ScriptAssetKind, ScriptAssetNameIndex } from './assetSuggestions.js'
+import type { ScriptAssetKind, ScriptAssetNameIndex, ScriptAssetManifest } from './assetSuggestions.js'
 import { extractAssetNames } from './assetSuggestions.js'
+import { reusableAssetFacts } from './assetSuggestionExtraction.js'
 import { headExcerpt, splitScriptParagraphs } from './shotPlanning.js'
 
 export const SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT = `你是中文 AI 视频项目的资产制片和美术统筹，负责从剧本中提取后续生成必须保持一致的核心资产。
@@ -166,8 +167,19 @@ export function scriptAssetSuggestionMaxTokens(candidateCount: number): number {
   )
 }
 
-export function buildScriptAssetEvidence(script: string): { text: string; candidateCount: number } {
-  const names = extractScriptAssetEvidenceNameIndex(script)
+export function buildScriptAssetEvidence(
+  script: string,
+  prepared?: { names: ScriptAssetNameIndex; manifest: ScriptAssetManifest },
+): { text: string; candidateCount: number } {
+  const names = prepared
+    ? {
+        character: prepared.names.character.slice(0, 24),
+        scene: prepared.names.scene.slice(0, 24),
+        prop: prepared.names.prop.slice(0, 32),
+        costume: prepared.names.costume.slice(0, 20),
+        brand: prepared.names.brand.slice(0, 12),
+      }
+    : extractScriptAssetEvidenceNameIndex(script)
   const labels: Record<ScriptAssetKind, string> = {
     character: '人物',
     scene: '场景',
@@ -194,17 +206,30 @@ export function buildScriptAssetEvidence(script: string): { text: string; candid
     const evidence = assetEvidenceSnippets(name, script)
     return evidence ? [`${labels[kind]}「${name}」证据：${evidence}`] : []
   })
+  const manifestLines = prepared
+    ? rankedNames.flatMap(({ kind, name }) => {
+        const item = prepared.manifest[kind].find((entry) => entry.name === name)
+        const facts = Object.entries(reusableAssetFacts(item?.facts))
+          .slice(0, 8)
+          .map(([label, value]) => `${label.slice(0, 20)}：${value.replace(/\s+/gu, ' ').slice(0, 120)}`)
+          .join('；')
+          .slice(0, 360)
+        return facts ? [`${labels[kind]}「${name.slice(0, 120)}」：${facts}`] : []
+      })
+    : []
   const sceneSamples = distributedScriptParagraphs(script, 4, 220)
   const candidateCount = new Set(rankedNames.map(({ kind, name }) => `${kind}:${name}`)).size
 
+  const text = [
+    indexLines.length ? `全剧结构化字段索引：\n${indexLines.join('\n')}` : '',
+    manifestLines.length ? `已确认的可复用外观：\n${manifestLines.join('\n')}` : '',
+    detailLines.length ? `核心候选上下文：\n${detailLines.join('\n')}` : '',
+    sceneSamples.length ? `分布式场次采样：\n${sceneSamples.join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
   return {
-    text: [
-      indexLines.length ? `全剧结构化字段索引：\n${indexLines.join('\n')}` : '',
-      detailLines.length ? `核心候选上下文：\n${detailLines.join('\n')}` : '',
-      sceneSamples.length ? `分布式场次采样：\n${sceneSamples.join('\n')}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n'),
+    text: prepared ? text.slice(0, 12_000) : text,
     candidateCount,
   }
 }

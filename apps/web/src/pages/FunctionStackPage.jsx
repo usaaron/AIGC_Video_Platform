@@ -31,6 +31,7 @@ export function FunctionStackPage({
     return (
       <WritingStudio
         project={project}
+        onOpenHome={onOpenHome}
         onOpenScript={onOpenScript}
         onRefreshProduction={onRefreshProduction}
         onOpenProduction={onOpenProduction}
@@ -95,14 +96,23 @@ function AgentComingSoon({ onOpenHome }) {
   )
 }
 
-function WritingStudio({ project, onOpenScript, onRefreshProduction, onOpenProduction }) {
+function WritingStudio({ project, onOpenScript, onOpenHome, onRefreshProduction, onOpenProduction }) {
   return (
-    <section className="page" aria-label="剧本大师工作台">
-      <button type="button" className="button secondary" onClick={onOpenScript}>
-        <ArrowLeft size={15} /> 返回项目剧本
-      </button>
+    <section className="page writing-studio-page" aria-label="剧本大师工作台">
+      <header className="writing-studio-header">
+        <div>
+          <h1>
+            剧本大师 <span className="writing-studio-testing">测试中</span>
+          </h1>
+          <p>独立创作工作台，保留梗概、总纲、规划、正文、分镜与文件导出。</p>
+        </div>
+        <button type="button" className="button secondary" onClick={project?.id ? onOpenScript : onOpenHome}>
+          <ArrowLeft size={15} /> {project?.id ? '返回项目剧本' : '返回项目库'}
+        </button>
+      </header>
       <ScriptMasterWorkspace
         projectId={project?.id}
+        surface="standalone"
         onSynced={onRefreshProduction}
         onNavigate={(view) => (view === 'script' ? onOpenScript?.() : onOpenProduction?.(view))}
       />

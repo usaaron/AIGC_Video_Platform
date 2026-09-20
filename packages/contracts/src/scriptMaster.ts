@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { scriptAssetEvidenceSchema } from './scriptAssetEvidence.js'
 
 const sourceId = z.string().trim().min(1).max(160)
 const importedShot = z.object({
@@ -14,6 +15,7 @@ const importedEpisode = z.object({
   episodeNumber: z.number().int().positive().max(2_000),
   title: z.string().trim().min(1).max(120),
   content: z.string().trim().min(1).max(100_000),
+  assetEvidence: scriptAssetEvidenceSchema.optional(),
   shots: z.array(importedShot).max(2_000).optional(),
 })
 const importedAsset = z.object({
@@ -32,10 +34,21 @@ export const scriptMasterImportRequestSchema = z
     sourceProjectId: sourceId,
     sourceRevision: z.number().int().positive(),
     idempotencyKey: z.string().trim().min(8).max(160),
+    storyboardRevision: z.literal('preserve-history').optional(),
     episodes: z.array(importedEpisode).max(2_000).default([]),
     assets: z.array(importedAsset).max(2_000).default([]),
   })
   .superRefine((input, context) => {
+    if (
+      input.storyboardRevision &&
+      (input.assets.length || input.episodes.some((episode) => episode.shots !== undefined))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['storyboardRevision'],
+        message: '正文修订请只交付剧本，分镜由主项目更新',
+      })
+    }
     if (!input.episodes.length && !input.assets.length) {
       context.addIssue({ code: 'custom', message: '请选择需要导入的已保存内容' })
     }
@@ -71,6 +84,13 @@ export const scriptMasterImportReceiptSchema = z.object({
   importedShots: z.number().int().nonnegative(),
   updatedShots: z.number().int().nonnegative(),
   completedAt: z.string().datetime(),
+  revisionSummary: z
+    .object({
+      episodeNumbers: z.array(z.number().int().positive()),
+      preservedShots: z.number().int().nonnegative(),
+      renewedShots: z.number().int().nonnegative(),
+    })
+    .optional(),
 })
 
 export type ScriptMasterImportRequest = z.infer<typeof scriptMasterImportRequestSchema>

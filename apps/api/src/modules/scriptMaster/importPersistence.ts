@@ -20,9 +20,15 @@ async function writeRows(client: PoolClient, table: string, records: Record<stri
 
 export async function writeImportEntities(
   client: PoolClient,
-  plan: { episodes: ScriptEpisode[]; assets: Asset[]; shots: Shot[] },
+  plan: { episodes: ScriptEpisode[]; assets: Asset[]; shots: Shot[]; removedShotIds?: string[] },
 ) {
   await client.query('SET CONSTRAINTS shots_project_order_unique DEFERRED')
+  if (plan.removedShotIds?.length && plan.episodes[0]) {
+    await client.query(
+      'DELETE FROM shots WHERE id = ANY($1::text[]) AND project_id = $2 AND tenant_id = $3',
+      [plan.removedShotIds, plan.episodes[0].projectId, plan.episodes[0].tenantId],
+    )
+  }
   await writeRows(
     client,
     'script_episodes',
@@ -82,6 +88,9 @@ export async function writeImportEntities(
       prompt: s.prompt,
       negative_prompt: s.negativePrompt,
       image_url: s.imageUrl,
+      reference_images: s.referenceImages ?? [],
+      selected_image_task_id: s.selectedImageTaskId ?? null,
+      selected_video_task_id: s.selectedVideoTaskId ?? null,
       continuity_mode: s.continuityMode,
       continuity_note: s.continuityNote,
       episode_break_before: s.episodeBreakBefore,

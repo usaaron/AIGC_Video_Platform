@@ -40,6 +40,13 @@ import {
   taskRuntimeKey,
 } from './taskRuntimeCache.js'
 import { findControlledTask, metadataString } from './taskStateHelpers.js'
+import { assertNoActiveShotTask, assertNoActiveShotTaskInState } from './activeShotTaskGuard.js'
+import {
+  assertStoryboardTaskTarget,
+  assertStoryboardTaskTargetInState,
+  hasStoryboardTarget,
+  lockStoryboardTaskProjects,
+} from './storyboardTaskWriteGuard.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -1005,6 +1012,17 @@ export class GenerationTaskRepository {
         return { task: replayed, credits: null }
       }
 
+      await lockStoryboardTaskProjects(client, [input], principal)
+      // Another request can finish while this transaction waits for the project lock.
+      if (hasStoryboardTarget(input)) {
+        const replayedAfterLock = await findTaskByClientRequest(client, input.clientRequestId, principal)
+        if (replayedAfterLock) {
+          await this.outbox?.enqueueGenerationTaskDispatch(client, replayedAfterLock)
+          return { task: replayedAfterLock, credits: null }
+        }
+      }
+      await assertStoryboardTaskTarget(client, input, principal)
+
       const registration = await preparePortraitSubmission(client, input, principal)
       input = registration.input
       if (registration.existing) return { task: registration.existing, credits: null }
@@ -1150,6 +1168,7 @@ export class GenerationTaskRepository {
       )
       if (existing) return existing
 
+      assertStoryboardTaskTargetInState(state, input, principal)
       const registration = preparePortraitSubmissionInState(state, input, principal)
       input = registration.input
       if (registration.existing) return registration.existing
@@ -1174,13 +1193,15 @@ export class GenerationTaskRepository {
       const tasksByClientRequest = new Map<string, GenerationTask>()
       const newInputs: CreateGenerationTask[] = []
 
+      await lockStoryboardTaskProjects(client, inputs, principal)
       for (const input of inputs) {
-        await assertNoActiveShotTask(client, input, principal)
         const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
         if (replayed) {
           tasksByClientRequest.set(input.clientRequestId, replayed)
           await this.outbox?.enqueueGenerationTaskDispatch(client, replayed)
         } else {
+          await assertStoryboardTaskTarget(client, input, principal)
+          await assertNoActiveShotTask(client, input, principal)
           newInputs.push(input)
         }
       }
@@ -1268,6 +1289,7 @@ export class GenerationTaskRepository {
           tasksByClientRequest.set(input.clientRequestId, existing)
           continue
         }
+        assertStoryboardTaskTargetInState(state, input, principal)
         assertNoActiveShotTaskInState(state, input, principal)
         newInputs.push(input)
       }
@@ -1326,6 +1348,7 @@ export class GenerationTaskRepository {
       )
       if (existing) return existing
 
+      assertStoryboardTaskTargetInState(state, input, principal)
       const registration = preparePortraitSubmissionInState(state, input, principal)
       input = registration.input
       if (registration.existing) return registration.existing
@@ -1817,57 +1840,6 @@ async function updateTaskResultTargets(
       [shotId, task.projectId, task.tenantId, task.id, updatedAt],
     )
   }
-}
-
-async function assertNoActiveShotTask(
-  queryable: Queryable,
-  input: CreateGenerationTask,
-  principal: Principal,
-): Promise<void> {
-  const shotId = metadataString(input.metadata, 'shotId')
-  if (input.kind !== 'video' || !shotId) return
-  const activeTask = await queryable.query<{ id: string }>(
-    `
-    SELECT id
-    FROM generation_tasks
-    WHERE project_id = $1
-      AND tenant_id = $2
-      AND kind = 'video'
-      AND metadata->>'shotId' = $3
-      AND status IN ('queued', 'paused', 'running')
-      AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
-    LIMIT 1
-    `,
-    [input.projectId, principal.tenantId, shotId],
-  )
-  if (activeTask.rows[0]) throw videoShotConflict()
-}
-
-function assertNoActiveShotTaskInState(
-  state: AppState,
-  input: CreateGenerationTask,
-  principal: Principal,
-): void {
-  const shotId = metadataString(input.metadata, 'shotId')
-  if (input.kind !== 'video' || !shotId) return
-  const activeTask = state.tasks.find(
-    (item) =>
-      item.projectId === input.projectId &&
-      item.tenantId === principal.tenantId &&
-      item.kind === 'video' &&
-      item.metadata.shotId === shotId &&
-      ['queued', 'paused', 'running'].includes(item.status) &&
-      typeof item.metadata.queueHiddenAt !== 'string',
-  )
-  if (activeTask) throw videoShotConflict()
-}
-
-function videoShotConflict(): AppError {
-  return new AppError(
-    409,
-    'VIDEO_SHOT_BATCH_CONFLICT',
-    'This shot already has an active video generation task. Pause or delete it before creating another one.',
-  )
 }
 
 async function updateBillingBalanceForTask(

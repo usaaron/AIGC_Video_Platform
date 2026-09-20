@@ -1,0 +1,120 @@
+@layer studio {
+  .script-revision-history {
+    margin: 0 0 20px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper);
+    min-width: 0;
+  }
+  .script-revision-history summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    overflow-wrap: anywhere;
+  }
+  .script-revision-history > summary {
+    font-weight: 600;
+  }
+  .script-revision-history > summary > svg {
+    vertical-align: middle;
+    margin-right: 5px;
+  }
+  .script-revision-history > summary > span {
+    color: var(--muted);
+    margin-left: 8px;
+    font-size: 12px;
+  }
+  .script-revision-history-list {
+    padding: 0 14px 14px;
+  }
+  .script-revision-history-list > p {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .script-revision-entry {
+    border-top: 1px solid var(--line);
+  }
+  .script-revision-entry > summary > span {
+    display: block;
+    padding-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .script-revision-snapshot {
+    padding: 0 8px 14px;
+    min-width: 0;
+  }
+  .script-revision-snapshot h3 {
+    font-size: 14px;
+    margin: 16px 0 10px;
+  }
+  .script-revision-snapshot pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 420px;
+    overflow: auto;
+    font: inherit;
+    line-height: 1.7;
+    padding: 12px;
+    background: var(--canvas);
+    border-radius: 8px;
+  }
+  .script-revision-shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 12px;
+  }
+  .script-revision-shot {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .script-revision-shot h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .script-revision-shot p {
+    color: var(--muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .script-revision-media {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+  }
+  .script-revision-media > img,
+  .script-revision-media > video {
+    width: 100%;
+    max-height: 240px;
+    object-fit: contain;
+    background: var(--canvas);
+    border-radius: 8px;
+  }
+  .script-revision-media-empty {
+    padding: 16px 8px;
+    text-align: center;
+    background: var(--canvas);
+    border-radius: 8px;
+  }
+  .script-revision-references {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .script-revision-references img {
+    width: 90px;
+    height: 90px;
+    object-fit: contain;
+    border-radius: 6px;
+  }
+  @media (max-width: 600px) {
+    .script-revision-history-list {
+      padding: 0 8px 8px;
+    }
+    .script-revision-snapshot {
+      padding: 0 0 8px;
+    }
+  }
+}
