@@ -106,7 +106,7 @@ test('同一面部仍能同步人像完成状态，并保留未保存的编辑',
   await page.getByRole('button', { name: '编辑资产', exact: true }).click()
   await page.locator('.asset-core-fields textarea').fill('本地未保存的角色说明')
   await publishPortrait(page, state)
-  await expect(page.getByRole('button', { name: 'AI 人像已可用', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'AI人物已入库', exact: true })).toBeVisible()
   await expect(page.locator('.asset-core-fields textarea')).toHaveValue('本地未保存的角色说明')
   await page.getByRole('button', { name: '保存并直接使用' }).click()
   await expect.poll(() => state.patches.length).toBe(1)
