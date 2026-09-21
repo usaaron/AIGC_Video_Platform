@@ -6,7 +6,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { copilotProgressForDisplay } from "../lib/copilot-progress-display.ts";
+import { copilotProgressForDisplay, thinkingTextForDisplay } from "../lib/copilot-progress-display.ts";
 
 function trace(overrides = {}) {
   return {
@@ -73,6 +73,44 @@ test("obvious English streaming prefixes are never displayed as model thinking",
     thinking += delta;
     assert.equal(copilotProgressForDisplay(trace({ thinking })).thinking, "模型返回的思考内容未使用中文，暂不展示原文。");
   }
+});
+
+test("orphan markers are omitted but Chinese scene reasoning stays intact", () => {
+  const raw = [
+    "先核对人物关系，再确认创作安排的因果顺序。",
+    "2)",
+    "S1: \"外景圣达港上空——午后\"",
+    "S2: \"内景废弃海运高塔——深夜\"",
+    "继续检查结尾是否能承接下一集。",
+  ].join("\n");
+  assert.equal(thinkingTextForDisplay(raw), raw.replace("2)\n", ""));
+  assert.equal(thinkingTextForDisplay("1)\n\n\"\n2)"), "");
+  assert.equal(thinkingTextForDisplay("2) 核对人物动机。\nS1/S2：检查两场的时间连续性。"), "2) 核对人物动机。\nS1/S2：检查两场的时间连续性。");
+  assert.equal(copilotProgressForDisplay(trace({ thinking: raw })).thinkingNotice,
+    "已略过孤立编号和空白片段，显示可读的模型思考。");
+});
+
+test("format cleanup is display-only in running and restored traces, without invented thinking", () => {
+  for (const status of ["running", "completed", "paused", "error"]) {
+    const original = trace({ status, thinking: "2)\n\"\n4)" });
+    const projected = copilotProgressForDisplay(original);
+    assert.equal(projected.thinking, "");
+    assert.ok(projected.thinkingNotice);
+    assert.equal(original.thinking, "2)\n\"\n4)");
+    assert.equal(projected.status, status);
+  }
+});
+
+test("legacy omission notices remain visible after restoration as separate system feedback", () => {
+  const notice = "模型返回了非中文过程，已略过该部分。";
+  const original = trace({ status: "completed", steps: [
+    { stage: "thinking", message: notice, startedAt: 2000, endedAt: 4000 },
+    { stage: "writing", message: "正在接收生成结果。", startedAt: 4000, endedAt: 5000 },
+  ] });
+  const projected = copilotProgressForDisplay(original);
+  assert.deepEqual(projected.notices, [notice]);
+  assert.equal(original.notices, undefined);
+  assert.equal(projected.thinking, original.thinking);
 });
 
 test("legacy and empty progress never invent thinking or public summaries", () => {

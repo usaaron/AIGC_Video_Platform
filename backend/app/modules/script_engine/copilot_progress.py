@@ -8,7 +8,12 @@ import threading
 import time
 from typing import Any, Callable, Iterator, Literal
 
-from app.modules.script_engine.copilot_language import chinese_progress_text, split_progress_text
+from app.modules.script_engine.copilot_language import (
+    chinese_progress_text,
+    has_non_chinese_letters,
+    is_structured_progress_fragment,
+    split_progress_text,
+)
 
 Stage = Literal["context", "requesting", "thinking", "writing", "validating"]
 MESSAGES: dict[Stage, str] = {
@@ -43,6 +48,7 @@ class CopilotProgress:
         self._separate: dict[TextEvent, bool] = {"reasoning_summary": False, "model_thinking": False}
         self._displayed: dict[TextEvent, bool] = dict.fromkeys(self._pending, False)
         self._display_characters: dict[TextEvent, int] = dict.fromkeys(self._pending, 0)
+        self._trailing_newlines: dict[TextEvent, int] = dict.fromkeys(self._pending, 0)
         self._sentence_context: dict[TextEvent, str] = dict.fromkeys(self._pending, "")
         self._notices_sent: set[str] = set()
         self._unsupported_summary_routes: set[int] = set()
@@ -69,6 +75,12 @@ class CopilotProgress:
             message = message or MESSAGES.get(stage)
             if stage not in MESSAGES or (stage == self._stage and message == self._stage_message):
                 return
+            if stage in {"writing", "validating"} and stage != self._stage:
+                # The provider has moved from reasoning to answer output. Its
+                # final Chinese phrase may have no sentence terminator; finish
+                # that display buffer before publishing the next stage. This
+                # also lets cancellation stop before answer/validation work.
+                self.flush_text()
             self._stage = stage
             self._stage_message = message
             self._publish({"type": "progress", "stage": stage, "message": message})
@@ -111,6 +123,11 @@ class CopilotProgress:
         for event_type in self._pending:
             self._flush_text(event_type)
 
+    def flush_interrupted_text(self) -> None:
+        """Keep complete display text without accepting an unfinished foreign word."""
+        for event_type in self._pending:
+            self._flush_text(event_type, discard_incomplete=True)
+
     def _notice(self, message: str) -> None:
         if message not in self._notices_sent:
             self._notices_sent.add(message)
@@ -122,9 +139,20 @@ class CopilotProgress:
             pieces, self._pending[event_type] = split_progress_text(
                 self._pending[event_type], final=final and not discard_incomplete,
             )
+            # A retry/limit may retain a Chinese-only final phrase, but a tail
+            # containing another script could end halfway through a word. Do
+            # not reinterpret that prefix as an allowed name or emit its
+            # Chinese introduction without the rejected continuation.
+            if discard_incomplete and self._pending[event_type] and not has_non_chinese_letters(self._pending[event_type]):
+                pieces.append((self._pending[event_type], False))
+                self._pending[event_type] = ""
             accepted = ""
             for piece, sentence_ended in pieces:
                 context = self._sentence_context[event_type]
+                if is_structured_progress_fragment(piece):
+                    self._separate[event_type] = self._displayed[event_type] or bool(accepted.strip())
+                    self._sentence_context[event_type] = ""
+                    continue
                 if not chinese_progress_text(context + piece):
                     # Keep omissions out of provider text: a factual Chinese
                     # progress notice is not a fabricated model explanation.
@@ -140,9 +168,19 @@ class CopilotProgress:
                     or not (self._displayed[event_type] or accepted.strip())
                 ):
                     continue
+                piece = piece.replace("\r\n", "\n").replace("\r", "\n")
+                trailing = len(accepted) - len(accepted.rstrip("\n"))
+                if not accepted.strip("\n"):
+                    trailing += self._trailing_newlines[event_type]
                 if self._separate[event_type] and piece.strip():
-                    piece = "\n\n" + piece
+                    piece = "\n" * max(0, 2 - trailing) + piece.lstrip("\n")
                     self._separate[event_type] = False
+                else:
+                    # Do not accumulate a large blank area when omitted
+                    # sentences had their own paragraph separators.
+                    leading = len(piece) - len(piece.lstrip("\n"))
+                    if leading:
+                        piece = "\n" * min(leading, max(0, 2 - trailing)) + piece[leading:]
                 accepted += piece
             if discard_incomplete and self._pending[event_type]:
                 self._pending[event_type] = ""
@@ -157,6 +195,10 @@ class CopilotProgress:
                 self._publish({"type": event_type, "delta": chunk})
                 self._displayed[event_type] = True
                 self._display_characters[event_type] += len(chunk)
+                self._trailing_newlines[event_type] = (
+                    min(2, self._trailing_newlines[event_type] + len(chunk))
+                    if not chunk.strip("\n") else len(chunk) - len(chunk.rstrip("\n"))
+                )
             self._last_flush[event_type] = time.monotonic()
 
 

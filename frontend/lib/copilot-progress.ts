@@ -22,6 +22,8 @@ export interface CopilotProgress {
   summary: string;
   /** Model thinking supplied by a supported provider; absent in older history. */
   thinking?: string;
+  /** System notices about omitted provider text, separate from model thinking. */
+  notices?: string[];
   requestId?: string;
 }
 
@@ -34,6 +36,10 @@ export interface CopilotProgressRun {
 export const COPILOT_SUMMARY_LIMIT = 12_000;
 export const COPILOT_THINKING_LIMIT = 12_000;
 const STAGES = new Set<CopilotProgressStage>(["context", "requesting", "thinking", "writing", "validating"]);
+export const COPILOT_TEXT_NOTICES = new Set([
+  "模型返回了非中文过程，已略过该部分。",
+  "模型过程片段未完整接收，已略过该部分。",
+]);
 
 /** Owns one request; all published values are immutable snapshots. */
 export function createCopilotProgressRun(options: {
@@ -61,6 +67,14 @@ export function createCopilotProgressRun(options: {
   function onAbort() { finish("paused"); }
   function mark(stage: CopilotProgressStage, message: string) {
     if (!writable() || !STAGES.has(stage)) return;
+    // A display notice must survive later stages without replacing the actual
+    // current operation or pretending to be a new model-generated step.
+    if (COPILOT_TEXT_NOTICES.has(message)) {
+      if (value.notices?.includes(message)) return;
+      value = { ...value, notices: [...(value.notices ?? []), message] };
+      publish();
+      return;
+    }
     const previous = value.steps.at(-1);
     if (previous?.stage === stage) {
       if (previous.message === message) return;

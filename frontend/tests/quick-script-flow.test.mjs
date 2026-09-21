@@ -11,6 +11,7 @@ import * as quickState from "../lib/quick-script-types.ts";
 import * as quickExport from "../lib/quick-script-export.ts";
 import { pendingQuickSourceInputs } from "../lib/quick-source-recovery.ts";
 import { currentWorkspaceHref } from "../lib/workspace-stage.ts";
+import { createCopilotProgressRun } from "../lib/copilot-progress.ts";
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL("../components/quick-script-workspace.tsx", import.meta.url), "utf8");
@@ -32,7 +33,7 @@ const makeState = (patch = {}) => ({ schema_version: "quick_script.v1", project_
  */
 function editorHarness({ project = makeProject(), initialState = null, action, read, cache = [], search = "" } = {}) {
   let currentProject = project, remoteState = initialState, tree, cursor = 0, needsRender = true;
-  let pendingEffects = [];
+  let pendingEffects = [], progress = null;
   const hooks = [], calls = [], reads = [], routes = [], sequences = [], timers = new Map(), storage = new Map(cache);
   const Copilot = () => null;
   class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
@@ -88,7 +89,10 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
       if (name === "@/lib/host-session") return { projectStorageKey: key => key };
       if (name === "@/lib/use-host-script-workflow") return { useHostScriptWorkflow: () => true };
       if (name === "@/components/planning-canvas-copilot") return { PlanningCanvasCopilot: Copilot };
-      if (name === "@/lib/use-copilot-progress") return { useCopilotProgress: () => ({ progress: null, begin: () => ({ mark() {}, onEvent() {}, finish: () => null }) }) };
+      if (name === "@/lib/use-copilot-progress") return { useCopilotProgress: () => ({ progress,
+        begin: signal => createCopilotProgressRun({ id: `progress-${calls.length}`, signal,
+          onChange: value => { progress = value; renderLater(); } }),
+      }) };
       if (name === "@/lib/project-sync") return { acceptQuickWorkspaceSnapshot: (original, value) => ({ ...value.workspace_snapshot.workspace_payload,
         serverSync: { status: "synced", projectRevision: value.project_revision, workspaceRevision: value.workspace_snapshot.revision } }) };
       if (name === "@/providers/project-provider") return { useProjects: () => ({ isReady: true,
@@ -96,9 +100,9 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
         adoptServerProjectSnapshot: async saved => { currentProject = saved; renderLater(); return true; } }) };
       if (name === "@/lib/quick-script-client") return {
         loadQuickScript: async () => { reads.push(remoteState?.revision ?? 0); if (read) await read(reads.length); return receipt(remoteState); },
-        actQuickScript: async (id, revision, kind, payload) => {
+        actQuickScript: async (id, revision, kind, payload, options) => {
           calls.push({ id, revision, kind, payload });
-          if (action) remoteState = await action(kind, payload, remoteState, { ApiError, calls });
+          if (action) remoteState = await action(kind, payload, remoteState, { ApiError, calls, ...options });
           else if (kind === "setup") remoteState = makeState({ ...payload, revision: 1, synopsis: currentProject.storySynopsis?.text ?? "" });
           else if (kind === "draft_synopsis") remoteState = { ...remoteState, revision: remoteState.revision + 1, synopsis };
           else if (kind === "confirm_synopsis") remoteState = { ...remoteState, revision: remoteState.revision + 1, synopsis: payload.synopsis, synopsis_confirmed: true, phase: "plan", next_step: "plan" };
@@ -152,6 +156,7 @@ test("new quick UI saves setup before its first synopsis request and adopts that
   assert.equal(harness.copilot().props.presentation, "rail", "Saved synopsis becomes the main document");
   assert.ok(harness.items().some(item => item.type === "textarea" && item.props.value === synopsis));
   assert.ok(harness.button("确认梗概"));
+  assert.equal(harness.copilot().props.messages.at(-1).progress.status, "completed");
 });
 
 test("quick workspace count edits submit matching targets for 1, 2, 8 and 12 episodes", async () => {
@@ -492,4 +497,103 @@ test("unsuccessful resume cannot submit another model request", async () => {
   await harness.settle(); await harness.click("重新生成创作安排");
   assert.deepEqual(harness.calls.map(call => call.kind), ["resume"]);
   assert.equal(harness.sequences.length, 0);
+});
+
+test("blocked arrangement finishes as an error with its saved reason and an enabled explicit retry", async () => {
+  const harness = editorHarness({ initialState: makeState({ synopsis, synopsis_confirmed: true, phase: "plan", next_step: "plan" }) });
+  await harness.settle(); await harness.click("生成创作安排");
+  const reply = harness.copilot().props.messages.at(-1);
+  assert.equal(reply.progress.status, "error");
+  assert.match(reply.text, /创作安排暂未完成/);
+  assert.match(reply.text, /模拟安排请求失败/);
+  assert.match(reply.text, /已保存的内容和检查进度保持不变/);
+  assert.match(reply.text, /重新生成创作安排/);
+  assert.doesNotMatch(reply.text, /已整理好|处理已暂停/);
+  assert.equal(harness.button("重新生成创作安排").props.disabled, false);
+  assert.equal(harness.project().quickWorkflow.synopsis, synopsis);
+  assert.deepEqual(harness.calls.map(call => call.kind), ["draft_plan"]);
+  assert.equal(harness.sequences.length, 0);
+});
+
+test("either blocked status or a public blocked reason prevents a false success", async () => {
+  for (const failure of [{ status: "blocked", blocked_reason: null }, { status: "idle", blocked_reason: "安排未满足当前集数要求" }]) {
+    const harness = editorHarness({ initialState: makeState({ synopsis, synopsis_confirmed: true, phase: "plan", next_step: "plan" }),
+      action: (_kind, _payload, state) => ({ ...state, ...failure, revision: 2, phase: "paused" }) });
+    await harness.settle(); await harness.click("生成创作安排");
+    const reply = harness.copilot().props.messages.at(-1);
+    assert.equal(reply.progress.status, "error");
+    assert.match(reply.text, /创作安排暂未完成/);
+    assert.doesNotMatch(reply.text, /已整理好/);
+    assert.equal(harness.button(failure.blocked_reason ? "重新生成创作安排" : "生成创作安排").props.disabled, false);
+    assert.equal(harness.calls.length, 1);
+  }
+});
+
+test("explicit pause keeps a successful saved result paused, while a model failure still takes precedence", async () => {
+  const plan = { id: "plan.paused", title: "旧怀表", characters: [], fixed_facts: [], relationships: [], episodes: [],
+    main_storyline: "修表师寻找父亲", opening: "旧怀表出现", turning_points: [], ending: "找到父亲" };
+  for (const blocked of [false, true]) {
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    const harness = editorHarness({ initialState: makeState({ synopsis, synopsis_confirmed: true, phase: "plan", next_step: "plan" }),
+      action: async (_kind, _payload, state, { onProgress }) => {
+        onProgress({ type: "model_thinking", delta: "先沿用已确认的人物关系，再安排每集冲突。" });
+        await pending;
+        return { ...state, revision: 2, phase: blocked ? "paused" : "plan", status: blocked ? "blocked" : "idle",
+          plan: blocked ? null : plan, blocked_reason: blocked ? "安排未通过检查" : null };
+      } });
+    await harness.settle(); await harness.click("生成创作安排");
+    harness.copilot().props.onPause(); await harness.settle();
+    release(); await harness.settle();
+    const reply = harness.copilot().props.messages.at(-1);
+    assert.equal(reply.progress.status, blocked ? "error" : "paused");
+    assert.equal(reply.progress.thinking, "先沿用已确认的人物关系，再安排每集冲突。");
+    assert.match(reply.text, blocked ? /创作安排暂未完成/ : /已暂停，已有内容已保存/);
+    assert.equal(harness.button(blocked ? "重新生成创作安排" : "确认安排，生成整部剧本").props.disabled, false);
+    assert.equal(harness.project().quickWorkflow.plan, blocked ? null : plan);
+    assert.equal(harness.calls.length, 1);
+    assert.equal(harness.sequences.length, 0);
+  }
+});
+
+test("failed script generation preserves saved body and points to the enabled continuation button", async () => {
+  const draft = { id: "draft.retained", title: "已保存的第一集", characters: [], scenes: [] };
+  const initialState = makeState({ phase: "writing", next_step: "draft", synopsis, synopsis_confirmed: true, plan_confirmed: true,
+    episodes: [{ episode_number: 1, status: "passed", draft, repair_count: 0 }] });
+  const harness = editorHarness({ initialState, action: (_kind, _payload, state) => ({ ...state, revision: 2,
+    phase: "paused", status: "blocked", blocked_reason: "模型响应超时" }) });
+  await harness.settle(); await harness.click("继续生成剩余剧本");
+  const reply = harness.copilot().props.messages.at(-1);
+  assert.equal(reply.progress.status, "error");
+  assert.match(reply.text, /本次剧本生成未完成/);
+  assert.match(reply.text, /模型响应超时/);
+  assert.match(reply.text, /继续生成剩余剧本/);
+  assert.ok(harness.button("继续生成剩余剧本"));
+  assert.ok(!harness.button("继续生成剩余剧本").props.disabled);
+  assert.equal(harness.project().quickWorkflow.episodes[0].draft, draft);
+  assert.deepEqual(harness.calls.map(call => call.kind), ["advance"]);
+});
+
+test("review failure requests author edits, keeps the saved body and enables save only after editing", async () => {
+  const draft = { id: "draft.review", title: "等待检查的第一集", characters: [], scenes: [] };
+  const initialState = makeState({ phase: "review", next_step: "review", synopsis, synopsis_confirmed: true, plan_confirmed: true,
+    episodes: [{ episode_number: 1, status: "drafted", draft, repair_count: 0 }] });
+  const harness = editorHarness({ initialState, action: (_kind, _payload, state) => ({ ...state, revision: 2,
+    phase: "paused", status: "blocked", next_step: "repair", blocked_reason: "人物行为与已确认设定不一致",
+    episodes: [{ ...state.episodes[0], status: "blocked", repair_count: 1, review: { status: "needs_author", issues: [] } }] }) });
+  await harness.settle(); await harness.click("检查修改并继续");
+  const reply = harness.copilot().props.messages.at(-1);
+  assert.equal(reply.progress.status, "error");
+  assert.match(reply.text, /本次生成未通过检查/);
+  assert.match(reply.text, /人物行为与已确认设定不一致/);
+  assert.match(reply.text, /调整正文，再点击“保存正文修改”/);
+  assert.equal(harness.project().quickWorkflow.episodes[0].draft, draft);
+  assert.equal(harness.button("继续生成"), undefined);
+  assert.equal(harness.button("保存正文修改"), undefined);
+  harness.items().find(item => item.type === "input" && item.props.value === draft.title)
+    .props.onChange({ target: { value: "已调整人物动机的第一集" } });
+  await harness.settle();
+  assert.equal(harness.button("保存正文修改").props.disabled, false);
+  assert.equal(harness.project().quickWorkflow.episodes[0].draft, draft, "Unsaved editing never replaces the saved body");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["advance"]);
 });

@@ -6,7 +6,7 @@ import threading
 import pytest
 
 from app.api.copilot_stream import copilot_stream_response
-from app.modules.script_engine.copilot_language import chinese_progress_text
+from app.modules.script_engine.copilot_language import chinese_progress_text, is_structured_progress_fragment
 from app.modules.script_engine.copilot_progress import (
     INCOMPLETE_NOTICE,
     LANGUAGE_NOTICE,
@@ -29,6 +29,122 @@ from tests.test_llm_adapter import build_strategy
 ])
 def test_chinese_process_preserves_names_and_technical_references(text):
     assert chinese_progress_text(text)
+
+
+@pytest.mark.parametrize("text", ["2)", "4)\n", "(2)", "1000", "。", "（）\n---\n", "一、"])
+def test_outline_markers_are_not_displayable_reasoning(text):
+    assert is_structured_progress_fragment(text)
+
+
+@pytest.mark.parametrize("text", [
+    "先核对人物关系，再检查场景衔接。",
+    "S1: 外景圣达港上空——午后",
+    "S1/S2：台词片段",
+    "2) 先核对人物目标。",
+    "一、人物关系",
+])
+def test_normal_chinese_reasoning_is_not_treated_as_an_outline_marker(text):
+    assert not is_structured_progress_fragment(text)
+
+
+def _stream_progress_for_display(source, channel, chunk_size):
+    events = []
+    observer = CopilotProgress(events.append, threading.Event())
+    receive = observer.thinking_delta if channel == "model_thinking" else observer.summary_delta
+    for offset in range(0, len(source), chunk_size):
+        observer._last_flush[channel] = 0
+        receive(source[offset:offset + chunk_size])
+    observer.flush_text()
+    return "".join(event.get("delta", "") for event in events if event["type"] == channel), events
+
+
+@pytest.mark.parametrize("channel", ["model_thinking", "reasoning_summary"])
+@pytest.mark.parametrize("chunk_size", [1, 2, 64, 10_000])
+def test_complete_sentence_buffering_omits_mixed_prefixes_and_keeps_valid_lists(channel, chunk_size):
+    source = (
+        "先核对来源。\n\n"
+        "2) We need to check the story.\n\n"
+        "4)\n"
+        "接下来 We need to fix the scene.\n\n"
+        "2) 核对人物目标。\n"
+        "3. 保留 Alex Morgan 的决定。\n\n"
+        "S1/S2：台词片段\n"
+        "核对 `scenes[0].dialogues` 字段。"
+    )
+    displayed, events = _stream_progress_for_display(source, channel, chunk_size)
+    assert displayed == (
+        "先核对来源。\n\n"
+        "2) 核对人物目标。\n"
+        "3. 保留 Alex Morgan 的决定。\n\n"
+        "S1/S2：台词片段\n"
+        "核对 `scenes[0].dialogues` 字段。"
+    )
+    assert len([event for event in events if event.get("message") == LANGUAGE_NOTICE]) == 1
+
+
+@pytest.mark.parametrize("channel", ["model_thinking", "reasoning_summary"])
+@pytest.mark.parametrize("chunk_size", [1, 10_000])
+@pytest.mark.parametrize("source", ["2)\n4)\n(2)\n1000\n", "。！？\n---\n()\n", " \n\n\n "])
+def test_isolated_markers_and_punctuation_never_become_progress(channel, chunk_size, source):
+    displayed, _ = _stream_progress_for_display(source, channel, chunk_size)
+    assert displayed == ""
+
+
+@pytest.mark.parametrize("channel", ["model_thinking", "reasoning_summary"])
+@pytest.mark.parametrize("chunk_size", [1, 10_000])
+def test_filtered_sentences_leave_one_paragraph_break_and_a_system_notice(channel, chunk_size):
+    source = "先核对人物。\n\n\nWe need to review the story.\n\n\n再检查场景。"
+    displayed, events = _stream_progress_for_display(source, channel, chunk_size)
+    assert displayed == "先核对人物。\n\n再检查场景。"
+    assert any(event["type"] == "progress" and event.get("message") == LANGUAGE_NOTICE for event in events)
+
+
+@pytest.mark.parametrize("channel", ["model_thinking", "reasoning_summary"])
+@pytest.mark.parametrize("middle", ["", "We need to check.\n\n\n"])
+def test_paragraph_spacing_is_identical_when_provider_splits_between_newlines(channel, middle):
+    source = "先核对人物。\n\n\n" + middle + "再检查场景。"
+    first_newline = source.index("\n")
+    variants = [[source], list(source)] + [
+        [source[:offset], source[offset:]] for offset in (first_newline + 1, first_newline + 2)
+    ]
+    for chunks in variants:
+        events = []
+        observer = CopilotProgress(events.append, threading.Event())
+        receive = observer.thinking_delta if channel == "model_thinking" else observer.summary_delta
+        for chunk in chunks:
+            observer._last_flush[channel] = 0
+            receive(chunk)
+        observer.flush_text()
+        displayed = "".join(event.get("delta", "") for event in events if event["type"] == channel)
+        assert displayed == "先核对人物。\n\n再检查场景。", chunks
+
+
+@pytest.mark.parametrize("channel", ["model_thinking", "reasoning_summary"])
+def test_chinese_or_numbered_prefix_waits_for_its_complete_sentence(channel):
+    events = []
+    observer = CopilotProgress(events.append, threading.Event())
+    receive = observer.thinking_delta if channel == "model_thinking" else observer.summary_delta
+    for fragment in ["2)", "接下来", " We need to check the scene."]:
+        observer._last_flush[channel] = 0
+        receive(fragment)
+        assert not any(event["type"] == channel for event in events)
+    observer.flush_text()
+    assert not any(event["type"] == channel for event in events)
+    assert any(event.get("message") == LANGUAGE_NOTICE for event in events)
+
+
+@pytest.mark.parametrize("channel", ["model_thinking", "reasoning_summary"])
+def test_retry_keeps_a_chinese_final_phrase_after_an_omitted_complete_sentence(channel):
+    events = []
+    observer = CopilotProgress(events.append, threading.Event())
+    receive = observer.thinking_delta if channel == "model_thinking" else observer.summary_delta
+    receive("We need to check.\n已完成核对")
+    observer.request_started()
+    receive("继续检查。")
+    observer.flush_text()
+    assert "".join(event.get("delta", "") for event in events) == "已完成核对\n\n继续检查。"
+    assert any(event.get("message") == LANGUAGE_NOTICE for event in events)
+    assert not any(event.get("message") == INCOMPLETE_NOTICE for event in events)
 
 
 @pytest.mark.parametrize("text", [

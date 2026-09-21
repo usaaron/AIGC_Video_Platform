@@ -109,6 +109,21 @@ def copilot_stream_response(operation: Callable[[], Any], *,
 
     observer = CopilotProgress(publish, cancelled)
 
+    def publish_failure(event: dict[str, Any]) -> None:
+        # A failed provider call may leave its last Chinese phrase buffered.
+        # Only finish display text already received; never resume model work or
+        # accept an incomplete mixed-language tail as a complete explanation.
+        try:
+            if not cancelled.is_set() and not detached.is_set():
+                observer.flush_interrupted_text()
+        except CopilotRequestCancelled:
+            pass
+        except Exception:
+            # Feedback failure must not replace or hide the original terminal.
+            logger.warning("Copilot failure feedback could not be flushed request_id=%s", trace_id)
+        finally:
+            publish(event)
+
     def worker() -> None:
         try:
             with (lifecycle.bind() if lifecycle is not None else nullcontext()), bind_copilot_progress(observer), deadline_scope(COPILOT_DEADLINE_SECONDS, scope="copilot"):
@@ -128,15 +143,15 @@ def copilot_stream_response(operation: Callable[[], Any], *,
         except CopilotRequestCancelled:
             pass
         except HTTPException as error:
-            publish(_http_error_event(error))
+            publish_failure(_http_error_event(error))
         except DeadlineExceeded:
-            publish({"type": "error", "status": 503, "message": "本次请求已达到处理时限，请稍后重试。",
+            publish_failure({"type": "error", "status": 503, "message": "本次请求已达到处理时限，请稍后重试。",
                      "retryable": False, "failure_class": "time_budget_exhausted", "error_type": "deadline"})
         except Exception as error:
             # Exception reprs may contain prompts/provider bodies; only class-free
             # diagnostics and a fixed public message belong on this transport.
             logger.error("Copilot streaming operation failed request_id=%s error_type=%s", trace_id, type(error).__name__)
-            publish({"type": "error", "status": 500, "message": "本次请求未能完成，请稍后重试。", "retryable": False})
+            publish_failure({"type": "error", "status": 500, "message": "本次请求未能完成，请稍后重试。", "retryable": False})
         finally:
             finished.set()
 

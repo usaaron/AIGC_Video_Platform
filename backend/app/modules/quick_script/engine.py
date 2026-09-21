@@ -14,7 +14,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, model_validator
 
 from app.modules.content_spec.market_profile import CREATOR_INTERACTION_LANGUAGE_CONTRACT
 from app.modules.master_script.models import (
@@ -41,6 +41,9 @@ from .models import (
     QuickPlanResult, QuickReview, QuickReviewResult, QuickState, QuickSynopsisResult,
 )
 from .market import quick_market, quick_market_contract, creator_language_paths, overseas_plan_issues
+from .plan_contract import (
+    SCENE_HEADING_CONTRACT, episode_ending_contract, normalize_quick_plan_payload, quick_plan_output_schema,
+)
 
 
 class QuickEngineError(ValueError):
@@ -153,6 +156,65 @@ def validate_quick_plan(state: QuickState, plan: QuickPlanContent) -> list[Quick
         if item.target_duration_seconds != state.settings.target_duration_seconds:
             issues.append(_issue("duration_target", "分集时长目标与已确认设置不一致。", episode=n))
     return issues
+
+
+def _plan_retry_diagnostics(state: QuickState) -> list[dict[str, Any]]:
+    """Recheck only the latest plan attempt; export fixed contract metadata, not prose."""
+    record = next((row for row in reversed(state.operation_records)
+                   if row.get("stage") in {"plan", "synopsis"}), None)
+    if (not record or record.get("stage") != "plan" or record.get("status") != "failed"
+            or not isinstance(record.get("candidate"), dict)):
+        return []
+    candidate = record["candidate"]
+    try:
+        plan = QuickPlanContent.model_validate(normalize_quick_plan_payload(candidate))
+    except ValidationError as error:
+        diagnostics = []
+        for item in error.errors(include_url=False, include_context=False, include_input=False):
+            loc = item["loc"]
+            if (len(loc) == 5 and loc[0] == "episodes" and type(loc[1]) is int and 0 <= loc[1] < 12
+                    and loc[2] == "scene_execution_plan" and type(loc[3]) is int
+                    and 0 <= loc[3] < EPISODE_SCENE_MAX and loc[4] == "scene_heading"):
+                diagnostics.append({"code": "scene_heading_format", "episode": loc[1] + 1,
+                    "field": "scene_heading", "current": "missing_or_invalid_environment",
+                    "expected": "INT. / EXT. / INT./EXT. / EXT./INT. + 中文地点与时段"})
+            if len(diagnostics) == 8:
+                break
+        return diagnostics or [{"code": "output_schema", "field": "plan",
+                                "current": "invalid", "expected": "QuickPlanContent"}]
+    diagnostics = []
+    for issue in validate_quick_plan(state, plan):
+        number = issue.episode_number
+        episode = next((row for row in plan.episodes if row.episode_number == number), None)
+        row = {"code": issue.code}
+        if number is not None:
+            row["episode"] = number
+        if issue.code == "subplot_not_approved":
+            row.update(field="subplot", current="provided", expected=None)
+        elif issue.code == "episode_coverage":
+            row.update(field="episodes", current=len(plan.episodes), expected=state.settings.episode_count)
+        elif issue.code == "ending_mode" and episode:
+            expected = "series_finale" if number == state.settings.episode_count else "serial_hook"
+            row.update(field="ending_mode", current=episode.ending_mode.value, expected=expected)
+        elif issue.code == "finale_obligation":
+            row.update(field="next_episode_obligation", current="noncanonical",
+                       expected=episode_ending_contract(state.settings)[-1]["next_episode_obligation"])
+        elif issue.code == "finale_future_payoff":
+            row.update(field="hook_payoff_target_episode", current="provided", expected=None)
+        elif issue.code == "duration_target" and episode:
+            row.update(field="target_duration_seconds", current=episode.target_duration_seconds,
+                       expected=state.settings.target_duration_seconds)
+        elif issue.code == "unknown_character":
+            row.update(field="character_refs", current="unapproved", expected="approved_characters_only")
+        elif issue.code == "plan_not_executable":
+            row.update(field="scene_execution_plan", current="incomplete", expected="complete_execution_contract")
+        else:
+            continue
+        if row not in diagnostics:
+            diagnostics.append(row)
+        if len(diagnostics) == 8:
+            break
+    return diagnostics
 
 
 def _body_lines(draft: DraftMasterScript, scene_number: int | None = None) -> list[str]:
@@ -327,6 +389,8 @@ class QuickScriptEngine:
             raise QuickEngineError("当前模型尚未通过快速模式上下文能力核验。", code="quick_capability_unverified")
         prompt = quick_market_contract(state) + "\n" + prompt
         schema = schema_type.model_json_schema()
+        if stage == "plan" and schema_type is QuickPlanContent:
+            schema = quick_plan_output_schema(schema, state.settings)
         prompt += "\n只返回完整根JSON对象，不返回schema或Markdown。输出合同：\n" + json.dumps(
             compact_json_schema(schema), ensure_ascii=False, separators=(",", ":"))
         # HTTP JSON escapes are decoded before inference. Count UTF-8 bytes of
@@ -365,7 +429,10 @@ class QuickScriptEngine:
                     or terminal == "finish_reason:stop"):
                 raise QuickEngineError("本次返回缺少可靠完成信号或被截断，候选已保留，尚未通过检查。",
                                        code="quick_incomplete_output", call=call, candidate=raw)
-            parsed = schema_type.model_validate({k: v for k, v in raw.items() if k != "_meta"})
+            payload = {k: v for k, v in raw.items() if k != "_meta"}
+            if stage == "plan" and schema_type is QuickPlanContent:
+                payload = normalize_quick_plan_payload(payload)
+            parsed = schema_type.model_validate(payload)
             return parsed, call
         except Exception as error:
             call.elapsed_ms = round((time.perf_counter() - started) * 1000)
@@ -399,8 +466,15 @@ class QuickScriptEngine:
     def draft_plan(self, state: QuickState) -> QuickPlanResult:
         if not state.synopsis_confirmed or not state.synopsis.strip():
             raise QuickEngineError("请先确认故事梗概。", code="quick_synopsis_unconfirmed")
-        prompt = ("一次生成短篇简版创作安排：紧凑固定设定＋全部分集与逐场执行合同。中文，最多6名核心人物，"
-                  "一条主线、至多一条直接服务主线的支线，单一时间顺序。禁止多层故事树和通用占位语。"
+        storyline_contract = (
+            "作者仅批准一条主线，subplot必须为JSON null，不新增支线，也不在subplot写主线说明或‘无支线’文字。"
+            if state.settings.storyline_count == 1 else
+            "作者允许一条主线、至多一条直接服务主线的支线；没有必要支线时subplot为JSON null。"
+        )
+        retry_diagnostics = _plan_retry_diagnostics(state)
+        prompt = ("一次生成短篇简版创作安排：紧凑固定设定＋全部分集与逐场执行合同。故事说明使用中文，最多6名核心人物。"
+                  + storyline_contract + "单一时间顺序。禁止多层故事树和通用占位语。"
+                  + SCENE_HEADING_CONTRACT +
                   "每集场景明确谁在场、目标、可见行动、阻力、选择、信息变化、证据与退出状态；"
                   "execution_ready仅在所有场次内容完整时为true。稳定character_ref/name贯穿全剧。"
                   "同一次输出production_assets数组，为安排中实际需要的场景(kind=scene)和关键物品(kind=prop)"
@@ -409,11 +483,17 @@ class QuickScriptEngine:
                   "未指定的尺寸、颜色、品牌等不补造，不为凑数添加资产；无物品可不建prop卡。"
                   "同一资产只保留一张卡，人物仍只写characters；后续场景目录和道具清单沿用卡片稳定名称。"
                   "每集25–35条对白、15–20个动作单元，总数必须等于各场预算之和，1–3场，75–115秒。"
-                  "每集target_duration_seconds与settings相同，前集serial_hook，最后一集series_finale，"
+                  "每集target_duration_seconds与settings相同，"
+                  f"第{state.settings.episode_count}集是全剧最后一集，ending_mode必须为series_finale；此前各集必须为serial_hook。"
                   "最后一集next_episode_obligation固定填写：本集完成正式收束；后续内容仅按已批准方向承接。"
                   "最后一集hook_payoff_target_episode为null，不编下集悬念。"
+                  "逐集episode_ending_contract是必须逐项照写的制作元数据，不可漏写或使用默认serial_hook覆盖最后一集。"
+                  "若提供previous_plan_contract_issues，它是上次输出的程序检查结果；本次纠正对应字段，"
+                  "不得复制错误值，不为纠正格式或结尾标记另加剧情。"
                   "篇幅与集数必须支持真实剧情，不准新增无效剧情凑数量。只输出指定JSON。\n"
                   + json.dumps({"confirmed_synopsis": state.synopsis, "settings": _json(state.settings),
+                                "episode_ending_contract": episode_ending_contract(state.settings),
+                                **({"previous_plan_contract_issues": retry_diagnostics} if retry_diagnostics else {}),
                                 "author_instruction": str((state.active_operation or {}).get("instruction", ""))[:2_000],
                                 "current_plan": _json(state.plan) if state.plan else None,
                                 "source_material": state.source_material,

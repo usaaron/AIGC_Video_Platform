@@ -157,6 +157,9 @@ def test_validated_llm_draft_deduplicates_internal_scene_prompt_values() -> None
         dialogues = first_scene["dialogues"]
         assert isinstance(actions, list)
         assert isinstance(dialogues, list)
+        # Keep the synthetic episode inside the production runtime contract
+        # even after adding duplicate prompt values; this test targets dedup.
+        dialogues[0]["text"] = "Stay beside me, bride."
         actions.insert(1, f"  {actions[0]}  ")
         dialogues.insert(1, deepcopy(dialogues[0]))
         return output

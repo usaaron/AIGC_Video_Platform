@@ -433,10 +433,33 @@ function progressDuration(startedAt: number, endedAt: number) {
 
 export function CopilotProgressView({ progress, historical = false }: { progress: CopilotProgress; historical?: boolean }) {
   const [open, setOpen] = useState(!historical && progress.status !== "completed");
+  const [thinkingOpen, setThinkingOpen] = useState(true);
   const [now, setNow] = useState(Date.now);
+  const display = copilotProgressForDisplay(progress);
+  const thinkingText = display.thinking ?? "";
+  const thinkingRef = useRef<HTMLParagraphElement>(null);
+  const followThinking = useRef(!historical);
   useEffect(() => {
     setOpen(!historical && progress.status !== "completed");
   }, [progress.id, progress.status, historical]);
+  useEffect(() => {
+    followThinking.current = !historical;
+    setThinkingOpen(true);
+  }, [progress.id, historical]);
+  useEffect(() => {
+    const thinking = thinkingRef.current;
+    if (!open || !thinkingOpen || !thinking || !followThinking.current) return;
+    thinking.scrollTop = thinking.scrollHeight;
+  }, [progress.id, thinkingText, open, thinkingOpen]);
+  useEffect(() => {
+    const thinking = thinkingRef.current;
+    if (!thinking || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (followThinking.current && thinking.clientHeight) thinking.scrollTop = thinking.scrollHeight;
+    });
+    observer.observe(thinking);
+    return () => observer.disconnect();
+  }, [Boolean(thinkingText)]);
   useEffect(() => {
     if (progress.status !== "running") return;
     setNow(Date.now());
@@ -445,7 +468,6 @@ export function CopilotProgressView({ progress, historical = false }: { progress
   }, [progress.id, progress.status]);
 
   const status = { running: "进行中", completed: "已完成", paused: "已暂停", error: "未完成" }[progress.status];
-  const display = copilotProgressForDisplay(progress);
   const latest = display.steps.at(-1);
   return <details className={`copilot-progress is-${progress.status}`} data-progress-id={progress.id} data-progress-status={progress.status}
     aria-label="处理进度" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
@@ -458,24 +480,47 @@ export function CopilotProgressView({ progress, historical = false }: { progress
     </summary>
     {progress.status === "running" && latest ? <p className="copilot-progress-current" role="status">{latest.message}</p> : null}
     <div className="copilot-progress-body">
-      {progress.steps.length ? <ol aria-label="已到达的处理步骤">
-        {display.steps.map((step, index) => {
-          const active = progress.status === "running" && index === progress.steps.length - 1;
-          return <li className={active ? "is-active" : ""} data-progress-stage={step.stage} key={`${index}-${step.stage}`}>
-            <span className="copilot-progress-step-marker" aria-hidden="true">{index + 1}</span>
-            <span>{step.message}</span>
-            <time>{progressDuration(step.startedAt, step.endedAt ?? progress.endedAt ?? now)}</time>
-          </li>;
-        })}
-      </ol> : <p className="muted">等待处理进度…</p>}
-      {display.thinking ? <section className="copilot-progress-thinking" aria-label="模型思考">
-        <h4>模型思考</h4>
-        <p>{display.thinking}</p>
-      </section> : null}
+      {display.notices?.length ? <div className="copilot-progress-notices" role="note" aria-label="过程说明">
+        {display.notices.map(notice => <small key={notice}>{notice}</small>)}
+      </div> : null}
+      {display.thinking || display.thinkingNotice ? <details className="copilot-progress-thinking" aria-label="模型思考" open={thinkingOpen}
+        onToggle={(event) => setThinkingOpen(event.currentTarget.open)}>
+        <summary aria-label={thinkingOpen ? "收起模型思考" : "展开模型思考"}><h4>思考链路</h4><ChevronDown size={13} aria-hidden="true" /></summary>
+        {display.thinkingNotice ? <small className="copilot-progress-thinking-notice">{display.thinkingNotice}</small> : null}
+        {display.thinking ? <p ref={thinkingRef} tabIndex={0} aria-label="思考链路内容"
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            followThinking.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 24;
+          }}
+          onWheel={(event) => {
+            // The inner reading surface owns its scroll; do not switch the
+            // conversation thread out of follow mode when reading this text.
+            event.stopPropagation();
+            if (event.deltaY < 0) followThinking.current = false;
+          }}
+          onKeyDown={(event) => {
+            if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followThinking.current = false;
+          }}>
+          {display.thinking}
+        </p> : null}
+      </details> : null}
       {display.summary ? <section className="copilot-progress-summary" aria-label="公开思考摘要">
         <h4>公开思考摘要</h4>
         <p>{display.summary}</p>
       </section> : null}
+      {progress.steps.length ? <details className="copilot-progress-steps">
+        <summary>处理步骤 · {progress.steps.length}<ChevronDown size={13} aria-hidden="true" /></summary>
+        <ol aria-label="已到达的处理步骤" tabIndex={0}>
+          {display.steps.map((step, index) => {
+            const active = progress.status === "running" && index === progress.steps.length - 1;
+            return <li className={active ? "is-active" : ""} data-progress-stage={step.stage} key={`${index}-${step.stage}`}>
+              <span className="copilot-progress-step-marker" aria-hidden="true">{index + 1}</span>
+              <span>{step.message}</span>
+              <time>{progressDuration(step.startedAt, step.endedAt ?? progress.endedAt ?? now)}</time>
+            </li>;
+          })}
+        </ol>
+      </details> : <p className="muted">等待处理进度…</p>}
       {progress.status === "paused" ? <p className="copilot-progress-outcome">已暂停，以上处理记录已保留。</p> : null}
       {progress.status === "error" ? <p className="copilot-progress-outcome">本次未完成，以上处理记录已保留。</p> : null}
     </div>

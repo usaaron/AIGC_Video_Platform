@@ -5,7 +5,7 @@ import pytest
 
 from app.modules.master_script.models import LLMGeneratedDraftMasterScript
 from app.modules.script_engine import draft_contract
-from app.modules.script_engine.generation_service import ScriptGenerationService
+from app.modules.script_engine.generation_service import InvalidDraftMasterScriptOutputError, ScriptGenerationService
 from app.modules.script_engine.screenplay_duration import estimate_screenplay_duration
 from tests.test_script_generation_service import _mainland_single_scene_payload, seed_dependencies
 
@@ -76,7 +76,7 @@ def _patch(source, allocation):
     return {"scenes": scenes}
 
 
-def _repair(source, patch, *, target_characters=None):
+def _repair(source, patch, *, target_characters=None, verify_production=True):
     service, _ = seed_dependencies()
     strategy = service._generation_strategy_repository.get("strategy.tiktok.service_generation.v1")
     calls = []
@@ -99,8 +99,9 @@ def _repair(source, patch, *, target_characters=None):
         target_duration_seconds=90,
     )
     assert len(calls) == 1
-    # The next real stage must not re-request a count repair for the preserved,
-    # globally legal source or the accepted, corrected candidate.
+    if not verify_production:
+        return result, calls[0][0]
+    # Accepted candidates already meeting counts and runtime need no extra call.
     verified = service._ensure_episode_production_counts(
         output=result,
         strategy=strategy,
@@ -122,7 +123,7 @@ def test_duration_patch_cannot_reduce_or_redistribute_valid_dialogue(
 ):
     source = _source(original_allocation)
     before = deepcopy(source)
-    result, prompt = _repair(source, _patch(source, candidate_allocation))
+    result, prompt = _repair(source, _patch(source, candidate_allocation), verify_production=False)
 
     assert draft_contract.without_metadata(result) == draft_contract.without_metadata(before)
     assert source == before
@@ -130,10 +131,30 @@ def test_duration_patch_cannot_reduce_or_redistribute_valid_dialogue(
     assert result["_meta"]["deferred_postprocess_phases"] == ["acceptance_repair"]
     assert diagnostic in result["_meta"]["deferred_postprocess_diagnostics"][0]
     assert result["_meta"]["duration_warning"] is True
-    assert result["_meta"]["episode_dialogue_line_count"] == 27
-    assert result["_meta"]["episode_production_count_model_pass_count"] == 0
+    assert sum(len(scene["dialogues"]) for scene in result["scenes"]) == 27
     assert "不得把合法总数向25条下限压缩" in prompt
     assert "删除重复动作、解释性台词" not in prompt
+
+    # Keeping a recoverable draft does not approve its overlong runtime for
+    # delivery. The final production gate must still repair it or reject it.
+    service, _ = seed_dependencies()
+    strategy = service._generation_strategy_repository.get("strategy.tiktok.service_generation.v1")
+    count_calls = []
+    unchanged_patch = {"scenes": [
+        {key: deepcopy(scene[key]) for key in ("scene_number", "character_actions", "dialogues", "body_order")}
+        for scene in result["scenes"]
+    ]}
+
+    def unchanged_count_repair(*args, **kwargs):
+        count_calls.append(kwargs)
+        return deepcopy(unchanged_patch)
+
+    service._production_count_llm_adapter = SimpleNamespace(generate_structured_output_stream=unchanged_count_repair)
+    preserved = deepcopy(result)
+    with pytest.raises(InvalidDraftMasterScriptOutputError, match="时长"):
+        service._ensure_episode_production_counts(output=result, strategy=strategy)
+    assert len(count_calls) == 2
+    assert result == preserved
 
 
 @pytest.mark.parametrize("allocation", [(27,), (27, 0)])

@@ -38,8 +38,40 @@
 .copilot-progress-step-marker { width: 18px; height: 18px; text-align: center; border: 1px solid currentColor; border-radius: 50%; opacity: .6; line-height: 16px; font-size: 10px; }
 .copilot-progress-body li.is-active .copilot-progress-step-marker { opacity: 1; background: rgba(127, 127, 127, .13); }
 .copilot-progress-summary, .copilot-progress-thinking { border-top: 1px solid rgba(127, 127, 127, .18); margin-top: 12px; padding-top: 10px; }
+.copilot-progress-thinking > summary, .copilot-progress-steps > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  min-height: 28px;
+}
+
+/* Both embedded layouts size this area from their own remaining height. */
+.planning-canvas-copilot.is-host-copilot > .story-bible-chat-thread { container-type: size; }
+.copilot-progress-thinking > summary::-webkit-details-marker, .copilot-progress-steps > summary::-webkit-details-marker { display: none; }
+.copilot-progress-thinking > summary:focus-visible, .copilot-progress-steps > summary:focus-visible { outline: 2px solid var(--gold, currentColor); outline-offset: 2px; border-radius: 4px; }
+.copilot-progress-thinking > summary h4 { flex: 1; }
+.copilot-progress-thinking[open] > summary > svg, .copilot-progress-steps[open] > summary > svg { transform: rotate(180deg); }
+.copilot-progress-steps { margin-top: 8px; color: var(--ink-soft, inherit); }
+.copilot-progress-steps > summary { justify-content: space-between; font-size: 11px; }
+.copilot-progress-steps > ol { max-height: min(4.5rem, 20cqh); overflow-y: auto; overscroll-behavior: contain; padding: 6px 6px 0 0; scrollbar-width: thin; }
 .copilot-progress-summary h4, .copilot-progress-thinking h4 { font-size: 11px; margin: 0 0 6px; font-weight: 600; opacity: .65; }
 .copilot-progress-summary p, .copilot-progress-thinking p { margin: 0; white-space: pre-wrap; line-height: 1.7; }
+.copilot-progress-thinking p, .copilot-progress-summary p {
+  max-height: min(10rem, 40cqh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.copilot-progress-summary p { max-height: min(6rem, 14vh); }
+.copilot-progress-body:has(.copilot-progress-steps[open]) .copilot-progress-thinking p { max-height: min(6rem, 30cqh); }
+.copilot-progress-thinking-notice { display: block; margin-bottom: 7px; color: var(--ink-soft, inherit); font-size: 11px; line-height: 1.6; }
+.copilot-progress-notices { display: grid; gap: 4px; color: var(--ink-soft, inherit); font-size: 11px; line-height: 1.6; }
+.copilot-progress-notices small { font-size: inherit; }
+.copilot-progress-thinking p:focus-visible, .copilot-progress-steps > ol:focus-visible { outline: 2px solid var(--gold, currentColor); outline-offset: 2px; border-radius: 4px; }
 .copilot-progress-outcome { margin: 10px 0 0; opacity: .7; }
 
 @media (prefers-reduced-motion: reduce) {

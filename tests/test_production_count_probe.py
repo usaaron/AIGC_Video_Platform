@@ -107,8 +107,12 @@ def test_replay_preserves_transport_failure_category_and_retry_decision(sample):
     error = LLMRequestError("Gateway exhausted", category="failover_exhausted", recoverable=True, status_code=502)
     error.stream_fallback_attempted = True
     service = ReplayCountService([failure(error)])
-    with pytest.raises(InvalidDraftMasterScriptOutputError):
+    with pytest.raises(LLMRequestError) as raised:
         ensure(service, sample["source"])
+    assert raised.value.category == "failover_exhausted"
+    assert raised.value.recoverable is True
+    assert raised.value.status_code == 502
+    assert raised.value.stream_fallback_attempted is True
     assert len(service.requests) == 1
     service = ReplayCountService([failure(RuntimeError("Unsupported probe failure"))])
     with pytest.raises(AssertionError, match="Unsupported captured error"):

@@ -272,7 +272,7 @@ test("assistant shows flushed thinking and separate summary before completion, t
   await expect(history).toHaveAttribute("data-progress-status", "completed");
   await expect(history).not.toHaveAttribute("open");
   await expect(panel.locator(`[data-progress-id="${progressId}"]`)).toHaveCount(1);
-  await history.locator("summary").click();
+  await history.locator(":scope > summary").click();
   await expect(history.locator('[aria-label="模型思考"] > p')).toHaveText(thinkingStart + thinkingEnd);
   await expect(history.locator('[aria-label="公开思考摘要"] > p')).toHaveText(summaryStart + summaryEnd);
   await expect(history.locator('[data-progress-stage="validating"]')).toContainText("正在保存这轮讨论");
@@ -290,7 +290,7 @@ test("assistant shows flushed thinking and separate summary before completion, t
   const restoredHistory = restored.panel.locator(`.story-bible-chat-bubble.is-assistant .copilot-progress[data-progress-id="${progressId}"]`);
   await expect(restoredHistory).toHaveAttribute("data-progress-status", "completed");
   await expect(restoredHistory).not.toHaveAttribute("open");
-  await restoredHistory.locator("summary").click();
+  await restoredHistory.locator(":scope > summary").click();
   await expect(restoredHistory.locator('[aria-label="模型思考"] > p')).toHaveText(thinkingStart + thinkingEnd);
   await expect(restoredHistory.locator('[aria-label="公开思考摘要"] > p')).toHaveText(summaryStart + summaryEnd);
   await expect(restoredHistory.locator('[data-progress-stage="context"]')).toContainText(contextMessage);
@@ -302,6 +302,94 @@ test("assistant shows flushed thinking and separate summary before completion, t
   expect(harness.unexpected).toEqual([]);
   expect(harness.errors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("copilot-progress-restored.png") });
+});
+
+test("long model thinking follows incoming text without interrupting manual reading, and collapses independently", async ({ page, harness }, testInfo) => {
+  const { view, panel } = await openAssistant(page);
+  await sendInstruction(view, "请仔细检查人物与证据关系，保留每项检查的依据。");
+  await expect.poll(() => harness.stream.requests.length).toBe(1);
+  const request = harness.stream.requests[0];
+  request.send({ type: "progress", stage: "thinking", message: "正在核对人物与证据关系。" });
+  const active = panel.locator('.copilot-progress[data-progress-status="running"]');
+  const thinking = active.locator('[aria-label="模型思考"] > p');
+  const initial = Array.from({ length: 64 }, (_, index) => `第${index + 1}项：核对人物的证据来源，保留已确认的设定与时间顺序。`).join("\n");
+  request.send({ type: "model_thinking", delta: initial });
+  await expect(thinking).toContainText("第64项");
+  await expect.poll(() => thinking.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);
+  expect(await thinking.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(161);
+  await expect(active.locator('.copilot-progress-current')).toBeInViewport();
+  await expect(active.locator('[aria-label="模型思考"] > summary')).toBeInViewport();
+
+  await thinking.hover();
+  await page.mouse.wheel(0, -240);
+  await expect.poll(() => thinking.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(50);
+  const readingPosition = await thinking.evaluate(element => element.scrollTop);
+  request.send({ type: "model_thinking", delta: "\n新增核对：继续确认录音与证词的时间顺序。" });
+  await expect(thinking).toContainText("新增核对");
+  await expect.poll(() => thinking.evaluate(element => element.scrollTop)).toBe(readingPosition);
+
+  await thinking.focus();
+  await page.keyboard.press("Control+End");
+  await expect.poll(() => thinking.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);
+  request.send({ type: "model_thinking", delta: "\n最终核对：所有人物身份与场景行动保持一致。" });
+  await expect(thinking).toContainText("最终核对");
+  await expect.poll(() => thinking.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);
+
+  await active.locator('[aria-label="模型思考"] > summary').click();
+  await expect(thinking).not.toBeVisible();
+  await expect(active.locator('.copilot-progress-current')).toBeVisible();
+  request.send({ type: "model_thinking", delta: "\n折叠时继续接收：本次检查保留完整模型内容。" });
+  await active.locator('[aria-label="模型思考"] > summary').click();
+  await expect(thinking).toContainText("折叠时继续接收");
+  await expect.poll(() => thinking.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);
+
+  for (let index = 0; index < 30; index++) request.send({ type: "progress", stage: index % 2 ? "writing" : "thinking", message: `正在进行第${index + 1}轮结果核对。` });
+  const steps = active.locator('.copilot-progress-steps');
+  await expect(active.locator('.copilot-progress-current')).toHaveText("正在进行第30轮结果核对。");
+  await steps.locator(":scope > summary").click();
+  const list = steps.locator("ol");
+  await expect(list).toBeVisible();
+  expect(await list.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(95);
+  expect(await list.evaluate(element => element.scrollHeight)).toBeGreaterThan(95);
+  await expect.poll(() => thinking.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(3);
+  await expect(active.locator('.copilot-progress-current')).toBeInViewport();
+  await expect(active.locator('[aria-label="模型思考"] > summary')).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("copilot-progress-long-thinking.png") });
+  completeConversation(request);
+  await expect(panel.getByText(completedReply, { exact: true })).toBeVisible();
+  expect(harness.stream.requests).toHaveLength(1);
+  expect(harness.errors).toEqual([]);
+});
+
+test("thinking cleanup notices remain separate while Chinese scene notes and dialogue stay readable", async ({ page, harness }) => {
+  const { view, panel } = await openAssistant(page);
+  await sendInstruction(view, "核对场景标记与台词。");
+  await expect.poll(() => harness.stream.requests.length).toBe(1);
+  const request = harness.stream.requests[0];
+  request.send({ type: "progress", stage: "thinking", message: "正在核对场次。" });
+  request.send({ type: "progress", stage: "thinking", message: "模型返回了非中文过程，已略过该部分。" });
+  request.send({ type: "model_thinking", delta: "2)\n\n\"\n" });
+  const active = panel.locator('.copilot-progress[data-progress-status="running"]');
+  const section = active.locator('[aria-label="模型思考"]');
+  await expect(active.locator('.copilot-progress-current')).toHaveText("正在核对场次。");
+  await expect(active.getByRole("note", { name: "过程说明" })).toHaveText("模型返回了非中文过程，已略过该部分。");
+  await expect(section.locator('.copilot-progress-thinking-notice')).toBeVisible();
+  await expect(section.locator(":scope > p")).toHaveCount(0);
+  request.send({ type: "model_thinking", delta: 'S1: 外景·旧港口——午后\n林澈：“先核对原始录音。”\n' });
+  await expect(section.locator(":scope > p")).toContainText("S1: 外景·旧港口——午后");
+  await expect(section.locator(":scope > p")).toContainText("林澈：“先核对原始录音。”");
+  await expect(section.locator(":scope > p")).not.toContainText("已略过");
+  await expect(section.locator(":scope > p")).not.toContainText("2)");
+  request.send({ type: "progress", stage: "writing", message: writingMessage });
+  await expect(active.locator('.copilot-progress-current')).toHaveText(writingMessage);
+  await expect(active.getByRole("note", { name: "过程说明" })).toHaveText("模型返回了非中文过程，已略过该部分。");
+  completeConversation(request);
+  await expect(panel.getByText(completedReply, { exact: true })).toBeVisible();
+  const history = panel.locator('.copilot-progress[data-progress-status="completed"]');
+  await history.locator(":scope > summary").click();
+  await expect(history.getByRole("note", { name: "过程说明" })).toHaveText("模型返回了非中文过程，已略过该部分。");
+  expect(harness.stream.requests).toHaveLength(1);
+  expect(harness.errors).toEqual([]);
 });
 
 test("pausing retains the first process and a new request owns separate progress without stale chunks", async ({ page, harness }) => {
@@ -320,7 +408,7 @@ test("pausing retains the first process and a new request owns separate progress
   const paused = panel.locator(`.copilot-progress[data-progress-id="${firstId}"]`);
   await expect(paused).toHaveAttribute("data-progress-status", "paused");
   await expect.poll(() => first.closed).toBe(true);
-  if (await paused.getAttribute("open") === null) await paused.locator("summary").click();
+  if (await paused.getAttribute("open") === null) await paused.locator(":scope > summary").click();
   await expect(paused.locator('[aria-label="模型思考"] > p')).toHaveText(thinkingStart);
   await expect(paused.locator('[aria-label="公开思考摘要"] > p')).toHaveText(summaryStart);
   await expect(paused.locator('.copilot-progress-outcome')).toHaveText("已暂停，以上处理记录已保留。");
@@ -345,7 +433,7 @@ test("pausing retains the first process and a new request owns separate progress
   completeConversation(second, "已核对公开渠道，保管关系保持不变。");
   const completed = panel.locator(`.copilot-progress[data-progress-id="${secondId}"]`);
   await expect(completed).toHaveAttribute("data-progress-status", "completed");
-  await completed.locator("summary").click();
+  await completed.locator(":scope > summary").click();
   await expect(completed.locator('[aria-label="模型思考"] > p')).toHaveText(thinkingEnd);
   await expect(completed.locator('[aria-label="公开思考摘要"] > p')).toHaveText(summaryEnd);
   await expect(paused).toHaveAttribute("data-progress-status", "paused");
@@ -378,7 +466,7 @@ test("a streamed error retains reached progress and the authored synopsis withou
   request.end();
   const failed = panel.locator(`.copilot-progress[data-progress-id="${id}"]`);
   await expect(failed).toHaveAttribute("data-progress-status", "error");
-  if (await failed.getAttribute("open") === null) await failed.locator("summary").click();
+  if (await failed.getAttribute("open") === null) await failed.locator(":scope > summary").click();
   await expect(failed.locator('[data-progress-stage="context"]')).toContainText(contextMessage);
   await expect(failed.locator('[aria-label="模型思考"] > p')).toHaveText(thinkingStart);
   await expect(failed.locator('[aria-label="公开思考摘要"] > p')).toHaveText(summaryStart);
@@ -413,7 +501,7 @@ test("a service without thinking or a public summary shows actual stages and nev
   completeConversation(request);
   const history = panel.locator(`.copilot-progress[data-progress-id="${id}"]`);
   await expect(history).toHaveAttribute("data-progress-status", "completed");
-  await history.locator("summary").click();
+  await history.locator(":scope > summary").click();
   await expect(history.locator('[data-progress-stage="requesting"]')).toContainText("已发送检查请求，等待服务返回。");
   await expect(history.locator('[aria-label="模型思考"]')).toHaveCount(0);
   await expect(history.locator('[aria-label="公开思考摘要"]')).toHaveCount(0);

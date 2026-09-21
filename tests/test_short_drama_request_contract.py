@@ -172,6 +172,13 @@ def test_body_repair_adapter_requests_share_short_drama_standard(repair):
     service, _ = seed_dependencies(repair_llm_adapter=adapter, script_editor_llm_adapter=adapter)
     strategy = service._generation_strategy_repository.get("strategy.tiktok.service_generation.v1")
     source = _source((24,) if repair == "counts" else (27,))
+    if repair == "body_completion":
+        # A long playable draft intentionally defers word-count expansion to
+        # the runtime gate. Use an actually truncated body for this request.
+        scene = source["scenes"][0]
+        scene["character_actions"] = ["林夏拿起钥匙。"]
+        scene["dialogues"] = [{**scene["dialogues"][0], "text": "钥匙给我。"}]
+        scene["body_order"] = ["action:0", "dialogue:0"]
     if repair in {"language", "combined_language"}:
         for dialogue in source["scenes"][0]["dialogues"]:
             dialogue["text"] = "Give me the key. Who changed the date?"
@@ -207,6 +214,18 @@ def test_body_repair_adapter_requests_share_short_drama_standard(repair):
     if repair == "duration":
         assert "第1场27轮" in prompt
         assert "不得把合法总数向25条下限压缩" in prompt
+
+
+def test_body_reference_shortfall_does_not_expand_an_already_long_episode():
+    adapter = CaptureAdapter()
+    service, _ = seed_dependencies(repair_llm_adapter=adapter)
+    strategy = service._generation_strategy_repository.get("strategy.tiktok.service_generation.v1")
+    source = _source((27,))
+    before_scenes = deepcopy(source["scenes"])
+    result = service._ensure_script_body_length(output=source, strategy=strategy, target_characters=6000)
+    assert adapter.prompts == []
+    assert result["scenes"] == before_scenes
+    assert result["_meta"]["script_body_completion_deferred_reason"] == "production_runtime_priority"
 
 
 @pytest.mark.parametrize("whole_fallback", [False, True])

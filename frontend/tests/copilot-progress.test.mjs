@@ -47,6 +47,26 @@ test("repeated reports update the current step while an actual retry records a n
   assert.deepEqual(updates.at(-1).steps.map(step => step.stage), ["requesting", "writing", "requesting"]);
 });
 
+test("omitted-text notices survive later stages without replacing current progress or model text", () => {
+  const { run, updates } = harness();
+  run.mark("thinking", "正在核对创作安排。");
+  const notice = "模型返回了非中文过程，已略过该部分。";
+  run.onEvent({ type: "progress", stage: "thinking", message: notice });
+  const first = updates.at(-1);
+  assert.equal(first.steps.at(-1).message, "正在核对创作安排。");
+  assert.deepEqual(first.notices, [notice]);
+  assert.equal(first.thinking, undefined);
+  assert.equal(first.summary, "");
+  run.onEvent({ type: "progress", stage: "thinking", message: notice });
+  assert.equal(updates.at(-1), first);
+  run.mark("writing", "正在接收生成结果。");
+  assert.deepEqual(updates.at(-1).notices, [notice]);
+  const finished = run.finish("error");
+  run.mark("thinking", "模型过程片段未完整接收，已略过该部分。");
+  assert.deepEqual(finished.notices, [notice]);
+  assert.equal(first.steps.length, 1);
+});
+
 test("only explicit public summary events append text and the retained summary is bounded", () => {
   const { run, updates } = harness();
   run.mark("thinking", "模型正在处理");

@@ -27,6 +27,28 @@ import styles from "./quick-script-workspace.module.css";
 const DEFAULTS: QuickScriptSettings = { language: "zh", target_total_characters: 8000, episode_count: 8, target_duration_seconds: 90, storyline_count: 1 };
 const STAGES: Array<{ id: QuickScriptStage; label: string }> = [{ id: "synopsis", label: "故事梗概" }, { id: "plan", label: "创作安排" }, { id: "script", label: "剧本正文" }];
 
+function quickScriptRequiresAuthorEdit(state: QuickScriptState | null): boolean {
+  return state?.phase === "paused" && (state.next_step === "done"
+    || (["review", "recheck"].includes(state.next_step) && state.episodes.some((episode) => episode.review && episode.review.status !== "passed"))
+    || (state.next_step === "repair" && state.episodes.some((episode) => (episode.repair_count >= 1 || (episode.repair_attempts ?? 0) >= 1) && episode.status !== "passed")));
+}
+
+function quickScriptFailureMessage(state: QuickScriptState, paused: boolean): string {
+  const stage = quickScriptStage(state);
+  const needsEdit = quickScriptRequiresAuthorEdit(state);
+  const title = stage === "plan" ? "创作安排暂未完成" : stage === "synopsis" ? "故事梗概暂未完成"
+    : needsEdit ? "本次生成未通过检查" : "本次剧本生成未完成";
+  // blocked_reason is the server's public explanation, never a provider response body.
+  const reason = state.blocked_reason?.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim().slice(0, 600);
+  const nextStep = needsEdit ? "请按页面提示调整正文，再点击“保存正文修改”继续检查。"
+    : stage === "plan" ? state.plan ? "可在右侧补充要求并发送，重新整理创作安排。"
+      : `点击“${state.blocked_reason ? "重新生成" : "生成"}创作安排”重试，无需重新填写。`
+    : stage === "synopsis" ? state.synopsis ? "可在右侧补充要求并发送，重新整理故事梗概。"
+      : `点击“${state.blocked_reason ? "重新整理故事梗概" : "整理成故事梗概"}”重试。`
+    : `点击“${!state.episodes.length ? paused ? "继续生成剧本" : "生成整部剧本" : state.next_step === "review" || state.status === "stale" ? "检查修改并继续" : paused ? "继续生成剩余剧本" : "继续生成剧本"}”，从已保存进度继续。`;
+  return `${title}。${reason ? `原因：${reason}\n` : ""}已保存的内容和检查进度保持不变。${nextStep}`;
+}
+
 export function QuickScriptWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const { getProject, isReady } = useProjects();
@@ -316,9 +338,10 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
       const selected = quickScriptSelectedEpisode(next, episodeRef.current);
       setEpisodeNumber(selected?.episode_number ?? 1); setDraft(selected?.draft ?? null);
       const isPaused = stop.current || next?.phase === "paused";
+      const failed = next?.status === "blocked" || Boolean(next?.blocked_reason);
       setPaused(isPaused);
-      const text = next?.blocked_reason ? "本次处理已暂停，已保存内容保持不变。可按页面提示继续。" : (isPaused ? "已暂停，已有内容已保存。" : next?.phase === "complete" ? "整部剧本已保存并完成检查，可以编辑或进入资产设计。" : action === "save_episode" ? "正文修改已保存，相关内容将重新检查。" : action === "draft_plan" || action === "confirm_synopsis" ? "创作安排已整理好，请核对人物设定和每集故事。" : action === "draft_synopsis" ? "故事梗概已整理好，请核对后确认。" : "当前修改已保存。");
-      setMessages((items) => [...items.slice(-48), { id: crypto.randomUUID(), role: "assistant", text, progress: progressRun.finish(isPaused ? "paused" : "completed") }]);
+      const text = failed && next ? quickScriptFailureMessage(next, isPaused) : (isPaused ? "已暂停，已有内容已保存。" : next?.phase === "complete" ? "整部剧本已保存并完成检查，可以编辑或进入资产设计。" : action === "save_episode" ? "正文修改已保存，相关内容将重新检查。" : action === "draft_plan" || action === "confirm_synopsis" ? "创作安排已整理好，请核对人物设定和每集故事。" : action === "draft_synopsis" ? "故事梗概已整理好，请核对后确认。" : "当前修改已保存。");
+      setMessages((items) => [...items.slice(-48), { id: crypto.randomUUID(), role: "assistant", text, progress: progressRun.finish(failed ? "error" : isPaused ? "paused" : "completed") }]);
       if (action === "switch_standard" || next?.phase === "standard") router.replace(currentWorkspaceHref(getProject(project.id)!));
     } catch (failure) {
       progressRun.finish(controller.signal.aborted ? "paused" : "error");
@@ -366,9 +389,7 @@ function QuickScriptEditor({ project }: { project: ScriptProject }) {
   const arrangementLocked = Boolean(state?.plan_confirmed);
   const canDeliver = state?.phase === "complete" && !dirty;
   const activeStage = quickScriptStage(state);
-  const requiresAuthorEdit = state?.phase === "paused" && (state.next_step === "done"
-    || (["review", "recheck"].includes(state.next_step) && state.episodes.some((episode) => episode.review && episode.review.status !== "passed"))
-    || (state.next_step === "repair" && state.episodes.some((episode) => (episode.repair_count >= 1 || (episode.repair_attempts ?? 0) >= 1) && episode.status !== "passed")));
+  const requiresAuthorEdit = quickScriptRequiresAuthorEdit(state);
   const assistantPrimary = ready && (stage === "synopsis" ? !hasSynopsis : stage === "plan" ? !plan : !draft);
   const generationFailed = Boolean(state?.blocked_reason || error);
   const savedFailure = state?.blocked_reason ? state.operation_records?.findLast(record => record.error_code || record.diagnostics) : undefined;

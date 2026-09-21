@@ -20,6 +20,7 @@ _PROCESS_WORDS = frozenset({
     "should", "must", "think", "thinking", "analyze", "analyse", "analyzing", "analysing",
     "analysis", "check", "checking", "review", "reviewing", "first", "next", "then", "now", "step",
 })
+_STRUCTURED_MARKER = re.compile(r"^\s*[\"'“”‘’`\[\]{}]*(?:\d+|[一二三四五六七八九十百]+)\s*[.)、:：]?[\"'“”‘’`\[\]{}]*\s*$")
 _SENTENCE_END = re.compile(r"[。！？!?；;\n]|\.(?=\s)")
 
 
@@ -61,21 +62,43 @@ def chinese_progress_text(value: str) -> bool:
     return not _LATIN.search(prose)
 
 
-def split_progress_text(value: str, *, final: bool) -> tuple[list[tuple[str, bool]], str]:
-    """Wait for a whole sentence before exposing any Latin-script fragment.
+def is_structured_progress_fragment(value: str) -> bool:
+    """Recognize isolated list markers and punctuation after sentence buffering.
 
-    Plain Chinese can still flush at the existing size/time cadence. The
-    caller retains the original request limit, so the held tail is bounded.
+    Never apply this to transport chunks: ``2)`` may be the prefix of a normal
+    Chinese list item. Scene headings and short Chinese descriptions are model
+    text too, and must not be discarded merely for looking like an outline.
     """
-    # Each piece records whether a sentence boundary ended it. A Chinese-only
-    # cadence flush is still part of its sentence when Latin names arrive later.
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    if not lines:
+        return False  # Paragraph spacing is handled separately by the observer.
+    for line in lines:
+        if _STRUCTURED_MARKER.fullmatch(line):
+            continue
+        if not any(character.isalpha() for character in line):
+            continue
+        return False
+    return True
+
+
+def split_progress_text(value: str, *, final: bool) -> tuple[list[tuple[str, bool]], str]:
+    """Buffer complete sentences, independent of provider transport chunking.
+
+    A currently Chinese or numeric prefix may acquire an English continuation.
+    Publishing that prefix early leaves misleading fragments after the full
+    sentence is rejected. The request character limit bounds the retained tail.
+    """
     pieces: list[tuple[str, bool]] = []
     start = 0
     for match in _SENTENCE_END.finditer(value):
+        # A numbered list prefix (``2. ``) is not a sentence. Keep it attached
+        # to the explanation, including when provider chunks split the prefix.
+        if match.group() == "." and _STRUCTURED_MARKER.fullmatch(value[start:match.end()]):
+            continue
         pieces.append((value[start:match.end()], True))
         start = match.end()
     tail = value[start:]
-    if tail and (final or not has_non_chinese_letters(tail)):
+    if tail and final:
         pieces.append((tail, False))
         tail = ""
     return pieces, tail
