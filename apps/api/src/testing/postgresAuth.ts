@@ -71,11 +71,33 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
         )
       },
       async close() {
-        await database?.close()
-        database = null
-        await adminPool?.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`)
-        await adminPool?.end()
+        const activeAdminPool = adminPool
         adminPool = null
+        const teardownErrors: unknown[] = []
+        try {
+          await database?.close()
+          database = null
+          if (activeAdminPool) {
+            await waitForDatabaseDisconnects(activeAdminPool, databaseName)
+            await activeAdminPool.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)}`)
+          }
+        } catch (error) {
+          teardownErrors.push(error)
+        } finally {
+          try {
+            await activeAdminPool?.end()
+          } catch (error) {
+            teardownErrors.push(error)
+          }
+        }
+        if (teardownErrors.length === 1) throw teardownErrors[0]
+        if (teardownErrors.length > 1) {
+          throw new AggregateError(
+            teardownErrors,
+            'Postgres fixture teardown and admin pool shutdown failed',
+            { cause: teardownErrors[0] },
+          )
+        }
       },
     }
   } catch (error) {
@@ -88,6 +110,27 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
     await adminPool?.end().catch(() => {})
     await logPostgresFixtureDiagnostics(error, server).catch(() => {})
     throw error
+  }
+}
+
+async function waitForDatabaseDisconnects(pool: PgPool, databaseName: string): Promise<void> {
+  // pg-pool can resolve end() before its clients finish closing their sockets.
+  // Wait for natural disconnects; forcing DROP here can terminate those clients
+  // with 57P01. A genuine leaked connection must fail teardown, not be hidden.
+  const deadline = Date.now() + 5_000
+  while (true) {
+    const { rows } = await pool.query<{ connections: number }>(
+      'SELECT count(*)::int AS connections FROM pg_stat_activity WHERE datname = $1',
+      [databaseName],
+    )
+    const connections = rows[0].connections
+    if (connections === 0) return
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Postgres fixture teardown timed out after 5 seconds: ${connections} connection(s) remain in ${databaseName}; database preserved for diagnosis`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
   }
 }
 
