@@ -128,6 +128,7 @@ export class VolcArkSeedanceProvider implements VideoGenerationProvider {
     return {
       status: 'running',
       progress: ['queued', 'pending', 'submitted', 'created'].includes(providerStatus) ? 5 : 50,
+      progressIsEstimated: true,
       error: null,
     }
   }

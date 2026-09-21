@@ -52,6 +52,7 @@ type GenerationTaskRunnerOptions = {
   creditLedger?: CreditLedger | null
   providerPollIntervalMs?: number
   providerStallTimeoutMs?: number
+  providerProcessingTimeoutMs?: number
   providerStatusTimeoutMs?: number
   providerPollConcurrency?: number
   leaseTtlMs?: number
@@ -172,6 +173,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       videoProviderName,
       providerPollIntervalMs: options.providerPollIntervalMs ?? 5_000,
       providerStallTimeoutMs: options.providerStallTimeoutMs ?? 6 * 60_000,
+      providerProcessingTimeoutMs: options.providerProcessingTimeoutMs ?? 30 * 60_000,
       providerStatusTimeoutMs: options.providerStatusTimeoutMs ?? 10_000,
       leaseOwnerId,
       leaseTtlMs,

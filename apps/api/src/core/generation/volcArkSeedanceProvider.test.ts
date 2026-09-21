@@ -172,21 +172,25 @@ describe('VolcArkSeedanceProvider', () => {
     await expect(provider.getStatus('task-queued')).resolves.toEqual({
       status: 'running',
       progress: 5,
+      progressIsEstimated: true,
       error: null,
     })
     await expect(provider.getStatus('task-pending')).resolves.toEqual({
       status: 'running',
       progress: 5,
+      progressIsEstimated: true,
       error: null,
     })
     await expect(provider.getStatus('task-processing')).resolves.toEqual({
       status: 'running',
       progress: 50,
+      progressIsEstimated: true,
       error: null,
     })
     await expect(provider.getStatus('task-running')).resolves.toEqual({
       status: 'running',
       progress: 50,
+      progressIsEstimated: true,
       error: null,
     })
     await expect(provider.getStatus('task-succeeded')).resolves.toEqual({

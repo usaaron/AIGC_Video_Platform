@@ -155,13 +155,21 @@ Content-Type: multipart/form-data
 
 ## Seedance 2.0 视频接入
 
-Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默认 `VIDEO_PROVIDER=dora-router`，API 服务调用 DoraRouter 的兼容接口。轮询只把明确的成功或失败状态收敛为本地终态；上游返回的其他短暂状态继续按生成中处理，避免远端仍在运行时被本地误判失败：
+Seedance 2.0 只用于 `video` 任务，不参与资产图片生成。当前默认 `VIDEO_PROVIDER=dora-router`，API 服务调用 DoraRouter 的兼容接口。轮询优先处理上游明确的成功或失败状态；其他短暂状态继续等待，但保留整体等待上限和连续查询错误保护：
 
 - `POST https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks`：通过原生 `content` 数组创建任务；旧通用接口要求 `prompt`，不能混用。
 - `GET https://www.dorarouter.com/doubao/api/v3/contents/generations/tasks/:taskId`：查询状态和 `content.video_url`。只在明确 `404 task_not_found` 时回读旧 `/v1/video/generations/:taskId`，兼容历史任务；创建请求不跨路径自动重试。
 - DoraRouter 文档没有远端取消接口；取消时服务端不反复请求不存在的地址，直接记录 `providerCancelSkippedAt`，并按本地取消规则退款。
 
 StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Provider 通过 `VIDEO_PROVIDER=volc-ark` 显式启用，均作为回滚通道。DoraRouter 任务记录 `providerName=dora-router-seedance`，便于审计真实提交路径。
+
+### 视频等待与超时恢复（2026-09-21）
+
+DoraRouter 缺少实际 `progress` 时显示的 5%/50%，以及 Ark 固定的阶段百分比，会标记为估算进度；它们不代表实际完成比例，也不参与短时停滞判断。只有提供真实进度且支持远端取消的 Provider 才保留原短时停滞重试路径。不支持取消的 DoraRouter 不因停滞重新提交，避免原视频已成功而平台仍在等待另一个重复任务。
+
+`VIDEO_PROCESSING_TIMEOUT_MS` 控制单次远端任务整体等待时限，默认 1,800,000 毫秒（30 分钟）；API 内联队列和独立 Worker 使用相同设置。查询返回完成时先保存成品，仍为运行中且超过时限才失败退款，保留 `providerTaskId` 供后续找回，不再自动重提。`VIDEO_PROCESSING_STALL_TIMEOUT_MS` 仍控制支持取消且提供真实进度的任务停滞阈值。
+
+历史失败任务的结果恢复必须先核验所属组织、原远端任务编号、真实成品和积分流水，再通过带审计的事务接回视频及末帧；不得再次生成或重复扣费。已退积分保持不变。若用户已编辑镜头、选择新视频或创建后续任务，只恢复历史结果，不覆盖当前选择。
 
 分镜页会根据镜头标题和提示词，从已生成的人物、场景、物品和服装中选择最多三项相关资产。人物优先使用已确认全身基准，选择结果写入图片任务的 `references`，并写入图片和视频任务的 `referenceAssetIds`。旧分镜图没有当前资产标记时会显示“需同步资产”，生成视频时忽略这类旧图，直接使用当前资产。
 

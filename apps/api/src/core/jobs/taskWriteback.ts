@@ -145,6 +145,7 @@ export class GenerationResultWriteback {
         stored.metadata = {
           ...stored.metadata,
           providerState: input.status.status,
+          providerProgressIsEstimated: input.status.progressIsEstimated === true,
           providerPollErrors: 0,
           providerProgressChangedAt: progressChanged
             ? updatedAt.toISOString()

@@ -176,12 +176,14 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
         error: errorMessage(parsed) || statusMessage(providerStatus),
       }
     }
+    const measuredProgress = progressValue(parsed.progress, Number.NaN)
     return {
       status: 'running',
       progress: Math.max(
         5,
         Math.min(99, progressValue(parsed.progress, providerStatus === 'queued' ? 5 : 50)),
       ),
+      ...(!Number.isFinite(measuredProgress) ? { progressIsEstimated: true } : {}),
       error: null,
     }
   }
@@ -410,8 +412,10 @@ function normalizeTaskResponse(value: unknown): DoraTaskResponse {
 function progressValue(value: number | string | null | undefined, fallback: number): number {
   if (typeof value === 'number') return value
   if (typeof value !== 'string') return fallback
-  const parsed = Number.parseFloat(value.replace('%', '').trim())
-  return Number.isFinite(parsed) ? parsed : fallback
+  const text = value.trim().replace(/%$/, '').trim()
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(text)) return fallback
+  const parsed = Number(text)
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : fallback
 }
 
 function statusMessage(status: string): string {

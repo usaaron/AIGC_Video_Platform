@@ -40,6 +40,7 @@ import {
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import { DependencyResolver } from './taskDependencyResolver.js'
 import { compileImageTaskPrompt } from './imageTaskPrompt.js'
+import { VIDEO_WAIT_TIMEOUT, videoProcessingExpired, videoProcessingStalled } from './taskVideoProgress.js'
 import { resolveStoredImageReference, type VideoSourceUrl } from './taskImageReferences.js'
 import {
   GenerationResultWriteback,
@@ -1051,6 +1052,7 @@ export class ProviderPoller {
       videoProviderName: VideoProviderName
       providerPollIntervalMs: number
       providerStallTimeoutMs: number
+      providerProcessingTimeoutMs: number
       providerStatusTimeoutMs: number
       leaseOwnerId: string
       leaseTtlMs: number
@@ -1279,6 +1281,16 @@ export class ProviderPoller {
     }
     if (
       outcome.status.status === 'running' &&
+      videoProcessingExpired(task, this.options.providerProcessingTimeoutMs)
+    ) {
+      // Keep the existing remote ID for a later result lookup. Providers without
+      // cancellation may still finish remotely; never submit a duplicate job.
+      await this.options.writeback.failTask(task.id, VIDEO_WAIT_TIMEOUT, leaseToken)
+      return { completedTask: null, stalledProviderTaskId: null }
+    }
+    if (
+      outcome.status.status === 'running' &&
+      this.options.videoProvider?.cancel &&
       videoProcessingStalled(task, outcome.status, this.options.providerStallTimeoutMs)
     ) {
       const stalled = await this.options.writeback.handleStalledVideoProcessing(
@@ -1580,18 +1592,6 @@ function finalizeImage2GenerationSnapshot(
 
 function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
-}
-
-function videoProcessingStalled(
-  task: GenerationTask,
-  status: VideoGenerationStatus,
-  stallTimeoutMs: number,
-): boolean {
-  if (status.progress > task.progress) return false
-  const progressChangedAt = Date.parse(
-    stringValue(task.metadata.providerProgressChangedAt, stringValue(task.metadata.providerSubmittedAt, '')),
-  )
-  return Number.isFinite(progressChangedAt) && Date.now() - progressChangedAt >= stallTimeoutMs
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {

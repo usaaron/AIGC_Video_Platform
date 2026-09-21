@@ -34,6 +34,8 @@ export type VideoGenerationSubmission = {
 export type VideoGenerationStatus = {
   status: 'running' | 'completed' | 'failed'
   progress: number
+  /** Display fallback only; it cannot prove that remote processing has stalled. */
+  progressIsEstimated?: boolean
   error: string | null
   lastFrameUrl?: string
 }

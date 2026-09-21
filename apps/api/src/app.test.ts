@@ -98,6 +98,7 @@ const testConfig: AppConfig = {
   VIDEO_STATUS_TIMEOUT_MS: 10_000,
   VIDEO_POLL_CONCURRENCY: 6,
   VIDEO_PROCESSING_STALL_TIMEOUT_MS: 360_000,
+  VIDEO_PROCESSING_TIMEOUT_MS: 1_800_000,
   ARK_API_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3',
   ARK_API_KEY: '',
   ARK_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
@@ -141,10 +142,7 @@ const testConfig: AppConfig = {
   TEXT_MODEL: 'gpt-5.6',
   TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
 }
-type MemoryLogEntry = {
-  level: string
-  args: unknown[]
-}
+type MemoryLogEntry = { level: string; args: unknown[] }
 class MemoryLogger {
   public readonly entries: MemoryLogEntry[] = []
   public level = 'info'

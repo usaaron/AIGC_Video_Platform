@@ -2,6 +2,54 @@ import { describe, expect, it } from 'vitest'
 import { DoraRouterSeedanceProvider } from './doraRouterSeedanceProvider.js'
 
 describe('DoraRouterSeedanceProvider', () => {
+  it.each([undefined, null, '', ' ', 'unknown', '50foo', '101%', '-1'])(
+    'marks missing or invalid progress %s as an estimate',
+    async (progress) => {
+      const provider = new DoraRouterSeedanceProvider({
+        baseUrl: 'https://www.dorarouter.com',
+        apiKey: 'test-dora-token',
+        defaultModel: 'TH-doubao-seedance2.0',
+        requestTimeoutMs: 30_000,
+        fetcher: async () => Response.json({ id: 'task-progress', status: 'running', progress }),
+      })
+
+      await expect(provider.getStatus('task-progress')).resolves.toEqual({
+        status: 'running',
+        progress: 50,
+        progressIsEstimated: true,
+        error: null,
+      })
+    },
+  )
+
+  it.each([
+    [0, 5],
+    ['0', 5],
+    ['0%', 5],
+    [50, 50],
+    ['50%', 50],
+    [' 50 % ', 50],
+    [99.5, 99],
+    ['99.5%', 99],
+  ])(
+    'recognizes measured progress %s while retaining the running display bounds',
+    async (progress, expectedDisplayProgress) => {
+      const provider = new DoraRouterSeedanceProvider({
+        baseUrl: 'https://www.dorarouter.com',
+        apiKey: 'test-dora-token',
+        defaultModel: 'TH-doubao-seedance2.0',
+        requestTimeoutMs: 30_000,
+        fetcher: async () => Response.json({ id: 'task-progress', status: 'running', progress }),
+      })
+
+      await expect(provider.getStatus('task-progress')).resolves.toEqual({
+        status: 'running',
+        progress: expectedDisplayProgress,
+        error: null,
+      })
+    },
+  )
+
   it('submits the documented video generation request', async () => {
     let capturedUrl = ''
     let capturedInit: RequestInit | undefined

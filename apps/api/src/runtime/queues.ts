@@ -112,6 +112,7 @@ export async function createRuntimeQueues(input: {
     creditLedger: repositories.creditLedger,
     providerPollIntervalMs: config.VIDEO_POLL_INTERVAL_MS,
     providerStallTimeoutMs: config.VIDEO_PROCESSING_STALL_TIMEOUT_MS,
+    providerProcessingTimeoutMs: config.VIDEO_PROCESSING_TIMEOUT_MS,
     providerStatusTimeoutMs: config.VIDEO_STATUS_TIMEOUT_MS,
     providerPollConcurrency: config.VIDEO_POLL_CONCURRENCY,
     ...(repositories.refreshQueueRuntimeCache

@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { loadConfig } from './config.js'
 
 describe('production configuration', () => {
+  it('bounds the remote video processing deadline independently of unchanged progress', () => {
+    expect(loadConfig({ NODE_ENV: 'test' })).toMatchObject({
+      VIDEO_PROCESSING_STALL_TIMEOUT_MS: 360_000,
+      VIDEO_PROCESSING_TIMEOUT_MS: 1_800_000,
+    })
+    expect(
+      loadConfig({ NODE_ENV: 'test', VIDEO_PROCESSING_TIMEOUT_MS: '2400000' }).VIDEO_PROCESSING_TIMEOUT_MS,
+    ).toBe(2_400_000)
+    for (const value of ['0', '59999', '7200001', 'invalid']) {
+      expect(() => loadConfig({ NODE_ENV: 'test', VIDEO_PROCESSING_TIMEOUT_MS: value })).toThrow()
+    }
+  })
+
   it('parses proxy and secure bootstrap settings', () => {
     const config = loadConfig({
       ...productionConfig(),

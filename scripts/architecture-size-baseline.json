@@ -1,6 +1,6 @@
 {
   "apps/admin/src/App.jsx": 3006,
-  "apps/api/src/app.test.ts": 5209,
+  "apps/api/src/app.test.ts": 5207,
   "apps/api/src/core/jobs/taskDispatcher.test.ts": 2720,
   "apps/api/src/core/jobs/taskRunnerComponents.ts": 1904,
   "apps/api/src/modules/accountManagement/repository.ts": 1890,
