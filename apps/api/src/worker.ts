@@ -15,6 +15,7 @@ import {
   type TaskDispatchContext,
 } from './core/jobs/taskDispatcher.js'
 import { PostgresAdvisoryTaskRunnerLock } from './core/jobs/taskRunnerLock.js'
+import { VideoResultReconciler } from './core/jobs/videoResultReconciler.js'
 import { FilmPreviewComposer } from './core/film/filmPreviewComposer.js'
 import { loadConfig } from './config.js'
 import { AccountDatabase } from './infra/postgres.js'
@@ -25,6 +26,7 @@ import { AgentRunRepository } from './modules/agent/repository.js'
 import { AgentRunner } from './modules/agent/runner.js'
 import { AiJobRepository } from './modules/aiJobs/repository.js'
 import { GenerationTaskRepository } from './modules/generation/repository.js'
+import { PostgresVideoRecoveryRepository } from './modules/generation/recoveryRepository.js'
 import { GenerationService } from './modules/generation/service.js'
 import { MediaRepository } from './modules/media/repository.js'
 import { NovelRepository } from './modules/novels/repository.js'
@@ -247,6 +249,10 @@ generationService = new GenerationService(
   trustedAssetService.assertVirtualRegistrationReady.bind(trustedAssetService),
 )
 const agentRunner = new AgentRunner(agentRunRepository, projectService, () => generationService)
+const videoResultReconciler =
+  database && videoProvider && config.VIDEO_PROVIDER === 'dora-router'
+    ? new VideoResultReconciler(new PostgresVideoRecoveryRepository(database), videoProvider, objectStorage)
+    : null
 
 let queueWorker: BullMqGenerationWorker | null = null
 let outboxDispatcher: BullMqTaskDispatcher | null = null
@@ -295,6 +301,7 @@ if (config.TASK_QUEUE_DRIVER === 'bullmq') {
 } else {
   process.stdout.write('[worker] task queue disabled\n')
 }
+if (config.TASK_QUEUE_DRIVER !== 'none') videoResultReconciler?.start()
 
 const shutdown = async (signal: string) => {
   process.stdout.write(`[worker] shutting down on ${signal}\n`)
@@ -302,6 +309,7 @@ const shutdown = async (signal: string) => {
   aiJobRunner.stop()
   agentRunner.stop()
   outboxRelay?.stop()
+  await videoResultReconciler?.stop()
   await queueWorker?.close().catch(() => {})
   await outboxDispatcher?.close().catch(() => {})
   if (database) {

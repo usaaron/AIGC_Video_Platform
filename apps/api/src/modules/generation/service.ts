@@ -178,7 +178,7 @@ export class GenerationService {
     const referenceAssetIds = Array.isArray(input.metadata.referenceAssetIds)
       ? input.metadata.referenceAssetIds.filter((value): value is string => typeof value === 'string')
       : []
-    trustedPortraitAliases(
+    const portraitAliases = trustedPortraitAliases(
       context.assets.filter((asset) => referenceAssetIds.includes(asset.id)),
       this.videoProviderName,
     )
@@ -229,7 +229,13 @@ export class GenerationService {
       metadata: {
         ...input.metadata,
         sourceShotSnapshot,
-        images,
+        // Snapshot resolvable sources before queueing so worker restart can load
+        // their generated-output dependencies and preserve the submitted face.
+        images: images.map((url) =>
+          manualReferenceImages.some((image) => image.url === url) && !url.startsWith('asset://')
+            ? url
+            : (portraitAliases.get(url) ?? url),
+        ),
         manualReferenceImages,
         manualReferenceUrl: manualReferenceImages[0]?.url ?? null,
         sourcePromptSnapshot: context.shot.prompt,

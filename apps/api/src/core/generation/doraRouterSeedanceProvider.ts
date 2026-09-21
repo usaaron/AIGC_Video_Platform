@@ -7,6 +7,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import { z } from 'zod'
+import { videoProviderFailure } from './videoProviderFailure.js'
 import type {
   VideoContent,
   VideoGenerationProvider,
@@ -173,7 +174,13 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
       return {
         status: 'failed',
         progress: 100,
-        error: errorMessage(parsed) || statusMessage(providerStatus),
+        providerStatus,
+        ...videoProviderFailure(
+          providerStatus,
+          (typeof parsed.error === 'object' ? parsed.error?.code : undefined) ?? parsed.code,
+          errorMessage(parsed),
+          parsed.request_id ?? parsed.requestId,
+        ),
       }
     }
     const measuredProgress = progressValue(parsed.progress, Number.NaN)
@@ -416,12 +423,6 @@ function progressValue(value: number | string | null | undefined, fallback: numb
   if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(text)) return fallback
   const parsed = Number(text)
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : fallback
-}
-
-function statusMessage(status: string): string {
-  if (status === 'cancelled' || status === 'canceled') return 'DoraRouter视频任务已取消'
-  if (status === 'expired') return 'DoraRouter视频任务已超时'
-  return 'DoraRouter视频生成失败'
 }
 
 function secureContentUrl(value: string): string {

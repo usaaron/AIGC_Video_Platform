@@ -154,7 +154,7 @@ describe('shot editor references through API snapshot, worker and Dora payload',
       expect(task.metadata.images).toEqual([
         '/api/v1/media/outfit',
         '/api/v1/media/scene',
-        'asset://trusted-actor',
+        '/api/v1/media/face',
       ])
       await store.mutate((state) => {
         const shot = state.shots.find((item) => item.id === context.shot.id)!
@@ -209,7 +209,7 @@ describe('shot editor references through API snapshot, worker and Dora payload',
       'failed',
     )
   })
-  it('skips a missing automatic asset reference when the shot has no manual image', async () => {
+  it('keeps the approved face when the shot has no manual image', async () => {
     const { store, context, create } = await fixture(false, true)
     context.shot.referenceImages = []
     context.shot.prompt = '角色出现并走过场景。'
@@ -227,14 +227,53 @@ describe('shot editor references through API snapshot, worker and Dora payload',
 
     await new GenerationTaskRunner(store, {
       videoProvider: provider,
-      videoProviderName: 'stringx-seedance',
+      videoProviderName: 'dora-router-seedance',
       objectStorage: storage,
     }).tick()
 
     expect(provider.submit).toHaveBeenCalledOnce()
     expect(provider.submit.mock.calls[0]?.[0].images).toEqual([
-      { url: 'asset://trusted-actor', role: 'reference_image' },
+      { url: `data:image/png;base64,${Buffer.from('face.png').toString('base64')}`, role: 'reference_image' },
     ])
+  })
+  it('submits both the approved face and full-body look without replacing the body with the face', async () => {
+    const { store, context, create } = await fixture()
+    context.shot.referenceImages = []
+    context.shot.prompt = '测试人物转身走过场景。'
+    const asset = context.assets[0]!
+    if (asset.attributes.type !== 'character') throw new Error('Expected character')
+    asset.attributes.bodyStatus = 'approved'
+    await store.mutate((state) => {
+      state.assets = [structuredClone(asset)]
+    })
+    const task = await create()
+    expect(task.metadata.images).toEqual(['/api/v1/media/face', '/api/v1/media/outfit'])
+    const provider = {
+      submit: vi.fn(async () => ({ providerTaskId: 'remote-with-look', status: 'queued', progress: 0 })),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    await new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      videoProviderName: 'dora-router-seedance',
+      objectStorage: {
+        get: vi.fn(async (key: string) => Buffer.from(key)),
+        put: vi.fn(),
+        delete: vi.fn(),
+      } as ObjectStorage,
+    }).tick()
+    expect(provider.submit).toHaveBeenCalledOnce()
+    expect(provider.submit.mock.calls[0]?.[0].images).toEqual(
+      ['face.png', 'outfit.png'].map((key) => ({
+        url: `data:image/png;base64,${Buffer.from(key).toString('base64')}`,
+        role: 'reference_image',
+      })),
+    )
+    expect(
+      store.read(
+        (state) => state.tasks.find((item) => item.id === task.id)?.metadata.providerReferenceImageCount,
+      ),
+    ).toBe(2)
   })
   it.each(['dangling', 'overflow'])('rejects %s before charging', async (failure) => {
     const { context, repository, create } = await fixture(true)

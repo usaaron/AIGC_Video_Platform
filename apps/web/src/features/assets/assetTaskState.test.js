@@ -59,9 +59,9 @@ describe('asset task state', () => {
   it('uses the trusted portrait as the asset card status once it is active', () => {
     expect(
       characterAssetStatus({
-        attributes: { faceStatus: 'approved', trustedPortrait: { status: 'active' } },
+        attributes: { faceStatus: 'approved', trustedPortrait: { status: 'active', groupType: 'AIGC' } },
       }),
-    ).toBe('可信人像可用')
+    ).toBe('AI人物已入库')
   })
 
   it('lets a persisted active portrait override a stale running registration task', () => {

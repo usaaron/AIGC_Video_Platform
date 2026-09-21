@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shotVersionState } from './storyboardState'
+import { selectedVersionTaskId, shotVersionState, taskFor } from './storyboardState'
 
 const task = (id, day, overrides = {}) => ({
   id,
@@ -60,5 +60,25 @@ describe('shot rollback versions', () => {
       previous: null,
       latest: { task: first, number: 1 },
     })
+  })
+
+  it('keeps recovered videos in history without silently making them current', () => {
+    const recovered = task('recovered', '04', {
+      metadata: { shotId: 'shot-1', providerReconciliationHistoryOnly: true },
+    })
+    const shot = { id: 'shot-1' }
+    expect(taskFor([recovered], shot, 'video')).toBeNull()
+    expect(selectedVersionTaskId([recovered], shot, 'video')).toBeUndefined()
+    expect(shotVersionState([recovered], shot, 'video')).toEqual({
+      current: null,
+      previous: null,
+      latest: { task: recovered, number: 1 },
+    })
+    expect(taskFor([recovered, third], shot, 'video')).toBe(third)
+    expect(shotVersionState([recovered, third], shot, 'video').current?.task).toBe(third)
+    const selected = { ...shot, selectedVideoTaskId: recovered.id }
+    expect(taskFor([recovered, third], selected, 'video')).toBe(recovered)
+    expect(selectedVersionTaskId([recovered, third], selected, 'video')).toBe(recovered.id)
+    expect(shotVersionState([recovered, third], selected, 'video').current?.task).toBe(recovered)
   })
 })

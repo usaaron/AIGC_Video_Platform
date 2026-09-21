@@ -58,6 +58,22 @@ describe('video reference resolution', () => {
     ).rejects.toThrow('视频参考原图不存在或无权读取，请重新上传并确认人物面部')
   })
 
+  it('never silently drops a selected character or scene when its source is unavailable', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    await expect(
+      resolveVideoImages(
+        task({
+          images: ['/api/v1/generation/tasks/confirmed-face/outputs/single'],
+          referenceAssetIds: ['selected-character'],
+          manualReferenceImages: [],
+        }),
+        store,
+        { objectStorage: null, mediaRepository: null, videoSourceUrl: null },
+      ),
+    ).rejects.toThrow('视频参考原图不存在或无权读取')
+  })
+
   it('allows a text-only video task to continue without reference images', async () => {
     const store = new AppStore(null)
     await store.initialize()

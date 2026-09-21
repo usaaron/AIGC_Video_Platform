@@ -126,6 +126,12 @@ describe('remote video progress and processing deadline', () => {
           providerTaskId: 'remote-original',
           providerPreviousTaskIds: ['remote-older'],
           creditsRefundedAt: expect.any(String),
+          providerFailureSource: 'processing_timeout',
+          providerFailureCode: 'PROCESSING_TIMEOUT',
+          providerReconciliationReason: 'processing_timeout',
+          providerReconciliationStatus: 'pending',
+          providerReconciliationNextPollAt: expect.any(String),
+          providerReconciliationExpiresAt: expect.any(String),
         },
       }),
     )
@@ -181,7 +187,118 @@ describe('remote video progress and processing deadline', () => {
     expect(refundGeneration).not.toHaveBeenCalled()
     expect(provider.submit).toHaveBeenCalledOnce()
   })
+
+  it('backs off repeated Dora query errors and later completes the original remote task', async () => {
+    const provider = stubProvider({ status: 'running', progress: 50, error: null })
+    const { runner, store, task, refundGeneration } = await setup(provider)
+    vi.mocked(provider.getStatus).mockRejectedValue(new Error('network failure with private upstream body'))
+    for (const [index, delay] of [5_000, 10_000, 20_000, 40_000, 60_000, 60_000].entries()) {
+      await makePollDue(store, task.id)
+      const before = Date.now()
+      await runner.tick()
+      const stored = readTask(store, task.id)!
+      expect(stored).toMatchObject({
+        status: 'running',
+        error: null,
+        metadata: {
+          providerTaskId: 'remote-original',
+          providerPollErrors: index + 1,
+          providerFailureSource: 'status_poll',
+          providerFailureCode: 'STATUS_POLL_ERROR',
+        },
+      })
+      expect(Date.parse(String(stored.metadata.providerPollRetryNotBefore))).toBeGreaterThanOrEqual(
+        before + delay,
+      )
+      expect(JSON.stringify(stored)).not.toContain('private upstream body')
+      const polls = vi.mocked(provider.getStatus).mock.calls.length
+      await runner.tick()
+      expect(provider.getStatus).toHaveBeenCalledTimes(polls)
+    }
+    vi.mocked(provider.getStatus).mockResolvedValue({ status: 'completed', progress: 100, error: null })
+    await makePollDue(store, task.id)
+    await runner.tick()
+    expect(readTask(store, task.id)).toMatchObject({
+      status: 'completed',
+      metadata: { providerTaskId: 'remote-original', providerPollErrors: 0 },
+    })
+    expect(readTask(store, task.id)?.metadata.providerPollRetryNotBefore).toBeUndefined()
+    expect(readTask(store, task.id)?.metadata.providerFailureSource).toBeUndefined()
+    expect(provider.submit).toHaveBeenCalledOnce()
+    expect(refundGeneration).not.toHaveBeenCalled()
+  })
+
+  it('marks timed out status queries for independent reconciliation and refunds without a new submission', async () => {
+    const provider = stubProvider({ status: 'running', progress: 50, error: null })
+    const { runner, store, task, refundGeneration } = await setup(provider)
+    vi.mocked(provider.getStatus).mockRejectedValue(new Error('temporary HTTP error'))
+    await ageRemoteTask(store, task.id, 31 * minute)
+    await runner.tick()
+    expect(readTask(store, task.id)).toMatchObject({
+      status: 'failed',
+      metadata: {
+        providerTaskId: 'remote-original',
+        providerReconciliationReason: 'poll_error',
+        providerReconciliationStatus: 'pending',
+        providerFailureSource: 'status_poll',
+        creditsRefundedAt: expect.any(String),
+      },
+    })
+    expect(refundGeneration).toHaveBeenCalledOnce()
+    expect(provider.submit).toHaveBeenCalledOnce()
+  })
+
+  it('immediately refunds an explicit upstream failure and persists its safe diagnostic once', async () => {
+    const provider = stubProvider({ status: 'running', progress: 50, error: null })
+    const { runner, store, task, refundGeneration } = await setup(provider)
+    vi.mocked(provider.getStatus).mockResolvedValue({
+      status: 'failed',
+      progress: 100,
+      error: '上游内容审核未通过，本次视频未生成。',
+      failureCode: 'UPSTREAM_COPYRIGHT_REJECTED',
+      providerStatus: 'failed',
+    })
+    const storedBefore = readTask(store, task.id)!
+    const persistTask = vi.fn(async () => {})
+    const restarted = new GenerationTaskRunner(store, {
+      videoProvider: provider,
+      videoProviderName: 'dora-router-seedance',
+      providerPollIntervalMs: 0,
+      creditLedger: { refundGeneration } as unknown as CreditLedger,
+      persistTask,
+    })
+    await store.mutate((state) => {
+      const current = state.tasks.find((item) => item.id === task.id)!
+      current.leaseExpiresAt = new Date(0).toISOString()
+      current.metadata.providerPolledAt = 0
+    })
+    await restarted.tick()
+    const failed = readTask(store, task.id)!
+    expect(failed).toMatchObject({
+      status: 'failed',
+      metadata: {
+        providerFailureSource: 'upstream',
+        providerFailureCode: 'UPSTREAM_COPYRIGHT_REJECTED',
+        providerReportedStatus: 'failed',
+        creditsRefundedAt: expect.any(String),
+      },
+    })
+    expect(Date.parse(failed.updatedAt)).toBeGreaterThan(Date.parse(storedBefore.updatedAt))
+    expect(failed.metadata.providerReconciliationStatus).toBeUndefined()
+    expect(persistTask).toHaveBeenCalledWith(task.id)
+    await runner.tick()
+    expect(refundGeneration).toHaveBeenCalledOnce()
+    expect(provider.submit).toHaveBeenCalledOnce()
+  })
 })
+
+async function makePollDue(store: AppStore, taskId: string) {
+  await store.mutate((state) => {
+    const task = state.tasks.find((item) => item.id === taskId)!
+    task.metadata.providerPollRetryNotBefore = new Date(0).toISOString()
+    task.metadata.providerPolledAt = 0
+  })
+}
 
 function stubProvider(status: VideoGenerationStatus): VideoGenerationProvider {
   return {

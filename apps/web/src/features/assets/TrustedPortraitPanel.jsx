@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { PortraitReadinessNotice, portraitStatusLabel } from './PortraitReadinessNotice'
 
 export function TrustedPortraitPanel({
   assetId,
@@ -52,7 +53,7 @@ export function TrustedPortraitPanel({
   const statusLabels = {
     unlinked: '未绑定',
     processing: registrationTaskActive ? '后台任务处理中' : '上游处理中',
-    active: '已入库',
+    active: portraitStatusLabel(portrait),
     failed: '审核失败',
   }
   const activeLibraryPortraits = libraryPortraits.filter((item) => item.status === 'active')
@@ -213,7 +214,7 @@ export function TrustedPortraitPanel({
               <Images size={16} />
             </span>
           )}
-          <span>{portrait.groupType === 'LivenessFace' ? '已授权真人' : 'AI 虚拟人'}</span>
+          <span>{portrait.groupType === 'LivenessFace' ? '真人素材' : 'AI 虚拟人物'}</span>
           <code>{portrait.assetId}</code>
           <small>最近校验 {new Date(portrait.checkedAt).toLocaleString('zh-CN')}</small>
         </div>
@@ -260,7 +261,7 @@ export function TrustedPortraitPanel({
               <CloudUpload size={15} />
             )}
             {portrait?.status === 'active'
-              ? 'AI 人像已可用'
+              ? portraitStatusLabel(portrait)
               : registrationTaskActive
                 ? registrationTask?.status === 'queued'
                   ? '等待创建资源'
@@ -312,7 +313,7 @@ export function TrustedPortraitPanel({
             </strong>
             <small>
               {validationSetupBlocked
-                ? '平台生成的 AI 人物确认面部后自动加白；导入 AI 图片可使用上方“创建 AI 人像资源”。已有授权真人资源可在下方同步绑定。'
+                ? '平台生成的 AI 人物确认面部后自动入库；导入 AI 图片可使用上方“创建 AI 人像资源”。已有授权真人资源可在下方同步绑定。'
                 : '请由演员本人完成认证，成功后会自动把当前面部基准写入真人素材库。'}
             </small>
           </div>
@@ -346,7 +347,7 @@ export function TrustedPortraitPanel({
                     ? '认证成功，正在入库'
                     : validationSession?.status === 'failed' || validationSession?.status === 'expired'
                       ? '重新开始真人认证'
-                      : '真人认证并加白'}
+                      : '真人认证并入库'}
           </button>
           {validationSession?.status === 'pending' && (
             <div className="trusted-validation-session" role="status" aria-live="polite">
@@ -427,7 +428,7 @@ export function TrustedPortraitPanel({
           }
         >
           {busyAction === 'list' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
-          {busyAction === 'list' ? '正在同步' : '同步白名单'}
+          {busyAction === 'list' ? '正在同步' : '同步素材库'}
         </button>
       </div>
 
@@ -533,7 +534,7 @@ export function TrustedPortraitPanel({
       {status === 'processing' && (
         <p className="trusted-portrait-state processing" role="status" aria-live="polite">
           <LoaderCircle size={13} className="spin" />
-          已提交上游验证，系统会自动同步结果；验证通过后才可用于视频生成。
+          人像素材已提交审核，系统会自动同步入库结果。
         </p>
       )}
       {status === 'active' && (
@@ -543,7 +544,7 @@ export function TrustedPortraitPanel({
             ? portrait?.groupType === 'LivenessFace'
               ? '真人素材已入库；当前视频通道尚未支持该授权资源，暂不能用于生成。'
               : 'AI 人像已入库；视频生成将使用已确认的面部原图作为参考。'
-            : `${portrait?.groupType === 'LivenessFace' ? '真人素材' : 'AI 人像'}已可用，后续视频任务会自动使用这个人像资源。`}
+            : `${portraitStatusLabel(portrait)}，后续视频任务会使用这个人像资源，并由视频通道审核生成内容。`}
         </p>
       )}
       {sourceImageMode && status !== 'active' && (
@@ -551,6 +552,7 @@ export function TrustedPortraitPanel({
           当前视频通道使用 AI 人物面部原图，暂不支持真人授权素材生成视频。
         </p>
       )}
+      <PortraitReadinessNotice attributes={attributes} configuration={configuration} faceReady={faceReady} />
       {portrait?.status === 'failed' && (
         <p className="trusted-portrait-error">
           {registrationTask?.error ||

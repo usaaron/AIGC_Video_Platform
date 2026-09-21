@@ -36,6 +36,9 @@ export type VideoGenerationStatus = {
   progress: number
   /** Display fallback only; it cannot prove that remote processing has stalled. */
   progressIsEstimated?: boolean
+  failureCode?: import('./videoProviderFailure.js').VideoProviderFailureCode
+  providerStatus?: string
+  providerRequestId?: string
   error: string | null
   lastFrameUrl?: string
 }

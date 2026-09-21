@@ -48,6 +48,14 @@ export function trustedPortraitAliases(assets: Asset[], providerName: string): M
     ]) {
       if (value) aliases.set(value, target)
     }
+    // Keep confirmed outfit images as separate references. Mapping them to the
+    // face discards the user's chosen clothing and body proportions.
+    if (attributes.bodyStatus === 'approved' && attributes.bodyReference?.url) {
+      aliases.set(attributes.bodyReference.url, attributes.bodyReference.url)
+    }
+    for (const variant of attributes.appearanceVariants ?? []) {
+      if (variant.bodyReference?.url) aliases.set(variant.bodyReference.url, variant.bodyReference.url)
+    }
   }
   return aliases
 }

@@ -31,6 +31,7 @@ import {
   readPollingVersionFromStore,
 } from './taskPolling.js'
 import { recoverExpiredFilmPreviewTasks } from './taskRecovery.js'
+import { isAutomaticVideoResult, recoveryWritebackGuard } from './recoveryRepository.js'
 import {
   activeGenerationTaskPredicate,
   generationTaskRuntimeClosureKeys,
@@ -618,16 +619,12 @@ export class GenerationTaskRepository {
           typeof task.metadata.providerTaskId === 'string',
       )
       const sources = shots.map((shot) => {
-        const selectedTask = shot.selectedVideoTaskId
-          ? completedVideoTasks.find((task) => task.id === shot.selectedVideoTaskId)
-          : undefined
-        const completedTasks = completedVideoTasks.filter((task) => task.metadata.shotId === shot.id)
-        return {
-          shot,
-          // A retained version can belong to the prior shot ID after a user re-splits a script.
-          // It remains safe to compose because it is still scoped to this project and tenant.
-          task: selectedTask ?? completedTasks[0],
-        }
+        const selectedTask = completedVideoTasks.find((task) => task.id === shot.selectedVideoTaskId)
+        const completedTasks = completedVideoTasks.filter(
+          (task) => task.metadata.shotId === shot.id && isAutomaticVideoResult(task),
+        )
+        // A retained version may reference the old shot after re-splitting, within this project/tenant.
+        return { shot, task: selectedTask ?? completedTasks[0] }
       })
       return { project, shots, sources }
     })
@@ -986,7 +983,7 @@ export class GenerationTaskRepository {
       shot,
       task:
         (shot.selectedVideoTaskId ? tasks.find((task) => task.id === shot.selectedVideoTaskId) : undefined) ??
-        tasks.find((task) => task.metadata.shotId === shot.id),
+        tasks.find((task) => task.metadata.shotId === shot.id && isAutomaticVideoResult(task)),
     }))
     return { project, shots, sources }
   }
@@ -1736,6 +1733,7 @@ async function updateGenerationTaskLifecycle(
         updated_at = $15
     WHERE id = $1
       AND updated_at <= $15::timestamptz
+      ${recoveryWritebackGuard}
     RETURNING ${generationTaskColumns}
     `,
     [
@@ -1764,7 +1762,7 @@ async function updateTaskResultTargets(
   task: GenerationTask,
   selectedVersions?: { imageTaskId: string | null; videoTaskId: string | null },
 ): Promise<void> {
-  if (task.status !== 'completed') return
+  if (task.status !== 'completed' || task.metadata.providerReconciliationStatus === 'completed') return
   const updatedAt = task.updatedAt
   const assetId = metadataString(task.metadata, 'assetId')
   if (task.kind === 'image' && task.resultUrl && assetId) {

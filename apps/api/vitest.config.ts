@@ -10,6 +10,8 @@ const integration = [
   'src/scripts/preprodAnonymization.test.ts',
   'src/core/jobs/bullMqQueue.test.ts',
   'src/core/jobs/taskWriteback.db.test.ts',
+  'src/core/jobs/taskRefundPersistence.db.test.ts',
+  'src/core/jobs/videoRecoveryWorkflow.db.test.ts',
   'src/modules/*/routes.test.ts',
   'src/modules/aiJobs/repository.test.ts',
   'src/modules/novels/repository.test.ts',
@@ -17,6 +19,8 @@ const integration = [
   'src/modules/billing/paymentRoutes.test.ts',
   'src/modules/library/automaticCatalog.postgres.test.ts',
   'src/modules/scriptMaster/importPostgres.test.ts',
+  'src/modules/generation/recoveryRepository.postgres.test.ts',
+  'src/modules/generation/taskImageDependencies.postgres.test.ts',
   'src/modules/trustedAssets/faceConfirmation.test.ts',
 ]
 

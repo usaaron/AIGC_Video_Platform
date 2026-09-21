@@ -498,7 +498,7 @@ export function CharacterWorkflow({
             attributes.subjectType === 'human' &&
             attributes.portraitSource !== 'authorized-real' && (
               <p className="trusted-portrait-notice">
-                确认面部后自动加白，首次提交消耗 1 积分；审核通过后可用于视频。未选中的候选图不会提交。
+                确认面部后自动创建 AI 人像资源，首次提交消耗 1 积分；视频内容仍由生成通道独立审核。
               </p>
             )}
         </StagePanel>

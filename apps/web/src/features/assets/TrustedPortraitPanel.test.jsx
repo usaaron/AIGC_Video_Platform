@@ -64,4 +64,44 @@ describe('trusted portrait provider capabilities', () => {
     const html = renderToStaticMarkup(<TrustedPortraitPanel {...props} />)
     expect(html.match(/<button[^>]*class="button primary"[^>]*>/)?.[0]).toContain('disabled')
   })
+
+  it('identifies active AI portraits as library assets and explains independent video review', () => {
+    const html = renderToStaticMarkup(
+      <TrustedPortraitPanel
+        {...props}
+        attributes={{
+          ...props.attributes,
+          trustedPortrait: { assetId: 'ai-1', groupType: 'AIGC', status: 'active' },
+        }}
+        configuration={{
+          configured: true,
+          videoReferenceMode: 'source-image',
+          virtualRegistrationReady: true,
+          realValidationReady: false,
+        }}
+      />,
+    )
+    expect(html).toContain('AI人物已入库')
+    expect(html).toContain('当前视频通道仍会独立审核生成内容')
+    expect(html).not.toContain('AI 人像已可用')
+    expect(html).not.toContain('确认面部后自动加白')
+    expect(html).toContain('未确认全身造型，视频服装和体型可能变化')
+  })
+
+  it('does not mark an unapproved real portrait as authorized or warn after body confirmation', () => {
+    const html = renderToStaticMarkup(
+      <TrustedPortraitPanel
+        {...props}
+        attributes={{
+          ...props.attributes,
+          bodyStatus: 'approved',
+          trustedPortrait: { assetId: 'real-1', groupType: 'LivenessFace', status: 'processing' },
+        }}
+        configuration={{ configured: true, videoReferenceMode: 'asset-uri' }}
+      />,
+    )
+    expect(html).not.toContain('真人授权素材已入库')
+    expect(html).not.toContain('未确认全身造型')
+    expect(html).not.toContain('当前视频通道仍会独立审核生成内容')
+  })
 })

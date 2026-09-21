@@ -33,6 +33,12 @@ describe('portrait video references', () => {
     )
   })
 
+  it('preserves a confirmed full-body outfit alongside the confirmed face', () => {
+    const aliases = trustedPortraitAliases([character({ bodyStatus: 'approved' })], 'dora-router-seedance')
+    expect(aliases.get('asset://maas-ai')).toBe('/api/v1/media/face')
+    expect(aliases.get('/api/v1/media/body')).toBe('/api/v1/media/body')
+  })
+
   it.each([
     { portraitSource: 'authorized-real' },
     { trustedPortrait: { assetId: 'maas-real', status: 'active', groupType: 'LivenessFace' } },

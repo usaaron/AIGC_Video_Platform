@@ -1,13 +1,16 @@
 import { normalizedVideoDuration } from '@seqora/prompting'
 
 import { isActive, taskIndexFor, taskKey } from '../generation/taskIndex'
+import { isAutomaticVideoResult } from '../generation/taskMedia'
 export { isActive } from '../generation/taskIndex'
 
 export function taskFor(tasks, shot, kind) {
   const shotId = typeof shot === 'string' ? shot : shot.id
   const selectedTaskId =
     typeof shot === 'string' ? null : kind === 'image' ? shot.selectedImageTaskId : shot.selectedVideoTaskId
-  const candidates = taskIndexFor(tasks).byShotKind.get(taskKey(kind, shotId)) || []
+  const candidates = (taskIndexFor(tasks).byShotKind.get(taskKey(kind, shotId)) || []).filter(
+    (task) => kind !== 'video' || task.id === selectedTaskId || isAutomaticVideoResult(task),
+  )
   return (
     candidates.find((task) => isActive(task) && typeof task.metadata?.queueHiddenAt !== 'string') ||
     candidates.find((task) => task.id === selectedTaskId && task.status === 'completed') ||
@@ -56,7 +59,7 @@ export function selectedVersionTaskId(tasks, shot, kind) {
   if (storedId && candidates.some((task) => task.id === storedId && task.status === 'completed'))
     return storedId
   return candidates
-    .filter((task) => task.status === 'completed')
+    .filter((task) => task.status === 'completed' && (kind !== 'video' || isAutomaticVideoResult(task)))
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))[0]?.id
 }
 
@@ -155,13 +158,10 @@ export function shotVersionState(tasks, shot, kind) {
     )
   const versions = completed.map((task, index) => ({ task, number: completed.length - index }))
   const selectedId = selectedVersionTaskId(tasks, shot, kind)
-  const currentIndex = Math.max(
-    0,
-    versions.findIndex(({ task }) => task.id === selectedId),
-  )
+  const currentIndex = versions.findIndex(({ task }) => task.id === selectedId)
   return {
     current: versions[currentIndex] || null,
-    previous: versions[currentIndex + 1] || null,
+    previous: currentIndex >= 0 ? versions[currentIndex + 1] || null : null,
     latest: versions[0] || null,
   }
 }

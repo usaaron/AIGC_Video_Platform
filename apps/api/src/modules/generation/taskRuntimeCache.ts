@@ -97,6 +97,17 @@ export function taskDependencyReferences(task: GenerationTask): TaskDependencyRe
     if (!Array.isArray(ids)) continue
     ids.forEach(add)
   }
+  // A submitted video's local images still need their completed source task in
+  // the worker cache. Resolve this closure under the video's tenant/project.
+  if (Array.isArray(task.metadata.images)) {
+    for (const image of task.metadata.images) {
+      if (typeof image !== 'string') continue
+      const match = image.match(
+        /^\/api\/v1\/generation\/tasks\/([A-Za-z0-9_-]+)\/(?:outputs\/[A-Za-z0-9_-]+|content)(?:[?#].*)?$/,
+      )
+      if (match?.[1]) add(match[1])
+    }
+  }
   return [
     ...new Map(
       references.map((reference) => [

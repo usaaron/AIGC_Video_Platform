@@ -4,6 +4,8 @@
 
 ## 生产清单
 
+视频查询和人物引用排障见 [2026-09-21 修复说明](VIDEO_AUTO_RECONCILIATION_2026-09-21.md)。只读核对 `providerFailureSource`、`providerFailureCode`、`providerRequestId`、`providerReferenceImageCount` 和 `providerReconciliationStatus`；不要仅根据 50% 估算进度或任务快照中的图片列表判定实际请求。退款以账本为准。上线需同时更新 Web/API/Worker，检查 failed 任务中的 pending 对账和独立对账租约，避免只统计 queued/running 漏掉后台媒体写入。
+
 | 项目            | 当前值                                       |
 | --------------- | -------------------------------------------- |
 | 站点            | `https://xumutv.com`                         |

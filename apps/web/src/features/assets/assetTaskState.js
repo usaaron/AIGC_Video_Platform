@@ -1,3 +1,5 @@
+import { portraitStatusLabel } from './PortraitReadinessNotice'
+
 const ACTIVE_TASK_STATUSES = new Set(['queued', 'paused', 'running'])
 
 export function activeAssetImageTask(asset, tasks = []) {
@@ -24,7 +26,9 @@ export function assetTaskCardState(task, previewUrl) {
 }
 
 export function characterAssetStatus(asset) {
-  if (asset.attributes?.trustedPortrait?.status === 'active') return '可信人像可用'
+  if (asset.attributes?.trustedPortrait?.status === 'active') {
+    return portraitStatusLabel(asset.attributes.trustedPortrait)
+  }
   if (asset.attributes?.trustedPortrait?.status === 'processing') return '人像同步中'
   if (asset.attributes?.faceStatus !== 'approved') return '待确认面部'
   if (asset.attributes?.bodyStatus !== 'approved') return '面部已确认'

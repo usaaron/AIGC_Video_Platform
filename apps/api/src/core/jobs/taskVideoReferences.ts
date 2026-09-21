@@ -44,6 +44,9 @@ export async function resolveVideoImages(
 
   if (!Array.isArray(task.metadata.images)) return images
   const hasManualReferenceImages = hasManualVideoReferences(task)
+  const hasRequiredReferences =
+    hasManualReferenceImages ||
+    (Array.isArray(task.metadata.referenceAssetIds) && task.metadata.referenceAssetIds.length > 0)
   if (hasManualReferenceImages && task.metadata.images.length + images.length > 9)
     throw new Error('视频参考图超过 9 张，请重新保存分镜后生成')
   for (const value of task.metadata.images.slice(0, Math.max(0, 9 - images.length))) {
@@ -63,13 +66,13 @@ export async function resolveVideoImages(
     try {
       stored = await resolveStoredImageReference(store, options.mediaRepository, task, value)
     } catch (error) {
-      if (hasManualReferenceImages) {
+      if (hasRequiredReferences) {
         throw new Error(`视频参考原图读取失败，请重新上传并确认人物面部：${(error as Error).message}`)
       }
       continue
     }
     if (!options.objectStorage || !stored) {
-      if (hasManualReferenceImages) {
+      if (hasRequiredReferences) {
         throw new Error('视频参考原图不存在或无权读取，请重新上传并确认人物面部')
       }
       continue
@@ -78,7 +81,7 @@ export async function resolveVideoImages(
       const url = await videoImageUrl(options.objectStorage, stored, options.videoSourceUrl)
       images.push({ url, role: 'reference_image' })
     } catch (error) {
-      if (hasManualReferenceImages) {
+      if (hasRequiredReferences) {
         throw new Error(`视频参考原图读取失败，请重新上传并确认人物面部：${(error as Error).message}`)
       }
     }

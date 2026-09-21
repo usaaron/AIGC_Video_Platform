@@ -26,7 +26,11 @@ export function storyboardReferences(shot: Shot, assets: Asset[], ids: string[],
     return {
       id,
       url: portrait?.status === 'active' ? `asset://${portrait.assetId}` : imageUrl,
-      appearanceUrl: variant?.bodyReference?.url,
+      appearanceUrl:
+        variant?.bodyReference?.url ||
+        (attributes.type === 'character' && attributes.bodyStatus === 'approved'
+          ? attributes.bodyReference?.url
+          : undefined),
       ...(variant
         ? {
             appearance: {

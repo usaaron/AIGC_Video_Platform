@@ -40,4 +40,15 @@ describe('task media selection', () => {
     expect(latestVideoTaskFor([withoutLastFrame, withLastFrame], 'shot-1', true)).toBe(withLastFrame)
     expect(hasLastFrame(withLastFrame)).toBe(true)
   })
+
+  it('uses recovered history as a continuity source only after an explicit selection', () => {
+    const recovered = task('recovered', 'completed', [{ view: 'last-frame' }])
+    recovered.metadata.providerReconciliationHistoryOnly = true
+    const current = task('current', 'completed', [{ view: 'last-frame' }])
+    expect(latestVideoTaskFor([recovered], 'shot-1', true)).toBeNull()
+    expect(latestVideoTaskFor([recovered, current], 'shot-1', true)).toBe(current)
+    expect(
+      latestVideoTaskFor([recovered, current], { id: 'shot-1', selectedVideoTaskId: recovered.id }, true),
+    ).toBe(recovered)
+  })
 })

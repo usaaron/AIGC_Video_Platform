@@ -1,3 +1,5 @@
+import { isAutomaticVideoResult } from '../generation/taskMedia'
+
 export const FILM_PREVIEW_STAGE = 'film-preview'
 export const FILM_PREVIEW_MODE_FULL = 'full'
 export const FILM_PREVIEW_MODE_PARTIAL = 'partial'
@@ -12,7 +14,7 @@ export function completedShotVideoTask(tasks, shotOrId) {
       task.status === 'completed' &&
       task.metadata?.shotId === shotId,
   )
-  return completed.find((task) => task.id === selectedVideoTaskId) || completed[0]
+  return completed.find((task) => task.id === selectedVideoTaskId) || completed.find(isAutomaticVideoResult)
 }
 
 export function sourceVideoTaskIds(tasks, shots) {

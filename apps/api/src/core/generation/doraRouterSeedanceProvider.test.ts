@@ -212,7 +212,9 @@ describe('DoraRouterSeedanceProvider', () => {
     await expect(provider.getStatus('task_dora_3')).resolves.toEqual({
       status: 'failed',
       progress: 100,
-      error: '额度不足',
+      error: '上游额度不足，本次视频未生成。',
+      failureCode: 'UPSTREAM_QUOTA_EXCEEDED',
+      providerStatus: 'failed',
     })
   })
 

@@ -14,6 +14,27 @@ const memberPrincipal: Principal = {
   roles: ['member'],
 }
 
+const videoRecoveryMetadata = {
+  providerName: 'dora-router',
+  providerSubmittedAt: '2026-09-21T00:00:00.000Z',
+  providerProgressIsEstimated: true,
+  providerFailureSource: 'status_poll',
+  providerFailureCode: 'STATUS_POLL_UNAVAILABLE',
+  providerPollErrors: 4,
+  providerPollRetryNotBefore: '2026-09-21T00:01:00.000Z',
+  providerReconciliationReason: 'poll_error',
+  providerReconciliationStatus: 'pending',
+  providerReconciliationHistoryOnly: false,
+  creditsRefundedAt: '2026-09-21T00:30:00.000Z',
+}
+
+const internalVideoMetadata = {
+  providerTaskId: 'private-remote-task',
+  providerReconciliationClaimToken: 'private-claim-token',
+  providerPollLastError: 'internal provider error',
+  providerResultUrl: 'https://example.invalid/video?signature=private',
+}
+
 describe('generation task polling projection', () => {
   it('keeps only queue-facing metadata in the local projection', async () => {
     const store = new AppStore(null)
@@ -33,6 +54,8 @@ describe('generation task polling projection', () => {
         model: 'deepseek-v4-flash',
         tier: null,
         metadata: {
+          ...videoRecoveryMetadata,
+          ...internalVideoMetadata,
           generationStage: 'script-generate',
           shotId: 'shot-1',
           textPreview: '预览内容',
@@ -68,6 +91,10 @@ describe('generation task polling projection', () => {
     })
     expect(tasks[0]?.metadata).not.toHaveProperty('textResult')
     expect(tasks[0]?.metadata).not.toHaveProperty('sourcePromptSnapshot')
+    expect(tasks[0]?.metadata).toMatchObject(videoRecoveryMetadata)
+    for (const key of Object.keys(internalVideoMetadata)) {
+      expect(tasks[0]?.metadata).not.toHaveProperty(key)
+    }
     expect(tasks[0]).not.toHaveProperty('outputs')
   })
 
@@ -82,7 +109,7 @@ describe('generation task polling projection', () => {
           label: '镜头 01',
           provider: 'seedance',
           model: 'seedance-2.0',
-          metadata: { providerState: 'running' },
+          metadata: { providerState: 'running', ...videoRecoveryMetadata, ...internalVideoMetadata },
           status: 'running',
           progress: '55',
           estimated_credits: '18',
@@ -104,6 +131,14 @@ describe('generation task polling projection', () => {
     expect(query.mock.calls[0]?.[0]).not.toContain('negative_prompt')
     expect(query.mock.calls[0]?.[0]).toContain('jsonb_strip_nulls(jsonb_build_object(')
     expect(query.mock.calls[0]?.[0]).not.toMatch(/^\s*metadata,\s*$/m)
+    expect(tasks[0]?.metadata).toMatchObject(videoRecoveryMetadata)
+    for (const key of Object.keys(videoRecoveryMetadata)) {
+      expect(query.mock.calls[0]?.[0]).toContain(`'${key}', metadata->'${key}'`)
+    }
+    for (const key of Object.keys(internalVideoMetadata)) {
+      expect(query.mock.calls[0]?.[0]).not.toContain(`metadata->'${key}'`)
+      expect(tasks[0]?.metadata).not.toHaveProperty(key)
+    }
   })
 
   it('builds a stable version from queue-facing state only', async () => {

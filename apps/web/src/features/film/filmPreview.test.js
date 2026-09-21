@@ -34,6 +34,19 @@ describe('film preview task selection', () => {
     ])
   })
 
+  it('does not count recovered history as a ready source until explicitly selected', () => {
+    const recovered = shotTask('recovered', 'shot-1')
+    recovered.metadata.providerReconciliationHistoryOnly = true
+    const tasks = [recovered, sourceTasks[1]]
+    expect(completedShotVideoTask(tasks, shots[0])).toBeUndefined()
+    expect(sourceVideoTaskIds(tasks, shots)).toEqual([])
+    expect(contiguousSourceVideoTaskIds(tasks, shots)).toEqual([])
+    expect(completedShotVideoTask([recovered, ...sourceTasks], shots[0])).toBe(sourceTasks[0])
+    expect(sourceVideoTaskIds(tasks, [{ ...shots[0], selectedVideoTaskId: recovered.id }, shots[1]])).toEqual(
+      ['recovered', 'video-2'],
+    )
+  })
+
   it('keeps partial and full preview tasks separate', () => {
     const full = previewTask('preview-full', ['video-1', 'video-2'])
     const partial = previewTask('preview-partial', ['video-1'], 'partial')

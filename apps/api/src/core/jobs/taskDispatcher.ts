@@ -108,6 +108,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
   private readonly textPreviewPersistTimeoutMs: number
   private readonly periodicRefundIntervalMs = 10_000
   private lastPeriodicRefundAt = 0
+  private readonly pendingRefundPersistence = new Set<string>()
   private pendingTaskMutations = 0
   private mutationIdleWaiters: Array<() => void> = []
 
@@ -374,7 +375,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       task.id,
       async () => {
         await this.providerPoller.applyRemoteCancellation(task, outcome)
-        await this.refundService.refundTerminalTasks()
+        await this.refundService.refundTerminalTasks([task.id])
       },
       true,
     )
@@ -752,7 +753,14 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const now = Date.now()
     if (now - this.lastPeriodicRefundAt < this.periodicRefundIntervalMs) return
     this.lastPeriodicRefundAt = now
-    await this.refundService.refundTerminalTasks()
+    for (const taskId of await this.refundService.refundTerminalTasks())
+      this.pendingRefundPersistence.add(taskId)
+    const taskIds = [...this.pendingRefundPersistence]
+    if (!taskIds.length) return
+    if (this.persistTickTasks) await this.persistTickTasks(taskIds)
+    else if (this.persistTask) for (const taskId of taskIds) await this.persistTask(taskId)
+    else await this.afterTick?.()
+    taskIds.forEach((taskId) => this.pendingRefundPersistence.delete(taskId))
   }
 
   private warnTaskRunnerFailure(operation: string, taskId: string, error: unknown): void {

@@ -1,0 +1,21 @@
+.job-row .job-error-summary {
+  font-size: 12px;
+}
+
+.job-row .job-error-details {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.job-error-details summary {
+  cursor: pointer;
+}
+
+.job-error-details p {
+  max-height: 140px;
+  margin: 6px 0 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

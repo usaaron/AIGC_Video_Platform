@@ -23,6 +23,7 @@ import {
 import { projectRatioMode } from '../features/film/projectRatio'
 import { hasVideoMetadataLoaded, markVideoMetadataLoaded } from '../features/film/videoPlaybackCache'
 import { videoDownloadUrl } from '../features/film/videoDownload'
+import { isAutomaticVideoResult } from '../features/generation/taskMedia'
 import { normalizedVideoDuration } from '@seqora/prompting'
 
 export function FilmPage({
@@ -206,7 +207,7 @@ export function FilmPage({
 
   const playNextCompletedVideo = () => {
     const nextIndex = scopedShots.findIndex(
-      (item, index) => index > safeIndex && Boolean(videoUrlFor(videoTaskFor(tasks, item.id))),
+      (item, index) => index > safeIndex && Boolean(videoUrlFor(videoTaskFor(tasks, item))),
     )
     if (nextIndex >= 0) setCurrentShot(shots.findIndex((item) => item.id === scopedShots[nextIndex].id))
   }
@@ -582,11 +583,15 @@ export function FilmPage({
   )
 }
 
-function videoTaskFor(tasks, shot) {
+export function videoTaskFor(tasks, shot) {
   const shotId = shot?.id
   const selectedVideoTaskId = shot?.selectedVideoTaskId
   const shotTasks = tasks.filter(
-    (task) => task.kind === 'video' && task.metadata?.shotId === shotId && task.status !== 'cancelled',
+    (task) =>
+      task.kind === 'video' &&
+      task.metadata?.shotId === shotId &&
+      task.status !== 'cancelled' &&
+      (task.id === selectedVideoTaskId || isAutomaticVideoResult(task)),
   )
   return (
     shotTasks.find(

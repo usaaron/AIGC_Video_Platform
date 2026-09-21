@@ -24,7 +24,6 @@ import type {
 } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppState, AppStore } from '../../infra/store.js'
-import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
@@ -40,7 +39,17 @@ import {
 import { cancellationResourceLockForTask, taskResourceLockId } from './taskResourceLock.js'
 import { DependencyResolver } from './taskDependencyResolver.js'
 import { compileImageTaskPrompt } from './imageTaskPrompt.js'
-import { VIDEO_WAIT_TIMEOUT, videoProcessingExpired, videoProcessingStalled } from './taskVideoProgress.js'
+import {
+  VIDEO_WAIT_TIMEOUT,
+  isDoraRemoteTask,
+  pollRetryDue,
+  pollFailureMetadata,
+  reconciliationMetadata,
+  videoProcessingExpired,
+  videoProcessingStalled,
+} from './taskVideoProgress.js'
+import { TaskRefundService } from './taskRefundService.js'
+export { TaskRefundService } from './taskRefundService.js'
 import { resolveStoredImageReference, type VideoSourceUrl } from './taskImageReferences.js'
 import {
   GenerationResultWriteback,
@@ -323,69 +332,6 @@ export class TaskClaimer {
   }
 }
 
-export class TaskRefundService {
-  constructor(
-    private readonly store: AppStore,
-    private readonly creditLedger: CreditLedger | null = null,
-  ) {}
-
-  async refundTerminalTasks(): Promise<void> {
-    const candidates = this.store.read((state) =>
-      state.tasks.filter((task) => canPotentiallyRefundTask(task)),
-    )
-    if (!candidates.length) return
-    const creditLedger = this.creditLedger
-    if (creditLedger) {
-      const handledTaskIds: string[] = []
-      for (const task of candidates) {
-        // The Postgres ledger owns the refund transaction. Do not hold the AppStore
-        // write lock while waiting on one database operation per historical task.
-        await creditLedger.refundGeneration(task, refundDescription(task))
-        handledTaskIds.push(task.id)
-      }
-      if (!handledTaskIds.length) return
-      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const handled = new Set(handledTaskIds)
-        const now = new Date().toISOString()
-        for (const task of state.tasks) {
-          if (!handled.has(task.id)) continue
-          task.metadata = {
-            ...task.metadata,
-            creditsRefundedAt:
-              typeof task.metadata.creditsRefundedAt === 'string' ? task.metadata.creditsRefundedAt : now,
-          }
-        }
-      })
-      return
-    }
-
-    await this.store.mutate((state) => {
-      for (const task of state.tasks) {
-        if (!canPotentiallyRefundTask(task)) continue
-        const ledgerIds = state.ledger.map((entry) => entry.id)
-        if (!canRefundTask(task, ledgerIds)) continue
-        const refundId = `refund-${task.id}`
-        const user = state.users.find((item) => item.id === task.userId && item.tenantId === task.tenantId)
-        if (!user) continue
-        const now = new Date().toISOString()
-        user.credits += task.estimatedCredits
-        state.ledger.unshift({
-          id: refundId,
-          userId: user.id,
-          tenantId: user.tenantId,
-          amount: task.estimatedCredits,
-          balance: user.credits,
-          type: 'adjustment',
-          description: refundDescription(task),
-          createdAt: now,
-        })
-        task.metadata = { ...task.metadata, creditsRefundedAt: now }
-        observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount: task.estimatedCredits })
-      }
-    })
-  }
-}
-
 export class TaskWritebackService {
   private readonly resultWriteback: GenerationResultWriteback
 
@@ -519,6 +465,7 @@ export class TaskWritebackService {
     error: string,
     leaseToken?: string,
     diagnostics?: LocalTaskDiagnostics,
+    failureMetadata: GenerationTask['metadata'] = {},
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
@@ -537,6 +484,7 @@ export class TaskWritebackService {
       if (isRemoteProviderName(task.metadata.providerName)) {
         task.metadata = {
           ...task.metadata,
+          ...failureMetadata,
           providerState: 'failed',
           providerError: task.error,
           providerFailedAt: now,
@@ -546,7 +494,7 @@ export class TaskWritebackService {
       task.updatedAt = now
       recordGenerationTaskTerminal(task, new Error(task.error))
     })
-    await this.refundService.refundTerminalTasks()
+    await this.refundService.refundTerminalTasks([taskId])
   }
 
   async retryTimedOutVideoSubmission(taskId: string, leaseToken: string, error: string): Promise<void> {
@@ -634,7 +582,7 @@ export class TaskWritebackService {
 
     if (result?.status === 'failed') {
       recordGenerationTaskTerminal(result, new Error(result.error ?? 'Video processing stalled'))
-      await this.refundService.refundTerminalTasks()
+      await this.refundService.refundTerminalTasks([result.id])
     }
     return result
   }
@@ -721,14 +669,41 @@ export class TaskWritebackService {
     if (task && task.status !== 'running') {
       recordGenerationTaskTerminal(task, task.error ? new Error(task.error) : undefined)
     }
+    if (task) {
+      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
+        const stored = state.tasks.find((item) => item.id === task.id)
+        if (!stored || stored.updatedAt !== task.updatedAt) return
+        delete stored.metadata.providerPollRetryNotBefore
+        if (input.status.status === 'failed') {
+          stored.metadata = {
+            ...stored.metadata,
+            providerFailureSource: 'upstream',
+            providerFailureCode: input.status.failureCode ?? 'UPSTREAM_FAILED',
+            providerReportedStatus: input.status.providerStatus ?? 'failed',
+            ...(input.status.providerRequestId ? { providerRequestId: input.status.providerRequestId } : {}),
+            providerFailedAt: stored.updatedAt,
+          }
+        } else {
+          delete stored.metadata.providerFailureSource
+          delete stored.metadata.providerFailureCode
+        }
+      })
+      if (task.status === 'failed') await this.refundService.refundTerminalTasks([task.id])
+    }
     return task
   }
 
-  async markProviderPollError(taskId: string, leaseToken: string, attempts: number): Promise<void> {
+  async markProviderPollError(
+    taskId: string,
+    leaseToken: string,
+    attempts: number,
+    metadata: GenerationTask['metadata'] = {},
+  ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === taskId)
       if (!stored || !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
-      stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
+      stored.metadata = { ...stored.metadata, ...metadata, providerPollErrors: attempts }
+      stored.updatedAt = new Date().toISOString()
       renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
     })
   }
@@ -774,6 +749,12 @@ export class VideoTaskExecutor {
         preparedTask,
         await resolveVideoImages(preparedTask, this.store, this.options),
       )
+      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
+        const stored = state.tasks.find((item) => item.id === task.id)
+        if (!stored || !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) return
+        stored.metadata.providerReferenceImageCount = request.images.length
+        stored.updatedAt = new Date().toISOString()
+      })
       const submission = await observeProviderCall(
         {
           provider: stringValue(preparedTask.metadata.providerName, 'seedance'),
@@ -1150,6 +1131,7 @@ export class ProviderPoller {
             task.leaseOwnerId === this.options.leaseOwnerId &&
             generationTaskLeaseActive(task, now) &&
             typeof task.metadata.providerTaskId === 'string' &&
+            pollRetryDue(task, now) &&
             now - numberValue(task.metadata.providerPolledAt, 0) >= this.options.providerPollIntervalMs,
         )
         .sort(
@@ -1253,8 +1235,8 @@ export class ProviderPoller {
         lastFrameDescriptor,
         lastFrameError,
       }
-    } catch (error) {
-      return { kind: 'error', error: messageFor(error) }
+    } catch {
+      return { kind: 'error', error: '暂时无法查询视频状态，系统会继续查询原任务。' }
     }
   }
 
@@ -1272,7 +1254,24 @@ export class ProviderPoller {
         const stored = state.tasks.find((item) => item.id === task.id)
         return numberValue(stored?.metadata.providerPollErrors, 0) + 1
       })
-      if (attempts >= 3) {
+      if (isDoraRemoteTask(task)) {
+        if (videoProcessingExpired(task, this.options.providerProcessingTimeoutMs)) {
+          await this.options.writeback.failTask(
+            task.id,
+            '视频状态查询暂不可用；系统会继续核对原任务结果，并退回本次积分。',
+            leaseToken,
+            undefined,
+            reconciliationMetadata(task, 'poll_error'),
+          )
+        } else {
+          await this.options.writeback.markProviderPollError(
+            task.id,
+            leaseToken,
+            attempts,
+            pollFailureMetadata(attempts),
+          )
+        }
+      } else if (attempts >= 3) {
         await this.options.writeback.failTask(task.id, outcome.error, leaseToken)
       } else {
         await this.options.writeback.markProviderPollError(task.id, leaseToken, attempts)
@@ -1285,7 +1284,13 @@ export class ProviderPoller {
     ) {
       // Keep the existing remote ID for a later result lookup. Providers without
       // cancellation may still finish remotely; never submit a duplicate job.
-      await this.options.writeback.failTask(task.id, VIDEO_WAIT_TIMEOUT, leaseToken)
+      await this.options.writeback.failTask(
+        task.id,
+        VIDEO_WAIT_TIMEOUT,
+        leaseToken,
+        undefined,
+        reconciliationMetadata(task, 'processing_timeout'),
+      )
       return { completedTask: null, stalledProviderTaskId: null }
     }
     if (
@@ -1759,21 +1764,6 @@ function isTimeoutError(error: Error): boolean {
   )
 }
 
-function canPotentiallyRefundTask(task: GenerationTask): boolean {
-  if (task.estimatedCredits <= 0) return false
-  if (typeof task.metadata.creditsRefundedAt === 'string') return false
-  if (task.status === 'failed') return true
-  if (task.status === 'paused') return typeof task.metadata.queueHiddenAt === 'string'
-  if (task.status !== 'cancelled') return false
-
-  const providerTaskId = stringValue(task.metadata.providerTaskId, '')
-  if (!providerTaskId || typeof task.metadata.providerCancelRequestedAt !== 'string') return true
-  return (
-    typeof task.metadata.providerCancelCompletedAt === 'string' ||
-    typeof task.metadata.providerCancelSkippedAt === 'string'
-  )
-}
-
 function isScriptTask(task: GenerationTask): boolean {
   return (
     task.kind === 'text' &&
@@ -1860,18 +1850,6 @@ function recoverScriptTaskFromDraft(
   releaseGenerationTaskLease(task)
   recordGenerationTaskTerminal(task)
   return true
-}
-
-function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {
-  if (!canPotentiallyRefundTask(task)) return false
-  if (!ledgerIds.includes(`generation-${task.clientRequestId}`)) return false
-  return !ledgerIds.includes(`refund-${task.id}`)
-}
-
-function refundDescription(task: GenerationTask): string {
-  if (task.status === 'failed') return `${task.label} · 失败退款`
-  if (task.status === 'cancelled') return `${task.label} · 取消退款`
-  return `${task.label} · 已删除退款`
 }
 
 function isRemoteProviderName(value: unknown): boolean {

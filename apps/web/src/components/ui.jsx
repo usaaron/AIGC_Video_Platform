@@ -10,6 +10,7 @@ import {
   Video,
   XCircle,
 } from 'lucide-react'
+import './ui.css'
 
 export function StatusDot({ status }) {
   return <span className={`status-dot ${status}`} aria-hidden="true" />
@@ -39,12 +40,24 @@ export function PageHeader({ eyebrow, title, description, children }) {
 export function JobRow({ job, compact = false, busy = false, onPause, onResume, onDelete, onPreviewResult }) {
   const canCancelRunning = job.status === 'running' && job.metadata?.providerName === 'stringx-seedance'
   const canPreviewInApp = ['image', 'video'].includes(job.kind) && typeof onPreviewResult === 'function'
+  const copyrightRejected =
+    job.kind === 'video' &&
+    job.status === 'failed' &&
+    job.metadata?.providerFailureSource === 'upstream' &&
+    job.metadata?.providerFailureCode === 'UPSTREAM_COPYRIGHT_REJECTED'
+  const checkingVideo = !copyrightRejected && videoResultChecking(job)
+  const estimatedVideo =
+    job.kind === 'video' &&
+    job.status === 'running' &&
+    job.provider !== 'local-compose' &&
+    job.metadata?.providerProgressIsEstimated === true
+  const displayStatus = checkingVideo ? 'running' : job.status
   const icon =
-    job.status === 'failed' ? (
+    displayStatus === 'failed' ? (
       <XCircle size={15} />
     ) : job.status === 'completed' ? (
       <Check size={15} />
-    ) : job.status === 'running' ? (
+    ) : displayStatus === 'running' ? (
       <LoaderCircle size={15} className="spin" />
     ) : job.status === 'paused' ? (
       <Pause size={15} />
@@ -52,7 +65,7 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
       <Clock3 size={15} />
     )
   const runningSeconds =
-    job.status === 'running'
+    job.status === 'running' || checkingVideo
       ? Math.max(
           0,
           Math.floor(
@@ -65,7 +78,7 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
 
   return (
     <div className={`job-row ${compact ? 'compact' : ''}`}>
-      <div className={`job-icon ${job.status}`}>{icon}</div>
+      <div className={`job-icon ${displayStatus}`}>{icon}</div>
       <div className="job-main">
         <div>
           <strong>{job.label}</strong>
@@ -73,26 +86,48 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
             {job.type} · {job.cost} 积分
           </span>
         </div>
-        {job.status === 'running' && (
+        {job.status === 'running' && !estimatedVideo && !checkingVideo && (
           <div className="job-progress">
             <span style={{ width: `${job.progress}%` }} />
           </div>
         )}
-        {job.status === 'running' && !canCancelRunning && (
+        {checkingVideo ? (
+          <p className="job-provider-note">正在核对结果，系统会自动接回已完成视频。</p>
+        ) : estimatedVideo ? (
+          <p className="job-provider-note">
+            已等待 {formatRunningTime(runningSeconds)} · 完成后自动出现在分镜，无需停留此页。
+          </p>
+        ) : job.status === 'running' && !canCancelRunning ? (
           <p className="job-provider-note">
             {job.provider === 'local-compose'
               ? compositionStageLabel(job)
               : '第三方生成中，暂不可暂停或删除；若第三方失败，平台会自动退回积分。'}
           </p>
-        )}
-        {canCancelRunning && (
+        ) : null}
+        {canCancelRunning && !estimatedVideo && !checkingVideo && (
           <p className={`job-provider-note ${runningSeconds >= 360 ? 'delayed' : ''}`}>
             {runningSeconds >= 360
               ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；进度长时间不变时系统会自动取消旧任务并重试，无需一直等待。`
               : `上游生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
           </p>
         )}
-        {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
+        {job.status === 'failed' &&
+          !checkingVideo &&
+          (copyrightRejected ? (
+            <>
+              <p className="job-error job-error-summary">
+                上游判定生成内容可能涉及版权限制，本次视频未生成。
+              </p>
+              {job.error && (
+                <details className="job-error-details">
+                  <summary>查看错误详情</summary>
+                  <p>{job.error}</p>
+                </details>
+              )}
+            </>
+          ) : (
+            <p className="job-error">{job.error || '生成失败，请重新提交'}</p>
+          ))}
       </div>
       <div className="job-actions">
         {job.status === 'completed' &&
@@ -137,8 +172,8 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
           </div>
         )}
       </div>
-      <span className={`job-state ${job.status}`}>
-        {jobStateLabel(job)}
+      <span className={`job-state ${displayStatus}`}>
+        {checkingVideo ? '核对中' : estimatedVideo ? '生成中' : jobStateLabel(job)}
         {job.metadata?.creditsRefundedAt && <small>已退款</small>}
       </span>
     </div>
@@ -146,8 +181,28 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
 }
 
 function formatRunningTime(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 60) return `${Math.max(0, seconds || 0)} 秒`
+  if (!Number.isFinite(seconds)) return '片刻'
+  if (seconds < 60) return `${Math.max(0, seconds)} 秒`
   return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
+}
+
+function videoResultChecking(job) {
+  if (job.kind !== 'video' || job.provider === 'local-compose') return false
+  const metadata = job.metadata ?? {}
+  if (job.status === 'failed') {
+    return (
+      metadata.providerReconciliationStatus === 'pending' &&
+      ['poll_error', 'processing_timeout'].includes(metadata.providerReconciliationReason)
+    )
+  }
+  return (
+    job.status === 'running' &&
+    metadata.providerFailureSource === 'status_poll' &&
+    typeof metadata.providerPollErrors === 'number' &&
+    metadata.providerPollErrors > 0 &&
+    typeof metadata.providerPollRetryNotBefore === 'string' &&
+    Number.isFinite(Date.parse(metadata.providerPollRetryNotBefore))
+  )
 }
 
 function jobStateLabel(job) {
