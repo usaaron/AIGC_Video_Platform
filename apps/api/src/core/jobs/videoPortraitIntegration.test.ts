@@ -173,11 +173,14 @@ describe('DoraRouter portrait worker integration', () => {
       expect(storage.get).not.toHaveBeenCalled()
       expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe('failed')
     } else {
-      // Automatic stale references are optional; access-denied media must never
-      // be read or sent, while the authorized text-only task can still run.
-      expect(provider.submit).toHaveBeenCalledWith(expect.objectContaining({ images: [] }))
+      // A selected character is required: missing or foreign media must never
+      // silently turn this into a text-only generation with a different face.
+      expect(provider.submit).not.toHaveBeenCalled()
       expect(storage.get).not.toHaveBeenCalled()
-      expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.status)).toBe('running')
+      expect(store.read((state) => state.tasks.find((item) => item.id === task.id))).toMatchObject({
+        status: 'failed',
+        error: '视频参考原图不存在或无权读取，请重新上传并确认人物面部',
+      })
     }
   })
 

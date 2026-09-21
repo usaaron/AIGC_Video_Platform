@@ -591,6 +591,7 @@ export class TaskWritebackService {
     task: GenerationTask,
     leaseToken: string,
     submission: VideoGenerationSubmission,
+    referenceImageCount?: number,
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => item.id === task.id)
@@ -602,6 +603,7 @@ export class TaskWritebackService {
         ...stored.metadata,
         providerState: submission.status,
         providerTaskId: submission.providerTaskId,
+        ...(referenceImageCount === undefined ? {} : { providerReferenceImageCount: referenceImageCount }),
         providerSubmittedAt:
           typeof stored.metadata.providerSubmittedAt === 'string'
             ? stored.metadata.providerSubmittedAt
@@ -749,12 +751,6 @@ export class VideoTaskExecutor {
         preparedTask,
         await resolveVideoImages(preparedTask, this.store, this.options),
       )
-      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const stored = state.tasks.find((item) => item.id === task.id)
-        if (!stored || !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) return
-        stored.metadata.providerReferenceImageCount = request.images.length
-        stored.updatedAt = new Date().toISOString()
-      })
       const submission = await observeProviderCall(
         {
           provider: stringValue(preparedTask.metadata.providerName, 'seedance'),
@@ -767,7 +763,7 @@ export class VideoTaskExecutor {
         },
         () => this.options.videoProvider!.submit(request),
       )
-      await this.options.writeback.writeVideoSubmission(task, leaseToken, submission)
+      await this.options.writeback.writeVideoSubmission(task, leaseToken, submission, request.images.length)
     } catch (error) {
       const attempts = task.attempts ?? 0
       const maxAttempts = task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS
