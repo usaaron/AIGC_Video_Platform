@@ -5,7 +5,9 @@ import httpcore
 import httpx
 from pydantic import ValidationError
 
-from app.modules.script_engine.llm_adapter import LLMRequestError, LLMStructuredOutputError, MissingLLMConfigurationError
+from app.modules.script_engine.llm_adapter import (
+    LLMRequestError, LLMStructuredOutputError, MissingLLMConfigurationError, is_reasoning_output_exhaustion,
+)
 from app.modules.script_engine.llm_deadline import DeadlineExceeded
 
 
@@ -37,6 +39,7 @@ def classify_failure(error: Exception, *, elapsed_ms: int, physical_requests: in
     structured = next((item for item in chain if isinstance(item, (LLMStructuredOutputError, ValidationError))), None)
     configuration = next((item for item in chain if isinstance(item, MissingLLMConfigurationError)), None)
     transport = next((item for item in chain if isinstance(item, (httpx.TransportError, httpcore.NetworkError))), None)
+    reasoning_exhausted = next((item for item in chain if is_reasoning_output_exhaustion(item)), None)
     category = request.category if request and request.category in _CATEGORIES else "unknown"
     cause = deadline or timeout or request or http_error or structured or configuration or transport or error
     code, message = "quick_model_operation_failed", "本次模型操作未完成；已有内容已保存，恢复后仅重试当前步骤。"
@@ -53,6 +56,9 @@ def classify_failure(error: Exception, *, elapsed_ms: int, physical_requests: in
         code, message = "quick_model_configuration", "模型接入配置暂不可用，已有内容已保存，请联系管理员检查后恢复。"
     elif status == 429:
         code, message = "quick_model_busy", "模型当前请求较多，已有内容已保存，请稍后恢复当前步骤。"
+    elif reasoning_exhausted:
+        code, category, cause = "quick_reasoning_output_exhausted", "empty_response", reasoning_exhausted
+        message = "模型本次思考已达到输出长度上限，未返回可保存结果。已有内容已保存，请恢复当前步骤继续；不会自动重复请求。"
     elif structured:
         code, message = "quick_output_invalid", "本次模型结果不完整或格式不正确，已有内容已保存，请恢复当前步骤重新生成。"
     elif transport or category == "transport":

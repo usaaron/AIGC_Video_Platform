@@ -362,7 +362,7 @@ class QuickScriptEngine:
                  review_adapter: LLMAdapter | None = None, repair_adapter: LLMAdapter | None = None,
                  verified_context_tokens: int, verified_models: set[str] | None = None,
                  request_deadline_seconds: float = 480, operation_deadline_seconds: float = 600,
-                 planning_reasoning_effort: str = "low"):
+                 planning_reasoning_effort: str = "low", draft_reasoning_effort: str = "low"):
         if not 8_192 <= verified_context_tokens <= 2_000_000:
             raise QuickEngineError("快速模式尚未配置已核验的上下文能力。", code="quick_capability_unverified")
         self.planning_adapter, self.script_adapter = planning_adapter, script_adapter
@@ -379,6 +379,9 @@ class QuickScriptEngine:
         if planning_reasoning_effort not in {"low", "medium", "high"}:
             raise QuickEngineError("快速创作规划推理配置无效，请联系管理员检查。", code="quick_model_configuration")
         self.planning_reasoning_effort = planning_reasoning_effort
+        if draft_reasoning_effort not in {"low", "medium", "high"}:
+            raise QuickEngineError("快速创作正文推理配置无效，请联系管理员检查。", code="quick_model_configuration")
+        self.draft_reasoning_effort = draft_reasoning_effort
 
     def _call(self, state: QuickState, stage: str, prompt: str, schema_type: type[BaseModel],
               adapter: LLMAdapter, *, output_tokens: int = 12_000):
@@ -397,7 +400,12 @@ class QuickScriptEngine:
         # actual model text, the one inline schema, system policy and envelope
         # reserve. No history is truncated and no duplicate schema is sent.
         upper_bound = len((CREATOR_INTERACTION_LANGUAGE_CONTRACT + prompt).encode("utf-8")) + 2_048
-        if upper_bound + output_tokens > min(self.verified_context_tokens, *(item.max_context_tokens for item in infos)):
+        context_limit = min(self.verified_context_tokens, *(item.max_context_tokens for item in infos))
+        if stage == "draft":
+            # Thinking and JSON share this allowance. Use available headroom,
+            # never reduce the original 8 Ki answer floor or trim saved history.
+            output_tokens = max(8_192, min(output_tokens, context_limit - upper_bound))
+        if upper_bound + output_tokens > context_limit:
             raise QuickEngineError("完整前文与本次输出预留已超出快速模式上下文预算，请转标准流程；前文不会被删减。",
                                    code="quick_context_limit")
         started = time.perf_counter()
@@ -410,7 +418,8 @@ class QuickScriptEngine:
             with request_deadline_override(self.request_deadline_seconds), deadline_scope(
                 self.operation_deadline_seconds, scope="quick_operation"
             ), bind_llm_market(market), bind_local_output_schema(schema), bind_reasoning_effort(
-                self.planning_reasoning_effort if stage == "plan" else None
+                self.planning_reasoning_effort if stage == "plan" else
+                self.draft_reasoning_effort if stage == "draft" else None
             ), planning_call_budget_scope(
                 database_runtime=None, operation_id=f"quick-{operation_id}-{stage}", project_id=state.project_id,
                 parent_node_id="quick-workflow", parent_node_version=max(1, state.revision),
@@ -566,7 +575,7 @@ class QuickScriptEngine:
                 target_duration_seconds=state.settings.target_duration_seconds,
                 scene_count=len(state.plan.episodes[episode_number - 1].scene_execution_plan), chinese_dialogue=False,
             ) + "\n中文翻译仅作对照，不重复计入口播时长或正文有效字数；一万有效字上限仍适用。"
-        value, call = self._call(state, "draft", prompt, _QuickGeneratedDraft, self.script_adapter, output_tokens=8_192)
+        value, call = self._call(state, "draft", prompt, _QuickGeneratedDraft, self.script_adapter, output_tokens=16_384)
         try:
             raw = _json(value)
             scenes = []
@@ -701,8 +710,10 @@ def build_quick_script_engine() -> QuickScriptEngine:
     QUICK_SCRIPT_OPERATION_DEADLINE_SECONDS defaults to 600 (maximum 600).
     The role's socket idle timeout still applies. Standard planning deadlines,
     shared adapters, real streaming, and the one-POST operation cap are unchanged.
-    QUICK_SCRIPT_PLANNING_REASONING_EFFORT defaults to low for only the compact
-    plan step. Thinking stays enabled; other Quick stages retain role effort.
+    QUICK_SCRIPT_PLANNING_REASONING_EFFORT and QUICK_SCRIPT_DRAFT_REASONING_EFFORT
+    default to low for the compact plan and approved-plan screenplay respectively.
+    Draft reserves 8-16 Ki output tokens within the verified context headroom.
+    Thinking stays enabled; review and repair stages retain their role effort.
     Provider protocol mappings still apply (DeepSeek maps medium to high).
     """
     from app.llm_runtime import (build_planning_llm_adapter_from_env, build_script_generation_adapter_from_env,
@@ -727,4 +738,5 @@ def build_quick_script_engine() -> QuickScriptEngine:
     return QuickScriptEngine(planning_adapter=planning, script_adapter=script, review_adapter=review,
                              repair_adapter=repair, verified_context_tokens=limit, verified_models=models,
                              request_deadline_seconds=request_seconds, operation_deadline_seconds=operation_seconds,
-                             planning_reasoning_effort=os.environ.get("QUICK_SCRIPT_PLANNING_REASONING_EFFORT", "low").strip().lower())
+                             planning_reasoning_effort=os.environ.get("QUICK_SCRIPT_PLANNING_REASONING_EFFORT", "low").strip().lower(),
+                             draft_reasoning_effort=os.environ.get("QUICK_SCRIPT_DRAFT_REASONING_EFFORT", "low").strip().lower())
