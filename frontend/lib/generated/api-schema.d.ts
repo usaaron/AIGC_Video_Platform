@@ -7433,6 +7433,8 @@ export interface components {
         QuickResponseData: {
             /** Project Revision */
             project_revision: number;
+            /** Recovery Action */
+            recovery_action?: ("repair" | "switch_standard") | null;
             state: components["schemas"]["QuickState"] | null;
             workspace_snapshot: components["schemas"]["StoryProjectWorkspaceSnapshot"];
         };

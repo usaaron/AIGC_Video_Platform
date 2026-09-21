@@ -52,7 +52,9 @@ class QuickRepository:
 
     @staticmethod
     def response(project: StoryProject, snapshot: StoryProjectWorkspaceSnapshot, state: QuickState | None):
-        return QuickResponseData(state=state, workspace_snapshot=snapshot, project_revision=project.revision)
+        from app.modules.quick_script.recovery import recovery_action
+        return QuickResponseData(state=state, workspace_snapshot=snapshot, project_revision=project.revision,
+                                 recovery_action=recovery_action(state))
 
     @staticmethod
     def _sync_project_targets(repository, project, workspace):

@@ -68,9 +68,12 @@ export interface QuickScriptState {
 export type QuickScriptAction = "setup" | "draft_synopsis" | "confirm_synopsis" | "draft_plan" | "confirm_plan"
   | "advance" | "save_episode" | "switch_standard" | "resume";
 
+export type QuickScriptRecoveryAction = "repair" | "switch_standard" | null;
+
 export interface QuickScriptResponse {
   data: {
     state: QuickScriptState | null;
+    recovery_action?: QuickScriptRecoveryAction;
     workspace_snapshot: { revision: number; workspace_payload: ScriptProject; updated_at: string; [key: string]: unknown };
     project_revision: number;
   };

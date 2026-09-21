@@ -203,6 +203,7 @@ class QuickResponseData(QuickModel):
     state: QuickState | None
     workspace_snapshot: StoryProjectWorkspaceSnapshot
     project_revision: int
+    recovery_action: Literal["repair", "switch_standard"] | None = None
 
 
 class QuickResponse(QuickModel):

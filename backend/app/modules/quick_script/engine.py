@@ -29,7 +29,9 @@ from app.modules.script_engine.models import GenerationStrategy
 from app.modules.script_engine.planning_call_budget import planning_call_budget_scope
 from app.modules.script_engine.llm_deadline import deadline_scope, request_deadline_override
 from app.modules.script_engine.production_count_utils import episode_production_counts
-from app.modules.script_engine.screenplay_duration import estimate_screenplay_duration, screenplay_runtime_prompt_guidance
+from app.modules.script_engine.screenplay_duration import (
+    estimate_screenplay_duration, estimate_scene_duration, screenplay_runtime_prompt_guidance,
+)
 from app.modules.script_engine.screenplay_metrics import screenplay_character_count
 from app.modules.script_engine.script_body_length import script_body_length_guidance, script_body_scale_prompt
 from app.script_delivery_contract import (
@@ -247,14 +249,17 @@ def complete_screenplay_text(draft: DraftMasterScript) -> str:
     return "\n".join(lines)
 
 
-def local_repair_scene_numbers(episode) -> set[int]:
+def local_repair_scene_numbers(episode, state: QuickState | None = None) -> set[int]:
     """Only proven, scene-local issues can be repaired without an author decision."""
     if episode.review is None or any(issue.severity == "ambiguity" for issue in episode.review.issues):
         return set()
     critical = [issue for issue in episode.review.issues if issue.severity == "critical"]
     available = {scene.scene_number for scene in episode.draft.scenes}
-    if not critical or any(issue.scene_number not in available for issue in critical):
+    if not critical:
         return set()
+    if any(issue.scene_number not in available for issue in critical):
+        contract = mechanical_repair_contract(state, episode) if state is not None else None
+        return set(contract["allowed_scene_numbers"]) if contract else set()
     return {issue.scene_number for issue in critical}
 
 
@@ -327,6 +332,68 @@ def mechanical_review(state: QuickState, episode_number: int, draft: DraftMaster
     return metrics, issues
 
 
+def mechanical_repair_contract(state: QuickState, episode) -> dict | None:
+    """A unique approved action-budget gap permits one patch, never invents a cause."""
+    number = episode.episode_number
+    reserved = (state.active_operation or {}).get("stage") == "repair" and (
+        state.active_operation or {}).get("episode_number") == number
+    if (episode.repair_count or episode.repair_attempts > int(reserved)
+            or not state.plan or not state.plan_confirmed or not state.synopsis_confirmed
+            or state.plan.content_hash != plan_content_hash(state.plan)
+            or state.synopsis_hash != synopsis_hash(state.synopsis)
+            or state.plan.source_synopsis_hash != synopsis_hash(state.synopsis)
+            or episode.source_plan_hash != state.plan.content_hash
+            or episode.body_hash != draft_body_hash(episode.draft)
+            or not episode.review or episode.review.status != "blocked"
+            or episode.review.source_body_hashes != {str(number): episode.body_hash}
+            or any(issue.severity == "ambiguity" for issue in episode.review.issues)):
+        return None
+    prior = sorted((item for item in state.episodes if item.episode_number < number), key=lambda item: item.episode_number)
+    if ([item.episode_number for item in prior] != list(range(1, number))
+            or any(item.status != "passed" or item.body_hash != draft_body_hash(item.draft)
+                   or item.source_plan_hash != state.plan.content_hash for item in prior)
+            or episode.source_episode_hashes != {str(item.episode_number): item.body_hash for item in prior}):
+        return None
+    critical = [issue for issue in episode.review.issues if issue.severity == "critical"]
+    allowed_codes = {"duration", "body_below_minimum"}
+    if (not critical or any(issue.code not in allowed_codes or issue.episode_number != number
+                            for issue in critical) or validate_quick_plan(state, state.plan)):
+        return None
+    if any(issue.scene_number is not None and issue.scene_number not in {
+        scene.scene_number for scene in episode.draft.scenes
+    } for issue in critical):
+        return None
+    metrics, issues = mechanical_review(state, number, episode.draft)
+    actual_codes = {issue.code for issue in issues if issue.severity == "critical"}
+    if (any(issue.severity == "ambiguity" for issue in issues) or not actual_codes
+            or not actual_codes <= allowed_codes or actual_codes != {issue.code for issue in critical}
+            or ("duration" in actual_codes and metrics["estimated_duration_seconds"] >= 75)):
+        return None
+    approved = state.plan.episodes[number - 1]
+    by_number = {scene.scene_number: scene for scene in approved.scene_execution_plan}
+    candidates = [scene for scene in episode.draft.scenes if scene.scene_number in by_number
+                  and len(scene.character_actions) < by_number[scene.scene_number].shot_target]
+    if len(candidates) != 1:
+        return None
+    scene = candidates[0]
+    planned = by_number[scene.scene_number]
+    guidance = script_body_length_guidance(round(state.settings.target_total_characters / state.settings.episode_count))
+    tracks = []
+    for current in episode.draft.scenes:
+        timing = estimate_scene_duration(current)
+        tracks.append({"scene_number": current.scene_number, "dialogue_seconds": timing.dialogue_seconds,
+            "visual_seconds": timing.visual_seconds, "estimated_duration_seconds": timing.total_seconds})
+    return {"allowed_scene_numbers": [scene.scene_number], "reason": "unique_approved_action_budget_shortfall",
+            "mechanical_metrics": metrics, "scene_duration_tracks": tracks,
+            "reference_body_characters": guidance.reference_characters,
+            "minimum_body_characters": guidance.preferred_min_characters,
+            "body_shortfall_characters": max(0, guidance.preferred_min_characters - metrics["effective_body_characters"]),
+            "approved_scene_number": planned.scene_number, "preserve_dialogue_lines": len(scene.dialogues),
+            "action_count_min": len(scene.character_actions),
+            "action_count_max": min(planned.shot_target,
+                                    len(scene.character_actions) + 20 - metrics["action_count"])}
+
+
 def _configured_model_infos(adapter: LLMAdapter, market: str | None = None):
     """Inspect configured routes; wrapper display names are not provider models."""
     from app.modules.script_engine.llm_adapter import (
@@ -362,7 +429,8 @@ class QuickScriptEngine:
                  review_adapter: LLMAdapter | None = None, repair_adapter: LLMAdapter | None = None,
                  verified_context_tokens: int, verified_models: set[str] | None = None,
                  request_deadline_seconds: float = 480, operation_deadline_seconds: float = 600,
-                 planning_reasoning_effort: str = "low", draft_reasoning_effort: str = "low"):
+                 planning_reasoning_effort: str = "low", draft_reasoning_effort: str = "low",
+                 review_reasoning_effort: str = "low"):
         if not 8_192 <= verified_context_tokens <= 2_000_000:
             raise QuickEngineError("快速模式尚未配置已核验的上下文能力。", code="quick_capability_unverified")
         self.planning_adapter, self.script_adapter = planning_adapter, script_adapter
@@ -382,6 +450,9 @@ class QuickScriptEngine:
         if draft_reasoning_effort not in {"low", "medium", "high"}:
             raise QuickEngineError("快速创作正文推理配置无效，请联系管理员检查。", code="quick_model_configuration")
         self.draft_reasoning_effort = draft_reasoning_effort
+        if review_reasoning_effort not in {"low", "medium", "high"}:
+            raise QuickEngineError("快速创作检查推理配置无效，请联系管理员检查。", code="quick_model_configuration")
+        self.review_reasoning_effort = review_reasoning_effort
 
     def _call(self, state: QuickState, stage: str, prompt: str, schema_type: type[BaseModel],
               adapter: LLMAdapter, *, output_tokens: int = 12_000):
@@ -401,10 +472,11 @@ class QuickScriptEngine:
         # reserve. No history is truncated and no duplicate schema is sent.
         upper_bound = len((CREATOR_INTERACTION_LANGUAGE_CONTRACT + prompt).encode("utf-8")) + 2_048
         context_limit = min(self.verified_context_tokens, *(item.max_context_tokens for item in infos))
-        if stage == "draft":
+        if stage in {"draft", "review", "recheck", "final_review"}:
             # Thinking and JSON share this allowance. Use available headroom,
-            # never reduce the original 8 Ki answer floor or trim saved history.
-            output_tokens = max(8_192, min(output_tokens, context_limit - upper_bound))
+            # never reduce each stage's original answer floor or trim history.
+            floor = 8_192 if stage == "draft" else 8_000
+            output_tokens = max(floor, min(output_tokens, context_limit - upper_bound))
         if upper_bound + output_tokens > context_limit:
             raise QuickEngineError("完整前文与本次输出预留已超出快速模式上下文预算，请转标准流程；前文不会被删减。",
                                    code="quick_context_limit")
@@ -419,7 +491,8 @@ class QuickScriptEngine:
                 self.operation_deadline_seconds, scope="quick_operation"
             ), bind_llm_market(market), bind_local_output_schema(schema), bind_reasoning_effort(
                 self.planning_reasoning_effort if stage == "plan" else
-                self.draft_reasoning_effort if stage == "draft" else None
+                self.draft_reasoning_effort if stage == "draft" else
+                self.review_reasoning_effort if stage in {"review", "recheck", "final_review"} else None
             ), planning_call_budget_scope(
                 database_runtime=None, operation_id=f"quick-{operation_id}-{stage}", project_id=state.project_id,
                 parent_node_id="quick-workflow", parent_node_version=max(1, state.revision),
@@ -621,7 +694,7 @@ class QuickScriptEngine:
                   "区分established/suspected/unknown；不得修改作者固定设定。未通过时accepted_facts为空。"
                   "只输出指定JSON。\n" + json.dumps(context, ensure_ascii=False))
         review, call = self._call(state, "recheck" if episode.repair_count else "review", prompt,
-                                   QuickReview, self.review_adapter, output_tokens=8_000)
+                                   QuickReview, self.review_adapter, output_tokens=16_384)
         self._check_review_language(state, review, call)
         review = self._verified_review(review, {episode_number: episode.draft}, local_issues)
         return QuickReviewResult(review=review, call=call)
@@ -660,23 +733,46 @@ class QuickScriptEngine:
         if episode.body_hash != draft_body_hash(episode.draft):
             raise QuickEngineError("待修复正文已改变，请重新检查。", code="quick_source_stale")
         critical = [i for i in episode.review.issues if i.severity == "critical"]
-        scenes = local_repair_scene_numbers(episode)
+        scenes = local_repair_scene_numbers(episode, state)
         if not scenes:
             raise QuickEngineError("问题需要作者确认或超出局部场景修复范围，已保留当前正文。", code="quick_repair_needs_author")
         context.update(current_episode=_json(episode.draft), issues=[_json(i) for i in critical],
                        allowed_scene_numbers=sorted(scenes))
+        mechanical_contract = mechanical_repair_contract(state, episode)
+        if mechanical_contract:
+            context["mechanical_repair_contract"] = mechanical_contract
         prompt = ("只修复列出的关键问题和允许场景的动作/对白；禁止整集重写，禁止改固定设定、场次顺序、"
                   "人物身份或元数据。只返回allowed_scene_numbers中的局部场景正文，保持其余字节内容不变。"
                   "修复后仍需25–35条对白、15–20动作单元、75–115秒；不为风格润色扩写。\n"
-                  + json.dumps(context, ensure_ascii=False))
+                  + json.dumps(context, ensure_ascii=False, separators=(",", ":")))
+        if mechanical_contract:
+            prompt += ("\n仅因本地重算确认篇幅或时长不足，选择唯一尚未展开批准动作预算的场作为一次修复范围，"
+                       "不代表其他场有错。保留该场现有对白轮次和说话人，只展开批准行动中的空间关系、阻力、"
+                       "物件操作与真实回应；不新增人物、资产、事件、知情、结局或改变退出状态。"
+                       "动作数量保持在mechanical_repair_contract给出的区间内；禁止拆句、堆手势或重述凑数。"
+                       "逐场时长取对白与画面较大轨道，仅扩动作不一定改善对白主导的短时长。"
+                       "不能靠改元数据或估时数字宣称完成，无法安全补齐时保留现有剧情供复审。\n"
+                       + script_body_scale_prompt(script_body_length_guidance(
+                           mechanical_contract["reference_body_characters"])))
+        prompt += "\n" + screenplay_runtime_prompt_guidance(
+            target_duration_seconds=state.settings.target_duration_seconds,
+            scene_count=len(episode.draft.scenes), chinese_dialogue=state.settings.language == "zh",
+        )
         if state.settings.language == "en":
-            prompt += "\n" + screenplay_runtime_prompt_guidance(
-                target_duration_seconds=state.settings.target_duration_seconds,
-                scene_count=len(episode.draft.scenes), chinese_dialogue=False,
-            ) + "\n英文对白与中文翻译成对修复；翻译不重复计入有效字数和口播时长。"
+            prompt += "\n英文对白与中文翻译成对修复；翻译不重复计入有效字数和口播时长。"
         patch, call = self._call(state, "repair", prompt, LLMMainlandBodyRepairPatch, self.repair_adapter, output_tokens=12_000)
         if not {s.scene_number for s in patch.scenes}.issubset(scenes):
             raise QuickEngineError("修复越过允许场景范围，原稿保持不变。", code="quick_repair_scope", call=call, candidate=_json(patch))
+        if mechanical_contract:
+            original_scene = next(scene for scene in episode.draft.scenes if scene.scene_number in scenes)
+            if (len(patch.scenes) != 1 or patch.scenes[0].scene_number != original_scene.scene_number
+                    or len(patch.scenes[0].dialogues) != mechanical_contract["preserve_dialogue_lines"]
+                    or [line.character_name for line in patch.scenes[0].dialogues]
+                       != [line.character_name for line in original_scene.dialogues]
+                    or not mechanical_contract["action_count_min"] <= len(patch.scenes[0].character_actions)
+                       <= mechanical_contract["action_count_max"]):
+                raise QuickEngineError("修复超出批准场次的动作或对白范围，原稿保持不变。",
+                                       code="quick_repair_scope", call=call, candidate=_json(patch))
         raw = _json(episode.draft)
         patches = {s.scene_number: _json(s) for s in patch.scenes}
         for scene in raw["scenes"]:
@@ -695,7 +791,7 @@ class QuickScriptEngine:
                   "找已确认关键矛盾、未兑现结局、重大歧义和交付缺口；关键问题blocked，重大歧义needs_author。"
                   "不得把局部已通过当全文通过，不修改或润色正文。问题给准确集场与原句证据；"
                   "本次不新增事实，accepted_facts为空。只输出指定JSON。\n" + json.dumps(context, ensure_ascii=False))
-        review, call = self._call(state, "final_review", prompt, QuickReview, self.review_adapter, output_tokens=8_000)
+        review, call = self._call(state, "final_review", prompt, QuickReview, self.review_adapter, output_tokens=16_384)
         self._check_review_language(state, review, call)
         local_issues = [issue for episode in state.episodes
                         for issue in mechanical_review(state, episode.episode_number, episode.draft)[1]]
@@ -713,7 +809,9 @@ def build_quick_script_engine() -> QuickScriptEngine:
     QUICK_SCRIPT_PLANNING_REASONING_EFFORT and QUICK_SCRIPT_DRAFT_REASONING_EFFORT
     default to low for the compact plan and approved-plan screenplay respectively.
     Draft reserves 8-16 Ki output tokens within the verified context headroom.
-    Thinking stays enabled; review and repair stages retain their role effort.
+    Thinking stays enabled. Quick checks also use low effort and 8-16 Ki output
+    headroom so reasoning cannot consume the former small result allowance.
+    Repair retains its role effort; standard workflow settings are unaffected.
     Provider protocol mappings still apply (DeepSeek maps medium to high).
     """
     from app.llm_runtime import (build_planning_llm_adapter_from_env, build_script_generation_adapter_from_env,
@@ -739,4 +837,5 @@ def build_quick_script_engine() -> QuickScriptEngine:
                              repair_adapter=repair, verified_context_tokens=limit, verified_models=models,
                              request_deadline_seconds=request_seconds, operation_deadline_seconds=operation_seconds,
                              planning_reasoning_effort=os.environ.get("QUICK_SCRIPT_PLANNING_REASONING_EFFORT", "low").strip().lower(),
-                             draft_reasoning_effort=os.environ.get("QUICK_SCRIPT_DRAFT_REASONING_EFFORT", "low").strip().lower())
+                             draft_reasoning_effort=os.environ.get("QUICK_SCRIPT_DRAFT_REASONING_EFFORT", "low").strip().lower(),
+                             review_reasoning_effort=os.environ.get("QUICK_SCRIPT_REVIEW_REASONING_EFFORT", "low").strip().lower())

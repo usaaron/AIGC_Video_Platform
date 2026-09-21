@@ -233,7 +233,7 @@ def test_other_quick_stages_keep_their_configured_effort():
 
 
 @pytest.mark.parametrize("stage", ["draft", "review"])
-def test_quick_draft_uses_low_effort_while_review_keeps_role_effort(stage):
+def test_quick_draft_and_review_use_bounded_effort_without_changing_shared_role(stage):
     plan = {key: value for key, value in make_state().plan.model_dump(mode="json").items() if key in QuickPlanContent.model_fields}
     observed = []
     def handler(request):
@@ -249,9 +249,10 @@ def test_quick_draft_uses_low_effort_while_review_keeps_role_effort(stage):
         else:
             add_episode(state, status="drafted")
             engine.review_episode(state, 1)
-        assert [call["reasoning_effort"] for call in observed] == ["low", "low" if stage == "draft" else "high"]
-        assert observed[-1]["max_tokens"] == (16_384 if stage == "draft" else 8_000)
+        assert [call["reasoning_effort"] for call in observed] == ["low", "low"]
+        assert observed[-1]["max_tokens"] == 16_384
         assert all(call["thinking"] == {"type": "enabled"} for call in observed)
+        assert adapter._request_reasoning_effort() == "high"
     finally:
         adapter._client.close()
 

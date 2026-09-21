@@ -31,7 +31,7 @@ const makeState = (patch = {}) => ({ schema_version: "quick_script.v1", project_
 /** Run the real editor and its async effects with controlled React hook bindings.
  * No DOM, network, timers, browser data, or replica of the editor's transitions.
  */
-function editorHarness({ project = makeProject(), initialState = null, action, read, cache = [], search = "" } = {}) {
+function editorHarness({ project = makeProject(), initialState = null, action, read, cache = [], search = "", recoveryAction } = {}) {
   let currentProject = project, remoteState = initialState, tree, cursor = 0, needsRender = true;
   let pendingEffects = [], progress = null;
   const hooks = [], calls = [], reads = [], routes = [], sequences = [], timers = new Map(), storage = new Map(cache);
@@ -62,6 +62,7 @@ function editorHarness({ project = makeProject(), initialState = null, action, r
     },
   };
   const receipt = (state) => ({ data: { state, project_revision: currentProject.serverSync.projectRevision + 1,
+    recovery_action: typeof recoveryAction === "function" ? recoveryAction(state, reads.length) : recoveryAction,
     workspace_snapshot: { revision: currentProject.serverSync.workspaceRevision + 1, updated_at: currentProject.updatedAt,
       workspace_payload: { ...currentProject, creationMode: state?.phase === "standard" ? "standard" : currentProject.creationMode,
         quickWorkflow: state, ...(state?.synopsis ? { storySynopsis: { text: state.synopsis, status: state.synopsis_confirmed ? "confirmed" : "draft" } } : {}) } } } });
@@ -595,5 +596,102 @@ test("review failure requests author edits, keeps the saved body and enables sav
   await harness.settle();
   assert.equal(harness.button("保存正文修改").props.disabled, false);
   assert.equal(harness.project().quickWorkflow.episodes[0].draft, draft, "Unsaved editing never replaces the saved body");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["advance"]);
+});
+
+const blockedReviewState = () => makeState({ phase: "paused", status: "blocked", next_step: "review", synopsis,
+  synopsis_confirmed: true, plan_confirmed: true, blocked_reason: "本集时长不足。",
+  episodes: [{ episode_number: 1, status: "blocked", repair_count: 0, repair_attempts: 0,
+    draft: { id: "draft.recovery", title: "已保存正文", characters: [], scenes: [] },
+    review: { status: "blocked", issues: [{ code: "duration", severity: "critical", message: "本集时长不足。", episode_number: 1 }] } }] });
+
+test("server-approved repair exposes one explicit recovery action and uses the existing resume sequence", async () => {
+  const initialState = blockedReviewState();
+  const harness = editorHarness({ initialState, recoveryAction: state => state.revision === 1 ? "repair" : null,
+    action: (kind, _payload, state) => {
+      assert.equal(kind, "resume");
+      return { ...state, revision: 2, status: "idle", phase: "writing", next_step: "repair", blocked_reason: null };
+    } });
+  await harness.settle();
+  assert.equal(harness.calls.length, 0, "Opening a repairable result never starts a model request");
+  assert.ok(!harness.button("修复并继续").props.disabled);
+  assert.equal(harness.items().some(item => harness.text(item).includes("修改后点击“保存正文修改”")), false);
+  await harness.click("修复并继续");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["resume"]);
+  assert.equal(harness.sequences.length, 1);
+  assert.equal(harness.sequences[0].next_step, "repair");
+  assert.equal(harness.button("修复并继续"), undefined);
+  assert.equal(harness.project().quickWorkflow.episodes[0].draft, initialState.episodes[0].draft);
+  assert.equal(Object.hasOwn(harness.project().quickWorkflow, "recovery_action"), false);
+  const cache = JSON.parse(harness.storage.get("ai-comic.quick-editor.v1:quick.flow"));
+  assert.equal(Object.hasOwn(cache, "recovery_action"), false);
+  assert.equal(Object.hasOwn(cache, "serverRecovery"), false);
+});
+
+test("absent server recovery authority retains author editing even for apparently mechanical errors", async () => {
+  for (const recoveryAction of [undefined, null]) {
+    const harness = editorHarness({ initialState: blockedReviewState(), recoveryAction });
+    await harness.settle();
+    assert.equal(harness.button("修复并继续"), undefined);
+    assert.equal(harness.button("检查修改并继续"), undefined);
+    assert.ok(harness.items().some(item => harness.text(item).includes("修改后点击“保存正文修改”")));
+    assert.equal(harness.calls.length, 0);
+  }
+});
+
+test("an exhausted result at a newer revision cannot reuse the previous repair authority", async () => {
+  const harness = editorHarness({ initialState: blockedReviewState(), recoveryAction: state => state.revision === 1 ? "repair" : null,
+    action: (_kind, _payload, state) => ({ ...state, revision: 2, next_step: "repair", blocked_reason: "本集修复次数已用完。",
+      episodes: state.episodes.map(episode => ({ ...episode, repair_count: 1, repair_attempts: 1 })) }) });
+  await harness.settle(); await harness.click("修复并继续");
+  assert.equal(harness.button("修复并继续"), undefined);
+  assert.match(harness.copilot().props.messages.at(-1).text, /调整正文，再点击“保存正文修改”/);
+  assert.equal(harness.copilot().props.messages.at(-1).progress.status, "error");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["resume"]);
+});
+
+test("read-only recovery refreshes server authority even when the saved state revision is unchanged", async () => {
+  const initialState = blockedReviewState();
+  const harness = editorHarness({ initialState, recoveryAction: (_state, reads) => reads === 1 ? "repair" : "switch_standard",
+    action: (_kind, _payload, _state, { ApiError }) => { throw new ApiError("连接中断", 503); } });
+  await harness.settle(); await harness.click("修复并继续");
+  assert.equal(harness.reads.length, 2);
+  assert.equal(harness.project().quickWorkflow.revision, initialState.revision);
+  assert.equal(harness.button("修复并继续"), undefined);
+  assert.ok(!harness.button("保留成果，转标准流程").props.disabled);
+  assert.deepEqual(harness.calls.map(call => call.kind), ["resume"]);
+});
+
+test("an unsaved first result requiring standard mode exposes the real primary action and retains its candidate", async () => {
+  const candidate = { title: "尚未通过保存检查的候选" };
+  const initialState = makeState({ phase: "paused", status: "blocked", next_step: "done", synopsis,
+    synopsis_confirmed: true, plan_confirmed: true, blocked_reason: "本次结果未通过保存校验，请转标准流程检查。",
+    operation_records: [{ status: "failed", error_code: "quick_result_apply_failed", candidate }] });
+  const harness = editorHarness({ initialState, recoveryAction: state => state.phase === "paused" ? "switch_standard" : null });
+  await harness.settle();
+  assert.equal(harness.copilot().props.presentation, "primary");
+  assert.ok(harness.text(harness.copilot().props.primaryAction).includes("保留成果，转标准流程"));
+  assert.equal(harness.items().filter(item => item.type === "button" && harness.text(item).includes("保留成果，转标准流程")).length, 1);
+  assert.equal(harness.items().some(item => harness.text(item).includes("修改后点击“保存正文修改”")), false);
+  assert.equal(harness.button("保存正文修改"), undefined);
+  assert.equal(harness.button("继续生成"), undefined);
+  assert.equal(harness.calls.length, 0);
+  await harness.click("保留成果，转标准流程");
+  assert.deepEqual(harness.calls.map(call => call.kind), ["switch_standard"]);
+  assert.equal(harness.project().creationMode, "standard");
+  assert.equal(harness.project().quickWorkflow.operation_records[0].candidate, candidate);
+  assert.equal(harness.sequences.length, 0);
+  assert.equal(harness.routes.length, 1);
+});
+
+test("repair guidance from a new server result matches the available button without retrying automatically", async () => {
+  const blocked = blockedReviewState();
+  const initialState = { ...blocked, phase: "review", status: "idle", blocked_reason: null,
+    episodes: blocked.episodes.map(episode => ({ ...episode, status: "drafted", review: null })) };
+  const harness = editorHarness({ initialState, recoveryAction: state => state.revision === 2 ? "repair" : null,
+    action: () => ({ ...blocked, revision: 2 }) });
+  await harness.settle(); await harness.click("检查修改并继续");
+  assert.match(harness.copilot().props.messages.at(-1).text, /点击“修复并继续”/);
+  assert.ok(!harness.button("修复并继续").props.disabled);
   assert.deepEqual(harness.calls.map(call => call.kind), ["advance"]);
 });

@@ -16773,6 +16773,21 @@
             "title": "Project Revision",
             "type": "integer"
           },
+          "recovery_action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "repair",
+                  "switch_standard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Action"
+          },
           "state": {
             "anyOf": [
               {

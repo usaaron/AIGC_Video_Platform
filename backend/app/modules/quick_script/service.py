@@ -125,6 +125,7 @@ class QuickService:
     def _prepare(self, state: QuickState, request: QuickActionRequest, workspace: dict) -> str | None:
         from app.modules.quick_script.engine import (
             synopsis_hash, plan_content_hash, validate_quick_plan, draft_body_hash, mechanical_review,
+            mechanical_repair_contract, local_repair_scene_numbers,
         )
 
         action, payload = request.action, request.payload
@@ -194,7 +195,10 @@ class QuickService:
             if state.episodes and state.next_step in {"review", "recheck", "repair"}:
                 episode = self._pending_episode(state)
                 if episode.review and episode.review.status != "passed" and state.next_step in {"review", "recheck"}:
-                    raise QuickInputError("本集检查已有未解决的问题，请先修改正文再继续检查。")
+                    if state.next_step == "review" and mechanical_repair_contract(state, episode):
+                        state.next_step = "repair"
+                    else:
+                        raise QuickInputError("本集检查已有未解决的问题，请先修改正文再继续检查。")
                 if (episode.repair_count >= 1 or episode.repair_attempts >= 1) and state.next_step == "repair":
                     state.phase, state.status = "paused", "blocked"
                     state.blocked_reason = "本集已发起一次局部修复，请修改正文后继续检查，或转标准流程。"
@@ -290,6 +294,8 @@ class QuickService:
             episode = self._pending_episode(state)
             if episode.repair_count >= 1 or episode.repair_attempts >= 1:
                 raise QuickInputError("本集已使用一次局部修复，请手动修改后复核。")
+            if not local_repair_scene_numbers(episode, state):
+                raise QuickInputError("当前正文或修复范围已变化，请先修改正文再继续检查。")
             # Reserve before network I/O. A process restart must not silently
             # send a second repair when the first request outcome is unknown.
             episode.repair_attempts = 1
@@ -447,7 +453,7 @@ class QuickService:
                 episode.status = "blocked"
                 if (result.review.status == "blocked" and episode.repair_count == 0
                         and episode.repair_attempts == 0 and stage == "review"
-                        and local_repair_scene_numbers(episode)):
+                        and local_repair_scene_numbers(episode, state)):
                     state.next_step, state.phase = "repair", "writing"
                 else:
                     state.next_step = "recheck" if episode.repair_count else "review"
