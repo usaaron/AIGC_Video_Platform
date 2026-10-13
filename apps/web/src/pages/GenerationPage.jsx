@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { VideoPreviewModal } from '../components/VideoPreviewModal'
@@ -186,12 +187,14 @@ export function GenerationPage({
       {preview && preview.mediaType !== 'video' && (
         <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />
       )}
-      {deliveryDialog && (
-        <DeliveryVerificationDialog
-          dialog={deliveryDialog}
-          onClose={() => setDeliveryDialog(null)}
-        />
-      )}
+      {deliveryDialog &&
+        createPortal(
+          <DeliveryVerificationDialog
+            dialog={deliveryDialog}
+            onClose={() => setDeliveryDialog(null)}
+          />,
+          document.body,
+        )}
     </div>
   )
 }
