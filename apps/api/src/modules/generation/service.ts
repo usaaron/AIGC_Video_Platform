@@ -1,6 +1,7 @@
 import { storyboardReferences } from './storyboardReferences.js'
 import type {
   CreateGenerationTask,
+  DeliveryGateResult,
   DeliveryVerificationSnapshot,
   GenerationTask,
   GenerationTaskPolling,
@@ -38,6 +39,7 @@ import { auditRigidVideoBuffer, type RawVideoFrameAudit } from '../../core/gener
 import { buildGenerationTaskDeliveryEvidence } from './deliveryEvidence.js'
 import { buildVideoTailStorageEvidence } from './deliveryStorageVerification.js'
 import { evaluateDeliveryContract } from './deliveryContractEvaluation.js'
+import { evaluateDeliveryGate } from './deliveryGate.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
 
@@ -314,6 +316,27 @@ export class GenerationService {
     const task = await this.repository.findById(taskId, principal)
     if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权读取交付验证')
     const checkedAt = new Date().toISOString()
+    return this.buildDeliveryVerificationSnapshot(task, checkedAt)
+  }
+
+  async deliveryGate(taskId: string, principal: Principal): Promise<DeliveryGateResult> {
+    const task = await this.repository.findById(taskId, principal)
+    if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权读取正式交付门禁')
+    const verifiedAt = new Date().toISOString()
+    const snapshot = await this.buildDeliveryVerificationSnapshot(task, verifiedAt)
+    return evaluateDeliveryGate({
+      task,
+      contract: snapshot.contract,
+      evidence: snapshot.evidence,
+      verification: snapshot.verification,
+      verifiedAt,
+    })
+  }
+
+  private async buildDeliveryVerificationSnapshot(
+    task: GenerationTask,
+    checkedAt: string,
+  ): Promise<DeliveryVerificationSnapshot> {
     const baseEvidence = buildGenerationTaskDeliveryEvidence(task)
     const storageEvidence = await buildVideoTailStorageEvidence(task, this.objectStorage, checkedAt)
     const evidence = storageEvidence

@@ -59,6 +59,15 @@ export async function registerGenerationRoutes(
       return service.deliveryVerification(params.data.taskId, request.principal!)
     },
   )
+  app.get(
+    '/generation/tasks/:taskId/delivery-gate',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    async (request) => {
+      const params = taskParamsSchema.safeParse(request.params)
+      if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', '任务参数无效')
+      return service.deliveryGate(params.data.taskId, request.principal!)
+    },
+  )
   app.post('/generation/tasks/:taskId/rigid-audit',
     {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
     async (request) => {

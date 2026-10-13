@@ -407,6 +407,19 @@ describe('api client', () => {
     )
   })
 
+  it('reads the formal delivery gate without mutating the task', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ allowed: false, status: 'pending', reasonCodes: ['MEDIA_NOT_READABLE'] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.deliveryGate('task-1')).resolves.toMatchObject({ allowed: false })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/generation/tasks/task-1/delivery-gate',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
   it('freezes a task delivery contract through the generation API', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({ id: 'task-1', metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } } }),

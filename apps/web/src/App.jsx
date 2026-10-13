@@ -902,6 +902,7 @@ function App() {
             return frozen
           }}
           onInspectDelivery={(task) => api.deliveryVerification(task.id)}
+          onInspectDeliveryGate={(task) => api.deliveryGate(task.id)}
           onClear={async () => {
             await api.clearTasks(project.id)
             replaceTasks(project.id, await api.tasks(project.id))

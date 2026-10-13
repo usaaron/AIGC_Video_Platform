@@ -131,6 +131,32 @@ export const deliveryVerificationSnapshotSchema = z.object({
 })
 export type DeliveryVerificationSnapshot = z.infer<typeof deliveryVerificationSnapshotSchema>
 
+/** Reasons returned by the server-side formal delivery gate. */
+export const deliveryGateReasonCodeSchema = z.enum([
+  'CONTRACT_NOT_FROZEN',
+  'CONTRACT_HASH_INVALID',
+  'TASK_NOT_COMPLETED',
+  'MEDIA_NOT_READABLE',
+  'CONTENT_REVIEW_PENDING',
+  'CONTENT_REVIEW_FAILED',
+  'PHYSICAL_REVIEW_PENDING',
+  'PHYSICAL_REVIEW_FAILED',
+  'CONTINUITY_PENDING',
+  'CONTINUITY_FAILED',
+  'DELIVERY_REQUIREMENTS_INCOMPLETE',
+])
+export type DeliveryGateReasonCode = z.infer<typeof deliveryGateReasonCodeSchema>
+
+export const deliveryGateResultSchema = z.object({
+  allowed: z.boolean(),
+  status: z.enum(['allowed', 'blocked', 'pending']),
+  reasonCodes: z.array(deliveryGateReasonCodeSchema).max(32),
+  rationale: z.string().trim().min(1).max(4_000),
+  verifiedAt: z.string().datetime(),
+  verification: deliveryVerificationSchema.nullable(),
+})
+export type DeliveryGateResult = z.infer<typeof deliveryGateResultSchema>
+
 /** Stable requirement IDs used when generation tasks are projected to evidence. */
 export const DELIVERY_REQUIREMENT_IDS = {
   taskCompleted: 'task-completed',

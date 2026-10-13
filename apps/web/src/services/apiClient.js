@@ -321,6 +321,7 @@ export const api = {
   freezeDeliveryContract: (taskId, input) =>
     request(`/generation/tasks/${taskId}/delivery-contract`, json('POST', input)),
   deliveryVerification: (taskId) => request(`/generation/tasks/${taskId}/delivery-verification`),
+  deliveryGate: (taskId) => request(`/generation/tasks/${taskId}/delivery-gate`),
   stopTask: (taskId) => request(`/generation/tasks/${taskId}/stop`, { method: 'POST' }),
   resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),

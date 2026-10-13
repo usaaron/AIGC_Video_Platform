@@ -71,6 +71,17 @@ describe('delivery verification HTTP boundary', () => {
           satisfiedRequirementIds: ['task-completed'],
         },
       })
+      const gate = await app.inject({
+        method: 'GET',
+        url: `/generation/tasks/${task.id}/delivery-gate`,
+        headers: { 'x-test-user': 'member' },
+      })
+      expect(gate.statusCode).toBe(200)
+      expect(gate.json()).toMatchObject({
+        allowed: false,
+        status: 'pending',
+        reasonCodes: expect.arrayContaining(['MEDIA_NOT_READABLE', 'CONTENT_REVIEW_PENDING']),
+      })
       expect(dispatch).not.toHaveBeenCalled()
     } finally {
       await app.close()

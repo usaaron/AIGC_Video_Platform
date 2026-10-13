@@ -26,6 +26,7 @@ export function GenerationPage({
   onNext,
   onFreezeDelivery,
   onInspectDelivery,
+  onInspectDeliveryGate,
 }) {
   const [filter, setFilter] = useState('all')
   const [busyTaskId, setBusyTaskId] = useState(null)
@@ -50,12 +51,21 @@ export function GenerationPage({
 
   const inspectDelivery = async (job) => {
     if (!onInspectDelivery) return
-    setDeliveryDialog({ job, status: 'loading', snapshot: null, error: '' })
+    setDeliveryDialog({ job, status: 'loading', snapshot: null, gate: null, error: '' })
     try {
-      const snapshot = await onInspectDelivery(job)
-      setDeliveryDialog({ job, status: 'ready', snapshot, error: '' })
+      const [snapshot, gate] = await Promise.all([
+        onInspectDelivery(job),
+        onInspectDeliveryGate ? onInspectDeliveryGate(job) : Promise.resolve(null),
+      ])
+      setDeliveryDialog({ job, status: 'ready', snapshot, gate, error: '' })
     } catch (error) {
-      setDeliveryDialog({ job, status: 'error', snapshot: null, error: error?.message || '暂时无法读取交付核验' })
+      setDeliveryDialog({
+        job,
+        status: 'error',
+        snapshot: null,
+        gate: null,
+        error: error?.message || '暂时无法读取交付核验',
+      })
     }
   }
 
@@ -332,13 +342,27 @@ const DELIVERY_STATUS_LABELS = {
   pending: '等待交付证据',
 }
 
+const DELIVERY_GATE_REASON_LABELS = {
+  CONTRACT_NOT_FROZEN: '交付合同尚未冻结',
+  CONTRACT_HASH_INVALID: '合同哈希校验失败',
+  TASK_NOT_COMPLETED: '生成任务尚未完成',
+  MEDIA_NOT_READABLE: '主交付媒体尚未通过可读取性验证',
+  CONTENT_REVIEW_PENDING: '视频内容验收尚未通过',
+  CONTENT_REVIEW_FAILED: '视频内容验收已标记问题',
+  PHYSICAL_REVIEW_PENDING: '刚性物理验收尚未通过',
+  PHYSICAL_REVIEW_FAILED: '刚性物理验收失败',
+  CONTINUITY_PENDING: '连续性尾帧尚未通过存储验证',
+  CONTINUITY_FAILED: '连续性证据失败',
+  DELIVERY_REQUIREMENTS_INCOMPLETE: '合同要求尚未全部满足',
+}
+
 function requirementSummary(ids) {
   if (!Array.isArray(ids) || !ids.length) return '无'
   return ids.join('、')
 }
 
 export function DeliveryVerificationDialog({ dialog, onClose }) {
-  const { job, status, snapshot, error } = dialog
+  const { job, status, snapshot, gate, error } = dialog
   const verification = snapshot?.verification
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -390,6 +414,25 @@ export function DeliveryVerificationDialog({ dialog, onClose }) {
               合同哈希：{snapshot.contract?.contractHash?.slice(0, 12) || '不可用'} · 证据 {snapshot.evidence?.length || 0} 条
             </small>
           </div>
+        )}
+        {status === 'ready' && gate && (
+          <section className={`delivery-gate-result ${gate.status}`} aria-label="正式交付门禁">
+            <strong>
+              {gate.allowed
+                ? '正式交付门禁已放行'
+                : gate.status === 'blocked'
+                  ? '正式交付已被阻止'
+                  : '正式交付仍待补证据'}
+            </strong>
+            <p>{gate.rationale}</p>
+            {gate.reasonCodes?.length ? (
+              <ul>
+                {gate.reasonCodes.map((code) => (
+                  <li key={code}>{DELIVERY_GATE_REASON_LABELS[code] || code}</li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
         )}
       </div>
     </div>

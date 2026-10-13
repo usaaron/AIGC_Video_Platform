@@ -49,6 +49,31 @@ describe('generation membership entry', () => {
     expect(html).not.toContain('保存')
   })
 
+  it('shows the formal delivery gate and its physical failure reason', () => {
+    const html = renderToStaticMarkup(
+      <DeliveryVerificationDialog
+        dialog={{
+          job: { label: '镜头 01' },
+          status: 'ready',
+          error: '',
+          snapshot: { contract: null, evidence: [], verification: null },
+          gate: {
+            allowed: false,
+            status: 'blocked',
+            reasonCodes: ['PHYSICAL_REVIEW_FAILED'],
+            rationale: '正式交付被服务器门禁阻止，请先修复失败证据',
+            verifiedAt: '2026-10-14T00:03:00.000Z',
+            verification: null,
+          },
+        }}
+        onClose={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('正式交付已被阻止')
+    expect(html).toContain('刚性物理验收失败')
+  })
+
   it('builds a server-hashed shot contract draft from a completed video task', () => {
     const task = {
       id: 'task-1',
