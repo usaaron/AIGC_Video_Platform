@@ -4,6 +4,7 @@ import {
   hasTaskTerminalTransition,
   mergeTaskPolling,
   taskSnapshotKey,
+  taskPollingNeedsDetailRefresh,
   taskStatusMap,
   workspaceSnapshotKey,
   workspaceVersionKey,
@@ -139,11 +140,11 @@ export function useWorkspacePolling({
             } else {
               const summaries = normalizeTaskPolling(pollResult.tasks)
               taskFinished = hasTaskTerminalTransition(previousTaskStatuses, summaries)
-              const previousById = new Map(currentTasks.map((task) => [task.id, task]))
-              const needsFullRefresh = summaries.some(
-                (summary) =>
-                  !previousById.has(summary.id) ||
-                  (taskFinished && ['completed', 'failed', 'cancelled'].includes(summary.status)),
+              const needsFullRefresh = taskPollingNeedsDetailRefresh(
+                currentTasks,
+                summaries,
+                includeTaskDetails,
+                taskFinished,
               )
               nextTasks =
                 includeTaskDetails && needsFullRefresh

@@ -65,6 +65,27 @@ export function hasTaskTerminalTransition(previousStatuses, nextTasks) {
   )
 }
 
+/**
+ * Terminal task metadata can change after generation has finished (for
+ * example, a delivery contract or a content review). Compact polling carries
+ * the new version but not the full metadata, so detail pages must refresh the
+ * complete task before replacing the current task snapshot.
+ */
+export function taskPollingNeedsDetailRefresh(previousTasks, pollingTasks, includeTaskDetails, taskFinished) {
+  if (!includeTaskDetails) return false
+  const previousById = new Map(
+    (Array.isArray(previousTasks) ? previousTasks : [])
+      .filter((task) => task?.id)
+      .map((task) => [task.id, task]),
+  )
+  return (Array.isArray(pollingTasks) ? pollingTasks : []).some((summary) => {
+    const previous = previousById.get(summary?.id)
+    if (!previous) return true
+    if (taskFinished && TERMINAL_TASK_STATUSES.has(summary.status)) return true
+    return TERMINAL_TASK_STATUSES.has(summary.status) && previous.updatedAt !== summary.updatedAt
+  })
+}
+
 export function taskStatusMap(tasks) {
   return new Map(
     (Array.isArray(tasks) ? tasks : []).filter((task) => task?.id).map((task) => [task.id, task.status]),

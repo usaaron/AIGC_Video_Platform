@@ -3,6 +3,7 @@ import { normalizeTaskPolling, normalizeTasks } from './workspaceLoadingPolicy'
 import {
   hasTaskTerminalTransition,
   mergeTaskPolling,
+  taskPollingNeedsDetailRefresh,
   taskSnapshotKey,
   taskStatusMap,
   workspaceSnapshotKey,
@@ -10,6 +11,15 @@ import {
 } from './workspaceRefreshState'
 
 describe('workspace refresh state', () => {
+  it('refreshes terminal task details when a completed task version changes', () => {
+    const previous = [{ id: 'task-1', status: 'completed', updatedAt: '2026-10-13T00:00:00.000Z' }]
+    const next = [{ id: 'task-1', status: 'completed', updatedAt: '2026-10-13T00:00:01.000Z' }]
+
+    expect(taskPollingNeedsDetailRefresh(previous, next, true, false)).toBe(true)
+    expect(taskPollingNeedsDetailRefresh(previous, [{ ...next[0], status: 'running' }], true, false)).toBe(false)
+    expect(taskPollingNeedsDetailRefresh(previous, next, false, false)).toBe(false)
+  })
+
   it('keeps equivalent task payloads stable', () => {
     const tasks = [{ id: 'task-1', kind: 'text', status: 'running', progress: 20, updatedAt: 'a' }]
     expect(taskSnapshotKey(tasks)).toBe(taskSnapshotKey([...tasks]))
