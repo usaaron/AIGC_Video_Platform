@@ -56,6 +56,7 @@ describe('generation membership entry', () => {
       kind: 'video',
       status: 'completed',
       resultUrl: '/media/task-1.mp4',
+      updatedAt: '2026-10-13T09:00:00.000Z',
       metadata: { shotId: 'shot-1', rigidPhysicsAudit: { status: 'failed' } },
     }
     const draft = buildDeliveryContractDraft(task)
@@ -77,6 +78,7 @@ describe('generation membership entry', () => {
       kind: 'video',
       status: 'completed',
       resultUrl: '/media/task-1.mp4',
+      updatedAt: '2026-10-13T09:00:00.000Z',
       metadata: {},
     }
     expect(canFreezeDeliveryContract(base)).toBe(true)
@@ -96,6 +98,7 @@ describe('generation membership entry', () => {
             kind: 'video',
             status: 'completed',
             resultUrl: '/media/task-1.mp4',
+            updatedAt: '2026-10-13T09:00:00.000Z',
             metadata: {},
           }),
           status: 'editing',

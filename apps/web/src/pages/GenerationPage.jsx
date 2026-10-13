@@ -277,6 +277,8 @@ export function canFreezeDeliveryContract(job) {
       job.resultUrl.trim() &&
       typeof job.projectId === 'string' &&
       job.projectId.trim() &&
+      typeof job.updatedAt === 'string' &&
+      Number.isFinite(Date.parse(job.updatedAt)) &&
       !job.metadata?.deliveryContract,
   )
 }

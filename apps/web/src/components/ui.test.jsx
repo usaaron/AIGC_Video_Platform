@@ -122,6 +122,7 @@ describe('generation job result actions', () => {
           label: '镜头 01',
           cost: 18,
           status: 'completed',
+          updatedAt: '2026-10-13T09:00:00.000Z',
           resultUrl: '/api/v1/generation/tasks/video-freeze/content',
           metadata: {},
         }}
