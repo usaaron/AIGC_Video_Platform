@@ -5,6 +5,7 @@ import type {
   GenerationTaskPolling,
   Principal,
   RigidPhysicsAuditRequest,
+  DeliveryContractFreezeRequest,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import { generateScriptRequestSchema, rigidPhysicsAuditResultSchema, type ReviewVideo, videoReviewVersion } from '@seqora/contracts'
@@ -288,6 +289,14 @@ export class GenerationService {
 
   async reviewVideo(taskId: string, input: ReviewVideo, principal: Principal): Promise<GenerationTask> {
     return this.repository.reviewVideo(taskId, input, principal)
+  }
+
+  async freezeDeliveryContract(
+    taskId: string,
+    input: DeliveryContractFreezeRequest,
+    principal: Principal,
+  ): Promise<GenerationTask> {
+    return this.repository.freezeDeliveryContract(taskId, input.contract, input.expectedUpdatedAt, principal)
   }
 
   /** Audit one already completed video. This only reads existing media and updates audit metadata. */

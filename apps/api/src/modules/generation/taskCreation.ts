@@ -37,7 +37,13 @@ export function buildQueuedGenerationTask(
   options: { traceId?: string | null } = {},
 ): GenerationTask {
   // Review and provenance are server-owned; generic create metadata cannot approve new media.
-  const { contentReview: _review, contentReviewHistory: _history, localPostprocess: _post, ...metadata } = input.metadata ?? {}
+  const {
+    contentReview: _review,
+    contentReviewHistory: _history,
+    localPostprocess: _post,
+    deliveryContract: _deliveryContract,
+    ...metadata
+  } = input.metadata ?? {}
   return normalizeGenerationTaskLifecycle({
     id: randomUUID(),
     clientRequestId: input.clientRequestId,

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   createGenerationTaskSchema,
+  deliveryContractFreezeRequestSchema,
   rigidPhysicsAuditRequestSchema,
   reviewVideoSchema,
   PERMISSIONS,
@@ -38,6 +39,15 @@ export async function registerGenerationRoutes(
       const body = reviewVideoSchema.safeParse(request.body)
       if (!params.success || !body.success) throw new AppError(400, 'VALIDATION_ERROR', '验收参数无效；标记问题时须填写原因')
       return service.reviewVideo(params.data.taskId, body.data, request.principal!)
+    },
+  )
+  app.post('/generation/tasks/:taskId/delivery-contract',
+    {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
+    async (request) => {
+      const params = taskParamsSchema.safeParse(request.params)
+      const body = deliveryContractFreezeRequestSchema.safeParse(request.body)
+      if (!params.success || !body.success) throw new AppError(400, 'VALIDATION_ERROR', '交付合同参数无效')
+      return service.freezeDeliveryContract(params.data.taskId, body.data, request.principal!)
     },
   )
   app.post('/generation/tasks/:taskId/rigid-audit',

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { deliveryContractSchema, deliveryEvidenceSchema } from './delivery.js'
+import {
+  deliveryContractFreezeRequestSchema,
+  deliveryContractSchema,
+  deliveryEvidenceSchema,
+} from './delivery.js'
 
 const scope = {
   tenantId: 'tenant-1',
@@ -76,6 +80,25 @@ describe('delivery contracts and evidence', () => {
       deliveryEvidenceSchema.parse({
         ...evidence(),
         scope: { ...scope, taskUpdatedAt: 'not-a-date' },
+      }),
+    ).toThrow()
+  })
+
+  it('validates the task-level freeze request with an optimistic timestamp', () => {
+    const request = deliveryContractFreezeRequestSchema.parse({
+      expectedUpdatedAt: scope.taskUpdatedAt,
+      contract: {
+        version: 'seqora.delivery.v1',
+        intent: { mode: 'shot', projectId: scope.projectId },
+        expectedArtifact: { type: 'video', count: 1 },
+        must: [{ id: 'media-url', statement: '视频候选可读', source: 'provider' }],
+      },
+    })
+    expect(request.contract.contractHash).toBeNull()
+    expect(() =>
+      deliveryContractFreezeRequestSchema.parse({
+        ...request,
+        expectedUpdatedAt: 'invalid',
       }),
     ).toThrow()
   })

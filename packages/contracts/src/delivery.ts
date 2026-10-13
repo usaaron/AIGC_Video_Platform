@@ -66,6 +66,12 @@ export const deliveryContractSchema = z
   })
 export type DeliveryContract = z.infer<typeof deliveryContractSchema>
 
+export const deliveryContractFreezeRequestSchema = z.object({
+  expectedUpdatedAt: z.string().datetime(),
+  contract: deliveryContractSchema,
+})
+export type DeliveryContractFreezeRequest = z.infer<typeof deliveryContractFreezeRequestSchema>
+
 export const deliveryEvidenceKindSchema = z.enum([
   'source',
   'task',
