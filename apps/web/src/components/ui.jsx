@@ -110,6 +110,7 @@ export function JobRow({
   onResume,
   onDelete,
   onPreviewResult,
+  onFreezeDelivery,
   onInspectDelivery,
 }) {
   const canCancelRunning = canCancelRunningTask(job)
@@ -177,6 +178,11 @@ export function JobRow({
         {onInspectDelivery && (
           <button className="job-delivery-link" type="button" onClick={onInspectDelivery}>
             查看交付核验
+          </button>
+        )}
+        {onFreezeDelivery && (
+          <button className="job-freeze-contract-link" type="button" onClick={onFreezeDelivery}>
+            冻结交付合同
           </button>
         )}
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}

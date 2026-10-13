@@ -110,4 +110,26 @@ describe('generation job result actions', () => {
 
     expect(html).toContain('查看交付核验')
   })
+
+  it('offers contract freeze for an unfrozen completed video result', () => {
+    const html = renderToStaticMarkup(
+      <JobRow
+        job={{
+          id: 'video-freeze',
+          projectId: 'project-1',
+          kind: 'video',
+          type: '视频',
+          label: '镜头 01',
+          cost: 18,
+          status: 'completed',
+          resultUrl: '/api/v1/generation/tasks/video-freeze/content',
+          metadata: {},
+        }}
+        onFreezeDelivery={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('冻结交付合同')
+    expect(html).not.toContain('查看交付核验')
+  })
 })

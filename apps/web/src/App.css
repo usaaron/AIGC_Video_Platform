@@ -4219,6 +4219,22 @@
   }
   .job-delivery-link:hover { text-decoration: underline; }
 
+  .job-freeze-contract-link {
+    width: fit-content;
+    margin: 7px 0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+  }
+  .job-freeze-contract-link:hover { text-decoration: underline; }
+  .job-freeze-contract-link:disabled { cursor: wait; opacity: 0.55; }
+
   .delivery-verification-modal { max-width: 560px; }
   .delivery-verification-task {
     margin: -12px 0 18px;
@@ -4249,6 +4265,78 @@
   .delivery-verification-result dt { color: var(--muted); }
   .delivery-verification-result dd { margin: 0; overflow-wrap: anywhere; }
   .delivery-verification-result small { color: var(--muted); }
+
+  .delivery-freeze-modal { max-width: 560px; }
+  .delivery-freeze-task {
+    margin: -12px 0 18px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .delivery-freeze-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 17px;
+  }
+  .delivery-freeze-summary > div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-muted);
+  }
+  .delivery-freeze-summary span,
+  .delivery-freeze-requirements small {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .delivery-freeze-summary strong {
+    overflow-wrap: anywhere;
+    font-size: 12px;
+  }
+  .delivery-freeze-requirements {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-muted);
+  }
+  .delivery-freeze-requirements > div {
+    display: grid;
+    gap: 3px;
+    margin-bottom: 2px;
+  }
+  .delivery-freeze-requirements label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .delivery-freeze-requirements input { margin-top: 3px; accent-color: var(--accent-strong); }
+  .delivery-freeze-error {
+    margin: 12px 0 0;
+    color: var(--danger);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .delivery-freeze-success {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 12px 0 0;
+    text-align: center;
+  }
+  .delivery-freeze-success > svg { color: var(--accent-strong); }
+  .delivery-freeze-success p,
+  .delivery-freeze-success small { margin: 0; color: var(--muted); line-height: 1.5; }
+  .delivery-freeze-success small { overflow-wrap: anywhere; }
+  .delivery-freeze-success .modal-actions { width: 100%; }
 
   .job-state {
     display: grid;
@@ -11649,6 +11737,9 @@
     }
     .job-state {
       min-width: 40px;
+    }
+    .delivery-freeze-summary {
+      grid-template-columns: 1fr;
     }
     .job-row:not(.compact) {
       grid-template-columns: 35px minmax(0, 1fr) auto;

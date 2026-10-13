@@ -892,6 +892,15 @@ function App() {
           onPause={pauseTask}
           onResume={resumeTask}
           onDelete={deleteTask}
+          onFreezeDelivery={async (task, contract) => {
+            const frozen = await api.freezeDeliveryContract(task.id, {
+              expectedUpdatedAt: task.updatedAt,
+              contract,
+            })
+            replaceTasks(project.id, await api.tasks(project.id))
+            setToast('交付合同已冻结')
+            return frozen
+          }}
           onInspectDelivery={(task) => api.deliveryVerification(task.id)}
           onClear={async () => {
             await api.clearTasks(project.id)

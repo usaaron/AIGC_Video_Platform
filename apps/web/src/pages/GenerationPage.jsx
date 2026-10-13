@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import { DELIVERY_REQUIREMENT_IDS } from '@seqora/contracts'
 import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { VideoPreviewModal } from '../components/VideoPreviewModal'
@@ -23,11 +24,13 @@ export function GenerationPage({
   onDelete,
   onClear,
   onNext,
+  onFreezeDelivery,
   onInspectDelivery,
 }) {
   const [filter, setFilter] = useState('all')
   const [busyTaskId, setBusyTaskId] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [freezeDialog, setFreezeDialog] = useState(null)
   const [deliveryDialog, setDeliveryDialog] = useState(null)
   const queueJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
   const visibleJobs = filter === 'all' ? queueJobs : queueJobs.filter((job) => job.kind === filter)
@@ -53,6 +56,28 @@ export function GenerationPage({
       setDeliveryDialog({ job, status: 'ready', snapshot, error: '' })
     } catch (error) {
       setDeliveryDialog({ job, status: 'error', snapshot: null, error: error?.message || '暂时无法读取交付核验' })
+    }
+  }
+
+  const openFreezeDelivery = (job) => {
+    if (!onFreezeDelivery || !canFreezeDeliveryContract(job)) return
+    setFreezeDialog({ job, draft: buildDeliveryContractDraft(job), status: 'editing', result: null, error: '' })
+  }
+
+  const submitFreezeDelivery = async () => {
+    if (!onFreezeDelivery || !freezeDialog || busyTaskId) return
+    const { job, draft } = freezeDialog
+    setBusyTaskId(job.id)
+    setFreezeDialog((current) => (current ? { ...current, status: 'loading', error: '' } : current))
+    try {
+      const result = await onFreezeDelivery(job, draft)
+      setFreezeDialog((current) => (current ? { ...current, status: 'success', result, error: '' } : current))
+    } catch (error) {
+      setFreezeDialog((current) =>
+        current ? { ...current, status: 'error', result: null, error: error?.message || '合同暂时无法冻结' } : current,
+      )
+    } finally {
+      setBusyTaskId(null)
     }
   }
 
@@ -170,6 +195,9 @@ export function GenerationPage({
                 onInspectDelivery={
                   onInspectDelivery && hasFrozenDeliveryContract(job) ? () => void inspectDelivery(job) : undefined
                 }
+                onFreezeDelivery={
+                  onFreezeDelivery && canFreezeDeliveryContract(job) ? () => openFreezeDelivery(job) : undefined
+                }
               />
             ))
           ) : (
@@ -195,6 +223,39 @@ export function GenerationPage({
           />,
           document.body,
         )}
+      {freezeDialog &&
+        createPortal(
+          <DeliveryContractFreezeDialog
+            dialog={freezeDialog}
+            onClose={() => setFreezeDialog(null)}
+            onSubmit={() => void submitFreezeDelivery()}
+            onTogglePhysicalReview={(enabled) => {
+              setFreezeDialog((current) => {
+                if (!current || current.status === 'loading' || current.status === 'success') return current
+                const must = current.draft.must.filter(
+                  (requirement) => requirement.id !== DELIVERY_REQUIREMENT_IDS.physicalReview,
+                )
+                return {
+                  ...current,
+                  draft: {
+                    ...current.draft,
+                    must: enabled
+                      ? [
+                          ...must,
+                          {
+                            id: DELIVERY_REQUIREMENT_IDS.physicalReview,
+                            statement: '物理验收必须通过',
+                            source: 'review',
+                          },
+                        ]
+                      : must,
+                  },
+                }
+              })
+            }}
+          />,
+          document.body,
+        )}
     </div>
   )
 }
@@ -206,6 +267,60 @@ function toDisplayJob(job) {
 
 function hasFrozenDeliveryContract(job) {
   return typeof job?.metadata?.deliveryContract?.contractHash === 'string'
+}
+
+export function canFreezeDeliveryContract(job) {
+  return Boolean(
+    job?.kind === 'video' &&
+      job.status === 'completed' &&
+      typeof job.resultUrl === 'string' &&
+      job.resultUrl.trim() &&
+      typeof job.projectId === 'string' &&
+      job.projectId.trim() &&
+      !job.metadata?.deliveryContract,
+  )
+}
+
+export function buildDeliveryContractDraft(job) {
+  const shotId = typeof job?.metadata?.shotId === 'string' && job.metadata.shotId.trim() ? job.metadata.shotId.trim() : null
+  const episodeId =
+    typeof job?.metadata?.episodeId === 'string' && job.metadata.episodeId.trim()
+      ? job.metadata.episodeId.trim()
+      : null
+  const hasPhysicsEvidence = Boolean(job?.metadata?.rigidPhysicsContract || job?.metadata?.rigidPhysicsAudit)
+  return {
+    version: 'seqora.delivery.v1',
+    contractHash: null,
+    frozenAt: null,
+    intent: {
+      mode: shotId ? 'shot' : 'response',
+      projectId: job.projectId,
+      episodeId,
+      shotIds: shotId ? [shotId] : [],
+    },
+    expectedArtifact: { type: 'video', count: 1 },
+    must: [
+      {
+        id: DELIVERY_REQUIREMENT_IDS.taskCompleted,
+        statement: '任务必须已完成',
+        source: 'system',
+      },
+      {
+        id: DELIVERY_REQUIREMENT_IDS.mediaUrl,
+        statement: '必须存在可读取的视频媒体',
+        source: 'provider',
+      },
+      ...(hasPhysicsEvidence
+        ? [
+            {
+              id: DELIVERY_REQUIREMENT_IDS.physicalReview,
+              statement: '物理验收必须通过',
+              source: 'review',
+            },
+          ]
+        : []),
+    ],
+  }
 }
 
 const DELIVERY_STATUS_LABELS = {
@@ -275,6 +390,112 @@ export function DeliveryVerificationDialog({ dialog, onClose }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+export function DeliveryContractFreezeDialog({ dialog, onClose, onSubmit, onTogglePhysicalReview }) {
+  const { job, draft, status, result, error } = dialog
+  const physicalReview = draft.must.some((requirement) => requirement.id === DELIVERY_REQUIREMENT_IDS.physicalReview)
+  const frozenContract = result?.metadata?.deliveryContract
+  const isBusy = status === 'loading'
+  const isSuccess = status === 'success'
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form
+        className="modal delivery-freeze-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delivery-freeze-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (!isBusy && !isSuccess) onSubmit()
+        }}
+      >
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">正式业务入口</span>
+            <h2 id="delivery-freeze-title">冻结交付合同</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭合同冻结" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <p className="delivery-freeze-task">{job?.label || '生成任务'}</p>
+        {status === 'editing' || isBusy || status === 'error' ? (
+          <>
+            <div className="delivery-freeze-summary">
+              <div>
+                <span>交付范围</span>
+                <strong>{draft.intent.mode === 'shot' ? '当前镜头' : '当前任务结果'}</strong>
+              </div>
+              <div>
+                <span>交付物</span>
+                <strong>视频 × 1</strong>
+              </div>
+              <div>
+                <span>合同项目</span>
+                <strong>{draft.intent.projectId}</strong>
+              </div>
+            </div>
+            <section className="delivery-freeze-requirements" aria-label="合同必备要求">
+              <div>
+                <strong>冻结前确认必备要求</strong>
+                <small>服务器会在冻结时生成时间戳和合同哈希。</small>
+              </div>
+              <label>
+                <input type="checkbox" checked readOnly />
+                <span>任务必须已完成</span>
+              </label>
+              <label>
+                <input type="checkbox" checked readOnly />
+                <span>必须存在可读取的视频媒体</span>
+              </label>
+              {job?.metadata?.rigidPhysicsContract || job?.metadata?.rigidPhysicsAudit ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={physicalReview}
+                    disabled={isBusy}
+                    onChange={(event) => onTogglePhysicalReview(event.target.checked)}
+                  />
+                  <span>物理验收必须通过</span>
+                </label>
+              ) : null}
+            </section>
+            {status === 'error' && (
+              <p className="delivery-freeze-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="modal-actions">
+              <button className="button secondary" type="button" onClick={onClose} disabled={isBusy}>
+                取消
+              </button>
+              <button className="button primary" type="submit" disabled={isBusy}>
+                {isBusy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}
+                {isBusy ? '正在冻结…' : '确认冻结合同'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="delivery-freeze-success" role="status">
+            <Check size={22} />
+            <strong>交付合同已冻结</strong>
+            <p>合同内容已固定，后续只能读取核验结果，不能重复冻结。</p>
+            <small>
+              合同哈希：{frozenContract?.contractHash?.slice(0, 16) || '已由服务端生成'}
+              {frozenContract?.frozenAt ? ` · ${frozenContract.frozenAt}` : ''}
+            </small>
+            <div className="modal-actions">
+              <button className="button primary" type="button" onClick={onClose}>
+                完成
+              </button>
+            </div>
+          </div>
+        )}
+      </form>
     </div>
   )
 }
