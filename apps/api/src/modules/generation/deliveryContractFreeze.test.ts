@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { freezeDeliveryContract, canonicalDeliveryContractPayload } from './deliveryContractFreeze.js'
+import {
+  freezeDeliveryContract,
+  canonicalDeliveryContractPayload,
+  verifyFrozenDeliveryContract,
+} from './deliveryContractFreeze.js'
 
 const draft = {
   version: 'seqora.delivery.v1',
@@ -67,5 +71,19 @@ describe('delivery contract freeze', () => {
     const original = structuredClone(draft)
     freezeDeliveryContract(draft, frozenAt)
     expect(draft).toEqual(original)
+  })
+
+  it('detects a tampered persisted contract', () => {
+    const frozen = freezeDeliveryContract(draft, frozenAt)
+    expect(verifyFrozenDeliveryContract(frozen)).toBe(true)
+    expect(
+      verifyFrozenDeliveryContract({
+        ...frozen,
+        expectedArtifact: { type: 'video', count: 2 },
+      }),
+    ).toBe(false)
+    expect(verifyFrozenDeliveryContract({ ...frozen, contractHash: 'a'.repeat(64) })).toBe(false)
+    expect(verifyFrozenDeliveryContract({ ...frozen, frozenAt: null })).toBe(false)
+    expect(verifyFrozenDeliveryContract({ ...frozen, contractHash: null })).toBe(false)
   })
 })

@@ -9,7 +9,7 @@ function canonicalize(value: unknown): unknown {
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
         .map(([key, item]) => [key, canonicalize(item)]),
     )
   }
@@ -59,4 +59,15 @@ export function freezeDeliveryContract(input: unknown, frozenAt: string): Delive
     contractHash,
     frozenAt: timestamp,
   })
+}
+
+/** Recomputes a persisted frozen contract without trusting its stored hash. */
+export function verifyFrozenDeliveryContract(input: unknown): boolean {
+  const parsed = deliveryContractSchema.safeParse(input)
+  if (!parsed.success || parsed.data.contractHash === null || parsed.data.frozenAt === null) return false
+  const draft = { ...parsed.data, contractHash: null, frozenAt: null }
+  const expectedHash = createHash('sha256')
+    .update(canonicalDeliveryContractPayload(draft, parsed.data.frozenAt), 'utf8')
+    .digest('hex')
+  return expectedHash === parsed.data.contractHash
 }
