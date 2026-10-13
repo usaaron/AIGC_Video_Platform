@@ -35,6 +35,7 @@ describe('generation task polling projection', () => {
         metadata: {
           generationStage: 'script-generate',
           shotId: 'shot-1',
+          deliveryContract: { contractHash: 'a'.repeat(64), frozenAt: '2026-10-14T00:00:00.000Z' },
           textPreview: '预览内容',
           rigidPhysicsAudit: { status: 'needs-evidence', checkedFrames: 12 },
           rigidPhysicsContract: { version: 'rigid-physics-v1', objects: [] },
@@ -69,6 +70,7 @@ describe('generation task polling projection', () => {
       metadata: {
         generationStage: 'script-generate',
         shotId: 'shot-1',
+        deliveryContract: { contractHash: 'a'.repeat(64), frozenAt: '2026-10-14T00:00:00.000Z' },
         textPreview: '预览内容',
         rigidPhysicsAudit: { status: 'needs-evidence', checkedFrames: 12 },
         rigidPhysicsContract: { version: 'rigid-physics-v1', objects: [] },
