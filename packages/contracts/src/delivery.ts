@@ -36,17 +36,34 @@ export type DeliveryIntent = z.infer<typeof deliveryIntentSchema>
  * `contractHash` is assigned by the owning service when the contract is frozen;
  * a draft is allowed to carry null before that boundary.
  */
-export const deliveryContractSchema = z.object({
-  version: z.literal('seqora.delivery.v1'),
-  contractHash: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
-  intent: deliveryIntentSchema,
-  expectedArtifact: z.object({
-    type: deliveryArtifactTypeSchema,
-    count: z.number().int().positive().max(500),
-  }),
-  must: z.array(deliveryRequirementSchema).min(1).max(200),
-  frozenAt: z.string().datetime().nullable().default(null),
-})
+export const deliveryContractSchema = z
+  .object({
+    version: z.literal('seqora.delivery.v1'),
+    contractHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .default(null),
+    intent: deliveryIntentSchema,
+    expectedArtifact: z.object({
+      type: deliveryArtifactTypeSchema,
+      count: z.number().int().positive().max(500),
+    }),
+    must: z.array(deliveryRequirementSchema).min(1).max(200),
+    frozenAt: z.string().datetime().nullable().default(null),
+  })
+  .superRefine((contract, context) => {
+    if (contract.contractHash !== null && contract.frozenAt === null) {
+      context.addIssue({ code: 'custom', path: ['frozenAt'], message: '带哈希的合同必须有冻结时间' })
+    }
+    if (contract.contractHash === null && contract.frozenAt !== null) {
+      context.addIssue({ code: 'custom', path: ['contractHash'], message: '冻结合同必须有哈希' })
+    }
+    const ids = contract.must.map((requirement) => requirement.id)
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({ code: 'custom', path: ['must'], message: '交付要求 ID 必须唯一' })
+    }
+  })
 export type DeliveryContract = z.infer<typeof deliveryContractSchema>
 
 export const deliveryEvidenceKindSchema = z.enum([
@@ -64,6 +81,16 @@ export type DeliveryEvidenceKind = z.infer<typeof deliveryEvidenceKindSchema>
 export const deliveryEvidenceStatusSchema = z.enum(['observed', 'passed', 'failed', 'pending'])
 export type DeliveryEvidenceStatus = z.infer<typeof deliveryEvidenceStatusSchema>
 
+/** Every projected fact is scoped to one immutable task/media snapshot. */
+export const deliveryEvidenceScopeSchema = z.object({
+  tenantId: z.string().trim().min(1).max(200),
+  projectId: z.string().trim().min(1).max(200),
+  taskId: z.string().trim().min(1).max(200),
+  taskUpdatedAt: z.string().datetime(),
+  mediaVersion: z.string().trim().min(1).max(2_000).nullable(),
+})
+export type DeliveryEvidenceScope = z.infer<typeof deliveryEvidenceScopeSchema>
+
 export const deliveryEvidenceSchema = z.object({
   evidenceId: z.string().trim().min(1).max(200),
   kind: deliveryEvidenceKindSchema,
@@ -72,6 +99,7 @@ export const deliveryEvidenceSchema = z.object({
   refType: z.string().trim().min(1).max(120),
   refId: z.string().trim().min(1).max(500),
   observedAt: z.string().datetime(),
+  scope: deliveryEvidenceScopeSchema,
   details: z.record(z.string(), z.unknown()).default({}),
 })
 export type DeliveryEvidence = z.infer<typeof deliveryEvidenceSchema>
@@ -88,6 +116,16 @@ export const deliveryVerificationSchema = z.object({
   verifiedAt: z.string().datetime(),
 })
 export type DeliveryVerification = z.infer<typeof deliveryVerificationSchema>
+
+/** Stable requirement IDs used when generation tasks are projected to evidence. */
+export const DELIVERY_REQUIREMENT_IDS = {
+  taskCompleted: 'task-completed',
+  providerAccepted: 'provider-accepted',
+  mediaUrl: 'media-url',
+  contentReview: 'content-review',
+  physicalReview: 'physical-review',
+  continuityReady: 'continuity-ready',
+} as const
 
 /**
  * A task may be technically complete while its user-facing delivery is still
@@ -107,43 +145,3 @@ export const deliveryLifecycleStatusSchema = z.enum([
   'cancelled',
 ])
 export type DeliveryLifecycleStatus = z.infer<typeof deliveryLifecycleStatusSchema>
-
-export function evaluateDeliveryVerification(
-  contract: DeliveryContract,
-  evidence: readonly DeliveryEvidence[],
-  verifiedAt = new Date().toISOString(),
-): DeliveryVerification {
-  const satisfiedRequirementIds: string[] = []
-  const pendingRequirementIds: string[] = []
-  const failedRequirementIds: string[] = []
-
-  for (const requirement of contract.must) {
-    const related = evidence.filter(item => item.requirementIds.includes(requirement.id))
-    if (related.some(item => item.status === 'failed')) {
-      failedRequirementIds.push(requirement.id)
-    } else if (related.some(item => item.status === 'passed')) {
-      satisfiedRequirementIds.push(requirement.id)
-    } else {
-      pendingRequirementIds.push(requirement.id)
-    }
-  }
-
-  const status: DeliveryVerificationStatus = failedRequirementIds.length > 0
-    ? 'failed'
-    : pendingRequirementIds.length > 0
-      ? satisfiedRequirementIds.length > 0 ? 'partial' : 'pending'
-      : 'satisfied'
-
-  return deliveryVerificationSchema.parse({
-    status,
-    satisfiedRequirementIds,
-    pendingRequirementIds,
-    failedRequirementIds,
-    rationale: status === 'satisfied'
-      ? '每项交付要求都已绑定通过的事实证据。'
-      : status === 'failed'
-        ? '至少一项交付要求绑定了失败证据。'
-        : '仍有交付要求缺少通过证据。',
-    verifiedAt,
-  })
-}

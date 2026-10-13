@@ -1,67 +1,82 @@
 import { describe, expect, it } from 'vitest'
-import {
-  deliveryContractSchema,
-  deliveryEvidenceSchema,
-  evaluateDeliveryVerification,
-} from './delivery.js'
+import { deliveryContractSchema, deliveryEvidenceSchema } from './delivery.js'
 
-const contract = deliveryContractSchema.parse({
-  version: 'seqora.delivery.v1',
-  intent: { mode: 'shot', projectId: 'project-1', shotIds: ['shot-1'] },
-  expectedArtifact: { type: 'video', count: 1 },
-  must: [
-    { id: 'media-url', statement: '存在真实视频地址', source: 'provider' },
-    { id: 'review', statement: '内容验收通过', source: 'review' },
-  ],
-})
+const scope = {
+  tenantId: 'tenant-1',
+  projectId: 'project-1',
+  taskId: 'task-1',
+  taskUpdatedAt: '2026-10-13T00:01:00.000Z',
+  mediaVersion: 'media-version-1',
+}
 
-const evidence = (input: Partial<ReturnType<typeof deliveryEvidenceSchema.parse>>) =>
+const evidence = (input: Record<string, unknown> = {}) =>
   deliveryEvidenceSchema.parse({
     evidenceId: 'evidence-1',
     kind: 'provider',
-    status: 'passed',
-    requirementIds: ['media-url'],
-    refType: 'generation-task',
+    status: 'observed',
+    requirementIds: ['provider-accepted'],
+    refType: 'provider-task',
     refId: 'task-1',
-    observedAt: '2026-10-13T00:00:00.000Z',
+    observedAt: '2026-10-13T00:01:00.000Z',
+    scope,
     ...input,
   })
 
-describe('delivery contract verification', () => {
-  it('does not treat a provider result as complete content review', () => {
-    const result = evaluateDeliveryVerification(contract, [evidence()])
-    expect(result.status).toBe('partial')
-    expect(result.satisfiedRequirementIds).toEqual(['media-url'])
-    expect(result.pendingRequirementIds).toEqual(['review'])
+describe('delivery contracts and evidence', () => {
+  it('allows a draft contract but requires a hash and timestamp together when frozen', () => {
+    expect(
+      deliveryContractSchema.parse({
+        version: 'seqora.delivery.v1',
+        intent: { mode: 'shot', projectId: 'project-1', shotIds: ['shot-1'] },
+        expectedArtifact: { type: 'video', count: 1 },
+        must: [{ id: 'media-url', statement: '存在视频地址', source: 'provider' }],
+      }).contractHash,
+    ).toBeNull()
+
+    expect(() =>
+      deliveryContractSchema.parse({
+        version: 'seqora.delivery.v1',
+        contractHash: 'a'.repeat(64),
+        intent: { mode: 'shot', projectId: 'project-1' },
+        expectedArtifact: { type: 'video', count: 1 },
+        must: [{ id: 'media-url', statement: '存在视频地址', source: 'provider' }],
+      }),
+    ).toThrow()
+
+    expect(() =>
+      deliveryContractSchema.parse({
+        version: 'seqora.delivery.v1',
+        frozenAt: '2026-10-13T00:00:00.000Z',
+        intent: { mode: 'shot', projectId: 'project-1' },
+        expectedArtifact: { type: 'video', count: 1 },
+        must: [{ id: 'media-url', statement: '存在视频地址', source: 'provider' }],
+      }),
+    ).toThrow()
   })
 
-  it('fails when any requirement has failed evidence', () => {
-    const result = evaluateDeliveryVerification(contract, [
-      evidence(),
-      evidence({
-        evidenceId: 'evidence-2',
-        kind: 'content-review',
-        status: 'failed',
-        requirementIds: ['review'],
-        refType: 'video-review',
-        refId: 'review-1',
+  it('rejects duplicate requirement IDs', () => {
+    expect(() =>
+      deliveryContractSchema.parse({
+        version: 'seqora.delivery.v1',
+        intent: { mode: 'shot', projectId: 'project-1' },
+        expectedArtifact: { type: 'video', count: 1 },
+        must: [
+          { id: 'same', statement: '第一条', source: 'user' },
+          { id: 'same', statement: '第二条', source: 'review' },
+        ],
       }),
-    ])
-    expect(result.status).toBe('failed')
-    expect(result.failedRequirementIds).toEqual(['review'])
+    ).toThrow()
   })
 
-  it('requires passed evidence for every requirement before satisfaction', () => {
-    const result = evaluateDeliveryVerification(contract, [
-      evidence(),
-      evidence({
-        evidenceId: 'evidence-2',
-        kind: 'content-review',
-        requirementIds: ['review'],
-        refType: 'video-review',
-        refId: 'review-1',
+  it('requires scoped evidence and preserves the scope', () => {
+    expect(evidence().scope).toEqual(scope)
+    const withoutScope = { ...evidence(), scope: undefined }
+    expect(() => deliveryEvidenceSchema.parse(withoutScope)).toThrow()
+    expect(() =>
+      deliveryEvidenceSchema.parse({
+        ...evidence(),
+        scope: { ...scope, taskUpdatedAt: 'not-a-date' },
       }),
-    ])
-    expect(result.status).toBe('satisfied')
+    ).toThrow()
   })
 })
