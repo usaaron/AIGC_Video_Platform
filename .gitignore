@@ -16,6 +16,10 @@ apps/web/src/assets/hero.png
 # Logs and runtime files
 logs/
 tmp/
+.tmp-*
+_tmp_*
+cookies.txt
+*.cookies.txt
 apps/api/data/
 data/
 local-fixtures/
@@ -62,3 +66,6 @@ Desktop.ini
 *.key
 *.p12
 *.pfx
+
+# Local-only authentication helpers
+/apps/web/public/auto-login.html
