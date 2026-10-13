@@ -39,7 +39,13 @@ function evidence(taskValue: GenerationTask, kind: string) {
 }
 
 function approvedVideo(overrides: Partial<GenerationTask> = {}) {
-  const initial = task(overrides)
+  const initial = task({
+    ...overrides,
+    metadata: {
+      ...overrides.metadata,
+      lastFrameStorageKey: 'tenant-1/project-1/generated/task-1-last-frame.png',
+    },
+  })
   return task({
     ...overrides,
     metadata: {
@@ -81,6 +87,7 @@ function withTail(taskValue: GenerationTask): GenerationTask {
     ...taskValue,
     metadata: {
       ...taskValue.metadata,
+      lastFrameStorageKey: 'tenant-1/project-1/generated/task-1-last-frame.png',
       generatedOutputs: [
         {
           view: 'last-frame',

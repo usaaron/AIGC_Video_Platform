@@ -12,7 +12,7 @@ import {
   type GenerationTask,
 } from '@seqora/contracts'
 
-type VideoTailDescriptor = {
+export type VideoTailDescriptor = {
   storageKey: string
   contentType: string
   size: number
@@ -114,19 +114,28 @@ function physicalEvidenceStatus(task: GenerationTask): DeliveryEvidenceStatus {
   return 'pending'
 }
 
-function videoTailDescriptor(task: GenerationTask): VideoTailDescriptor | null {
+export function currentVideoTailDescriptor(task: GenerationTask): VideoTailDescriptor | null {
   const generatedOutputs = task.metadata.generatedOutputs
   if (!Array.isArray(generatedOutputs)) return null
+  const currentStorageKey = metadataString(task, 'lastFrameStorageKey')
+  if (!currentStorageKey) return null
+  const expectedPrefix = `${task.tenantId}/${task.projectId}/generated/${task.id}-`
+  if (!currentStorageKey.startsWith(expectedPrefix)) return null
   const candidate = generatedOutputs.find((item) => {
     if (!item || typeof item !== 'object') return false
     return (item as { view?: unknown }).view === 'last-frame'
   })
   if (!candidate || typeof candidate !== 'object') return null
   const value = candidate as { storageKey?: unknown; contentType?: unknown; size?: unknown }
-  if (typeof value.storageKey !== 'string' || value.storageKey.trim().length === 0) return null
-  if (typeof value.contentType !== 'string' || !value.contentType.startsWith('image/')) return null
-  if (typeof value.size !== 'number' || !Number.isFinite(value.size) || value.size <= 0) return null
-  return { storageKey: value.storageKey.trim(), contentType: value.contentType, size: value.size }
+  if (typeof value.storageKey !== 'string' || value.storageKey.trim() !== currentStorageKey) return null
+  if (typeof value.contentType !== 'string' || !value.contentType.trim().toLowerCase().startsWith('image/'))
+    return null
+  if (typeof value.size !== 'number' || !Number.isInteger(value.size) || value.size <= 0) return null
+  return {
+    storageKey: currentStorageKey,
+    contentType: value.contentType.trim().toLowerCase(),
+    size: value.size,
+  }
 }
 
 function continuityEvidenceStatus(task: GenerationTask): DeliveryEvidenceStatus {
@@ -135,7 +144,7 @@ function continuityEvidenceStatus(task: GenerationTask): DeliveryEvidenceStatus 
   if (needsVideoReview(task) && videoReviewState(task) === 'rejected') return 'failed'
   if (needsVideoReview(task) && videoReviewState(task) !== 'approved') return 'pending'
   if (hasPhysicsFact(task) && physicalEvidenceStatus(task) !== 'passed') return 'pending'
-  return videoTailDescriptor(task) ? 'observed' : 'pending'
+  return currentVideoTailDescriptor(task) ? 'observed' : 'pending'
 }
 
 function evidence(input: {
@@ -227,7 +236,7 @@ export function buildGenerationTaskDeliveryEvidence(task: GenerationTask): Deliv
   }
 
   if (task.kind === 'video') {
-    const tail = videoTailDescriptor(task)
+    const tail = currentVideoTailDescriptor(task)
     result.push(
       evidence({
         task,
