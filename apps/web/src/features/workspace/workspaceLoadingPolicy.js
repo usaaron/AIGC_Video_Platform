@@ -1,4 +1,4 @@
-const TASK_DETAIL_STEPS = new Set(['script', 'assets', 'storyboard', 'film', 'image-studio'])
+const TASK_DETAIL_STEPS = new Set(['script', 'assets', 'storyboard', 'generate', 'film', 'image-studio'])
 const INDEPENDENT_WORKSPACE_STEPS = new Set(['writing-studio', 'agent-studio'])
 const PROJECT_CONTENT_TYPES = new Set(['advertisement', 'animation', 'short-drama'])
 const PROJECT_ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1'])

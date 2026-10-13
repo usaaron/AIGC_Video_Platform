@@ -3,6 +3,7 @@ import {
   deliveryContractFreezeRequestSchema,
   deliveryContractSchema,
   deliveryEvidenceSchema,
+  deliveryVerificationSnapshotSchema,
 } from './delivery.js'
 
 const scope = {
@@ -101,5 +102,15 @@ describe('delivery contracts and evidence', () => {
         expectedUpdatedAt: 'invalid',
       }),
     ).toThrow()
+  })
+
+  it('validates a read-only verification snapshot with an optional contract result', () => {
+    const snapshot = deliveryVerificationSnapshotSchema.parse({
+      taskId: 'task-1',
+      contract: null,
+      evidence: [],
+      verification: null,
+    })
+    expect(snapshot).toEqual({ taskId: 'task-1', contract: null, evidence: [], verification: null })
   })
 })

@@ -1,6 +1,7 @@
 import { storyboardReferences } from './storyboardReferences.js'
 import type {
   CreateGenerationTask,
+  DeliveryVerificationSnapshot,
   GenerationTask,
   GenerationTaskPolling,
   Principal,
@@ -8,7 +9,14 @@ import type {
   DeliveryContractFreezeRequest,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
-import { generateScriptRequestSchema, rigidPhysicsAuditResultSchema, type ReviewVideo, videoReviewVersion } from '@seqora/contracts'
+import {
+  deliveryContractSchema,
+  deliveryVerificationSnapshotSchema,
+  generateScriptRequestSchema,
+  rigidPhysicsAuditResultSchema,
+  type ReviewVideo,
+  videoReviewVersion,
+} from '@seqora/contracts'
 import { Readable } from 'node:stream'
 import {
   compileStoryboardVideoPrompt,
@@ -27,6 +35,9 @@ import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { GenerationTaskRepository } from './repository.js'
 import { auditRigidVideoBuffer, type RawVideoFrameAudit } from '../../core/generation/rigidFrameAudit.js'
+import { buildGenerationTaskDeliveryEvidence } from './deliveryEvidence.js'
+import { buildVideoTailStorageEvidence } from './deliveryStorageVerification.js'
+import { evaluateDeliveryContract } from './deliveryContractEvaluation.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
 
@@ -297,6 +308,34 @@ export class GenerationService {
     principal: Principal,
   ): Promise<GenerationTask> {
     return this.repository.freezeDeliveryContract(taskId, input.contract, input.expectedUpdatedAt, principal)
+  }
+
+  async deliveryVerification(taskId: string, principal: Principal): Promise<DeliveryVerificationSnapshot> {
+    const task = await this.repository.findById(taskId, principal)
+    if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权读取交付验证')
+    const checkedAt = new Date().toISOString()
+    const baseEvidence = buildGenerationTaskDeliveryEvidence(task)
+    const storageEvidence = await buildVideoTailStorageEvidence(task, this.objectStorage, checkedAt)
+    const evidence = storageEvidence
+      ? [...baseEvidence.filter((item) => item.kind !== 'continuity'), storageEvidence]
+      : baseEvidence
+    const contractResult = deliveryContractSchema.safeParse(task.metadata.deliveryContract)
+    const scope = evidence[0]?.scope
+    const verification =
+      contractResult.success && scope
+        ? evaluateDeliveryContract({
+            contract: contractResult.data,
+            evidence,
+            scope,
+            verifiedAt: checkedAt,
+          })
+        : null
+    return deliveryVerificationSnapshotSchema.parse({
+      taskId: task.id,
+      contract: contractResult.success ? contractResult.data : null,
+      evidence,
+      verification,
+    })
   }
 
   /** Audit one already completed video. This only reads existing media and updates audit metadata. */

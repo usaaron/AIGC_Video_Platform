@@ -4205,6 +4205,51 @@
   .job-physics-note.failed strong { color: var(--danger); }
   .job-physics-note span { color: var(--muted); }
 
+  .job-delivery-link {
+    width: fit-content;
+    margin: 7px 0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent-strong);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+  }
+  .job-delivery-link:hover { text-decoration: underline; }
+
+  .delivery-verification-modal { max-width: 560px; }
+  .delivery-verification-task {
+    margin: -12px 0 18px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .delivery-verification-loading,
+  .delivery-verification-pending,
+  .delivery-verification-error {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .delivery-verification-error { color: var(--danger); }
+  .delivery-verification-result {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-muted);
+  }
+  .delivery-verification-result strong { color: var(--accent-strong); }
+  .delivery-verification-result.failed strong { color: var(--danger); }
+  .delivery-verification-result p { margin: 0; color: var(--muted); line-height: 1.5; }
+  .delivery-verification-result dl { display: grid; gap: 7px; margin: 0; }
+  .delivery-verification-result dl div { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
+  .delivery-verification-result dt { color: var(--muted); }
+  .delivery-verification-result dd { margin: 0; overflow-wrap: anywhere; }
+  .delivery-verification-result small { color: var(--muted); }
+
   .job-state {
     display: grid;
     justify-items: end;

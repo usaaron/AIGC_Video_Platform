@@ -201,7 +201,7 @@ describe('workspace loading policy', () => {
     expect(workflowNavigationBlockMessage('film', { film: true })).toBe('')
   })
 
-  it.each(['script', 'assets', 'storyboard', 'film', 'image-studio'])(
+  it.each(['script', 'assets', 'storyboard', 'generate', 'film', 'image-studio'])(
     'loads full task details for %s',
     (step) => {
       expect(shouldLoadTaskDetails(step)).toBe(true)

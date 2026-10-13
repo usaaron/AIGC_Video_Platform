@@ -91,4 +91,23 @@ describe('generation job result actions', () => {
     expect(html).toContain('物理验收：缺少逐帧证据')
     expect(html).toContain('阻塞原因：底脚和连接点未覆盖')
   })
+
+  it('offers read-only delivery verification for a frozen contract', () => {
+    const html = renderToStaticMarkup(
+      <JobRow
+        job={{
+          id: 'video-delivery',
+          kind: 'video',
+          type: '视频',
+          label: '镜头 01',
+          cost: 18,
+          status: 'completed',
+          metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } },
+        }}
+        onInspectDelivery={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('查看交付核验')
+  })
 })

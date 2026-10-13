@@ -892,6 +892,7 @@ function App() {
           onPause={pauseTask}
           onResume={resumeTask}
           onDelete={deleteTask}
+          onInspectDelivery={(task) => api.deliveryVerification(task.id)}
           onClear={async () => {
             await api.clearTasks(project.id)
             replaceTasks(project.id, await api.tasks(project.id))

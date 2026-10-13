@@ -102,7 +102,16 @@ export function PageHeader({ eyebrow, title, description, children }) {
   )
 }
 
-export function JobRow({ job, compact = false, busy = false, onPause, onResume, onDelete, onPreviewResult }) {
+export function JobRow({
+  job,
+  compact = false,
+  busy = false,
+  onPause,
+  onResume,
+  onDelete,
+  onPreviewResult,
+  onInspectDelivery,
+}) {
   const canCancelRunning = canCancelRunningTask(job)
   const canPreviewInApp = ['image', 'video'].includes(job.kind) && typeof onPreviewResult === 'function'
   const physics = physicsSummary(job)
@@ -164,6 +173,11 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
             <strong>物理验收：{physics.label}</strong>
             {physics.reason && <span>阻塞原因：{physics.reason}</span>}
           </p>
+        )}
+        {onInspectDelivery && (
+          <button className="job-delivery-link" type="button" onClick={onInspectDelivery}>
+            查看交付核验
+          </button>
         )}
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
       </div>

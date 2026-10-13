@@ -318,6 +318,7 @@ export const api = {
     request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
   pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
   reviewVideo: (taskId, input) => request(`/generation/tasks/${taskId}/content-review`, { method: 'POST', body: JSON.stringify(input) }),
+  deliveryVerification: (taskId) => request(`/generation/tasks/${taskId}/delivery-verification`),
   stopTask: (taskId) => request(`/generation/tasks/${taskId}/stop`, { method: 'POST' }),
   resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),

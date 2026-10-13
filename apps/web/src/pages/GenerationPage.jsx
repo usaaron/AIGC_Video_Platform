@@ -22,10 +22,12 @@ export function GenerationPage({
   onDelete,
   onClear,
   onNext,
+  onInspectDelivery,
 }) {
   const [filter, setFilter] = useState('all')
   const [busyTaskId, setBusyTaskId] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [deliveryDialog, setDeliveryDialog] = useState(null)
   const queueJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
   const visibleJobs = filter === 'all' ? queueJobs : queueJobs.filter((job) => job.kind === filter)
   const active = queueJobs.filter((job) => ['queued', 'paused', 'running'].includes(job.status))
@@ -39,6 +41,17 @@ export function GenerationPage({
       await action(taskId)
     } finally {
       setBusyTaskId(null)
+    }
+  }
+
+  const inspectDelivery = async (job) => {
+    if (!onInspectDelivery) return
+    setDeliveryDialog({ job, status: 'loading', snapshot: null, error: '' })
+    try {
+      const snapshot = await onInspectDelivery(job)
+      setDeliveryDialog({ job, status: 'ready', snapshot, error: '' })
+    } catch (error) {
+      setDeliveryDialog({ job, status: 'error', snapshot: null, error: error?.message || '暂时无法读取交付核验' })
     }
   }
 
@@ -153,6 +166,9 @@ export function GenerationPage({
                     mediaType: targetJob.kind,
                   })
                 }
+                onInspectDelivery={
+                  onInspectDelivery && hasFrozenDeliveryContract(job) ? () => void inspectDelivery(job) : undefined
+                }
               />
             ))
           ) : (
@@ -170,6 +186,12 @@ export function GenerationPage({
       {preview && preview.mediaType !== 'video' && (
         <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />
       )}
+      {deliveryDialog && (
+        <DeliveryVerificationDialog
+          dialog={deliveryDialog}
+          onClose={() => setDeliveryDialog(null)}
+        />
+      )}
     </div>
   )
 }
@@ -177,4 +199,79 @@ export function GenerationPage({
 function toDisplayJob(job) {
   const type = { text: '文本', image: '图片', video: '视频', audio: '音频' }[job.kind]
   return { ...job, type, cost: job.estimatedCredits }
+}
+
+function hasFrozenDeliveryContract(job) {
+  return typeof job?.metadata?.deliveryContract?.contractHash === 'string'
+}
+
+const DELIVERY_STATUS_LABELS = {
+  satisfied: '交付要求已满足',
+  partial: '部分要求已满足',
+  failed: '存在失败要求',
+  pending: '等待交付证据',
+}
+
+function requirementSummary(ids) {
+  if (!Array.isArray(ids) || !ids.length) return '无'
+  return ids.join('、')
+}
+
+export function DeliveryVerificationDialog({ dialog, onClose }) {
+  const { job, status, snapshot, error } = dialog
+  const verification = snapshot?.verification
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div
+        className="modal delivery-verification-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delivery-verification-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">只读事实</span>
+            <h2 id="delivery-verification-title">交付核验</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭交付核验" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <p className="delivery-verification-task">{job?.label || '生成任务'}</p>
+        {status === 'loading' && <p className="delivery-verification-loading">正在读取当前任务的交付证据…</p>}
+        {status === 'error' && (
+          <p className="delivery-verification-error" role="alert">
+            {error}
+          </p>
+        )}
+        {status === 'ready' && !verification && (
+          <p className="delivery-verification-pending">当前任务尚未形成可验证的冻结合同。</p>
+        )}
+        {status === 'ready' && verification && (
+          <div className={`delivery-verification-result ${verification.status}`}>
+            <strong>{DELIVERY_STATUS_LABELS[verification.status] || verification.status}</strong>
+            <p>{verification.rationale}</p>
+            <dl>
+              <div>
+                <dt>已通过</dt>
+                <dd>{requirementSummary(verification.satisfiedRequirementIds)}</dd>
+              </div>
+              <div>
+                <dt>待补证据</dt>
+                <dd>{requirementSummary(verification.pendingRequirementIds)}</dd>
+              </div>
+              <div>
+                <dt>失败</dt>
+                <dd>{requirementSummary(verification.failedRequirementIds)}</dd>
+              </div>
+            </dl>
+            <small>
+              合同哈希：{snapshot.contract?.contractHash?.slice(0, 12) || '不可用'} · 证据 {snapshot.evidence?.length || 0} 条
+            </small>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }

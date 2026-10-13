@@ -123,6 +123,14 @@ export const deliveryVerificationSchema = z.object({
 })
 export type DeliveryVerification = z.infer<typeof deliveryVerificationSchema>
 
+export const deliveryVerificationSnapshotSchema = z.object({
+  taskId: z.string().trim().min(1).max(200),
+  contract: deliveryContractSchema.nullable(),
+  evidence: z.array(deliveryEvidenceSchema).max(500),
+  verification: deliveryVerificationSchema.nullable(),
+})
+export type DeliveryVerificationSnapshot = z.infer<typeof deliveryVerificationSnapshotSchema>
+
 /** Stable requirement IDs used when generation tasks are projected to evidence. */
 export const DELIVERY_REQUIREMENT_IDS = {
   taskCompleted: 'task-completed',

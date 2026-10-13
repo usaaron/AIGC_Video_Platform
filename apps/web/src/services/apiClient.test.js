@@ -394,6 +394,19 @@ describe('api client', () => {
     )
   })
 
+  it('reads a task delivery verification snapshot without mutating the task', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ taskId: 'task-1', contract: null, evidence: [], verification: null }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.deliveryVerification('task-1')).resolves.toMatchObject({ taskId: 'task-1' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/generation/tasks/task-1/delivery-verification',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
   it('sends task polling validators and handles an unchanged 304 response', async () => {
     const fetchMock = vi
       .fn()
