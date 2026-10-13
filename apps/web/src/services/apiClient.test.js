@@ -407,6 +407,35 @@ describe('api client', () => {
     )
   })
 
+  it('freezes a task delivery contract through the generation API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ id: 'task-1', metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } } }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const input = {
+      expectedUpdatedAt: '2026-10-13T09:00:00.000Z',
+      contract: {
+        version: 'seqora.delivery.v1',
+        contractHash: null,
+        frozenAt: null,
+        intent: { mode: 'shot', projectId: 'project-1', episodeId: null, shotIds: ['shot-1'] },
+        expectedArtifact: { type: 'video', count: 1 },
+        must: [{ id: 'task-completed', statement: '任务必须已完成', source: 'system' }],
+      },
+    }
+
+    await expect(api.freezeDeliveryContract('task-1', input)).resolves.toMatchObject({ id: 'task-1' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/generation/tasks/task-1/delivery-contract',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    )
+  })
+
   it('sends task polling validators and handles an unchanged 304 response', async () => {
     const fetchMock = vi
       .fn()
