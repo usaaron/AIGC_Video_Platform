@@ -20,6 +20,7 @@ import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import { RuntimeCacheCoordinator } from '../../runtime/runtimeCacheCoordinator.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
 import {
   aiJobColumns,
   type AiJobRow,
@@ -52,27 +53,32 @@ export class AiJobRepository {
       allQuery: `
         SELECT ${aiJobColumns}, updated_at::text AS runtime_sync_updated_at
         FROM ai_jobs
+        WHERE project_id NOT LIKE 'sm-standalone-%'
         ORDER BY created_at DESC, id DESC
       `,
       activeLoader: () => this.loadActiveJobsFromDatabase(),
       cursorQuery: `
         SELECT id, updated_at::text AS runtime_sync_updated_at
         FROM ai_jobs
+        WHERE project_id NOT LIKE 'sm-standalone-%'
         ORDER BY updated_at DESC, id DESC
         LIMIT 1
       `,
       deltaQuery: `
         SELECT ${aiJobColumns}, updated_at::text AS runtime_sync_updated_at
         FROM ai_jobs
-        WHERE updated_at > $1::timestamptz
+        WHERE project_id NOT LIKE 'sm-standalone-%'
+          AND (updated_at > $1::timestamptz
            OR (updated_at = $1::timestamptz AND id > $2)
+          )
         ORDER BY updated_at ASC, id ASC
         LIMIT $3
       `,
       sameTimestampQuery: `
         SELECT ${aiJobColumns}, updated_at::text AS runtime_sync_updated_at
         FROM ai_jobs
-        WHERE updated_at = $1::timestamptz
+        WHERE project_id NOT LIKE 'sm-standalone-%'
+          AND updated_at = $1::timestamptz
         ORDER BY id ASC
         LIMIT $2
       `,
@@ -85,7 +91,9 @@ export class AiJobRepository {
   }
 
   async refreshRuntimeCacheFromDatabase(options: AiJobRuntimeCacheOptions = {}): Promise<AiJob[]> {
-    if (!this.database) return this.store.read((state) => state.aiJobs)
+    if (!this.database) {
+      return this.store.read((state) => state.aiJobs.filter((job) => !isStandaloneProjectId(job.projectId)))
+    }
     return this.runtimeCache.refresh(options.activeOnly === true)
   }
 
@@ -98,11 +106,13 @@ export class AiJobRepository {
     principal: Principal,
     options: { traceId?: string | null } = {},
   ): Promise<AiJob> {
+    rejectStandaloneProjectId(input.projectId)
     if (this.database) return this.createInDatabase(input, principal, true, options)
     return this.createWithChargeInStore(input, principal, options)
   }
 
   async listByProject(projectId: string, principal: Principal): Promise<AiJob[]> {
+    if (isStandaloneProjectId(projectId)) return []
     if (!this.database) return this.listByProjectFromStore(projectId, principal)
 
     const canReadAll = canReadAllTenantContent(principal)
@@ -111,6 +121,7 @@ export class AiJobRepository {
       SELECT ${aiJobColumns}
       FROM ai_jobs
       WHERE project_id = $1
+        AND project_id NOT LIKE 'sm-standalone-%'
         AND tenant_id = $2
         AND ($3::boolean OR user_id = $4)
       ORDER BY created_at DESC, id DESC
@@ -129,6 +140,7 @@ export class AiJobRepository {
       SELECT ${aiJobColumns}
       FROM ai_jobs
       WHERE id = $1
+        AND project_id NOT LIKE 'sm-standalone-%'
         AND tenant_id = $2
         AND ($3::boolean OR user_id = $4)
       LIMIT 1
@@ -146,7 +158,10 @@ export class AiJobRepository {
       const nowIso = now.toISOString()
       const claimed: AiJob[] = []
       const orderedJobs = state.aiJobs
-        .filter((job) => job.status === 'queued' || job.status === 'running')
+        .filter(
+          (job) =>
+            !isStandaloneProjectId(job.projectId) && (job.status === 'queued' || job.status === 'running'),
+        )
         .sort((left, right) => {
           const createdAt = left.createdAt.localeCompare(right.createdAt)
           if (createdAt !== 0) return createdAt
@@ -186,6 +201,7 @@ export class AiJobRepository {
             lease_expires_at = $5,
             updated_at = $4
         WHERE id = $1
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND status = 'running'
           AND lease_owner_id = $2
           AND lease_token = $3
@@ -200,7 +216,7 @@ export class AiJobRepository {
 
     await this.store.mutate((state) => {
       const job = state.aiJobs.find((item) => item.id === jobId)
-      if (!job || job.status !== 'running') return
+      if (!job || isStandaloneProjectId(job.projectId) || job.status !== 'running') return
       if (!renewAiJobLease(job, ownerId, leaseToken, leaseTtlMs)) return
       job.updatedAt = new Date().toISOString()
     })
@@ -227,6 +243,7 @@ export class AiJobRepository {
             lease_expires_at = NULL,
             updated_at = $5
         WHERE id = $1
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND status = 'running'
           AND lease_owner_id = $2
           AND lease_token = $3
@@ -241,7 +258,7 @@ export class AiJobRepository {
 
     await this.store.mutate((state) => {
       const job = state.aiJobs.find((item) => item.id === jobId)
-      if (!job || job.status !== 'running') return
+      if (!job || isStandaloneProjectId(job.projectId) || job.status !== 'running') return
       if (!aiJobLeaseMatches(job, ownerId, leaseToken)) return
       const now = new Date().toISOString()
       job.status = 'completed'
@@ -267,6 +284,7 @@ export class AiJobRepository {
             lease_expires_at = NULL,
             updated_at = $5
         WHERE id = $1
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND status = 'running'
           AND lease_owner_id = $2
           AND lease_token = $3
@@ -282,7 +300,7 @@ export class AiJobRepository {
 
     await this.store.mutate((state) => {
       const job = state.aiJobs.find((item) => item.id === jobId)
-      if (!job || job.status !== 'running') return
+      if (!job || isStandaloneProjectId(job.projectId) || job.status !== 'running') return
       if (!aiJobLeaseMatches(job, ownerId, leaseToken)) return
       const now = new Date().toISOString()
       job.status = 'failed'
@@ -302,6 +320,7 @@ export class AiJobRepository {
     const creditLedger = this.creditLedger
     await this.store.mutate(async (state) => {
       for (const job of state.aiJobs) {
+        if (isStandaloneProjectId(job.projectId)) continue
         if (!canRefundJob(job)) continue
         const description = refundDescription(job)
         if (creditLedger) {
@@ -335,6 +354,7 @@ export class AiJobRepository {
         SELECT ${aiJobColumns}
         FROM ai_jobs
         WHERE status IN ('queued', 'running')
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND (
             status = 'queued'
             OR lease_expires_at IS NULL
@@ -391,6 +411,7 @@ export class AiJobRepository {
         SELECT ${aiJobColumns}
         FROM ai_jobs
         WHERE status = 'failed'
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND cost_credits > 0
           AND refunded_at IS NULL
         ORDER BY updated_at ASC, id ASC
@@ -436,6 +457,7 @@ export class AiJobRepository {
     chargeCredits: boolean,
     options: { traceId?: string | null } = {},
   ): Promise<AiJob> {
+    rejectStandaloneProjectId(input.projectId)
     const created = await this.database!.transaction(async (client) => {
       const replayed = await findJobByClientRequest(client, input.clientRequestId, principal)
       if (replayed) {
@@ -568,7 +590,10 @@ export class AiJobRepository {
     const creditLedger = this.creditLedger
     return this.store.transaction(async (state) => {
       const existing = state.aiJobs.find(
-        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+        (item) =>
+          !isStandaloneProjectId(item.projectId) &&
+          item.clientRequestId === input.clientRequestId &&
+          item.userId === principal.userId,
       )
       if (existing) return existing
 
@@ -613,11 +638,13 @@ export class AiJobRepository {
   }
 
   private listByProjectFromStore(projectId: string, principal: Principal): AiJob[] {
+    if (isStandaloneProjectId(projectId)) return []
     const canReadAll = canReadAllTenantContent(principal)
     return this.store.read((state) =>
       state.aiJobs.filter(
         (job) =>
           job.projectId === projectId &&
+          !isStandaloneProjectId(job.projectId) &&
           job.tenantId === principal.tenantId &&
           (canReadAll || job.userId === principal.userId),
       ),
@@ -631,6 +658,7 @@ export class AiJobRepository {
         state.aiJobs.find(
           (job) =>
             job.id === jobId &&
+            !isStandaloneProjectId(job.projectId) &&
             job.tenantId === principal.tenantId &&
             (canReadAll || job.userId === principal.userId),
         ) ?? null,
@@ -638,6 +666,7 @@ export class AiJobRepository {
   }
 
   private async mirrorJob(job: AiJob, credits: number | null): Promise<void> {
+    if (isStandaloneProjectId(job.projectId)) return
     await this.store.mutateRuntimeCachesAsync(
       (state) => {
         upsertAiJobInState(state, job)
@@ -650,9 +679,10 @@ export class AiJobRepository {
   }
 
   private async mirrorJobs(jobs: AiJob[]): Promise<void> {
-    if (!jobs.length) return
+    const visibleJobs = jobs.filter((job) => !isStandaloneProjectId(job.projectId))
+    if (!visibleJobs.length) return
     await this.store.mutateAiJobRuntimeCacheAsync((state) => {
-      for (const job of jobs) upsertAiJobInState(state, job)
+      for (const job of visibleJobs) upsertAiJobInState(state, job)
     })
   }
 
@@ -662,6 +692,7 @@ export class AiJobRepository {
       SELECT ${aiJobColumns}
       FROM ai_jobs
       WHERE status IN ('queued', 'paused', 'running')
+        AND project_id NOT LIKE 'sm-standalone-%'
       ORDER BY created_at ASC, id ASC
       `,
     )
@@ -681,6 +712,7 @@ async function findJobByClientRequest(
     WHERE tenant_id = $1
       AND user_id = $2
       AND client_request_id = $3
+      AND project_id NOT LIKE 'sm-standalone-%'
     LIMIT 1
     `,
     [principal.tenantId, principal.userId, clientRequestId],
@@ -750,6 +782,7 @@ async function updateAiJobLifecycle(queryable: Queryable, job: AiJob): Promise<A
         refunded_at = $12,
         updated_at = $13
     WHERE id = $1
+      AND project_id NOT LIKE 'sm-standalone-%'
     RETURNING ${aiJobColumns}
     `,
     [
@@ -1023,7 +1056,9 @@ function buildQueuedAiJob(
 }
 
 function canRefundJob(job: AiJob): boolean {
-  return job.costCredits > 0 && job.status === 'failed' && !job.refundedAt
+  return (
+    !isStandaloneProjectId(job.projectId) && job.costCredits > 0 && job.status === 'failed' && !job.refundedAt
+  )
 }
 
 function refundJobInState(state: AppState, job: AiJob, description: string): number | null {

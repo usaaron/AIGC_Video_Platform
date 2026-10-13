@@ -23,6 +23,72 @@ export function IconButton({ label, children, className = '', ...props }) {
   )
 }
 
+export function canCancelRunningTask(job) {
+  if (job?.status !== 'running') return false
+  const providerName = String(job.metadata?.providerName || job.provider || '').toLowerCase()
+  return ['stringx-seedance', 'volc-ark-seedance', 'volcark-seedance'].includes(providerName)
+}
+
+/** Keep task actions identical wherever a generation task is surfaced. */
+export function TaskControls({
+  job,
+  busy = false,
+  compact = false,
+  onPause,
+  onResume,
+  onDelete,
+}) {
+  if (!job) return null
+  const canCancelRunning = canCancelRunningTask(job)
+  const showDelete = !compact && onDelete && (job.status !== 'running' || canCancelRunning)
+  const showPause = Boolean(onPause) && ['queued', 'running'].includes(job.status)
+  const showResume = Boolean(onResume) && job.status === 'paused'
+  if (!showPause && !showResume && !showDelete) return null
+  const requestPause = () => {
+    if (job.status === 'running') {
+      const confirmed =
+        typeof window === 'undefined' ||
+        window.confirm('任务已经开始生成，确认停止生成吗？已扣积分不会返还。')
+      if (!confirmed) return
+    }
+    onPause?.()
+  }
+  return (
+    <div className={compact ? 'task-controls compact' : 'job-controls task-controls'}>
+      {showPause && (
+        <IconButton
+          label={job.status === 'running' ? '停止生成（积分不返还）' : '暂停任务'}
+          disabled={busy}
+          onClick={requestPause}
+        >
+          <Pause size={14} />
+        </IconButton>
+      )}
+      {showResume && (
+        <IconButton label="继续任务" disabled={busy} onClick={onResume}>
+          <Play size={14} fill="currentColor" />
+        </IconButton>
+      )}
+      {showDelete && (
+        <IconButton
+          label={
+            canCancelRunning
+              ? '取消上游任务并退回积分'
+              : job.status === 'queued'
+                ? '删除任务并退回积分'
+                : '移出队列'
+          }
+          className="danger"
+          disabled={busy}
+          onClick={onDelete}
+        >
+          {busy ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />}
+        </IconButton>
+      )}
+    </div>
+  )
+}
+
 export function PageHeader({ eyebrow, title, description, children }) {
   return (
     <div className="page-header">
@@ -37,8 +103,9 @@ export function PageHeader({ eyebrow, title, description, children }) {
 }
 
 export function JobRow({ job, compact = false, busy = false, onPause, onResume, onDelete, onPreviewResult }) {
-  const canCancelRunning = job.status === 'running' && job.metadata?.providerName === 'stringx-seedance'
+  const canCancelRunning = canCancelRunningTask(job)
   const canPreviewInApp = ['image', 'video'].includes(job.kind) && typeof onPreviewResult === 'function'
+  const physics = physicsSummary(job)
   const icon =
     job.status === 'failed' ? (
       <XCircle size={15} />
@@ -82,7 +149,7 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
           <p className="job-provider-note">
             {job.provider === 'local-compose'
               ? compositionStageLabel(job)
-              : '第三方生成中，暂不可暂停或删除；若第三方失败，平台会自动退回积分。'}
+              : '生成已开始，点击暂停按钮可确认停止；已扣积分不会返还。'}
           </p>
         )}
         {canCancelRunning && (
@@ -90,6 +157,12 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
             {runningSeconds >= 360
               ? `上游仍在处理，已等待 ${formatRunningTime(runningSeconds)}；进度长时间不变时系统会自动取消旧任务并重试，无需一直等待。`
               : `上游生成中 · 已等待 ${formatRunningTime(runningSeconds)}；取消成功后会移出队列并退回平台积分。`}
+          </p>
+        )}
+        {physics && (
+          <p className={`job-physics-note ${physics.status}`}>
+            <strong>物理验收：{physics.label}</strong>
+            {physics.reason && <span>阻塞原因：{physics.reason}</span>}
           </p>
         )}
         {job.status === 'failed' && <p className="job-error">{job.error || '生成失败，请重新提交'}</p>}
@@ -107,35 +180,14 @@ export function JobRow({ job, compact = false, busy = false, onPause, onResume, 
               <ExternalLink size={13} /> 查看结果
             </a>
           ))}
-        {!compact && onDelete && (
-          <div className="job-controls">
-            {job.status === 'paused' ? (
-              <IconButton label="继续任务" disabled={busy} onClick={onResume}>
-                <Play size={14} fill="currentColor" />
-              </IconButton>
-            ) : job.status === 'queued' && onPause ? (
-              <IconButton label="暂停任务" disabled={busy} onClick={onPause}>
-                <Pause size={14} />
-              </IconButton>
-            ) : null}
-            {(job.status !== 'running' || canCancelRunning) && (
-              <IconButton
-                label={
-                  canCancelRunning
-                    ? '取消上游任务并退回积分'
-                    : job.status === 'queued'
-                      ? '删除任务并退回积分'
-                      : '移出队列'
-                }
-                className="danger"
-                disabled={busy}
-                onClick={onDelete}
-              >
-                {busy ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />}
-              </IconButton>
-            )}
-          </div>
-        )}
+        <TaskControls
+          job={job}
+          compact={compact}
+          busy={busy}
+          onPause={onPause}
+          onResume={onResume}
+          onDelete={onDelete}
+        />
       </div>
       <span className={`job-state ${job.status}`}>
         {jobStateLabel(job)}
@@ -172,4 +224,31 @@ function compositionStageLabel(job) {
   if (stage === 'uploading') return '完整预览已合成，正在上传并写回项目。'
   if (stage === 'preparing') return '正在准备镜头文件和合成任务。'
   return '完整预览合成中，平台会持续处理。'
+}
+
+const PHYSICS_STATUS_LABELS = {
+  passed: '通过',
+  failed: '失败',
+  'needs-evidence': '缺少逐帧证据',
+  'pending-evidence': '待逐帧证据',
+  pending: '待逐帧证据',
+  needs_evidence: '缺少逐帧证据',
+}
+
+function physicsSummary(job) {
+  const metadata = job?.metadata
+  const audit = metadata?.rigidPhysicsAudit
+  if (!audit || typeof audit !== 'object' || Array.isArray(audit)) return null
+  const status = String(audit.status || 'pending-evidence')
+  const label = PHYSICS_STATUS_LABELS[status] || status
+  const firstViolation = Array.isArray(audit.violations) ? audit.violations[0] : null
+  const reason = String(
+    metadata.rigidPhysicsBlockingReason ||
+      audit.blockingReason ||
+      (firstViolation && (firstViolation.detail || firstViolation.code)) ||
+      (status === 'pending-evidence' || status === 'pending' || status === 'needs-evidence' || status === 'needs_evidence'
+        ? '等待底脚与连接点逐帧证据'
+        : ''),
+  ).trim()
+  return { status, label, reason: status === 'passed' ? '' : reason }
 }

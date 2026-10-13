@@ -56,6 +56,24 @@ function payload() {
   })
 }
 describe('Postgres atomic bulk import', () => {
+  it('previews the database snapshot and rejects changes made after preview without writing', async () => {
+    const input = payload()
+    const preview = await imports.preview(input, principal)
+    expect(preview.episodes[0]?.status).toBe('new')
+    expect((await db.query('SELECT * FROM script_master_imports')).rowCount).toBe(0)
+    input.expectedTargetChecksum = preview.targetChecksum
+    await imports.import(input, principal)
+    const next = payload()
+    next.idempotencyKey = 'pg-preview-after-edit'
+    next.expectedTargetChecksum = (await imports.preview(next, principal)).targetChecksum
+    await db.query('UPDATE shots SET prompt=$2 WHERE project_id=$1', [target, '主站新修改'])
+    await expect(imports.import(next, principal)).rejects.toMatchObject({ code: 'IMPORT_TARGET_CHANGED' })
+    expect(
+      (await db.query<{ prompt: string }>('SELECT prompt FROM shots WHERE project_id=$1', [target])).rows[0]!
+        .prompt,
+    ).toBe('主站新修改')
+    expect((await db.query('SELECT * FROM script_master_imports')).rowCount).toBe(1)
+  })
   it('commits all entities and receipt atomically and deduplicates across repository instances', async () => {
     const input = payload()
     const second = new ScriptMasterImportRepository(store, db)

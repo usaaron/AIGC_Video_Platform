@@ -1,3 +1,4 @@
+import { videoReviewVersion } from '@seqora/contracts'
 import type { GenerationTask, ScriptEpisode } from '@seqora/contracts'
 import { VIDEO_PROMPT_VERSION } from '@seqora/prompting'
 import { Readable } from 'node:stream'
@@ -1778,7 +1779,11 @@ describe('GenerationTaskRunner Seedance integration', () => {
       resultUrl: null,
       outputs: [],
     }
-    await store.mutate((state) => state.tasks.unshift(linkedTask))
+    await store.mutate((state) => {
+      const source = state.tasks.find(task => task.id === sourceTask.id)!
+      source.metadata.contentReview = {decision:'approved',mediaVersion:videoReviewVersion(source)}
+      state.tasks.unshift(linkedTask)
+    })
     await runner.tick()
 
     expect(provider.submit).toHaveBeenLastCalledWith(
@@ -1793,7 +1798,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     )
   })
 
-  it('submits the next continuity shot in the same tick that its source completes', async () => {
+  it('holds the next continuity shot until source content is reviewed, then resumes without duplicate submissions', async () => {
     const files = new Map<string, Buffer>()
     const provider: VideoGenerationProvider = {
       submit: vi.fn(async ({ taskId }) => ({
@@ -1842,6 +1847,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
     })
     await runner.tick()
 
+    await vi.waitFor(() => expect(store.read(state => state.tasks.find(t => t.id === source!.id)?.status)).toBe('completed'))
+    expect(provider.submit).toHaveBeenCalledTimes(1)
+    expect(store.read(state => state.tasks.find(t => t.id === linked!.id)?.attempts ?? 0)).toBe(0)
+    await store.mutate(state => {
+      const completed = state.tasks.find(t => t.id === source!.id)!
+      completed.metadata.contentReview = {decision:'approved',mediaVersion:videoReviewVersion(completed)}
+    })
+    await runner.tick()
     await vi.waitFor(() => expect(provider.submit).toHaveBeenCalledTimes(2))
     expect(provider.getStatus).toHaveBeenCalledWith(`remote-${source!.id}`)
     expect(provider.submit).toHaveBeenLastCalledWith(
@@ -1864,6 +1877,9 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(store.read((state) => state.tasks.find((task) => task.id === linked!.id))).toMatchObject({
       metadata: { providerTaskId: `remote-${linked!.id}` },
     })
+    // Drain this test's follow-up completion before the next test resets global usage metrics.
+    await runner.tick()
+    await vi.waitFor(() => expect(store.read(state => state.tasks.find(t => t.id === linked!.id)?.status)).toBe('completed'))
   })
 
   it('does not submit a linked shot when the completed source has no tail frame', async () => {

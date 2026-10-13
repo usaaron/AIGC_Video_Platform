@@ -122,6 +122,33 @@ describe('OpenAIChatTextProvider', () => {
     ).rejects.toMatchObject({ name: 'TextGenerationProviderError' })
   })
 
+  it('can skip a second full wait after a provider timeout', async () => {
+    let calls = 0
+    const provider = new OpenAIChatTextProvider({
+      baseUrl: 'https://example.com',
+      apiKey: 'test-key',
+      model: 'glm-5.2',
+      requestTimeoutMs: 20,
+      providerLabel: 'Test Provider',
+      maxAttempts: 2,
+      retryTimeouts: false,
+      fetcher: (async () => {
+        calls += 1
+        const stream = new ReadableStream({
+          start() {
+            // Keep the stream open until the provider timeout elapses.
+          },
+        })
+        return new Response(stream, { headers: { 'content-type': 'text/event-stream' } })
+      }) as typeof fetch,
+    })
+
+    await expect(provider.generate({ systemPrompt: 'system', userPrompt: 'timeout' })).rejects.toMatchObject({
+      name: 'TextGenerationProviderError',
+    })
+    expect(calls).toBe(1)
+  })
+
   it('reports response, first-token, and generation timing for a completed request', async () => {
     const timings: Array<Record<string, unknown>> = []
     const provider = providerWithFetcher(async () =>

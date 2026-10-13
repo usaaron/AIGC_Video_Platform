@@ -38,6 +38,30 @@ describe('asset prompt compiler', () => {
     expect(compileCharacterStagePrompt(asset, '9:16', 'body')).toContain('本次造型：顾砚-礼服版本')
     expect(compileCharacterStagePrompt(asset, '9:16', 'face')).not.toContain('本次造型')
   })
+
+  it('carries the full authored wardrobe prompt and continuity note into body generation', () => {
+    const asset = {
+      name: '顾砚',
+      description: '固定人物身份与面部基准',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      attributes: {
+        ...createDefaultAttributes('character'),
+        activeAppearanceVariantId: 'rain',
+        appearanceVariants: [{
+          id: 'rain',
+          name: '顾砚-雨夜行动服版本',
+          description: '深灰防水短款外套，橙色反光条，磨损袖口',
+          prompt: '哑光防水面料，双层领口，战术腰包，泥水溅到裤脚，湿润高光仅出现在衣料表面',
+          continuityNote: '白宫外围雨夜行动使用；沿用同一张脸、发型和体态',
+        }],
+      },
+    }
+
+    const prompt = compileCharacterStagePrompt(asset, '9:16', 'body')
+    expect(prompt).toContain('哑光防水面料')
+    expect(prompt).toContain('白宫外围雨夜行动使用')
+  })
   it('includes selected character controls and project ratio', () => {
     const attributes = createDefaultAttributes('character')
     attributes.legStretch = true
@@ -91,7 +115,7 @@ describe('asset prompt compiler', () => {
 
     expect(compileCharacterStagePrompt(asset, '9:16', 'face')).toContain('画面比例1:1')
     expect(compileCharacterStagePrompt(asset, '9:16', 'body')).toContain('画面比例9:16')
-    expect(compileCharacterStagePrompt(asset, '9:16', 'turnaround')).toContain('16:9三栏')
+    expect(compileCharacterStagePrompt(asset, '9:16', 'turnaround')).toContain('每张仅呈现本次指定视角')
   })
 
   it('keeps advanced character prompts isolated by workflow stage', () => {
@@ -194,7 +218,9 @@ describe('asset prompt compiler', () => {
 
     const prompt = compileAssetPrompt(asset, '9:16')
     expect(prompt).toContain('Alpha通道')
-    expect(prompt).toContain('无光影效果')
+    expect(prompt).toContain('无戏剧化光影效果')
+    expect(prompt).toContain('材质本身必要的明暗和克制高光')
+    expect(prompt).not.toContain('无高光')
     expect(prompt).toContain('无投影')
   })
 

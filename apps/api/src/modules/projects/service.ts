@@ -17,6 +17,7 @@ import type {
 } from '@seqora/contracts'
 import {
   ASSET_SUGGESTION_MODEL,
+  characterIdentity,
   suggestEpisodePlan,
   DEFAULT_SCRIPT_MODEL,
   SCRIPT_OPERATION_CREDITS,
@@ -32,12 +33,13 @@ import type { CreditLedger } from '../billing/creditLedger.js'
 import type { ProjectRepository } from './repository.js'
 import {
   assetSuggestionKey,
-  extractScriptAssetManifest,
   extractScriptAssetNameIndex,
   fallbackAssetSuggestions,
   normalizeScriptAssetSuggestion,
   projectVisualStyleLabel,
 } from './assetSuggestions.js'
+import { ScriptAssetSourceIndexCache } from './scriptAssetSourceIndex.js'
+import { createCharacterEvidenceContext } from './characterEvidence.js'
 import {
   SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
   SCRIPT_ASSET_SUGGESTIONS_TIMEOUT_MS,
@@ -110,6 +112,8 @@ import {
 type ScriptBillingMode = 'direct' | 'prepaid'
 
 export class ProjectService {
+  private readonly assetSourceIndex = new ScriptAssetSourceIndexCache()
+
   constructor(
     private readonly repository: ProjectRepository,
     private readonly textProvider: TextGenerationProvider | null = null,
@@ -132,8 +136,8 @@ export class ProjectService {
     return { version }
   }
 
-  create(input: CreateProject, principal: Principal) {
-    return this.repository.create(input, principal)
+  create(input: CreateProject, principal: Principal, idempotencyKey?: string) {
+    return this.repository.create(input, principal, idempotencyKey)
   }
 
   async update(projectId: string, input: UpdateProject, principal: Principal) {
@@ -214,27 +218,47 @@ export class ProjectService {
     strategy: 'model' | 'fast' = 'model',
   ) {
     const workspace = await this.workspace(projectId, principal)
-    const source = [
-      ...new Set(
-        [
-          ...(workspace.scriptEpisodes || [])
-            .filter((episode) => episode.status === 'saved')
-            .map((episode) => episode.content.trim()),
-          script.trim(),
-        ].filter(Boolean),
-      ),
-    ].join('\n\n')
+    const hasModelAuthoredAssetDelivery = (workspace.scriptEpisodes || []).some(
+      (episode) =>
+        episode.status === 'saved' &&
+        (episode.continuityState?.scriptAssetDesignDelivery as { version?: unknown } | undefined)?.version ===
+          'script_asset_design_delivery.v1',
+    )
+    if (hasModelAuthoredAssetDelivery) {
+      return {
+        summary: '剧本已随模型生成的正式资产设定交付，主项目直接复用这些资产。',
+        assets: [],
+        generatedAt: new Date().toISOString(),
+        warnings: ['已跳过正文资产提取；如需新增资产，请在剧本大师中补充设定后重新同步。'],
+      }
+    }
+    const sources = (workspace.scriptEpisodes || [])
+      .filter((episode) => episode.status === 'saved' && episode.content.trim())
+      .map((episode) => ({
+        id: `episode:${episode.id}`,
+        content: episode.content.trim(),
+        assetEvidence: episode.continuityState?.scriptAssetEvidence,
+      }))
+    const requestedSource = script.trim()
+    if (requestedSource && !sources.some(({ content }) => content === requestedSource)) {
+      sources.push({ id: 'request', content: requestedSource, assetEvidence: undefined })
+    }
+    const source = [...new Set(sources.map(({ content }) => content))].join('\n\n')
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本内容')
-    const sourceManifest = extractScriptAssetManifest(source)
+    // Authorization above always runs; only deterministic source facts are reused.
+    // Asset-library matching and visual-style normalization use the current workspace.
+    const sourceIndex = this.assetSourceIndex.analyze({ tenantId: principal.tenantId, projectId }, sources)
+    const sourceManifest = sourceIndex.manifest
+    const characterEvidence = createCharacterEvidenceContext(source)
 
-    const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n视觉风格：${projectVisualStyleLabel(workspace.project.visualStyle)}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n已有资产：${assetSuggestionSummary(workspace.assets)}`
     const fallbackResult = fallbackAssetSuggestions(
       source,
       direction,
       workspace.project.visualStyle ?? 'cinematic-cg',
       sourceManifest,
+      sourceIndex.names,
+      characterEvidence,
     )
-    const assetEvidence = buildScriptAssetEvidence(source)
     let warnings: string[] = []
     let result: { summary: string; assets: ScriptAssetSuggestion[] }
 
@@ -246,6 +270,8 @@ export class ProjectService {
       result = fallbackResult
     } else {
       try {
+        const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n视觉风格：${projectVisualStyleLabel(workspace.project.visualStyle)}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n已有资产：${assetSuggestionSummary(workspace.assets)}`
+        const assetEvidence = buildScriptAssetEvidence(source, sourceIndex)
         const response = await this.textProvider.generate({
           systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: `${projectContext}\n\n全剧资产证据（已覆盖开头、中段和结尾；只基于这些证据筛选核心资产）：\n${assetEvidence.text}`,
@@ -273,27 +299,39 @@ export class ProjectService {
       }
     }
 
-    const sourceNames = extractScriptAssetNameIndex(source)
-    const normalizedAssets = result.assets.flatMap((suggestion) => {
-      const normalized = normalizeScriptAssetSuggestion(
-        suggestion,
-        sourceNames,
-        source,
-        workspace.project.visualStyle ?? 'cinematic-cg',
-        sourceManifest,
-      )
-      return normalized ? [normalized] : []
-    })
-    const normalizedFallbackAssets = fallbackResult.assets.flatMap((suggestion) => {
-      const normalized = normalizeScriptAssetSuggestion(
-        suggestion,
-        sourceNames,
-        source,
-        workspace.project.visualStyle ?? 'cinematic-cg',
-        sourceManifest,
-      )
-      return normalized ? [normalized] : []
-    })
+    const sourceNames = extractScriptAssetNameIndex(source, sourceIndex)
+    const normalizeAssets = (assets: ScriptAssetSuggestion[]) =>
+      assets.flatMap((suggestion) => {
+        const normalized = normalizeScriptAssetSuggestion(
+          suggestion,
+          sourceNames,
+          source,
+          workspace.project.visualStyle ?? 'cinematic-cg',
+          sourceManifest,
+          characterEvidence,
+        )
+        return normalized ? [normalized] : []
+      })
+    const normalizedFallbackAssets = normalizeAssets(fallbackResult.assets)
+    const evidenceKey = (asset: ScriptAssetSuggestion) =>
+      JSON.stringify([
+        asset.kind,
+        (asset.kind === 'character' ? characterIdentity(asset.name).name : asset.name)
+          .normalize('NFKC')
+          .toLocaleLowerCase(),
+      ])
+    const declaredKeys = new Set(normalizedFallbackAssets.map(evidenceKey))
+    const normalizedAssets =
+      result === fallbackResult
+        ? normalizedFallbackAssets
+        : normalizeAssets(result.assets).filter((asset) => {
+            const complete =
+              (asset.kind === 'character' || asset.kind === 'scene' || asset.kind === 'prop') &&
+              sourceIndex.complete[asset.kind]
+            // Complete source lists, including explicit empties, cannot be expanded by
+            // model guesses. Legacy/incomplete categories retain semantic discovery.
+            return !complete || declaredKeys.has(evidenceKey(asset))
+          })
     const representedAssets = new Set(normalizedAssets.map(assetSuggestionKey))
     if (!normalizedAssets.length && !warnings.length) {
       warnings = ['模型未返回可用资产，已根据全剧结构化字段补齐基础资产建议']

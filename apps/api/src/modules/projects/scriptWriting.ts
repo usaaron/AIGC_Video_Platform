@@ -208,7 +208,12 @@ const CHINESE_SCRIPT_REPAIR_SYSTEM_PROMPT = `你是中文剧本格式校对员�
 4. 只输出修复后的完整剧本正文。`
 
 export function webSeriesMaxOutputTokens(episodeSeconds = 60): number {
-  return Math.min(12_000, Math.max(6_000, Math.ceil(Math.max(30, episodeSeconds) / 20) * 1_800))
+  // Keep a five-minute episode within a provider-friendly response size. The
+  // source already carries the eight structured scene rows; asking for a
+  // 12k-token rewrite often delays the first streamed token until the
+  // provider request timeout and prevents the batch checkpoint from moving
+  // to the next episode.
+  return Math.min(8_000, Math.max(4_000, Math.ceil(Math.max(30, episodeSeconds) / 30) * 800))
 }
 
 export function webSeriesSceneBudget(episodeSeconds = 60): {

@@ -13,13 +13,11 @@ describe('function stack pages', () => {
     expect(html).not.toContain('开始制作')
   })
 
-  it('shows a safe connection state while the external module is unavailable', () => {
+  it('keeps the standalone script master isolated from the host project', () => {
     const html = renderToStaticMarkup(<FunctionStackPage tool="writing-studio" />)
 
-    expect(html).toContain('正在恢复当前项目的创作…')
-    expect(html).toContain('返回项目剧本')
-    expect(html).not.toContain('<iframe')
-    expect(html).not.toContain('长剧本能力尚未接入当前版本')
+    expect(html).toContain('独立剧本大师工作台')
+    expect(html).not.toContain('host_project_id')
   })
 
   it('renders image-studio as the formal image2 workspace', () => {

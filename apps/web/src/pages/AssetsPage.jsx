@@ -18,7 +18,7 @@ import {
 import { useEffect, useState } from 'react'
 import { assetDisplayName } from '@seqora/contracts'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
-import { IconButton, PageHeader } from '../components/ui'
+import { IconButton, PageHeader, TaskControls } from '../components/ui'
 import { AssetEditor } from '../features/assets/AssetEditor'
 import { ASSET_TABS, IMAGE_MODEL_OPTIONS } from '../features/assets/assetOptions'
 import { GenerationProgress } from '../features/assets/GenerationProgress'
@@ -29,6 +29,7 @@ import {
   latestAssetImageTask,
 } from '../features/assets/assetTaskState'
 import { compactAssetDescription, summarizeAsset } from '../features/assets/promptCompiler'
+import { DeliveredScriptAssets } from '../features/assets/DeliveredScriptAssets'
 
 const emptyIcons = { character: UsersRound, prop: Boxes, costume: Shirt, brand: Badge, audio: Music2 }
 const emptyAssetCopy = {
@@ -43,16 +44,27 @@ const emptyAssetCopy = {
 export function AssetsPage({
   project,
   assets,
+  scriptEpisodes = [],
   tasks,
   imageModels,
   billing,
   onCreate,
+  onSuggestAssets,
+  onSuggestAssetsFast,
+  latestAssetSuggestionTask,
+  activeAssetSuggestionTask,
+  onCancelTask,
+  onImportAssets,
   onUpdate,
   onDelete,
   onUpload,
   onGenerate,
   onGenerateStage,
   onGenerateAll,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   onGetTrustedConfiguration,
   onListTrustedPortraits,
   onRegisterVirtualPortrait,
@@ -152,6 +164,22 @@ export function AssetsPage({
         )}
       </PageHeader>
 
+      {project.contentType === 'short-drama' && (onSuggestAssets || onSuggestAssetsFast) && (
+        <DeliveredScriptAssets
+          key={project.id}
+          project={project}
+          scriptEpisodes={scriptEpisodes}
+          assets={assets}
+          onSuggestAssets={onSuggestAssets}
+          onSuggestAssetsFast={onSuggestAssetsFast}
+          latestAssetSuggestionTask={latestAssetSuggestionTask}
+          activeAssetSuggestionTask={activeAssetSuggestionTask}
+          onCancelTask={onCancelTask}
+          onCreateAsset={onCreate}
+          onImportAssets={onImportAssets}
+          onUpload={onUpload}
+        />
+      )}
       <div className="asset-tabs asset-tabs-six">
         {assetTabs.map(([kind, label]) => (
           <button key={kind} className={tab === kind ? 'active' : ''} onClick={() => setTab(kind)}>
@@ -216,6 +244,10 @@ export function AssetsPage({
             }}
             onPreview={setPreview}
             busy={busyAssetId === asset.id}
+            onPauseTask={onPauseTask}
+            onResumeTask={onResumeTask}
+            onDeleteTask={onDeleteTask}
+            busyTaskId={busyTaskId}
           />
         ))}
         <button className="add-asset" onClick={() => setEditing({ kind: tab })}>
@@ -285,6 +317,10 @@ export function AssetsPage({
             if (updated) setEditing(updated)
             return updated
           }}
+          onPauseTask={onPauseTask}
+          onResumeTask={onResumeTask}
+          onDeleteTask={onDeleteTask}
+          busyTaskId={busyTaskId}
           onDelete={
             editing.id
               ? async () => {
@@ -310,6 +346,10 @@ function AssetCard({
   onGenerate,
   onPreview,
   busy,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId,
 }) {
   const displayName = assetDisplayName(asset)
   const EmptyIcon = emptyIcons[asset.kind] || Sparkles
@@ -345,6 +385,16 @@ function AssetCard({
         {(busy || taskCardState) && (
           <div className="asset-generation-overlay" role="status" aria-live="polite">
             <GenerationProgress task={!busy && taskCardState ? task : null} busy={busy} />
+            {task && ['queued', 'paused', 'running'].includes(task.status) && (
+              <TaskControls
+                job={task}
+                compact
+                busy={busyTaskId === task.id}
+                onPause={onPauseTask ? () => onPauseTask(task.id) : undefined}
+                onResume={onResumeTask ? () => onResumeTask(task.id) : undefined}
+                onDelete={onDeleteTask ? () => onDeleteTask(task.id) : undefined}
+              />
+            )}
           </div>
         )}
         <span>

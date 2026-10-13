@@ -41,7 +41,12 @@ import {
 } from '../features/script/scriptTaskState'
 import { useScriptTaskPreview } from '../features/script/useScriptTaskPreview'
 import { useAssetSuggestions } from '../features/script/useAssetSuggestions'
+import {
+  savedAssetEvidenceFingerprint,
+  savedAssetSuggestionScope,
+} from '../features/script/assetSuggestionScope'
 import { useScriptGeneration } from '../features/script/useScriptGeneration'
+import { ScriptDurationInput } from '../features/script/ScriptDurationInput'
 import { SeriesCreationWorkspace } from '../features/script/ScriptMasterWorkspace'
 import { DEFAULT_SCRIPT_MODEL, DEFAULT_SCRIPT_DIRECTION, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 
@@ -70,6 +75,7 @@ export function ScriptPage({
   onCancelTask,
   onUpdateEpisodeDuration,
   onNext,
+  scriptMasterView = 'script',
 }) {
   const contentConfig = SCRIPT_CONTENT_CONFIGS[project.contentType] || SCRIPT_CONTENT_CONFIGS.animation
   const isSeries = project.contentType === 'short-drama'
@@ -135,8 +141,31 @@ export function ScriptPage({
     .filter((episode) => episode.status === 'saved')
     .map((episode) => episode.content)
   const assetScanSource = script.trim() || savedScripts.at(-1) || ''
-  const assetSuggestionFingerprint = scriptSuggestionFingerprint([...savedScripts, script].join('\n\n'))
+  const evidenceFingerprint = useMemo(() => savedAssetEvidenceFingerprint(orderedEpisodes), [orderedEpisodes])
+  const assetSuggestionFingerprint = scriptSuggestionFingerprint(
+    [...savedScripts, script, ...(evidenceFingerprint ? [evidenceFingerprint] : [])].join('\n\n'),
+  )
   const currentAssetRevision = useMemo(() => assetSuggestionRevision(assets), [assets])
+  const automaticAssetScope = useMemo(
+    () =>
+      savedAssetSuggestionScope({
+        episodes: isSeries ? orderedEpisodes : [],
+        source: !isSeries && looksLikeDevelopedScript(project.script) ? project.script : '',
+        contentType: project.contentType,
+        visualStyle: project.visualStyle,
+        direction,
+        assetRevision: currentAssetRevision,
+      }),
+    [
+      isSeries,
+      orderedEpisodes,
+      project.script,
+      project.contentType,
+      project.visualStyle,
+      direction,
+      currentAssetRevision,
+    ],
+  )
 
   useEffect(() => {
     if (!scriptModelCapabilityKey || !selectedScriptModelUnavailable) return
@@ -173,17 +202,11 @@ export function ScriptPage({
     activePreviewValidation,
     latestTextTiming,
   } = scriptTaskState
-  const autoAssetSuggestionSource =
-    activeTaskDraftText ||
-    (completedScriptText && scriptSuggestionFingerprint(completedScriptText) === assetSuggestionFingerprint
-      ? completedScriptText
-      : '') ||
-    (saved && looksLikeDevelopedScript(script) ? script : '')
   const assetSuggestions = useAssetSuggestions({
     projectId: project.id,
     script: assetScanSource,
     scopeFingerprint: assetSuggestionFingerprint,
-    autoSource: autoAssetSuggestionSource || savedScripts.at(-1) || '',
+    ...automaticAssetScope,
     direction,
     latestTask: latestAssetSuggestionTask,
     activeTask: activeAssetSuggestionTask,
@@ -331,12 +354,12 @@ export function ScriptPage({
   const update = (value) => {
     setScript(value)
     setSaved(false)
-    assetSuggestions.reset()
+    assetSuggestions.reset({ preserveAutomatic: true })
   }
 
   const openEpisode = (episode) => {
     if (!saved && script.trim() && !window.confirm('当前修改尚未保存，切换后会丢失。继续吗？')) return
-    assetSuggestions.reset()
+    assetSuggestions.reset({ preserveAutomatic: true })
     setActiveEpisodeId(episode.id)
     setScript(episode.draftContent || episode.content)
     setSaved(episode.status === 'saved')
@@ -352,7 +375,7 @@ export function ScriptPage({
     setError('')
     try {
       await onDeleteEpisode(episode.id)
-      assetSuggestions.reset()
+      assetSuggestions.reset({ preserveAutomatic: true })
       setActiveEpisodeId(null)
       setScript('')
       setSaved(true)
@@ -373,7 +396,7 @@ export function ScriptPage({
     setError('')
     try {
       await onClearEpisodes()
-      assetSuggestions.reset()
+      assetSuggestions.reset({ preserveAutomatic: true })
       setActiveEpisodeId(null)
       setScript('')
       setSaved(true)
@@ -403,40 +426,43 @@ export function ScriptPage({
 
   return (
     <div
-      className={`page editor-page script-page-redesign${isSeries && seriesView === 'creation' ? ' is-inline-creation' : ''}`}
+      className={`page editor-page script-page-redesign${isSeries ? ' is-series-workspace' : ''}${isSeries && seriesView === 'creation' ? ' is-inline-creation' : ''}`}
     >
-      <PageHeader
-        eyebrow="AI 创作工作台"
-        title={`《${project.name}》${contentConfig.pageTitle}`}
-        description={contentConfig.pageDescription}
-      >
-        <div hidden={isSeries && seriesView === 'creation'} className="script-document-actions">
-          <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
-          <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
-            <Upload size={16} /> 导入文本
-          </button>
-          <button
-            className="button primary script-header-save"
-            disabled={saving || saved || !script.trim()}
-            onClick={() => void save()}
-          >
-            {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
-            {saving
-              ? '保存中'
-              : saved
-                ? '已保存'
-                : isSeries
-                  ? '保存当前剧集'
-                  : `保存${contentConfig.documentName}`}
-          </button>
-        </div>
-      </PageHeader>
+      {!(isSeries && seriesView === 'creation') && (
+        <PageHeader
+          eyebrow={isSeries ? undefined : 'AI 创作工作台'}
+          title={`《${project.name}》${contentConfig.pageTitle}`}
+          description={isSeries ? undefined : contentConfig.pageDescription}
+        >
+          <div className="script-document-actions">
+            <input ref={fileInput} className="hidden-input" type="file" accept=".txt,.md" onChange={upload} />
+            <button className="button secondary" disabled={busy} onClick={() => fileInput.current?.click()}>
+              <Upload size={16} /> 导入文本
+            </button>
+            <button
+              className="button primary script-header-save"
+              disabled={saving || saved || !script.trim()}
+              onClick={() => void save()}
+            >
+              {saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
+              {saving
+                ? '保存中'
+                : saved
+                  ? '已保存'
+                  : isSeries
+                    ? '保存当前剧集'
+                    : `保存${contentConfig.documentName}`}
+            </button>
+          </div>
+        </PageHeader>
+      )}
 
       {isSeries && (
         <SeriesCreationWorkspace
           projectId={project.id}
           episodeCount={orderedEpisodes.length}
           view={seriesView}
+          activeView={scriptMasterView}
           onViewChange={setSeriesView}
           busy={busy}
           onSynced={onRefreshProduction}
@@ -459,7 +485,8 @@ export function ScriptPage({
         </div>
       )}
 
-      <div hidden={isSeries && seriesView !== 'production'}>
+      {(!isSeries || seriesView === 'production') && (
+        <div>
         {!isSeries && (
           <section className="script-direction-bar script-generation-console" aria-label="剧本生成设置">
             <header className="script-generation-head">
@@ -497,24 +524,14 @@ export function ScriptPage({
                 </div>
                 <span className="script-format-note">{contentConfig.modeNote}</span>
                 {usesDuration ? (
-                  <label className="script-episode-seconds">
-                    <span>{contentConfig.durationLabel}</span>
-                    <span className="script-seconds-input">
-                      <input
-                        aria-label={`${contentConfig.durationLabel}（秒）`}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={episodeDurationSeconds}
-                        onChange={(event) => setEpisodeDurationSeconds(event.target.value.replace(/\D/g, ''))}
-                        onBlur={() => void commitEpisodeDuration()}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') void commitEpisodeDuration()
-                        }}
-                      />
-                      <em>秒</em>
-                    </span>
-                  </label>
+                  <ScriptDurationInput
+                    className="script-episode-seconds"
+                    label={contentConfig.durationLabel}
+                    value={episodeDurationSeconds}
+                    onChange={setEpisodeDurationSeconds}
+                    onCommit={commitEpisodeDuration}
+                    commitOnEnter
+                  />
                 ) : (
                   <span className="script-single-episode-budget">6～8 个场次</span>
                 )}
@@ -894,25 +911,15 @@ export function ScriptPage({
                     onChange={(event) => setSegmentGoal(event.target.value)}
                   />
                   {usesDuration && (
-                    <label className="script-append-duration">
-                      <span>{contentConfig.appendDurationLabel}</span>
-                      <span className="script-seconds-input">
-                        <input
-                          aria-label={`${contentConfig.appendDurationLabel}（秒）`}
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          value={segmentDurationSeconds}
-                          onChange={(event) =>
-                            setSegmentDurationSeconds(event.target.value.replace(/\D/g, ''))
-                          }
-                          onBlur={() =>
-                            setSegmentDurationSeconds(normalizeContentDuration(segmentDurationSeconds))
-                          }
-                        />
-                        <em>秒</em>
-                      </span>
-                    </label>
+                    <ScriptDurationInput
+                      className="script-append-duration"
+                      label={contentConfig.appendDurationLabel}
+                      value={segmentDurationSeconds}
+                      onChange={setSegmentDurationSeconds}
+                      onCommit={() =>
+                        setSegmentDurationSeconds(normalizeContentDuration(segmentDurationSeconds))
+                      }
+                    />
                   )}
                   <button
                     type="button"
@@ -971,6 +978,7 @@ export function ScriptPage({
           onContinue={continueToAssets}
         />
       </div>
+      )}
 
       {assetSuggestions.editor && (
         <AssetEditor

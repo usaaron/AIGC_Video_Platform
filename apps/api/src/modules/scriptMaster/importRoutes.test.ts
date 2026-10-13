@@ -43,8 +43,25 @@ async function setup() {
     scope: string | null = null,
     roles = ['member'],
     expiresAt = Math.floor(Date.now() / 1000) + 300,
+    surface?: 'embedded' | 'standalone',
   ) =>
-    `Bearer ${signClaims({ version: 1, issuer: 'seqora', audience: 'script-master', issuedAt: Math.floor(Date.now() / 1000), expiresAt, tokenId: 'test-token', tenantId: principal.tenantId, actorId: principal.userId, roles, permissions: ['project.write'], projectId: scope }, secret)}`
+    `Bearer ${signClaims(
+      {
+        version: 1,
+        issuer: 'seqora',
+        audience: 'script-master',
+        issuedAt: Math.floor(Date.now() / 1000),
+        expiresAt,
+        tokenId: 'test-token',
+        tenantId: principal.tenantId,
+        actorId: principal.userId,
+        roles,
+        permissions: ['project.write'],
+        projectId: scope,
+        ...(surface ? { surface } : {}),
+      },
+      secret,
+    )}`
   const payload = {
     contractVersion: 'script_master_delivery.v2',
     targetProjectId: project.id,
@@ -56,6 +73,40 @@ async function setup() {
   return { app, token, payload, project }
 }
 describe('import ticket authorization', () => {
+  it('serves scoped preview and preserves its checksum through HTTP validation', async () => {
+    const { app, token, payload, project } = await setup()
+    const headers = { authorization: token(project.id) }
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/script-master/imports/preview',
+      headers,
+      payload,
+    })
+    expect(preview.statusCode).toBe(200)
+    expect(preview.json().assets.imported).toBe(1)
+    const denied = await app.inject({
+      method: 'POST',
+      url: '/api/v1/script-master/imports/preview',
+      headers: { authorization: token('another-project') },
+      payload,
+    })
+    expect(denied.statusCode).toBe(403)
+    const stale = await app.inject({
+      method: 'POST',
+      url: '/api/v1/script-master/imports',
+      headers,
+      payload: { ...payload, expectedTargetChecksum: '0'.repeat(64) },
+    })
+    expect(stale.statusCode).toBe(409)
+    expect(stale.json().code).toBe('IMPORT_TARGET_CHANGED')
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/v1/script-master/imports',
+      headers,
+      payload: { ...payload, expectedTargetChecksum: preview.json().targetChecksum },
+    })
+    expect(imported.statusCode).toBe(201)
+  })
   it('accepts a valid ticket and only lists writable targets', async () => {
     const { app, token, payload, project } = await setup()
     const headers = { authorization: token(project.id) }
@@ -104,5 +155,18 @@ describe('import ticket authorization', () => {
       payload,
     })
     expect(response.statusCode).toBe(403)
+  })
+
+  it('rejects standalone tickets from every host project write surface', async () => {
+    const { app, token, payload } = await setup()
+    const headers = { authorization: token(null, ['member'], undefined, 'standalone') }
+    for (const [method, url] of [
+      ['GET', '/api/v1/script-master/targets'],
+      ['POST', '/api/v1/script-master/imports'],
+    ] as const) {
+      const response = await app.inject({ method, url, headers, ...(method === 'POST' ? { payload } : {}) })
+      expect(response.statusCode).toBe(403)
+      expect(response.json()).toMatchObject({ code: 'SCRIPT_MASTER_SURFACE_DENIED' })
+    }
   })
 })

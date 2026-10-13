@@ -1,5 +1,13 @@
 # 资产生成与 Provider 接入
 
+## 本地 5183 图片配置
+
+2026-10-08 修复：本地图片配置保存于 `apps/api/.env`，使用 `SEQORA_IMAGE2_API_KEY`、`SEQORA_IMAGE2_BASE_URL` 和 `SEQORA_IMAGE2_MODEL`。文件被 Git 忽略，新 worktree 不会自动带入。原主仓 `C:/Users/admin/Desktop/图片/aigc-studio-demo/apps/api/.env` 仍保留，当前工作目录已迁入验证可用的图片设置；不得把完整旧配置覆盖到当前预览，以免带入其他数据、账号或服务配置。
+
+支持工作区 `work/local-dark-preview-20260923/image-provider-config.mjs` 只读取图片配置，允许进程环境覆盖；旧 `TOKENADVENT_*` 图片凭据转换为 `SEQORA_IMAGE2_*`，避免顺带启用主站文本。`Start-SeqoraFull.ps1` 使用的 `start-host-api.mts` 与兼容 `start-api.mts` 均加载该配置并启用 inline Worker。图片 Key 缺失时启动明确报错，不再静默使用模拟生图。
+
+修改配置后需重启本地主站 API 才生效；先确认没有运行或排队中的任务，并保留其他服务。健康接口应显示 `providers.img2=configured`、`readiness.worker.status=ready`、`readiness.ready=true`。健康检查不代替上游鉴权或真实生图验收。2026-10-08 原配置真实单图返回 200，约 37 秒完成；配置回归与隔离任务链路验证使用测试凭据及上游替身，没有重复付费生成。
+
 ## 资产分类
 
 资产使用五个稳定类型：`character`、`scene`、`prop`、`costume`、`audio`。每个资产同时保存结构化 `attributes` 和生成时使用的中文 `prompt`，便于更换模型时重新编译或直接复用提示词。
@@ -186,7 +194,7 @@ StringX Provider 通过 `VIDEO_PROVIDER=stringx` 显式启用，官方火山 Pro
 
 规则按条件启用：视频通用稳定性、仿真人拍摄设备和背景穿帮、人物五官与手部、场景结构与空场景人物排除、广告产品展示，以及用户自定义负面提示词。动漫/国漫不会误加“禁止动漫”，雾景不会误加“禁止烟雾”，广告允许用户指定的品牌标识。视频 Provider 将质量约束编入最终提示词；图片 Provider 接收内部 `negativePrompt` 后按上游协议提交。规则用于抬高质量下限，不保证每次生成无瑕，仍需人工验收和必要的重试。
 
-生成队列支持单任务暂停、继续和删除。只有本地仍为 `queued` 的任务可以暂停；暂停任务不参与 Worker 调度。删除等待任务时服务端先切换为 `paused`，再软删除并幂等退回预扣积分。运行中的视频仅在 Provider 提供远端 `cancel` 时调用；DoraRouter 当前没有该接口，服务端标记跳过远端取消后按本地规则退款，不会重复请求导致白屏或报错。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
+生成队列支持单任务暂停、继续和删除。所有创作界面都通过顶栏任务面板和对应的生成卡片提供同一组控制。仍在 `queued` 的任务可以暂停并稍后继续，暂停任务不参与 Worker 调度；点击运行中的任务控制按钮会先要求确认，确认后将任务标记为已停止并释放本地执行租约，后续结果不会写回，已扣积分不会返还，也不能再继续。运行中的视频若 Provider 提供远端 `cancel`，后台仍会按能力尝试停止上游；DoraRouter 当前没有该接口时只记录跳过，不反复请求不存在的地址。普通删除等待任务仍按本地规则幂等退款，运行中任务的删除/取消则按 Provider 能力处理。完成或失败任务删除时只写入 `queueHiddenAt`，不会破坏输出 URL。
 
 分镜卡片展示提示词摘要、参考资产与视频状态，提供带文字的大号“编辑分镜”按钮。已有版本可点“再抽一次”，保留原有版本历史；单镜视频仍为 18 积分，沿用现有连续性和任务队列。批量入口和每个镜头均可在生成前选择 `480p`、`720p`、`1080p` 或 `4k`，选中值冻结到任务 `metadata.resolution`。
 

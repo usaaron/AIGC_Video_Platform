@@ -4,11 +4,17 @@ import type {
   GenerationTask,
   GenerationTaskPolling,
   Principal,
+  RigidPhysicsAuditRequest,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
-import { generateScriptRequestSchema } from '@seqora/contracts'
+import { generateScriptRequestSchema, rigidPhysicsAuditResultSchema, type ReviewVideo, videoReviewVersion } from '@seqora/contracts'
 import { Readable } from 'node:stream'
-import { compileStoryboardVideoPrompt, VIDEO_PROMPT_VERSION } from '@seqora/prompting'
+import {
+  compileStoryboardVideoPrompt,
+  deriveRigidPhysicsContract,
+  inspectVideoPreflight,
+  VIDEO_PROMPT_VERSION,
+} from '@seqora/prompting'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
 import { traceContext, traceIdFromGenerationTask } from '../../core/observability/trace.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
@@ -19,6 +25,7 @@ import type { ObjectStorage, ObjectStorageStream } from '../../infra/objectStora
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { GenerationTaskRepository } from './repository.js'
+import { auditRigidVideoBuffer, type RawVideoFrameAudit } from '../../core/generation/rigidFrameAudit.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
 
@@ -28,6 +35,12 @@ export type AssetLibraryTaskPreflight = (
   principal: Principal,
   expectedFaceReferenceId?: string,
 ) => Promise<void>
+
+export type RigidAuditRunner = (input: {
+  prompt: string
+  video: Buffer
+  observations: RigidPhysicsAuditRequest['observations']
+}) => Promise<RawVideoFrameAudit>
 
 export class GenerationService {
   constructor(
@@ -39,6 +52,7 @@ export class GenerationService {
     private readonly filmPreviewComposer: FilmPreviewDispatcher | null = null,
     private readonly textProvider: TextGenerationProvider | null = null,
     private readonly assetLibraryTaskPreflight: AssetLibraryTaskPreflight | null = null,
+    private readonly rigidAuditRunner: RigidAuditRunner = auditRigidVideoBuffer,
   ) {}
 
   async createTask(
@@ -48,6 +62,9 @@ export class GenerationService {
   ): Promise<GenerationTask> {
     if (!(await this.repository.canCreate(input.projectId, principal))) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成')
+    }
+    if (input.kind === 'video' && input.provider === 'seedance' && !this.videoProvider) {
+      throw new AppError(503, 'SEEDANCE_NOT_CONFIGURED', '视频生成服务尚未配置，请配置后重试；本次未扣费')
     }
     if (input.kind === 'text' && input.provider === 'text' && !this.textProvider) {
       throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -175,6 +192,10 @@ export class GenerationService {
     }
     const context = await this.repository.storyboardVideoContext(input, principal)
     if (!context) throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权生成')
+    const videoPreflight = inspectVideoPreflight(context.shot.prompt, context.assets.filter(asset =>
+      Array.isArray(input.metadata?.referenceAssetIds) && input.metadata.referenceAssetIds.includes(asset.id)))
+    const conflicts = videoPreflight.issues.filter(issue => issue.severity === 'error')
+    if (conflicts.length) throw new AppError(409, 'VIDEO_PROMPT_CONFLICT', `${conflicts.map(issue => issue.message).join(' ')} 本次未扣费。`)
     const referenceAssetIds = Array.isArray(input.metadata.referenceAssetIds)
       ? input.metadata.referenceAssetIds.filter((value): value is string => typeof value === 'string')
       : []
@@ -207,6 +228,10 @@ export class GenerationService {
       manualReferenceCount: manualReferenceImages.length,
       continuityMode,
     })
+    const rigidPhysicsContract = deriveRigidPhysicsContract({
+      shotId: context.shot.id,
+      prompt: context.shot.prompt,
+    })
     const sourceShotSnapshot = {
       id: context.shot.id,
       order: context.shot.order,
@@ -228,8 +253,11 @@ export class GenerationService {
       negativePrompt: input.negativePrompt ?? context.shot.negativePrompt,
       metadata: {
         ...input.metadata,
+        videoPreflight,
         sourceShotSnapshot,
         images,
+        referenceBindingVersion: 'shot-asset-v1',
+        assetReferenceBindings: references,
         manualReferenceImages,
         manualReferenceUrl: manualReferenceImages[0]?.url ?? null,
         sourcePromptSnapshot: context.shot.prompt,
@@ -239,12 +267,113 @@ export class GenerationService {
         compiledPromptHash: promptHash(compiledPrompt),
         videoPromptVersion: VIDEO_PROMPT_VERSION,
         sourceProjectVersion: context.project.version,
+        ...(rigidPhysicsContract
+          ? {
+              rigidPhysicsContract,
+              rigidPhysicsAudit: {
+                status: 'pending-evidence',
+                version: rigidPhysicsContract.version,
+                checkedFrames: 0,
+                violations: [],
+              },
+            }
+          : {}),
       },
     }
   }
 
   listProjectTasks(projectId: string, principal: Principal): Promise<GenerationTask[]> {
     return this.repository.listByProject(projectId, principal)
+  }
+
+  async reviewVideo(taskId: string, input: ReviewVideo, principal: Principal): Promise<GenerationTask> {
+    return this.repository.reviewVideo(taskId, input, principal)
+  }
+
+  /** Audit one already completed video. This only reads existing media and updates audit metadata. */
+  async auditRigidPhysics(
+    taskId: string,
+    input: RigidPhysicsAuditRequest,
+    principal: Principal,
+  ): Promise<GenerationTask> {
+    const task = await this.repository.findById(taskId, principal)
+    if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权验收')
+    if (
+      task.kind !== 'video' ||
+      task.provider !== 'seedance' ||
+      task.status !== 'completed' ||
+      !task.resultUrl
+    ) {
+      throw new AppError(409, 'RIGID_AUDIT_NOT_REVIEWABLE', '只能验收已完成的 Seedance 视频版本')
+    }
+    const prompt =
+      typeof task.metadata.sourcePromptSnapshot === 'string' && task.metadata.sourcePromptSnapshot.trim()
+        ? task.metadata.sourcePromptSnapshot
+        : task.prompt
+    const contract =
+      task.metadata.rigidPhysicsContract && typeof task.metadata.rigidPhysicsContract === 'object'
+        ? task.metadata.rigidPhysicsContract
+        : deriveRigidPhysicsContract({ prompt })
+    if (!contract) throw new AppError(409, 'RIGID_AUDIT_UNAVAILABLE', '该视频没有刚性物体物理合同')
+    const video = await this.readVideoBytesForRigidAudit(task)
+    if (video.length > 100_000_000) {
+      throw new AppError(413, 'RIGID_AUDIT_TOO_LARGE', '视频过大，暂不执行逐帧物理验收')
+    }
+    const raw = await this.rigidAuditRunner({ prompt, video, observations: input.observations })
+    if (!raw.physics) throw new AppError(409, 'RIGID_AUDIT_UNAVAILABLE', '无法从该视频生成刚性物体合同')
+    const auditedAt = new Date().toISOString()
+    const result = rigidPhysicsAuditResultSchema.parse({
+      status: raw.physics.status,
+      checkedFrames: raw.physics.checkedFrames,
+      cameraCuts: raw.physics.cameraCuts,
+      violations: raw.physics.violations,
+      metrics: raw.physics.metrics,
+      version: typeof (contract as { version?: unknown }).version === 'string'
+        ? (contract as { version: string }).version
+        : 'rigid-physics-v1',
+      mediaVersion: videoReviewVersion(task),
+      auditedAt,
+      auditedBy: principal.userId,
+      evidence: {
+        source: input.observations.length ? 'submitted-observations' : 'video-frames',
+        observationCount: raw.observationCount,
+        completeFrameCoverage: raw.completeFrameCoverage,
+        objects: raw.physics.evidence,
+      },
+    })
+    return this.repository.persistRigidPhysicsAudit(taskId, result, input.expectedUpdatedAt, principal, contract)
+  }
+
+  private async readVideoBytesForRigidAudit(task: GenerationTask): Promise<Buffer> {
+    const descriptor = Array.isArray(task.metadata.generatedOutputs)
+      ? task.metadata.generatedOutputs.find(
+          (item) =>
+            item &&
+            typeof item === 'object' &&
+            (item as { view?: unknown }).view === 'single' &&
+            typeof (item as { storageKey?: unknown }).storageKey === 'string' &&
+            typeof (item as { contentType?: unknown }).contentType === 'string' &&
+            String((item as { contentType: string }).contentType).startsWith('video/'),
+        )
+      : null
+    if (descriptor && this.objectStorage) {
+      return this.objectStorage.get((descriptor as { storageKey: string }).storageKey)
+    }
+    const providerTaskId = task.metadata.providerTaskId
+    if (!this.videoProvider || typeof providerTaskId !== 'string' || !providerTaskId) {
+      throw new AppError(503, 'VIDEO_STORAGE_UNAVAILABLE', '视频内容不可读取，无法执行物理验收')
+    }
+    try {
+      const content = await this.videoProvider.getContent(providerTaskId)
+      const chunks: Buffer[] = []
+      for await (const chunk of content.stream as AsyncIterable<Uint8Array | string>) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      }
+      return Buffer.concat(chunks)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '视频读取失败'
+      throw new AppError(502, 'RIGID_AUDIT_VIDEO_READ_FAILED', message)
+    }
   }
 
   listProjectTaskPolling(projectId: string, principal: Principal): Promise<GenerationTaskPolling[]> {
@@ -359,6 +488,15 @@ export class GenerationService {
     if (!result.task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权操作')
     if (result.outcome === 'not_pausable') {
       throw new AppError(409, 'TASK_NOT_PAUSABLE', '只有等待中的任务可以暂停，第三方生成中不能暂停')
+    }
+    return result.task
+  }
+
+  async stopRunningTask(taskId: string, principal: Principal): Promise<GenerationTask> {
+    const result = await this.repository.stopRunningWithoutRefund(taskId, principal)
+    if (!result.task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权操作')
+    if (result.outcome === 'not_running') {
+      throw new AppError(409, 'TASK_NOT_RUNNING', '只有生成中的任务可以执行停止操作')
     }
     return result.task
   }

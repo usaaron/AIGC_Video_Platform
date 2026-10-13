@@ -2,6 +2,7 @@ import type { AiJob } from '@seqora/contracts'
 import type { QueryResultRow } from 'pg'
 import { normalizeAiJobLifecycle } from '../../core/jobs/aiJobLease.js'
 import type { AppState, AppStore } from '../../infra/store.js'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 export type AiJobRow = QueryResultRow & {
   id: string
@@ -84,6 +85,7 @@ export function jobFromRow(row: AiJobRow): AiJob {
 }
 
 export function upsertAiJobInState(state: AppState, job: AiJob): void {
+  if (isStandaloneProjectId(job.projectId)) return
   const index = state.aiJobs.findIndex((item) => item.id === job.id)
   if (index >= 0) {
     if (Date.parse(state.aiJobs[index]!.updatedAt) > Date.parse(job.updatedAt)) return
@@ -95,7 +97,9 @@ export function upsertAiJobInState(state: AppState, job: AiJob): void {
 
 export async function reconcileActiveAiJobs(store: AppStore, jobs: AiJob[]): Promise<void> {
   await store.mutateAiJobRuntimeCacheAsync((state) => {
+    state.aiJobs = state.aiJobs.filter((item) => !isStandaloneProjectId(item.projectId))
     for (const job of jobs) {
+      if (isStandaloneProjectId(job.projectId)) continue
       if (job.status === 'queued' || job.status === 'paused' || job.status === 'running') {
         upsertAiJobInState(state, job)
       } else {

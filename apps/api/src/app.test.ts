@@ -832,6 +832,57 @@ describe('API authorization', () => {
     })
   })
 
+  it('stops a running task without refunding its reserved credits', async () => {
+    const store = new AppStore(null)
+    app = await buildApp({ config: testConfig, store, startWorker: false })
+    const headers = {
+      'x-demo-role': 'member',
+      'x-demo-user-id': 'user-member',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const before = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    const startingCredits = before.json().credits as number
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers,
+      payload: {
+        clientRequestId: 'running-stop-no-refund-client',
+        projectId: 'project-midnight-film',
+        kind: 'video',
+        label: '确认停止任务',
+        estimatedCredits: 18,
+      },
+    })
+    const taskId = created.json().id as string
+    await store.mutate((state) => {
+      const task = state.tasks.find((item) => item.id === taskId)!
+      task.status = 'running'
+      task.metadata = { providerTaskId: 'remote-stop-task' }
+    })
+
+    const stopped = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${taskId}/stop`,
+      headers,
+    })
+    expect(stopped.statusCode).toBe(200)
+    expect(stopped.json()).toMatchObject({
+      status: 'cancelled',
+      metadata: {
+        stoppedAt: expect.any(String),
+        stopReason: 'user_confirmed_running_stop',
+        creditsRefundDisabledAt: expect.any(String),
+        queueHiddenAt: expect.any(String),
+      },
+    })
+
+    await new GenerationTaskRunner(store).tick()
+    const after = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(after.json().credits).toBe(startingCredits - 18)
+    expect(after.json().entries.filter((entry: { id: string }) => entry.id === `refund-${taskId}`)).toHaveLength(0)
+  })
+
   it('marks a running StringX task for cancellation without calling the Provider directly', async () => {
     const cancel = vi.fn(async () => {})
     const videoProvider: VideoGenerationProvider = {

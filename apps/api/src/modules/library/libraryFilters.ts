@@ -4,9 +4,14 @@ import {
   type ListAssetLibraryItemsQuery,
   type Principal,
 } from '@seqora/contracts'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 export function listConditions(query: ListAssetLibraryItemsQuery, principal: Principal) {
-  const conditions = ['tenant_id = $1', 'owner_user_id = $2']
+  const conditions = [
+    'tenant_id = $1',
+    'owner_user_id = $2',
+    "(source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')",
+  ]
   const params: unknown[] = [principal.tenantId, principal.userId]
   if (query.deleted === 'trashed') conditions.push('deleted_at IS NOT NULL')
   else if (query.deleted !== 'all') conditions.push('deleted_at IS NULL')
@@ -42,6 +47,7 @@ export function matchesStoreFilter(
   principal: Principal,
 ): boolean {
   if (item.tenantId !== principal.tenantId || item.ownerUserId !== principal.userId) return false
+  if (isStandaloneProjectId(item.sourceProjectId)) return false
   if (query.deleted === 'trashed' && item.deletedAt === null) return false
   if (query.deleted !== 'trashed' && query.deleted !== 'all' && item.deletedAt !== null) return false
   if (query.kind && item.kind !== query.kind) return false

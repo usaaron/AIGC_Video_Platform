@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { TaskControls } from '../../components/ui'
 
 export function TrustedPortraitPanel({
   assetId,
@@ -26,6 +27,10 @@ export function TrustedPortraitPanel({
   onLatestTrustedValidationSession,
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   onEnsureAsset,
   onPreview,
   faceReady = attributes.faceStatus === 'approved' && Boolean(attributes.faceReference?.id),
@@ -287,6 +292,16 @@ export function TrustedPortraitPanel({
             {busyAction === 'refresh' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
             刷新状态
           </button>
+        )}
+        {registrationTask && ['queued', 'paused', 'running'].includes(registrationTask.status) && (
+          <TaskControls
+            job={registrationTask}
+            compact
+            busy={busyTaskId === registrationTask.id}
+            onPause={onPauseTask ? () => onPauseTask(registrationTask.id) : undefined}
+            onResume={onResumeTask ? () => onResumeTask(registrationTask.id) : undefined}
+            onDelete={onDeleteTask ? () => onDeleteTask(registrationTask.id) : undefined}
+          />
         )}
       </div>
       {registrationHint && (

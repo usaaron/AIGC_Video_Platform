@@ -79,7 +79,7 @@ async function conditionalValueRequest(path, etag) {
   }
 }
 
-const json = (method, body) => ({ method, body: JSON.stringify(body) })
+const json = (method, body, headers) => ({ method, body: JSON.stringify(body), ...(headers ? { headers } : {}) })
 const emptyJsonPost = () => json('POST', {})
 const queryString = (query) => {
   const params = new URLSearchParams()
@@ -127,8 +127,12 @@ export async function waitForProjectScriptUpdate(
 export const api = {
   health: () => request('/health'),
   scriptMasterConfig: () => request('/script-master/config'),
-  scriptMasterLaunch: (projectId) =>
-    request(`/script-master/launch${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
+  scriptMasterLaunch: (projectId, surface = 'embedded') => {
+    if (surface !== 'standalone' && !projectId) return Promise.reject(new Error('请先进入一个主项目，再打开剧本大师。'))
+    const params = new URLSearchParams({ surface })
+    if (surface !== 'standalone') params.set('projectId', projectId)
+    return request(`/script-master/launch?${params.toString()}`)
+  },
   login: (input) => request('/auth/login', json('POST', input)),
   requestPhoneLoginCode: (input, options = {}) =>
     request('/auth/phone/code', { ...json('POST', input), ...options }),
@@ -161,7 +165,8 @@ export const api = {
   retryAgentRun: (runId) => request(`/agent/runs/${runId}/retry`, { method: 'POST' }),
   skipAgentStage: (runId, stage) => request(`/agent/runs/${runId}/stages/${stage}/skip`, { method: 'POST' }),
   project: (id) => request(`/projects/${id}`, { timeoutMs: 20_000 }),
-  createProject: (input) => request('/projects', json('POST', input)),
+  createProject: (input, idempotencyKey) =>
+    request('/projects', json('POST', input, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined)),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   suggestScriptAssets: (
@@ -197,7 +202,6 @@ export const api = {
       }),
     )
   },
-  syncScriptMasterLibrary: () => request('/library/sync-script-master', { method: 'POST' }),
   generateScript: (id, draft, direction, clientRequestId = crypto.randomUUID(), options = {}) =>
     request(
       `/projects/${id}/script/generate`,
@@ -313,6 +317,8 @@ export const api = {
   createFilmPreview: (projectId, mode = 'full', force = false, episodeNumber = null) =>
     request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
   pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
+  reviewVideo: (taskId, input) => request(`/generation/tasks/${taskId}/content-review`, { method: 'POST', body: JSON.stringify(input) }),
+  stopTask: (taskId) => request(`/generation/tasks/${taskId}/stop`, { method: 'POST' }),
   resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),
   clearTasks: (projectId) =>

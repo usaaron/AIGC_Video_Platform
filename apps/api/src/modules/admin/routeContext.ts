@@ -15,6 +15,7 @@ import type { AppStore } from '../../infra/store.js'
 import type { AccountManagementService } from '../accountManagement/service.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
 import type { AdminListOptions, AdminRepository } from './repository.js'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 export type AdminRouteContext = {
   store: AppStore
@@ -196,6 +197,7 @@ export async function readAdminOverview(
         (state) =>
           state.tasks.filter(
             (task) =>
+              !isStandaloneProjectId(task.projectId) &&
               (task.status === 'queued' || task.status === 'running') &&
               (!scopedTenantId || task.tenantId === scopedTenantId),
           ).length,

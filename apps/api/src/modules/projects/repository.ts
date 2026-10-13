@@ -30,7 +30,7 @@ import type {
   FaceConfirmationRequest,
   TrustedPortrait,
 } from '@seqora/contracts'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { insertAuditLog, type AuditLogInput } from '../../core/audit/auditLog.js'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
@@ -69,10 +69,16 @@ import {
   type ProjectRuntimeCacheOptions,
   readRuntimeProjectVersions,
 } from './runtimeCache.js'
+import { isStandaloneProjectId } from './projectSurface.js'
+import { disambiguateEpisodeTitle, findDuplicateEpisodeContent } from './episodeTitle.js'
 
 export { mergeAssetAttributes } from './assetAttributesMerge.js'
 
 export { projectGenerationSummary, projectPreviewUrl } from './projectPreview.js'
+
+function hashProjectCreationInput(input: CreateProject): string {
+  return createHash('sha256').update(JSON.stringify(input)).digest('hex')
+}
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>
@@ -85,6 +91,9 @@ export type ProjectJsonImportResult = {
 }
 
 export class ProjectRepository {
+  private readonly projectCreationRequests = new Map<string, { requestHash: string; projectId: string }>()
+  private readonly projectCreationInFlight = new Map<string, Promise<Project>>()
+
   constructor(
     private readonly store: AppStore | null,
     private readonly database: AccountDatabase | null = null,
@@ -98,12 +107,16 @@ export class ProjectRepository {
         shots: { inserted: 0, skipped: 0 },
       }
     }
-    const snapshot = this.store.read((state) => ({
-      projects: state.projects,
-      scriptEpisodes: state.scriptEpisodes,
-      assets: state.assets,
-      shots: state.shots,
-    }))
+    const snapshot = this.store.read((state) => {
+      const projects = state.projects.filter((project) => !isStandaloneProjectId(project.id))
+      const projectIds = new Set(projects.map((project) => project.id))
+      return {
+        projects,
+        scriptEpisodes: state.scriptEpisodes.filter((episode) => projectIds.has(episode.projectId)),
+        assets: state.assets.filter((asset) => projectIds.has(asset.projectId)),
+        shots: state.shots.filter((shot) => projectIds.has(shot.projectId)),
+      }
+    })
     const result: ProjectJsonImportResult = {
       projects: { inserted: 0, skipped: 0 },
       assets: { inserted: 0, skipped: 0 },
@@ -164,6 +177,7 @@ export class ProjectRepository {
       FROM projects
       WHERE tenant_id = $1
         AND status <> 'archived'
+        AND id NOT LIKE 'sm-standalone-%'
         AND ($2::boolean OR owner_user_id = $3)
       ORDER BY updated_at DESC
       `,
@@ -294,6 +308,7 @@ export class ProjectRepository {
   }
 
   async workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.workspaceFromStore(projectId, principal)
 
     const project = await this.findReadableProject(this.database, projectId, principal)
@@ -338,12 +353,14 @@ export class ProjectRepository {
   }
 
   async workspaceVersion(projectId: string, principal: Principal): Promise<string | null> {
+    if (isStandaloneProjectId(projectId)) return null
     return this.database
       ? readWorkspaceVersion(this.database, projectId, principal)
       : readWorkspaceVersionFromStore(this.requireStore(), projectId, principal)
   }
 
   async findOwnedAsset(projectId: string, assetId: string, principal: Principal): Promise<Asset | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) {
       return this.requireStore().read((state) => {
         const ownsProject = state.projects.some(
@@ -384,7 +401,8 @@ export class ProjectRepository {
         const projectIds = new Set(
           state.projects
             .filter(
-              (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId,
+              (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId
+                && !isStandaloneProjectId(project.id),
             )
             .map((project) => project.id),
         )
@@ -401,6 +419,7 @@ export class ProjectRepository {
       INNER JOIN projects project
         ON project.id = asset.project_id AND project.tenant_id = asset.tenant_id
       WHERE asset.tenant_id = $1 AND project.owner_user_id = $2
+        AND project.id NOT LIKE 'sm-standalone-%'
       ORDER BY asset.updated_at DESC, asset.created_at DESC
       `,
       [principal.tenantId, principal.userId],
@@ -408,8 +427,21 @@ export class ProjectRepository {
     return result.rows.map(assetFromRow)
   }
 
-  async create(input: CreateProject, principal: Principal): Promise<Project> {
-    if (!this.database) return this.createInStore(input, principal)
+  async create(input: CreateProject, principal: Principal, idempotencyKey?: string): Promise<Project> {
+    const requestHash = idempotencyKey ? hashProjectCreationInput(input) : null
+    if (!this.database && idempotencyKey && requestHash) {
+      const requestId = `${principal.tenantId}:${principal.userId}:${idempotencyKey}`
+      const pending = this.projectCreationInFlight.get(requestId)
+      if (pending) return pending
+      const operation = this.createInStore(input, principal, idempotencyKey, requestHash)
+      this.projectCreationInFlight.set(requestId, operation)
+      try {
+        return await operation
+      } finally {
+        if (this.projectCreationInFlight.get(requestId) === operation) this.projectCreationInFlight.delete(requestId)
+      }
+    }
+    if (!this.database) return this.createInStore(input, principal, idempotencyKey, requestHash)
 
     const now = new Date().toISOString()
     const project: Project = {
@@ -427,6 +459,10 @@ export class ProjectRepository {
       version: 1,
       createdAt: now,
       updatedAt: now,
+    }
+
+    if (idempotencyKey && requestHash) {
+      return this.createInDatabaseIdempotently(principal, idempotencyKey, requestHash, project)
     }
 
     await this.database.query(
@@ -471,6 +507,7 @@ export class ProjectRepository {
   }
 
   async update(projectId: string, input: UpdateProject, principal: Principal): Promise<Project | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.updateInStore(projectId, input, principal)
 
     const existing = await this.findWritableProject(this.database, projectId, principal)
@@ -525,6 +562,7 @@ export class ProjectRepository {
     principal: Principal,
     options: { createNext?: boolean; title?: string; generationClientRequestId?: string } = {},
   ): Promise<ScriptEpisode | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) {
       return this.requireStore().mutate((state) => {
         const project = state.projects.find(
@@ -547,6 +585,16 @@ export class ProjectRepository {
         if (!episode && !episodeId && !options.createNext) {
           episode = [...episodes].reverse().find((item) => item.status === 'draft')
         }
+        const duplicate = findDuplicateEpisodeContent(content, episodes, episode?.id, {
+          longFormExactOnly: content.length >= 1_000,
+        })
+        if (duplicate) {
+          throw new AppError(
+            409,
+            'SCRIPT_EPISODE_DUPLICATE_CONTENT',
+            `当前正文的剧情行动、冲突和结果与第 ${duplicate.episodeNumber} 集重复，疑似批量生成或分集导入重复提交；已拦截，请检查分集边界后重试`,
+          )
+        }
         const now = new Date().toISOString()
         const continuityState = draftContinuityState(
           episode?.continuityState,
@@ -560,7 +608,7 @@ export class ProjectRepository {
             projectId,
             tenantId: principal.tenantId,
             episodeNumber,
-            title: options.title?.trim() || `第 ${episodeNumber} 集`,
+            title: disambiguateEpisodeTitle(options.title, episodeNumber, episodes),
             content: '',
             draftContent: content,
             status: 'draft',
@@ -575,7 +623,9 @@ export class ProjectRepository {
         } else {
           episode.draftContent = content
           episode.status = 'draft'
-          episode.title = options.title?.trim() || episode.title
+          episode.title = options.title?.trim()
+            ? disambiguateEpisodeTitle(options.title, episode.episodeNumber, episodes, episode.id)
+            : episode.title
           episode.continuityState = continuityState
           episode.lastEditedBy = principal.userId
           episode.revision += 1
@@ -604,6 +654,16 @@ export class ProjectRepository {
       if (!current && !options.createNext) {
         current = [...episodes].reverse().find((item) => item.status === 'draft')
       }
+      const duplicate = findDuplicateEpisodeContent(content, episodes, current?.id, {
+        longFormExactOnly: content.length >= 1_000,
+      })
+      if (duplicate) {
+        throw new AppError(
+          409,
+          'SCRIPT_EPISODE_DUPLICATE_CONTENT',
+          `当前正文的剧情行动、冲突和结果与第 ${duplicate.episodeNumber} 集重复，疑似批量生成或分集导入重复提交；已拦截，请检查分集边界后重试`,
+        )
+      }
       const now = new Date().toISOString()
       const continuityState = draftContinuityState(
         current?.continuityState,
@@ -622,7 +682,9 @@ export class ProjectRepository {
             projectId,
             principal.tenantId,
             content,
-            options.title?.trim() || current.title,
+            options.title?.trim()
+              ? disambiguateEpisodeTitle(options.title, current.episodeNumber, episodes, current.id)
+              : current.title,
             JSON.stringify(continuityState),
             principal.userId,
             now,
@@ -643,7 +705,7 @@ export class ProjectRepository {
           projectId,
           principal.tenantId,
           episodeNumber,
-          options.title?.trim() || `第 ${episodeNumber} 集`,
+          disambiguateEpisodeTitle(options.title, episodeNumber, episodes),
           content,
           JSON.stringify(continuityState),
           principal.userId,
@@ -664,6 +726,7 @@ export class ProjectRepository {
     principal: Principal,
     title?: string,
   ): Promise<ScriptEpisode | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) {
       return this.requireStore().mutate((state) => {
         const project = state.projects.find(
@@ -677,6 +740,16 @@ export class ProjectRepository {
           .filter((item) => item.projectId === projectId && item.tenantId === principal.tenantId)
           .sort((left, right) => left.episodeNumber - right.episodeNumber)
         let episode = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
+        const duplicate = findDuplicateEpisodeContent(content, episodes, episode?.id, {
+          longFormExactOnly: content.length >= 1_000,
+        })
+        if (duplicate) {
+          throw new AppError(
+            409,
+            'SCRIPT_EPISODE_DUPLICATE_CONTENT',
+            `当前正文的剧情行动、冲突和结果与第 ${duplicate.episodeNumber} 集重复，疑似批量生成或分集导入重复提交；已拦截，请检查分集边界后重试`,
+          )
+        }
         const now = new Date().toISOString()
         if (!episode) {
           if (episodeId) return null
@@ -686,7 +759,7 @@ export class ProjectRepository {
             projectId,
             tenantId: principal.tenantId,
             episodeNumber,
-            title: title?.trim() || `第 ${episodeNumber} 集`,
+            title: disambiguateEpisodeTitle(title, episodeNumber, episodes),
             content,
             draftContent: '',
             status: 'saved',
@@ -702,10 +775,14 @@ export class ProjectRepository {
           episode.content = content
           episode.draftContent = ''
           episode.status = 'saved'
-          episode.continuityState = episode.continuityState.batchGenerationKey
-            ? { batchGenerationKey: episode.continuityState.batchGenerationKey }
-            : {}
-          episode.title = title?.trim() || episode.title
+          episode.continuityState = {
+            ...(episode.continuityState.batchGenerationKey ? { batchGenerationKey: episode.continuityState.batchGenerationKey } : {}),
+            ...(Array.isArray(episode.continuityState.scriptProductionHistory)
+              ? { scriptProductionHistory: episode.continuityState.scriptProductionHistory } : {}),
+          }
+          episode.title = title?.trim()
+            ? disambiguateEpisodeTitle(title, episode.episodeNumber, episodes, episode.id)
+            : episode.title
           episode.summary = summarizeEpisodeContent(content)
           episode.lastEditedBy = principal.userId
           episode.revision += 1
@@ -728,13 +805,25 @@ export class ProjectRepository {
       const episodes = rows.rows.map(scriptEpisodeFromRow)
       const current = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
       if (episodeId && !current) return null
+      const duplicate = findDuplicateEpisodeContent(content, episodes, current?.id, {
+        longFormExactOnly: content.length >= 1_000,
+      })
+      if (duplicate) {
+        throw new AppError(
+          409,
+          'SCRIPT_EPISODE_DUPLICATE_CONTENT',
+          `当前正文的剧情行动、冲突和结果与第 ${duplicate.episodeNumber} 集重复，疑似批量生成或分集导入重复提交；已拦截，请检查分集边界后重试`,
+        )
+      }
       const now = new Date().toISOString()
       let savedRow: ScriptEpisodeRow | undefined
       if (current) {
         const updated = await client.query<ScriptEpisodeRow>(
           `UPDATE script_episodes
            SET content = $4, draft_content = '', status = 'saved', title = $5, summary = $6,
-               continuity_state = CASE WHEN continuity_state ? 'batchGenerationKey' THEN jsonb_build_object('batchGenerationKey', continuity_state->'batchGenerationKey') ELSE '{}'::jsonb END, revision = revision + 1, last_edited_by = $7, updated_at = $8
+               continuity_state = (CASE WHEN continuity_state ? 'batchGenerationKey' THEN jsonb_build_object('batchGenerationKey', continuity_state->'batchGenerationKey') ELSE '{}'::jsonb END)
+                 || (CASE WHEN jsonb_typeof(continuity_state->'scriptProductionHistory') = 'array' THEN jsonb_build_object('scriptProductionHistory', continuity_state->'scriptProductionHistory') ELSE '{}'::jsonb END),
+               revision = revision + 1, last_edited_by = $7, updated_at = $8
            WHERE id = $1 AND project_id = $2 AND tenant_id = $3
            RETURNING ${scriptEpisodeColumns}`,
           [
@@ -742,7 +831,9 @@ export class ProjectRepository {
             projectId,
             principal.tenantId,
             content,
-            title?.trim() || current.title,
+            title?.trim()
+              ? disambiguateEpisodeTitle(title, current.episodeNumber, episodes, current.id)
+              : current.title,
             summarizeEpisodeContent(content),
             principal.userId,
             now,
@@ -762,7 +853,7 @@ export class ProjectRepository {
             projectId,
             principal.tenantId,
             episodeNumber,
-            title?.trim() || `第 ${episodeNumber} 集`,
+            disambiguateEpisodeTitle(title, episodeNumber, episodes),
             content,
             summarizeEpisodeContent(content),
             principal.userId,
@@ -799,6 +890,7 @@ export class ProjectRepository {
     episodeId: string,
     principal: Principal,
   ): Promise<'deleted' | 'not_found' | 'not_last' | 'active'> {
+    if (isStandaloneProjectId(projectId)) return 'not_found'
     if (!this.database) {
       return this.requireStore().mutate((state) => {
         const project = state.projects.find(
@@ -884,6 +976,7 @@ export class ProjectRepository {
     projectId: string,
     principal: Principal,
   ): Promise<'deleted' | 'not_found' | 'active'> {
+    if (isStandaloneProjectId(projectId)) return 'not_found'
     if (!this.database) {
       return this.requireStore().mutate((state) => {
         const project = state.projects.find(
@@ -940,6 +1033,7 @@ export class ProjectRepository {
   }
 
   async archive(projectId: string, principal: Principal): Promise<boolean> {
+    if (isStandaloneProjectId(projectId)) return false
     const canArchiveAll = canReadAllTenantContent(principal)
     if (!this.database) {
       return this.requireStore().mutate((state) => {
@@ -978,6 +1072,7 @@ export class ProjectRepository {
   }
 
   async saveVersion(projectId: string, principal: Principal): Promise<Project | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.saveVersionInStore(projectId, principal)
 
     const project = await this.database.transaction(async (client) => {
@@ -1063,6 +1158,7 @@ export class ProjectRepository {
   }
 
   async createAsset(projectId: string, input: CreateAsset, principal: Principal): Promise<Asset | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.createAssetInStore(projectId, input, principal)
 
     const result = await this.database.transaction(async (client) => {
@@ -1144,6 +1240,7 @@ export class ProjectRepository {
     input: UpdateAsset,
     principal: Principal,
   ): Promise<Asset | null> {
+    if (isStandaloneProjectId(projectId)) return null
     return this.changeAsset(projectId, assetId, input, principal)
   }
 
@@ -1153,6 +1250,7 @@ export class ProjectRepository {
     face: FaceConfirmationRequest['faceReference'],
     principal: Principal,
   ): Promise<Asset | null> {
+    if (isStandaloneProjectId(projectId)) return null
     return this.changeAsset(projectId, assetId, (current) => confirmedFaceUpdate(current, face), principal)
   }
 
@@ -1163,6 +1261,7 @@ export class ProjectRepository {
     principal: Principal,
     intent: PortraitWriteIntent = 'callback',
   ): Promise<Asset | null> {
+    if (isStandaloneProjectId(observed.projectId)) return null
     return this.changeAsset(
       observed.projectId,
       observed.id,
@@ -1177,6 +1276,7 @@ export class ProjectRepository {
     change: AssetChange,
     principal: Principal,
   ): Promise<Asset | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.updateAssetInStore(projectId, assetId, change, principal)
     const result = await changeAssetInDatabase(
       this.database,
@@ -1192,6 +1292,7 @@ export class ProjectRepository {
   }
 
   async deleteAsset(projectId: string, assetId: string, principal: Principal): Promise<boolean> {
+    if (isStandaloneProjectId(projectId)) return false
     if (!this.database) return this.deleteAssetInStore(projectId, assetId, principal)
 
     const deleted = await this.database.transaction(async (client) => {
@@ -1216,6 +1317,7 @@ export class ProjectRepository {
   }
 
   async createShot(projectId: string, input: CreateShot, principal: Principal): Promise<Shot | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.createShotInStore(projectId, input, principal)
 
     const result = await this.database.transaction(async (client) => {
@@ -1284,6 +1386,7 @@ export class ProjectRepository {
     input: UpdateShot,
     principal: Principal,
   ): Promise<Shot | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.updateShotInStore(projectId, shotId, input, principal)
 
     const result = await this.database.transaction(async (client) => {
@@ -1388,6 +1491,7 @@ export class ProjectRepository {
     shotId: string,
     principal: Principal,
   ): Promise<'deleted' | 'not_found' | 'active'> {
+    if (isStandaloneProjectId(projectId)) return 'not_found'
     if (!this.database) return this.deleteShotInStore(projectId, shotId, principal)
 
     const result = await this.database.transaction(async (client) => {
@@ -1451,6 +1555,7 @@ export class ProjectRepository {
   }
 
   async replaceShots(projectId: string, shots: CreateShot[], principal: Principal): Promise<Shot[] | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) return this.replaceShotsInStore(projectId, shots, principal)
 
     const result = await this.database.transaction(async (client) => {
@@ -1497,6 +1602,7 @@ export class ProjectRepository {
     shots: CreateShot[],
     principal: Principal,
   ): Promise<Shot[] | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) {
       return this.requireStore().mutate((state) => {
         const project = state.projects.find(
@@ -1600,6 +1706,7 @@ export class ProjectRepository {
     >,
     principal: Principal,
   ): Promise<Shot[] | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (!this.database) {
       const result = await this.updateShotEpisodesInStore(projectId, updates, principal)
       if (result) await this.mirrorReplacedShots(projectId, result)
@@ -1646,6 +1753,7 @@ export class ProjectRepository {
     return this.requireStore().read((state) =>
       state.projects
         .filter((project) => project.tenantId === principal.tenantId)
+        .filter((project) => !isStandaloneProjectId(project.id))
         .filter((project) => project.status !== 'archived')
         .filter((project) => canReadAll || project.ownerId === principal.userId)
         .map((project) => ({
@@ -1661,6 +1769,7 @@ export class ProjectRepository {
   }
 
   private workspaceFromStore(projectId: string, principal: Principal): ProjectWorkspace | null {
+    if (isStandaloneProjectId(projectId)) return null
     return this.requireStore().read((state) => {
       const project = state.projects.find(
         (item) =>
@@ -1685,7 +1794,24 @@ export class ProjectRepository {
     })
   }
 
-  private async createInStore(input: CreateProject, principal: Principal): Promise<Project> {
+  private async createInStore(
+    input: CreateProject,
+    principal: Principal,
+    idempotencyKey?: string,
+    requestHash?: string | null,
+  ): Promise<Project> {
+    if (idempotencyKey && requestHash) {
+      const requestId = `${principal.tenantId}:${principal.userId}:${idempotencyKey}`
+      const existing = this.projectCreationRequests.get(requestId)
+      if (existing) {
+        if (existing.requestHash !== requestHash) {
+          throw new AppError(409, 'IDEMPOTENCY_KEY_REUSED', '创建请求标识已用于其他项目参数')
+        }
+        const project = this.requireStore().read((state) => state.projects.find((item) => item.id === existing.projectId))
+        if (project) return project
+        this.projectCreationRequests.delete(requestId)
+      }
+    }
     const now = new Date().toISOString()
     const project: Project = {
       id: randomUUID(),
@@ -1703,10 +1829,69 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
     }
-    return this.requireStore().mutate((state) => {
+    const created = await this.requireStore().mutate((state) => {
       state.projects.push(project)
       return project
     })
+    if (idempotencyKey && requestHash) {
+      this.projectCreationRequests.set(`${principal.tenantId}:${principal.userId}:${idempotencyKey}`, {
+        requestHash,
+        projectId: created.id,
+      })
+    }
+    return created
+  }
+
+  private async createInDatabaseIdempotently(
+    principal: Principal,
+    idempotencyKey: string,
+    requestHash: string,
+    project: Project,
+  ): Promise<Project> {
+    let created = false
+    const result = await this.database!.transaction(async (client) => {
+      const claim = await client.query<{ project_id: string; request_hash: string }>(
+        `INSERT INTO project_creation_requests (tenant_id, user_id, idempotency_key, request_hash, project_id)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (tenant_id, user_id, idempotency_key) DO NOTHING
+         RETURNING project_id, request_hash`,
+        [principal.tenantId, principal.userId, idempotencyKey, requestHash, project.id],
+      )
+      let projectId = claim.rows[0]?.project_id
+      if (!projectId) {
+        const existing = await client.query<{ project_id: string; request_hash: string }>(
+          `SELECT project_id, request_hash FROM project_creation_requests
+           WHERE tenant_id = $1 AND user_id = $2 AND idempotency_key = $3`,
+          [principal.tenantId, principal.userId, idempotencyKey],
+        )
+        const row = existing.rows[0]
+        if (!row) throw new AppError(409, 'IDEMPOTENCY_REQUEST_UNAVAILABLE', '创建请求正在处理中，请稍后重试')
+        if (row.request_hash !== requestHash) {
+          throw new AppError(409, 'IDEMPOTENCY_KEY_REUSED', '创建请求标识已用于其他项目参数')
+        }
+        projectId = row.project_id
+      } else {
+        created = true
+        await client.query(
+          `INSERT INTO projects (
+            id, tenant_id, owner_user_id, name, content_type, visual_style,
+            episode_duration_seconds, aspect_ratio, status, synopsis, script,
+            version, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [project.id, project.tenantId, project.ownerId, project.name, project.contentType, project.visualStyle,
+            project.episodeDurationSeconds, project.aspectRatio, project.status, project.synopsis, project.script,
+            project.version, project.createdAt, project.updatedAt],
+        )
+      }
+      const existingProject = await client.query<ProjectRow>(
+        `SELECT ${projectColumns} FROM projects WHERE id = $1 AND tenant_id = $2 AND owner_user_id = $3`,
+        [projectId, principal.tenantId, principal.userId],
+      )
+      if (!existingProject.rows[0]) throw new AppError(409, 'IDEMPOTENCY_REQUEST_UNAVAILABLE', '创建请求正在处理中，请稍后重试')
+      return projectFromRow(existingProject.rows[0])
+    })
+    if (created) await this.mirrorProject(result)
+    return result
   }
 
   private async updateInStore(
@@ -1981,6 +2166,7 @@ export class ProjectRepository {
     projectId: string,
     principal: Principal,
   ): Promise<Project | null> {
+    if (isStandaloneProjectId(projectId)) return null
     const result = await queryable.query<ProjectRow>(
       `
       SELECT ${projectColumns}
@@ -2000,6 +2186,7 @@ export class ProjectRepository {
     principal: Principal,
     forUpdate = false,
   ): Promise<Project | null> {
+    if (isStandaloneProjectId(projectId)) return null
     const result = await queryable.query<ProjectRow>(
       `
       SELECT ${projectColumns}

@@ -1,5 +1,6 @@
 import type { GenerationTask, Principal } from '@seqora/contracts'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 export function findControlledTask(
   tasks: GenerationTask[],
@@ -10,6 +11,7 @@ export function findControlledTask(
   return tasks.find(
     (task) =>
       task.id === taskId &&
+      !isStandaloneProjectId(task.projectId) &&
       task.tenantId === principal.tenantId &&
       (canControlAll || task.userId === principal.userId),
   )

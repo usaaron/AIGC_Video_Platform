@@ -1,4 +1,5 @@
 import type { AccountDatabase } from '../../infra/postgres.js'
+import { rejectStandaloneProjectReferences } from '../projects/projectSurface.js'
 
 export type ScriptMasterDeliveryInput = {
   tenantId: string
@@ -25,6 +26,7 @@ export class ScriptMasterDeliveryRepository {
   constructor(private readonly database: AccountDatabase | null = null) {}
 
   async begin(input: ScriptMasterDeliveryInput): Promise<StoredDelivery | null> {
+    this.assertProjectSurface(input)
     if (!this.database) {
       const key = this.key(input)
       const current = this.memory.get(key)
@@ -95,6 +97,7 @@ export class ScriptMasterDeliveryRepository {
     input: ScriptMasterDeliveryInput,
     result: Pick<ScriptMasterDeliveryReceipt, 'importedEpisodes' | 'updatedEpisodes'>,
   ): Promise<ScriptMasterDeliveryReceipt> {
+    this.assertProjectSurface(input)
     const completedAt = new Date().toISOString()
     const receipt: ScriptMasterDeliveryReceipt = { ...input, ...result, status: 'completed', completedAt }
     if (!this.database) {
@@ -122,6 +125,7 @@ export class ScriptMasterDeliveryRepository {
   }
 
   async release(input: ScriptMasterDeliveryInput): Promise<void> {
+    this.assertProjectSurface(input)
     if (!this.database) {
       this.memory.delete(this.key(input))
       return
@@ -135,6 +139,14 @@ export class ScriptMasterDeliveryRepository {
 
   private key(input: ScriptMasterDeliveryInput): string {
     return `${input.tenantId}:${input.idempotencyKey}`
+  }
+
+  private assertProjectSurface(input: ScriptMasterDeliveryInput): void {
+    // Delivery reservations are also used by background jobs and can be
+    // invoked without going through the Fastify route. Keep the repository
+    // boundary closed so an independent Script Master project can never be
+    // persisted in the main-project delivery ledger.
+    rejectStandaloneProjectReferences(input)
   }
 
   private inputOf(value: StoredDelivery): ScriptMasterDeliveryInput {

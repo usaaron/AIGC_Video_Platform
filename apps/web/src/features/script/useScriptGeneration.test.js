@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeContentDuration, readGenerationResult } from './useScriptGeneration'
+import { createOperationLock, normalizeContentDuration, readGenerationResult } from './useScriptGeneration'
 
 describe('script generation helpers', () => {
   const config = { minimumDuration: 10, maximumDuration: 90, defaultDuration: 30 }
@@ -18,5 +18,16 @@ describe('script generation helpers', () => {
       warnings: ['注意'],
     })
     expect(() => readGenerationResult({ script: '' })).toThrow('模型没有返回有效剧本')
+  })
+
+  it('allows only one mutation operation until the first one releases its lock', () => {
+    const lock = createOperationLock()
+
+    expect(lock.acquire()).toBe(true)
+    expect(lock.acquire()).toBe(false)
+
+    lock.release()
+
+    expect(lock.acquire()).toBe(true)
   })
 })

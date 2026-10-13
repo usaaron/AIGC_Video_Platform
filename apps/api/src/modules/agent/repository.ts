@@ -12,6 +12,7 @@ import type { QueryResultRow } from 'pg'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore } from '../../infra/store.js'
 import { AppError } from '../../core/errors.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
 
 type AgentRunRow = QueryResultRow & {
   id: string
@@ -83,6 +84,7 @@ export class AgentRunRepository {
         UPDATE agent_runs
         SET original_prompt = $4, plan = $5::jsonb, updated_at = now()
         WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND status = 'draft'
+          AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
         RETURNING ${runColumns}
         `,
         [
@@ -124,12 +126,19 @@ export class AgentRunRepository {
   async list(principal: Principal): Promise<AgentRun[]> {
     if (!this.database) {
       return this.memoryRuns
-        .filter((run) => run.tenantId === principal.tenantId && run.userId === principal.userId)
+        .filter(
+          (run) =>
+            !isStandaloneProjectId(run.projectId) &&
+            run.tenantId === principal.tenantId &&
+            run.userId === principal.userId,
+        )
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
         .map(cloneRun)
     }
     const result = await this.database.query<AgentRunRow>(
-      `SELECT ${runColumns} FROM agent_runs WHERE tenant_id = $1 AND user_id = $2 ORDER BY updated_at DESC LIMIT 50`,
+      `SELECT ${runColumns} FROM agent_runs WHERE tenant_id = $1 AND user_id = $2
+        AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
+        ORDER BY updated_at DESC LIMIT 50`,
       [principal.tenantId, principal.userId],
     )
     return result.rows.map(runFromRow)
@@ -139,12 +148,18 @@ export class AgentRunRepository {
     if (!this.database) {
       const run = this.memoryRuns.find(
         (item) =>
-          item.id === runId && item.tenantId === principal.tenantId && item.userId === principal.userId,
+          item.id === runId &&
+          !isStandaloneProjectId(item.projectId) &&
+          item.tenantId === principal.tenantId &&
+          item.userId === principal.userId,
       )
       return run ? cloneRun(run) : null
     }
     const result = await this.database.query<AgentRunRow>(
-      `SELECT ${runColumns} FROM agent_runs WHERE id = $1 AND tenant_id = $2 AND user_id = $3 LIMIT 1`,
+      `SELECT ${runColumns} FROM agent_runs
+       WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+         AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
+       LIMIT 1`,
       [runId, principal.tenantId, principal.userId],
     )
     return result.rows[0] ? runFromRow(result.rows[0]) : null
@@ -176,7 +191,10 @@ export class AgentRunRepository {
     if (!this.database) return this.confirmInMemory(runId, clientRequestId, principal)
     return this.database.transaction(async (client) => {
       const selected = await client.query<AgentRunRow>(
-        `SELECT ${runColumns} FROM agent_runs WHERE id = $1 AND tenant_id = $2 AND user_id = $3 FOR UPDATE`,
+        `SELECT ${runColumns} FROM agent_runs
+         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+           AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
+         FOR UPDATE`,
         [runId, principal.tenantId, principal.userId],
       )
       const current = selected.rows[0] ? runFromRow(selected.rows[0]) : null
@@ -209,6 +227,7 @@ export class AgentRunRepository {
         SET client_request_id = $4, project_id = $5, status = 'queued', current_stage = 'script',
             confirmed_at = now(), updated_at = now(), version = version + 1
         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+          AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
         RETURNING ${runColumns}
         `,
         [runId, principal.tenantId, principal.userId, clientRequestId, project.id],
@@ -280,7 +299,10 @@ export class AgentRunRepository {
 
   async claimNext(ownerId: string, leaseMs = 30_000): Promise<AgentRun | null> {
     if (!this.database) {
-      const run = this.memoryRuns.find((item) => ['queued', 'running', 'pausing'].includes(item.status))
+      const run = this.memoryRuns.find(
+        (item) =>
+          !isStandaloneProjectId(item.projectId) && ['queued', 'running', 'pausing'].includes(item.status),
+      )
       if (!run) return null
       run.status = run.status === 'queued' ? 'running' : run.status
       return cloneRun(run)
@@ -291,6 +313,7 @@ export class AgentRunRepository {
         WITH next_run AS (
           SELECT id FROM agent_runs
           WHERE status IN ('queued', 'running', 'pausing')
+            AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
             AND (lease_expires_at IS NULL OR lease_expires_at <= now())
           ORDER BY updated_at ASC
           LIMIT 1
@@ -315,7 +338,12 @@ export class AgentRunRepository {
       return [
         ...new Set(
           this.memoryRuns
-            .filter((run) => ['queued', 'running', 'pausing'].includes(run.status) && run.projectId)
+            .filter(
+              (run) =>
+                !isStandaloneProjectId(run.projectId) &&
+                ['queued', 'running', 'pausing'].includes(run.status) &&
+                run.projectId,
+            )
             .map((run) => run.projectId!),
         ),
       ]
@@ -326,6 +354,7 @@ export class AgentRunRepository {
       FROM agent_runs
       WHERE status IN ('queued', 'running', 'pausing')
         AND project_id IS NOT NULL
+        AND project_id NOT LIKE 'sm-standalone-%'
       `,
     )
     return result.rows.map((row) => row.project_id)
@@ -333,8 +362,13 @@ export class AgentRunRepository {
 
   async saveClaimed(run: AgentRun, ownerId: string): Promise<AgentRun> {
     const normalized = agentRunSchema.parse(run)
+    rejectStandaloneProjectId(normalized.projectId)
     if (!this.database) {
       const index = this.memoryRuns.findIndex((item) => item.id === run.id)
+      const existing = index >= 0 ? this.memoryRuns[index] : undefined
+      if (existing && isStandaloneProjectId(existing.projectId)) {
+        throw new Error('Agent run lease was lost')
+      }
       if (index >= 0) this.memoryRuns[index] = cloneRun(normalized)
       return cloneRun(normalized)
     }
@@ -344,7 +378,9 @@ export class AgentRunRepository {
       SET status = $3, pause_requested = $4, current_stage = $5, stages = $6::jsonb,
           deliveries = $7::jsonb, last_error = $8, updated_at = $9,
           completed_at = $10, lease_owner_id = NULL, lease_expires_at = NULL, version = version + 1
-      WHERE id = $1 AND lease_owner_id = $2
+      WHERE id = $1
+        AND lease_owner_id = $2
+        AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
       RETURNING ${runColumns}
       `,
       [
@@ -380,7 +416,10 @@ export class AgentRunRepository {
     }
     return this.database.transaction(async (client) => {
       const selected = await client.query<AgentRunRow>(
-        `SELECT ${runColumns} FROM agent_runs WHERE id = $1 AND tenant_id = $2 AND user_id = $3 FOR UPDATE`,
+        `SELECT ${runColumns} FROM agent_runs
+         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+           AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
+         FOR UPDATE`,
         [runId, principal.tenantId, principal.userId],
       )
       if (!selected.rows[0]) {
@@ -395,6 +434,7 @@ export class AgentRunRepository {
             last_error = $8, updated_at = $9, lease_owner_id = NULL, lease_expires_at = NULL,
             version = version + 1
         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+          AND (project_id IS NULL OR project_id NOT LIKE 'sm-standalone-%')
         RETURNING ${runColumns}
         `,
         [
@@ -423,6 +463,7 @@ export class AgentRunRepository {
       const run = this.memoryRuns.find(
         (item) =>
           item.id === input.runId &&
+          !isStandaloneProjectId(item.projectId) &&
           item.tenantId === input.principal.tenantId &&
           item.userId === input.principal.userId,
       )
@@ -444,7 +485,11 @@ export class AgentRunRepository {
     principal: Principal,
   ): Promise<AgentRun> {
     const run = this.memoryRuns.find(
-      (item) => item.id === runId && item.tenantId === principal.tenantId && item.userId === principal.userId,
+      (item) =>
+        item.id === runId &&
+        !isStandaloneProjectId(item.projectId) &&
+        item.tenantId === principal.tenantId &&
+        item.userId === principal.userId,
     )
     if (!run) throw new AppError(404, 'AGENT_RUN_NOT_FOUND', 'Agent 会话不存在或无权访问')
     if (run.projectId) return cloneRun(run)

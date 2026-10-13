@@ -36,6 +36,8 @@ describe('generation task polling projection', () => {
           generationStage: 'script-generate',
           shotId: 'shot-1',
           textPreview: '预览内容',
+          rigidPhysicsAudit: { status: 'needs-evidence', checkedFrames: 12 },
+          rigidPhysicsContract: { version: 'rigid-physics-v1', objects: [] },
           textResult: { script: '完整结果' },
           sourcePromptSnapshot: '不应进入轮询摘要',
         },
@@ -64,7 +66,13 @@ describe('generation task polling projection', () => {
       id: 'polling-task',
       status: 'running',
       progress: 40,
-      metadata: { generationStage: 'script-generate', shotId: 'shot-1', textPreview: '预览内容' },
+      metadata: {
+        generationStage: 'script-generate',
+        shotId: 'shot-1',
+        textPreview: '预览内容',
+        rigidPhysicsAudit: { status: 'needs-evidence', checkedFrames: 12 },
+        rigidPhysicsContract: { version: 'rigid-physics-v1', objects: [] },
+      },
     })
     expect(tasks[0]?.metadata).not.toHaveProperty('textResult')
     expect(tasks[0]?.metadata).not.toHaveProperty('sourcePromptSnapshot')

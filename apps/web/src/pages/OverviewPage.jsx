@@ -13,6 +13,9 @@ export function OverviewPage({
   billing,
   setActiveStep,
   setNewProjectOpen,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
   onUpdateSynopsis,
 }) {
   const [editingSynopsis, setEditingSynopsis] = useState(false)
@@ -178,7 +181,14 @@ export function OverviewPage({
           </div>
           <div className="activity-list">
             {visibleJobs.slice(0, 3).map((job) => (
-              <JobRow key={job.id} job={toDisplayJob(job)} compact />
+              <JobRow
+                key={job.id}
+                job={toDisplayJob(job)}
+                compact
+                onPause={() => onPauseTask?.(job.id)}
+                onResume={() => onResumeTask?.(job.id)}
+                onDelete={() => onDeleteTask?.(job.id)}
+              />
             ))}
             {!visibleJobs.length && <p className="panel-empty">还没有生成任务。</p>}
           </div>

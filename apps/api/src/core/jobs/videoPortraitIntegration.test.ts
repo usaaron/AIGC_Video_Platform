@@ -195,7 +195,9 @@ describe('DoraRouter portrait worker integration', () => {
       createWithCharge: vi.fn(),
     } as unknown as GenerationTaskRepository
     const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
-    const service = new GenerationService(repository, dispatcher, null, 'dora-router-seedance')
+    const service = new GenerationService(repository, dispatcher, {
+      submit: vi.fn(), getStatus: vi.fn(), getContent: vi.fn(),
+    }, 'dora-router-seedance')
     await expect(
       service.createTask(task, { userId: task.userId, tenantId: task.tenantId, roles: ['member'] }),
     ).rejects.toMatchObject({ code: 'REAL_PORTRAIT_VIDEO_UNSUPPORTED' })

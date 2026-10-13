@@ -16,6 +16,8 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
     ...characterIdentityParts(attributes),
     `${optionLabel('visualStyle', attributes.visualStyle)}风格`,
     CHARACTER_CUTOUT_REQUIREMENTS,
+    characterSurfaceRequirements(attributes),
+    CHARACTER_STATE_REQUIREMENTS,
   ]
   let stageParts
   if (stage === 'face') {
@@ -31,8 +33,9 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
     stageParts = [
       '严格保持已确认的头部、外形、身材和服装一致',
       '标准站姿或自然站立姿态，全身完整，统一比例',
-      '分别生成正面、侧面、背面三张独立源图',
-      '最终组合为一张16:9三栏角色三视图设定表',
+      '分别生成正面、侧面、背面三张独立源图，每张仅呈现本次指定视角，不在单张源图内拼接多视图或面部插图',
+      '身体图保留完整头部与足端；背面不回头，侧面不变成斜正面，各视角属于同一身份、同一造型和同一状态',
+      '正背服装的层次、接缝、背带、配饰连接、材质与鞋履相互对应，不因换视角重设计，统一比例与照明，不加标签、分割线或第四视图',
     ]
   } else {
     stageParts = [
@@ -55,8 +58,17 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
     (item) => item.id === attributes.activeAppearanceVariantId,
   )
   return stage !== 'face' && variant
-    ? `${compiled}。本次造型：${characterVariantName(asset.name, variant.name)}${variant.description ? `，${variant.description}` : ''}。服饰按本次造型，面部沿用已确认基准。`
+    ? `${compiled}。本次造型：${characterVariantName(asset.name, variant.name)}${variantDetails(variant)}。服饰按本次造型，面部沿用已确认基准；适用条件只限定本版本，不执行其中的剧情动作或改成全剧固定状态。`
     : compiled
+}
+
+function variantDetails(variant) {
+  const details = [
+    ['外观', variant.description], ['造型要求', variant.prompt], ['适用与连续性', variant.continuityNote],
+  ]
+    .map(([label, value]) => (typeof value === 'string' && value.trim() ? `${label}：${value.trim()}` : ''))
+    .filter(Boolean)
+  return details.length ? `，${details.join('；')}` : ''
 }
 
 export function inferCharacterPromptStage(prompt) {
@@ -69,7 +81,17 @@ export function inferCharacterPromptStage(prompt) {
 }
 
 const CHARACTER_CUTOUT_REQUIREMENTS =
-  '透明背景，Alpha通道，无背景色，无光影效果，无投影，无高光，无环境反射，均匀平光，主体边缘清晰'
+  '透明背景，Alpha通道，无背景色，无戏剧化光影效果，无投影和外部环境倒影；均匀柔和照明，保留身体体积与材质本身必要的明暗和克制高光，主体边缘清晰'
+
+const CHARACTER_STATE_REQUIREMENTS =
+  '这是当前身份与造型的参考资产，保留已确认识别特征；临时伤势、湿痕、污渍或持物仅在本次生成明确指定时呈现，不把剧情摘要中的动作、知情或被看守状态演成固定外观'
+
+function characterSurfaceRequirements(attributes) {
+  if (attributes.visualStyle !== 'photorealistic') return ''
+  return attributes.subjectType === 'animal'
+    ? '写实动物材质按既定物种呈现自然毛发、羽毛或鳞片与体积，不套用人类皮肤，不删去物种本身的纹理'
+    : '写实人像保留符合既定年龄的自然肤质、发丝与布料纹理，皮肤细节清晰而克制；避免塑料蜡像感、重复伪纹理、过度磨皮和过度锐化，保留已确认的皱纹、疤痕、痣和纹身，不美颜换脸或年轻化'
+}
 
 function characterIdentityParts(attributes) {
   if (attributes.subjectType === 'animal') {
@@ -133,6 +155,8 @@ function compileAutomatic(asset, aspectRatio) {
         : '',
       attributes.turnaround ? '分别生成正面、侧面、背面三张独立设定图，角色外观和服装严格一致' : '',
       CHARACTER_CUTOUT_REQUIREMENTS,
+      characterSurfaceRequirements(attributes),
+      CHARACTER_STATE_REQUIREMENTS,
     )
   }
   if (attributes.type === 'scene') {
@@ -146,6 +170,7 @@ function compileAutomatic(asset, aspectRatio) {
       optionLabel('camera', attributes.camera),
       '空场景，不出现人物',
       '预留人物表演和镜头运动空间',
+      '固定建筑、出入口、尺度与陈设保持一致，时间天气和光线仅属于当前场景版本，不把尚未发生的破坏或人物活动固化为背景',
     )
   }
   if (attributes.type === 'prop') {
@@ -155,6 +180,7 @@ function compileAutomatic(asset, aspectRatio) {
       optionLabel('condition', attributes.condition),
       optionLabel('view', attributes.view),
       '只生成单个物品本体，不生成人物、人体、手、手指、手臂、腿、脚、脸、身体局部、模特、工作人员、穿戴状态和人形轮廓',
+      '保持已确认结构、材质和用途，开合、磨损或损坏只按本次明确状态呈现；不因外观陈旧补造年代、主人或取得历史',
     )
   }
   if (attributes.type === 'costume') {
@@ -169,6 +195,7 @@ function compileAutomatic(asset, aspectRatio) {
       `${optionLabel('presentation', attributes.presentation)}展示`,
       attributes.turnaround ? '分别生成服装正面、背面和细节三张独立图片' : '',
       '只生成服装本体，不生成人物、人体、脸、手、手臂、腿、脚、身体局部、模特、工作人员、穿着效果、人体轮廓和衣架',
+      '款式、层次、剪裁、面料和配色服从当前造型，正背接缝及配饰连接合理对应；保留指定单色、朴素或旧衣设计，不自动加礼服、花纹、奢华材质或品牌',
     )
   }
   if (attributes.type === 'brand') {

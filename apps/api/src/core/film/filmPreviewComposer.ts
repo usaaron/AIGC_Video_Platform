@@ -10,6 +10,7 @@ import { pipeline } from 'node:stream/promises'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
+import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import { usageCollector } from '../observability/usage.js'
@@ -80,6 +81,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       const now = new Date().toISOString()
       const tasks: GenerationTask[] = []
       for (const task of state.tasks) {
+        if (isStandaloneProjectId(task.projectId)) continue
         if (task.provider !== 'local-compose' || task.status !== 'running') continue
         const expiresAt = task.leaseExpiresAt ? Date.parse(task.leaseExpiresAt) : Number.NaN
         if (Number.isFinite(expiresAt) && expiresAt > Date.now()) continue
@@ -104,7 +106,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
 
   async start(task: GenerationTask): Promise<GenerationTask> {
     const started = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
+      const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
       if (!stored || stored.status !== 'queued') return stored ?? task
       const now = new Date()
       claimGenerationTaskLease(stored, this.leaseOwnerId, this.leaseTtlMs, now)
@@ -147,7 +149,10 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     let stopLeaseHeartbeat: (() => void) | null = null
     let usageTask: GenerationTask | null = null
     try {
-      const task = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+      const task = this.store.read(
+        (state) =>
+          state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId) ?? null,
+      )
       usageTask = task
       if (!task) throw new Error('完整预览任务不存在')
       if (task.status !== 'running' || !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken))
@@ -158,6 +163,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         sourceTaskIds.map((sourceTaskId) => {
           const source = state.tasks.find(
             (item) =>
+              !isStandaloneProjectId(item.projectId) &&
               item.id === sourceTaskId &&
               item.projectId === task.projectId &&
               item.tenantId === task.tenantId &&
@@ -182,7 +188,10 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       temporaryDirectory = await mkdtemp(join(tmpdir(), 'seqora-film-'))
       let downloadedCount = 0
       const downloadedPaths = await mapWithConcurrency(sourceTasks, 4, async (source, index) => {
-        const current = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+        const current = this.store.read(
+          (state) =>
+            state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId) ?? null,
+        )
         if (
           !current ||
           current.status !== 'running' ||
@@ -288,7 +297,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         '上传完整预览视频超时',
       )
       await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const stored = state.tasks.find((item) => item.id === taskId)
+        const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
         if (!stored || stored.status !== 'running') return
         if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
         const now = new Date().toISOString()
@@ -314,7 +323,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     } catch (error) {
       const message = error instanceof Error ? error.message : '完整预览合成失败'
       await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const task = state.tasks.find((item) => item.id === taskId)
+        const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
         if (!task) return
         if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
         task.status = 'failed'
@@ -332,7 +341,10 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       await this.notifyStateChange(taskId)
     } finally {
       stopLeaseHeartbeat?.()
-      const finalTask = this.store.read((state) => state.tasks.find((item) => item.id === taskId) ?? null)
+      const finalTask = this.store.read(
+        (state) =>
+          state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId) ?? null,
+      )
       if (finalTask?.status === 'completed' || finalTask?.status === 'failed') {
         const durationMs = Date.now() - startedAt
         const ok = finalTask.status === 'completed'
@@ -391,6 +403,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
       const stored = state.tasks.find(
         (item) =>
           item.id === source.id &&
+          !isStandaloneProjectId(item.projectId) &&
           item.projectId === source.projectId &&
           item.tenantId === source.tenantId &&
           item.kind === 'video',
@@ -421,7 +434,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
     metadata: Record<string, unknown> = {},
   ): Promise<void> {
     const updated = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return false
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false
       task.progress = Math.min(99, Math.max(task.progress, progress))
@@ -444,7 +457,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
 
   private async renewLease(taskId: string, leaseToken: string): Promise<void> {
     const renewed = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return false
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return false
       renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs)

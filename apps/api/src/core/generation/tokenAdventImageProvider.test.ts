@@ -110,13 +110,14 @@ describe('TokenAdventImageProvider', () => {
     expect(capturedBody?.get('stream')).toBe('true')
     expect(capturedBody?.get('partial_images')).toBe('2')
     expect(capturedBody?.get('prompt')).toContain(
-      '图 2（image-2-subject.jpg）：主体角色，只保留身份、脸部、姿态',
+      '图 2（image-2-subject.jpg）：主体身份与结构基准；姿态、景别和服装按本次任务',
     )
     expect(capturedBody?.get('prompt')).toContain('视觉描述：black leather jacket with silver zippers')
     expect(capturedBody?.get('prompt')).toContain('用户需求：保持人物身份一致，生成全身图')
     expect(capturedBody?.get('size')).toBe('1536x864')
     expect(capturedBody?.getAll('image[]')).toHaveLength(1)
-    expect(String(capturedBody?.get('prompt'))).toContain('参考图一是唯一主体与身份基准')
+    expect(String(capturedBody?.get('prompt'))).toContain('主体与身份基准：图 2')
+    expect(String(capturedBody?.get('prompt'))).not.toContain('参考图一是唯一主体')
   })
 
   it('does not silently route an unconfigured image model through Img2', async () => {

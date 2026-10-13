@@ -18,8 +18,10 @@ import {
   type ShotRow,
 } from '../projects/repositoryData.js'
 import { refreshProjectWorkspaceRuntimeCache } from '../projects/runtimeCache.js'
+import { rejectStandaloneProjectReferences } from '../projects/projectSurface.js'
 import { planImport, type ImportWorkspace } from './importPlan.js'
 import { writeImportEntities } from './importPersistence.js'
+import { assertImportTarget, previewImport } from './importPreview.js'
 
 type StoredReceipt = {
   hash: string
@@ -36,7 +38,72 @@ export class ScriptMasterImportRepository {
     private readonly database: AccountDatabase | null = null,
   ) {}
 
+  async preview(input: ScriptMasterImportRequest, principal: Principal) {
+    rejectStandaloneProjectReferences(input)
+    if (this.database)
+      return this.database.transaction(async (client) => {
+        await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        const result = await client.query<ProjectRow>(
+          `SELECT ${projectColumns} FROM projects WHERE id=$1 AND tenant_id=$2 AND owner_user_id=$3`,
+          [input.targetProjectId, principal.tenantId, principal.userId],
+        )
+        const project = result.rows[0] ? projectFromRow(result.rows[0]) : null
+        if (!project || project.status === 'archived')
+          throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+        const params = [project.id, principal.tenantId]
+        const episodes = await client.query<ScriptEpisodeRow>(
+          `SELECT ${scriptEpisodeColumns} FROM script_episodes WHERE project_id=$1 AND tenant_id=$2`,
+          params,
+        )
+        const assets = await client.query<AssetRow>(
+          `SELECT ${assetColumns} FROM assets WHERE project_id=$1 AND tenant_id=$2`,
+          params,
+        )
+        const shots = await client.query<ShotRow>(
+          `SELECT ${shotColumns} FROM shots WHERE project_id=$1 AND tenant_id=$2`,
+          params,
+        )
+        return previewImport(
+          {
+            project,
+            scriptEpisodes: episodes.rows.map(scriptEpisodeFromRow),
+            assets: assets.rows.map(assetFromRow),
+            shots: shots.rows.map(shotFromRow),
+          },
+          input,
+          principal.userId,
+        )
+      })
+    return this.store.read((state) => {
+      const project = state.projects.find(
+        (p) =>
+          p.id === input.targetProjectId &&
+          p.tenantId === principal.tenantId &&
+          p.ownerId === principal.userId &&
+          p.status !== 'archived',
+      )
+      if (!project) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
+      const belongs = (item: { projectId: string; tenantId: string }) =>
+        item.projectId === project.id && item.tenantId === principal.tenantId
+      return previewImport(
+        {
+          project,
+          scriptEpisodes: state.scriptEpisodes.filter(belongs),
+          assets: state.assets.filter(belongs),
+          shots: state.shots.filter(belongs),
+        },
+        input,
+        principal.userId,
+      )
+    })
+  }
+
   async import(input: ScriptMasterImportRequest, principal: Principal) {
+    // Keep this invariant at the repository boundary as well as the HTTP
+    // route. Imports are also invoked by background jobs and tests, and a
+    // caller must never smuggle an independent Script Master project into a
+    // main-project workspace (including nested project reference metadata).
+    rejectStandaloneProjectReferences(input)
     const key = JSON.stringify([principal.tenantId, principal.userId, input.idempotencyKey])
     const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex')
     const result = this.database
@@ -98,23 +165,27 @@ export class ScriptMasterImportRepository {
         `SELECT ${shotColumns} FROM shots WHERE project_id=$1 AND tenant_id=$2 ORDER BY shot_order FOR UPDATE`,
         params,
       )
-      const plan = planImport(
-        {
-          project,
-          scriptEpisodes: episodes.rows.map(scriptEpisodeFromRow),
-          assets: assets.rows.map(assetFromRow),
-          shots: shots.rows.map(shotFromRow),
-        },
-        input,
-        principal.userId,
-      )
+      const workspace: ImportWorkspace = {
+        project,
+        scriptEpisodes: episodes.rows.map(scriptEpisodeFromRow),
+        assets: assets.rows.map(assetFromRow),
+        shots: shots.rows.map(shotFromRow),
+      }
+      assertImportTarget(workspace, input)
+      const plan = planImport(workspace, input, principal.userId)
       await writeImportEntities(client, plan)
-      await client.query('UPDATE projects SET script=$3, updated_at=$4 WHERE id=$1 AND tenant_id=$2', [
-        project.id,
-        principal.tenantId,
-        plan.project.script,
-        plan.project.updatedAt,
-      ])
+      await client.query(
+        'UPDATE projects SET name=$3, synopsis=$4, episode_duration_seconds=$5, script=$6, updated_at=$7 WHERE id=$1 AND tenant_id=$2',
+        [
+          project.id,
+          principal.tenantId,
+          plan.project.name,
+          plan.project.synopsis,
+          plan.project.episodeDurationSeconds,
+          plan.project.script,
+          plan.project.updatedAt,
+        ],
+      )
       await client.query(
         `INSERT INTO script_master_imports (tenant_id, actor_id, idempotency_key, target_project_id, source_project_id, source_revision, payload_hash, receipt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
         [
@@ -181,7 +252,12 @@ export class ScriptMasterImportRepository {
         assets: state.assets.filter(belongs),
         shots: state.shots.filter(belongs),
       }
+      assertImportTarget(workspace, input)
       const plan = planImport(workspace, input, principal.userId)
+      if (plan.removedShotIds.length) {
+        const removed = new Set(plan.removedShotIds)
+        state.shots = state.shots.filter((shot) => !removed.has(shot.id) || !belongs(shot))
+      }
       mergeImported(state.scriptEpisodes, plan.episodes)
       mergeImported(state.assets, plan.assets)
       mergeImported(state.shots, plan.shots)

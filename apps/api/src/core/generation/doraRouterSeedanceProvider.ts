@@ -7,6 +7,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import { z } from 'zod'
+import { boundedInlineVideoBody, createInlineReferenceEncoder, type InlineReferenceEncoder } from './videoInlineReferences.js'
 import type {
   VideoContent,
   VideoGenerationProvider,
@@ -81,6 +82,7 @@ export type DoraRouterSeedanceOptions = {
   ffmpegPath?: string
   frameExtractionTimeoutMs?: number
   lastFrameExtractor?: DoraRouterLastFrameExtractor
+  inlineReferenceEncoder?: InlineReferenceEncoder
   fetcher?: Fetcher
 }
 
@@ -115,14 +117,13 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
       )
     }
 
-    const response = await this.requestJson(SEEDANCE_TASK_PATH, {
-      method: 'POST',
-      ...(request.idempotencyKey ? { headers: { 'Idempotency-Key': request.idempotencyKey } } : {}),
-      body: JSON.stringify({
+    const body = await boundedInlineVideoBody(
+      images.slice(0, 9),
+      (references) => JSON.stringify({
         model: this.resolveModel(request.model),
         content: [
           { type: 'text', text: effectivePrompt },
-          ...images.slice(0, 9).map((image) => ({
+          ...references.map((image) => ({
             type: 'image_url',
             image_url: { url: image.url },
             // DoraRouter documents reference_image as the supported image role.
@@ -137,6 +138,15 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
         watermark: request.watermark ?? false,
         ...(request.seed === undefined ? {} : { seed: request.seed }),
       }),
+      this.options.inlineReferenceEncoder ?? createInlineReferenceEncoder(
+        this.options.ffmpegPath ?? 'ffmpeg',
+        this.options.frameExtractionTimeoutMs ?? this.options.requestTimeoutMs,
+      ),
+    )
+    const response = await this.requestJson(SEEDANCE_TASK_PATH, {
+      method: 'POST',
+      ...(request.idempotencyKey ? { headers: { 'Idempotency-Key': request.idempotencyKey } } : {}),
+      body,
     })
     const parsed = normalizeTaskResponse(response)
     const providerTaskId = taskIdFrom(parsed)

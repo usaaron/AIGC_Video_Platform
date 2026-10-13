@@ -257,8 +257,9 @@ sudo docker compose --env-file deploy/demo.env -f compose.demo.yml run --rm api 
 ### 任务取消与退款
 
 - `queued`：可暂停、继续、删除；删除会幂等退款。
+- `running`：前端点击暂停图标会先要求确认；确认后是终止本次生成，不是可恢复暂停，任务记录 `stopReason=user_confirmed_running_stop` 和 `creditsRefundDisabledAt`，已扣积分不返还，后续 Provider 结果不得写回。
 - `running` StringX 视频：调用远端 cancel 成功后才能取消和退款。
-- 其他第三方运行任务：没有可验证取消能力时不能伪暂停。
+- 其他第三方运行任务：没有可验证取消能力时只停止本地任务并记录跳过远端取消，不得伪装成可恢复暂停，也不得因该用户确认停止自动退款。
 - `completed/failed/cancelled`：归档只写 `queueHiddenAt`，输出仍保留。
 
 ### Worker 重启

@@ -22,6 +22,7 @@ import { registerLibraryRoutes } from '../modules/library/routes.js'
 import { registerMediaRoutes } from '../modules/media/routes.js'
 import { registerNovelRoutes } from '../modules/novels/routes.js'
 import { registerProjectRoutes } from '../modules/projects/routes.js'
+import { rejectStandaloneProjectPath } from '../modules/projects/projectSurface.js'
 import { registerQuickStartRoutes } from '../modules/quickStart/routes.js'
 import { registerTrustedAssetRoutes } from '../modules/trustedAssets/routes.js'
 import { registerScriptMasterRoutes } from '../modules/scriptMaster/routes.js'
@@ -100,6 +101,12 @@ export async function registerRuntimeRoutes(input: {
 
   await app.register(
     async (api) => {
+      // Every main-project route that carries :projectId (generation,
+      // storyboard, assets, novels, and the core project routes) shares this
+      // reserved namespace guard. Independent Script Master IDs must never
+      // reach a main-project service, even if a future route is added outside
+      // the projects module.
+      api.addHook('preHandler', rejectStandaloneProjectPath)
       await registerAuthRoutes(api, services.authService, config.NODE_ENV === 'production')
       await registerAccountManagementRoutes(
         api,
@@ -149,13 +156,13 @@ function runtimeHealth(config: AppConfig, providers: RuntimeProviders) {
     status: 'ok',
     service: 'seqora-api',
     providers: {
-      seedance: providers.videoProvider ? 'configured' : 'local-mock',
+      seedance: providers.videoProvider ? 'configured' : 'unavailable',
       img2: providers.imageProvider ? 'configured' : 'local-mock',
       text: providers.textProvider ? 'configured' : 'unavailable',
       assetLibrary: providers.assetLibraryProvider ? 'configured' : 'unavailable',
     },
     providerNames: {
-      seedance: providers.videoProvider ? videoProviderName(config) : 'local-mock',
+      seedance: providers.videoProvider ? videoProviderName(config) : 'unavailable',
       img2: providers.imageProvider ? IMAGE2_PROVIDER_DISPLAY_NAME : 'local-mock',
       text: providers.textProvider ? textProviderName(config) : 'unavailable',
       assetLibrary: providers.assetLibraryProvider ? assetLibraryProviderName(config) : 'unavailable',

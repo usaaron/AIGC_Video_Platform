@@ -11,7 +11,8 @@ const TASK_STATUS_CACHE_KEY = 'seqora:task-status-cache'
 
 function readTaskStatusCache() {
   try {
-    return JSON.parse(window.localStorage.getItem(TASK_STATUS_CACHE_KEY) || '{}')
+    const value = JSON.parse(window.localStorage.getItem(TASK_STATUS_CACHE_KEY) || '{}')
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   } catch {
     return {}
   }
@@ -20,9 +21,12 @@ function readTaskStatusCache() {
 export function useTaskNotifications({ projects, recentTasks, recentTasksLoaded }) {
   const [notifications, setNotifications] = useState([])
   const [notificationPopups, setNotificationPopups] = useState([])
-  const taskStatusesRef = useRef(readTaskStatusCache())
+  const taskStatusesRef = useRef(null)
   const historyReadyRef = useRef(false)
-  const dismissedIdsRef = useRef(readNotificationDismissals())
+  const dismissedIdsRef = useRef(null)
+  // Ref arguments run on every render; read persisted history only on mount.
+  if (taskStatusesRef.current === null) taskStatusesRef.current = readTaskStatusCache()
+  if (dismissedIdsRef.current === null) dismissedIdsRef.current = readNotificationDismissals()
 
   useEffect(() => {
     if (!recentTasksLoaded) return
@@ -60,12 +64,16 @@ export function useTaskNotifications({ projects, recentTasks, recentTasksLoaded 
 
   useEffect(() => {
     if (!notificationPopups.length) return undefined
-    const timer = window.setInterval(() => {
-      const now = Date.now()
-      setNotificationPopups((current) => current.filter((item) => item.expiresAt > now))
-    }, 500)
-    return () => window.clearInterval(timer)
-  }, [notificationPopups.length])
+    const nextExpiration = Math.min(...notificationPopups.map((item) => item.expiresAt))
+    const timer = window.setTimeout(
+      () => {
+        const now = Date.now()
+        setNotificationPopups((current) => current.filter((item) => item.expiresAt > now))
+      },
+      Math.max(0, nextExpiration - Date.now()),
+    )
+    return () => window.clearTimeout(timer)
+  }, [notificationPopups])
 
   const markNotificationRead = (notificationId) => {
     setNotifications((current) =>

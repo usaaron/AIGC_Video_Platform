@@ -53,3 +53,23 @@ export function orderedVideoReferenceImages(
   // Explicit numbered references always retain their positions. Optional asset images fill the remaining slots.
   return [...new Set([...manual, ...automatic.filter((url): url is string => Boolean(url))])].slice(0, limit)
 }
+
+export type VideoAssetReference = {
+  id: string; url?: string | null | undefined; videoUrl?: string | null | undefined; appearanceUrl?: string | null | undefined
+  role?: string | undefined; appearanceRole?: string | undefined; view?: string | undefined
+}
+
+/** Bind after deduplication and capacity limits; continued shots reserve real input image 1. */
+export function bindVideoAssetReferences<T extends VideoAssetReference>(
+  references: T[], images: string[], continuity: boolean,
+) {
+  return references.map((reference) => ({ ...reference,
+    imageBindings: [
+      { url: reference.videoUrl || reference.url, purpose: reference.role || '外观', view: reference.role === '身份' ? 'face' : reference.view },
+      { url: reference.appearanceUrl, purpose: reference.appearanceRole || '当前造型', view: undefined },
+    ].flatMap(({ url, purpose, view }) => {
+      const index = url ? images.indexOf(url) : -1
+      return index < 0 ? [] : [{ number: index + (continuity ? 2 : 1), purpose, ...(view ? { view } : {}) }]
+    }).filter((binding, index, all) => all.findIndex((item) => item.number === binding.number) === index),
+  }))
+}

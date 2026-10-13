@@ -16,6 +16,7 @@ import type { GenerationTaskRepository } from '../generation/repository.js'
 import type { ProjectRepository } from '../projects/repository.js'
 import type { TrustedValidationSessionRepository } from './validationSessionRepository.js'
 import { trustedPortraitUpdate, type PortraitWriteIntent } from '../projects/faceConfirmation.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
 
 const SOURCE_URL_TTL_MS = 24 * 60 * 60 * 1_000
 const PREVIEW_REQUEST_TIMEOUT_MS = 30_000
@@ -85,6 +86,7 @@ export class TrustedAssetService {
     assetId: string,
     principal: Principal,
   ): Promise<PublicValidationSession> {
+    rejectStandaloneProjectId(projectId)
     const repository = this.requireValidationSessionRepository()
     const provider = this.requireValidationProvider()
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
@@ -192,6 +194,7 @@ export class TrustedAssetService {
     assetId: string,
     principal: Principal,
   ): Promise<PublicValidationSession | null> {
+    rejectStandaloneProjectId(projectId)
     const repository = this.requireValidationSessionRepository()
     await this.requireCharacterAsset(projectId, assetId, principal)
     const session = await repository.findLatestOwned(projectId, assetId, principal)
@@ -250,6 +253,7 @@ export class TrustedAssetService {
     expectedFaceReferenceId?: string,
     automaticFaceConfirmation = false,
   ): Promise<Asset> {
+    rejectStandaloneProjectId(projectId)
     const provider = this.requireProvider()
     if (!this.publicApiBaseUrl) {
       throw new AppError(
@@ -318,6 +322,7 @@ export class TrustedAssetService {
     providerAssetId: string,
     principal: Principal,
   ): Promise<Asset> {
+    rejectStandaloneProjectId(projectId)
     const asset = await this.requireCharacterAsset(projectId, localAssetId, principal)
     const portrait = await this.callProvider(() => this.requireProvider().getPortrait(providerAssetId))
     if (portrait.assetType !== 'Image') {
@@ -333,6 +338,7 @@ export class TrustedAssetService {
   }
 
   async refresh(projectId: string, assetId: string, principal: Principal): Promise<Asset> {
+    rejectStandaloneProjectId(projectId)
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
     const current = asset.attributes.trustedPortrait
     if (!current) throw new AppError(409, 'TRUSTED_PORTRAIT_REQUIRED', '当前人物尚未绑定 Dora 素材资源')
@@ -360,6 +366,7 @@ export class TrustedAssetService {
   }
 
   async refreshProcessing(projectId: string, principal: Principal): Promise<Asset[]> {
+    rejectStandaloneProjectId(projectId)
     const assets = this.projectRepository
       ? await this.projectRepository.listOwnedAssets(principal)
       : this.store.read((state) => {
@@ -454,6 +461,7 @@ export class TrustedAssetService {
     principal: Principal,
     expectedFaceReferenceId?: string,
   ): Promise<void> {
+    rejectStandaloneProjectId(projectId)
     this.requireProvider()
     if (!this.publicApiBaseUrl) {
       throw new AppError(
@@ -473,6 +481,7 @@ export class TrustedAssetService {
     face: FaceConfirmationRequest['faceReference'],
     principal: Principal,
   ): Promise<{ faceReference: FaceConfirmationRequest['faceReference']; generated: boolean }> {
+    rejectStandaloneProjectId(projectId)
     const asset = await this.requireCharacterAsset(projectId, assetId, principal)
     const faceReference = { ...face, url: referencePath(face.url) }
     const candidate = { ...asset, attributes: { ...asset.attributes, faceReference } }
@@ -532,7 +541,10 @@ export class TrustedAssetService {
           const projectIds = new Set(
             state.projects
               .filter(
-                (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId,
+                (project) =>
+                  !isStandaloneProjectId(project.id) &&
+                  project.tenantId === principal.tenantId &&
+                  project.ownerId === principal.userId,
               )
               .map((project) => project.id),
           )
@@ -644,11 +656,13 @@ export class TrustedAssetService {
     assetId: string,
     principal: Principal,
   ): Promise<CharacterAsset> {
+    rejectStandaloneProjectId(projectId)
     const asset = this.projectRepository
       ? await this.projectRepository.findOwnedAsset(projectId, assetId, principal)
       : this.store.read((state) => {
           const ownsProject = state.projects.some(
             (project) =>
+              !isStandaloneProjectId(project.id) &&
               project.id === projectId &&
               project.tenantId === principal.tenantId &&
               project.ownerId === principal.userId,

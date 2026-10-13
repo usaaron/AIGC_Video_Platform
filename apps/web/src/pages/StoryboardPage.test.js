@@ -2,7 +2,22 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import JSZip from 'jszip'
 import { describe, expect, it, vi } from 'vitest'
-import { addStoryboardVideosToArchive, groupShotsByEpisode, StoryboardPage } from './StoryboardPage'
+import {
+  addStoryboardVideosToArchive,
+  createStoryboardOperationLock,
+  groupShotsByEpisode,
+  StoryboardPage,
+} from './StoryboardPage'
+
+describe('storyboard operation lock', () => {
+  it('allows one batch mutation at a time and releases after completion', () => {
+    const lock = createStoryboardOperationLock()
+    expect(lock.acquire()).toBe(true)
+    expect(lock.acquire()).toBe(false)
+    lock.release()
+    expect(lock.acquire()).toBe(true)
+  })
+})
 
 describe('groupShotsByEpisode', () => {
   it('keeps available videos when another completed source has expired', async () => {

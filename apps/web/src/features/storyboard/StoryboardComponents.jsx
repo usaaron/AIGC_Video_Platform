@@ -1,4 +1,6 @@
 import { Fragment, useRef, useState } from 'react'
+import { canUseVideoContinuity, videoReviewState } from '@seqora/contracts'
+import { VideoReviewPanel } from './VideoReviewPanel'
 import {
   ArrowDown,
   Check,
@@ -13,7 +15,7 @@ import {
   Trash2,
   Video,
 } from 'lucide-react'
-import { IconButton } from '../../components/ui'
+import { IconButton, TaskControls } from '../../components/ui'
 import { selectShotAssetReferencesFromIndex, taskUsesAssetReferences } from './referenceSelector'
 import { VIDEO_RESOLUTIONS } from './storyboardConstants'
 import {
@@ -28,7 +30,7 @@ import {
   taskOutputUrl,
   videoResolutionForTask,
 } from './storyboardState'
-import { cleanShotContinuityNote, cleanStoryboardPrompt, normalizedVideoDuration } from '@seqora/prompting'
+import { cleanShotContinuityNote, cleanStoryboardPrompt, inspectVideoPreflight, normalizedVideoDuration } from '@seqora/prompting'
 
 export function ShotRow({
   shot,
@@ -51,6 +53,11 @@ export function ShotRow({
   onDelete,
   deleting,
   onGenerateVideo,
+  onReviewVideo,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
 }) {
   const videoTask = taskFor(tasks, shot, 'video')
   const continuityNote = cleanShotContinuityNote(shot.continuityNote, shot.continuityMode)
@@ -61,6 +68,7 @@ export function ShotRow({
   const previewVideoUrl = taskOutputUrl(previewVideoTask, 'video')
   const references = providedReferences || selectShotAssetReferencesFromIndex(assetIndex, shot, 6, assets)
   const videoMatchesAssets = taskUsesAssetReferences(videoTask, references)
+  const preflight = inspectVideoPreflight(shot.prompt || '')
   const videoActionLabel = generationActionLabel(videoTask, videoMatchesAssets, '视频')
   const canReroll =
     Boolean(previewVideoUrl) || ['completed', 'failed', 'cancelled'].includes(videoTask?.status)
@@ -95,7 +103,7 @@ export function ShotRow({
         <ContinuityConnector
           previousShot={previousShot}
           shot={shot}
-          previousVideoTask={taskFor(tasks, previousShot, 'video')}
+          previousVideoTask={taskById(tasks, selectedVersionTaskId(tasks, previousShot, 'video'))}
           onChange={(continuityMode) => void onUpdate(shot.id, { continuityMode })}
           disabled={batchLocked}
         />
@@ -176,6 +184,23 @@ export function ShotRow({
                 : ''}
             </span>
           </div>
+          {videoTask && ['queued', 'paused', 'running'].includes(videoTask.status) && (
+            <div className="shot-task-controls" onClick={(event) => event.stopPropagation()}>
+              <TaskControls
+                job={videoTask}
+                compact
+                busy={busyTaskId === videoTask.id}
+                onPause={onPauseTask ? () => onPauseTask(videoTask.id) : undefined}
+                onResume={onResumeTask ? () => onResumeTask(videoTask.id) : undefined}
+                onDelete={onDeleteTask ? () => onDeleteTask(videoTask.id) : undefined}
+              />
+            </div>
+          )}
+          <VideoReviewPanel key={previewVideoTask?.id || 'no-video'} task={previewVideoTask} onReview={onReviewVideo} />
+          {preflight.issues.map((issue, index) => <p key={`${issue.code}-${index}`} role={issue.severity === 'error' ? 'alert' : undefined}>{issue.severity === 'error' ? '生成前冲突：' : '生成前提示：'}{issue.message}</p>)}
+          {videoTask?.status === 'queued' && typeof videoTask.metadata?.continuitySourceTaskId === 'string' &&
+            !canUseVideoContinuity(taskById(tasks, videoTask.metadata.continuitySourceTaskId)) &&
+            <p>等待上一镜生成并通过内容验收；本镜尚未提交模型。</p>}
         </div>
         <div className="shot-actions">
           <select
@@ -295,7 +320,9 @@ export function ContinuityConnector({ previousShot, shot, previousVideoTask, onC
   const previousVideoReady = previousVideoTask?.status === 'completed'
   const status =
     mode === 'continue'
-      ? lastFrameReady
+      ? previousVideoReady && !canUseVideoContinuity(previousVideoTask)
+        ? videoReviewState(previousVideoTask) === 'rejected' ? '上一镜头已标记问题，暂不承接' : '上一镜头待内容验收，暂不承接'
+        : lastFrameReady
         ? '上一镜头尾帧已就绪'
         : previousVideoReady
           ? '上一镜头缺少尾帧，请重新生成'

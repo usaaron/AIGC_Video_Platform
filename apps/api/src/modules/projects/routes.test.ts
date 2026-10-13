@@ -40,7 +40,7 @@ describe('project postgres api', { timeout: 30_000 }, () => {
     const createdProject = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',
-      headers: { cookie: memberCookie },
+      headers: { cookie: memberCookie, 'idempotency-key': 'lifecycle-project-1' },
       payload: { name: 'Lifecycle Project', contentType: 'short-drama', aspectRatio: '9:16' },
     })
     expect(createdProject.statusCode).toBe(201)
@@ -52,6 +52,24 @@ describe('project postgres api', { timeout: 30_000 }, () => {
       status: 'draft',
     })
     const projectId = createdProject.json().id as string
+
+    const retriedProject = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { cookie: memberCookie, 'idempotency-key': 'lifecycle-project-1' },
+      payload: { name: 'Lifecycle Project', contentType: 'short-drama', aspectRatio: '9:16' },
+    })
+    expect(retriedProject.statusCode).toBe(201)
+    expect(retriedProject.json().id).toBe(projectId)
+
+    const reusedKey = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { cookie: memberCookie, 'idempotency-key': 'lifecycle-project-1' },
+      payload: { name: 'Different Project', contentType: 'short-drama', aspectRatio: '9:16' },
+    })
+    expect(reusedKey.statusCode).toBe(409)
+    expect(reusedKey.json().error.code).toBe('IDEMPOTENCY_KEY_REUSED')
 
     const script = [
       'Scene 01: A locked studio opens at sunrise.',

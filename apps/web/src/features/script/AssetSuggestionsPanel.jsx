@@ -75,6 +75,7 @@ export function AssetSuggestionsPanel({
     refresh: hasResult ? '重新分析当前剧本' : '后台生成资产建议',
     loading: '模型正在后台分析资产；你可以停止、切换为快速提取，或直接进入资产设计。',
     empty: '提交后会在后台分析剧本，即使离开当前页面也会继续生成。',
+    inspect: '打开生成框',
     ...copy,
   }
 
@@ -115,8 +116,8 @@ export function AssetSuggestionsPanel({
     }))
     setImportingSelected(true)
     try {
-      await onImportSelected(inputs)
-      setSelectedKeys(new Set())
+      const completed = await onImportSelected(inputs)
+      if (completed !== false) setSelectedKeys(new Set())
     } finally {
       setImportingSelected(false)
     }
@@ -353,7 +354,7 @@ export function AssetSuggestionsPanel({
                                 onClick={() => onInspect?.({ ...asset, prompt: promptValue })}
                               >
                                 <Pencil size={14} />
-                                打开生成框
+                                {labels.inspect}
                               </button>
                               {onDeleteSuggestion && (
                                 <button

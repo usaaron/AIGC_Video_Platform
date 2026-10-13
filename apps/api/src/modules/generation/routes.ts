@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto'
-import { createGenerationTaskSchema, PERMISSIONS } from '@seqora/contracts'
+import {
+  createGenerationTaskSchema,
+  rigidPhysicsAuditRequestSchema,
+  reviewVideoSchema,
+  PERMISSIONS,
+} from '@seqora/contracts'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
+import { rejectStandaloneProjectReferences } from '../projects/projectSurface.js'
 import type { GenerationService } from './service.js'
 
 const projectParamsSchema = z.object({ projectId: z.string().min(1).max(128) })
@@ -25,12 +31,31 @@ export async function registerGenerationRoutes(
   app: FastifyInstance,
   service: GenerationService,
 ): Promise<void> {
+  app.post('/generation/tasks/:taskId/content-review',
+    {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
+    async (request) => {
+      const params = taskParamsSchema.safeParse(request.params)
+      const body = reviewVideoSchema.safeParse(request.body)
+      if (!params.success || !body.success) throw new AppError(400, 'VALIDATION_ERROR', '验收参数无效；标记问题时须填写原因')
+      return service.reviewVideo(params.data.taskId, body.data, request.principal!)
+    },
+  )
+  app.post('/generation/tasks/:taskId/rigid-audit',
+    {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
+    async (request) => {
+      const params = taskParamsSchema.safeParse(request.params)
+      const body = rigidPhysicsAuditRequestSchema.safeParse(request.body)
+      if (!params.success || !body.success) throw new AppError(400, 'VALIDATION_ERROR', '物理验收参数无效')
+      return service.auditRigidPhysics(params.data.taskId, body.data, request.principal!)
+    },
+  )
   app.post(
     '/generation/tasks',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
     async (request, reply) => {
       const parsed = createGenerationTaskSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      rejectStandaloneProjectReferences(parsed.data)
 
       const task = await service.createTask(parsed.data, request.principal!, request.id)
       return reply.code(202).send(task)
@@ -100,6 +125,16 @@ export async function registerGenerationRoutes(
       const parsed = taskParamsSchema.safeParse(request.params)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
       return service.pauseTask(parsed.data.taskId, request.principal!)
+    },
+  )
+
+  app.post(
+    '/generation/tasks/:taskId/stop',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      return service.stopRunningTask(parsed.data.taskId, request.principal!)
     },
   )
 

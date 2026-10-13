@@ -4,6 +4,16 @@ import { api, AUTH_EXPIRED_EVENT, waitForProjectScriptUpdate } from './apiClient
 afterEach(() => vi.unstubAllGlobals())
 
 describe('api client', () => {
+  it('requires a host project for every script studio launch', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ enabled: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    await api.scriptMasterLaunch('project-1')
+    await expect(api.scriptMasterLaunch(null)).rejects.toThrow('请先进入一个主项目')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/script-master/launch?surface=embedded&projectId=project-1',
+    ])
+  })
+
   it('loads library preview as authenticated raw text and propagates failures', async () => {
     const fetchMock = vi
       .fn()
@@ -348,15 +358,17 @@ describe('api client', () => {
     )
   })
 
-  it('calls the task pause, resume and delete endpoints', async () => {
+  it('calls the task pause, stop, resume and delete endpoints', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ id: 'task-1', status: 'paused' }))
+      .mockResolvedValueOnce(Response.json({ id: 'task-1', status: 'cancelled' }))
       .mockResolvedValueOnce(Response.json({ id: 'task-1', status: 'queued' }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await api.pauseTask('task-1')
+    await api.stopTask('task-1')
     await api.resumeTask('task-1')
     await api.deleteTask('task-1')
 
@@ -367,11 +379,16 @@ describe('api client', () => {
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      '/api/v1/generation/tasks/task-1/resume',
+      '/api/v1/generation/tasks/task-1/stop',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
+      '/api/v1/generation/tasks/task-1/resume',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
       '/api/v1/generation/tasks/task-1',
       expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
     )

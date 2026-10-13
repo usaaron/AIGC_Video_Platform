@@ -4,7 +4,6 @@ import {
   Bell,
   BookOpenText,
   ChevronDown,
-  CircleDollarSign,
   Clapperboard,
   Crown,
   FolderKanban,
@@ -12,11 +11,11 @@ import {
   ImagePlus,
   Layers3,
   LayoutDashboard,
+  LoaderCircle,
   Menu,
   MessageSquareText,
   PackageOpen,
   RefreshCw,
-  Settings,
   UserCog,
   UsersRound,
   WandSparkles,
@@ -25,8 +24,9 @@ import {
 } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { StudioGuide } from './StudioGuide'
-import { IconButton, StatusDot } from './ui'
+import { IconButton, StatusDot, TaskControls } from './ui'
 import { FUNCTION_STACK_ITEMS } from '../features/functionStack/config'
+import { workflowNavigationBlockMessage } from '../features/workspace/workspaceLoadingPolicy'
 
 const STEPS = [
   { id: 'overview', label: '项目概览', icon: LayoutDashboard },
@@ -43,11 +43,23 @@ const FUNCTION_STACK_ICONS = {
   'writing-studio': BookOpenText,
 }
 
+function taskStatusLabel(task) {
+  if (task.status === 'queued') return '等待生成'
+  if (task.status === 'paused') return '已暂停，可继续'
+  if (task.status === 'running') return `生成中 ${task.progress || 0}% · 可确认停止，积分不退还`
+  return task.status || '处理中'
+}
+
 export function AppHeader({
   projectName,
   billing,
   account,
   runningJobs,
+  tasks = [],
+  busyTaskId = null,
+  onPause,
+  onResume,
+  onDelete,
   notifications = [],
   onOpenNav,
   onProjectClick,
@@ -61,7 +73,9 @@ export function AppHeader({
   onNotificationsClear,
 }) {
   const [notificationOpen, setNotificationOpen] = useState(false)
+  const [taskOpen, setTaskOpen] = useState(false)
   const notificationCenterRef = useRef(null)
+  const taskCenterRef = useRef(null)
   const unread = notifications.filter((item) => !item.read)
   const hasUnreadFailure = unread.some((item) => item.status === 'failed')
   const hasUnreadSuccess = unread.some((item) => item.status === 'completed')
@@ -84,6 +98,26 @@ export function AppHeader({
     }
   }, [notificationOpen])
 
+  useEffect(() => {
+    if (!taskOpen) return undefined
+    const closeOutside = (event) => {
+      if (!taskCenterRef.current?.contains(event.target)) setTaskOpen(false)
+    }
+    const closeWithKeyboard = (event) => {
+      if (event.key === 'Escape') setTaskOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeWithKeyboard)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeWithKeyboard)
+    }
+  }, [taskOpen])
+
+  const activeTasks = tasks.filter(
+    (task) => ['queued', 'paused', 'running'].includes(task.status) && typeof task.metadata?.queueHiddenAt !== 'string',
+  )
+
   return (
     <header className="topbar">
       <div className="brand-block">
@@ -105,9 +139,51 @@ export function AppHeader({
       </button>
       <div className="top-actions">
         {onNavigate && <StudioGuide onNavigate={onNavigate} />}
-        <div className="queue-indicator">
-          <StatusDot status={runningJobs.length ? 'running' : 'completed'} />
-          {runningJobs.length ? `${runningJobs.length} 个任务生成中` : '生成服务正常'}
+        <div className="task-center" ref={taskCenterRef}>
+          <button
+            type="button"
+            className="queue-indicator"
+            aria-label="打开生成任务控制"
+            aria-expanded={taskOpen}
+            onClick={() => setTaskOpen((current) => !current)}
+          >
+            <StatusDot status={activeTasks.length ? 'running' : 'completed'} />
+            {activeTasks.length ? `${activeTasks.length} 个任务处理中` : '暂无生成任务'}
+          </button>
+          {taskOpen && (
+            <div className="task-popover" role="dialog" aria-label="生成任务控制">
+              <header>
+                <div>
+                  <strong>生成任务</strong>
+                  <span>{activeTasks.length ? `${activeTasks.length} 项进行中` : '当前没有进行中的任务'}</span>
+                </div>
+                <IconButton label="关闭任务控制" onClick={() => setTaskOpen(false)}>
+                  <X size={16} />
+                </IconButton>
+              </header>
+              <div className="task-popover-list">
+                {activeTasks.length ? (
+                  activeTasks.map((task) => (
+                    <article key={task.id} className={`task-popover-item ${task.status}`}>
+                      <div className="task-popover-copy">
+                        <strong>{task.label || '生成任务'}</strong>
+                        <span>{taskStatusLabel(task)}</span>
+                      </div>
+                      <TaskControls
+                        job={task}
+                        busy={busyTaskId === task.id}
+                        onPause={() => void onPause?.(task.id)}
+                        onResume={() => void onResume?.(task.id)}
+                        onDelete={() => void onDelete?.(task.id)}
+                      />
+                    </article>
+                  ))
+                ) : (
+                  <div className="task-popover-empty">任务完成后会在这里显示状态。</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         <div
           ref={notificationCenterRef}
@@ -229,6 +305,7 @@ export function AppSidebar({
   mobileNav,
   billing,
   assetCount,
+  workflowAccess = {},
   canOpenAdminAccounts = false,
   adminConsoleUrl,
   onNavigate,
@@ -257,10 +334,10 @@ export function AppSidebar({
       </button>
       <div className="sidebar-group-heading">
         <span>功能栈</span>
-        <small>02</small>
+        <small>{String(FUNCTION_STACK_ITEMS.length).padStart(2, '0')}</small>
       </div>
       <nav className="sidebar-tool-nav" aria-label="功能栈">
-        {FUNCTION_STACK_ITEMS.filter((item) => item.id !== 'writing-studio').map((item) => {
+        {FUNCTION_STACK_ITEMS.map((item) => {
           const Icon = FUNCTION_STACK_ICONS[item.id]
           return (
             <button
@@ -272,7 +349,13 @@ export function AppSidebar({
                 <Icon size={15} />
               </span>
               <span>{item.label}</span>
-              <small>{item.availability === 'coming-soon' ? '筹备中' : '已启用'}</small>
+              <small>
+                {item.availability === 'coming-soon'
+                  ? '筹备中'
+                  : item.availability === 'testing'
+                    ? '测试中'
+                    : '已启用'}
+              </small>
             </button>
           )
         })}
@@ -281,10 +364,13 @@ export function AppSidebar({
       <nav className="sidebar-flow-nav" aria-label="创作流程">
         {STEPS.map((step, index) => {
           const Icon = step.icon
+          const locked = workflowAccess[step.id] === false
           return (
             <button
               key={step.id}
-              className={`nav-item ${activeStep === step.id ? 'active' : ''}`}
+              className={`nav-item ${activeStep === step.id ? 'active' : ''} ${locked ? 'is-locked' : ''}`}
+              aria-disabled={locked || undefined}
+              title={locked ? workflowNavigationBlockMessage(step.id, workflowAccess) : undefined}
               onClick={() => onNavigate(step.id)}
             >
               <span className="nav-index">{String(index + 1).padStart(2, '0')}</span>
@@ -300,12 +386,6 @@ export function AppSidebar({
         onClick={() => onNavigate('library')}
       >
         <PackageOpen size={17} /> 资产库 <span>{assetCount}</span>
-      </button>
-      <button
-        className={`sidebar-link ${activeStep === 'billing' ? 'active' : ''}`}
-        onClick={() => onNavigate('billing')}
-      >
-        <CircleDollarSign size={17} /> 积分账单
       </button>
       {billing?.billingScope !== 'organization' && (
         <button
@@ -323,12 +403,6 @@ export function AppSidebar({
           <Zap size={17} /> 积分充值
         </button>
       )}
-      <button
-        className={`sidebar-link ${activeStep === 'settings' ? 'active' : ''}`}
-        onClick={() => onNavigate('settings')}
-      >
-        <Settings size={17} /> 项目设置
-      </button>
       {canOpenAdminAccounts && (
         <a className="sidebar-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">
           <UserCog size={17} /> 管理后台
@@ -362,6 +436,8 @@ export function NewProjectModal({ onClose, onCreate }) {
   const [contentType, setContentType] = useState('short-drama')
   const [visualStyle, setVisualStyle] = useState('cinematic-cg')
   const [aspectRatio, setAspectRatio] = useState('9:16')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
   const contentTypes = [
     ['short-drama', '网剧', '连续剧情与分集钩子'],
     ['advertisement', '广告', '产品或品牌传播'],
@@ -373,15 +449,38 @@ export function NewProjectModal({ onClose, onCreate }) {
     ['chinese-2d', '2D风', '二维动画与插画表现'],
   ]
 
+  const requestClose = () => {
+    if (!creating) onClose()
+  }
+
+  const handleCreate = async () => {
+    if (creating) return
+    setCreating(true)
+    setCreateError('')
+    try {
+      await onCreate({
+        name: name.trim() || '未命名影片',
+        contentType,
+        visualStyle,
+        aspectRatio,
+        episodeDurationSeconds: contentType === 'short-drama' ? 60 : 30,
+      })
+    } catch (error) {
+      setCreateError(error?.message || '项目创建失败，请重试。')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={requestClose}>
       <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
             <span className="eyebrow">新建项目</span>
             <h2>从一个故事开始</h2>
           </div>
-          <IconButton label="关闭" onClick={onClose}>
+          <IconButton label="关闭" disabled={creating} onClick={requestClose}>
             <X size={20} />
           </IconButton>
         </div>
@@ -391,6 +490,7 @@ export function NewProjectModal({ onClose, onCreate }) {
         <input
           className="text-input"
           value={name}
+          disabled={creating}
           placeholder="输入项目名称"
           onFocus={() => setName((current) => (current === '未命名影片' ? '' : current))}
           onChange={(event) => setName(event.target.value)}
@@ -405,6 +505,7 @@ export function NewProjectModal({ onClose, onCreate }) {
                 key={value}
                 className={contentType === value ? 'active' : ''}
                 aria-pressed={contentType === value}
+                disabled={creating}
                 onClick={() => setContentType(value)}
               >
                 <strong>{label}</strong>
@@ -422,6 +523,7 @@ export function NewProjectModal({ onClose, onCreate }) {
                 key={value}
                 className={visualStyle === value ? 'active' : ''}
                 aria-pressed={visualStyle === value}
+                disabled={creating}
                 onClick={() => setVisualStyle(value)}
               >
                 <strong>{label}</strong>
@@ -433,30 +535,34 @@ export function NewProjectModal({ onClose, onCreate }) {
         <div className="field-grid new-project-ratio">
           <label>
             <span>画面比例</span>
-            <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
+            <select
+              value={aspectRatio}
+              disabled={creating}
+              onChange={(event) => setAspectRatio(event.target.value)}
+            >
               <option value="9:16">9:16 竖屏</option>
               <option value="16:9">16:9 横屏</option>
               <option value="1:1">1:1 方形</option>
             </select>
           </label>
         </div>
+        {createError && (
+          <p className="operation-error" role="alert">
+            {createError}
+          </p>
+        )}
         <div className="modal-actions">
-          <button className="button secondary" onClick={onClose}>
+          <button className="button secondary" disabled={creating} onClick={requestClose}>
             取消
           </button>
           <button
             className="button primary"
-            onClick={() =>
-              onCreate({
-                name: name.trim() || '未命名影片',
-                contentType,
-                visualStyle,
-                aspectRatio,
-                episodeDurationSeconds: contentType === 'short-drama' ? 60 : 30,
-              })
-            }
+            disabled={creating}
+            aria-busy={creating}
+            onClick={() => void handleCreate()}
           >
-            创建并写剧本 <ArrowRight size={16} />
+            {creating ? <LoaderCircle size={16} className="spin" /> : <ArrowRight size={16} />}
+            {creating ? '正在创建项目' : '创建并写剧本'}
           </button>
         </div>
       </div>

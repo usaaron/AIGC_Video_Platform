@@ -5,6 +5,7 @@ import { insertAuditLog, type AuditLogInput } from '../../core/audit/auditLog.js
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore, StoredMedia } from '../../infra/store.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
 
 export type MediaObjectSource = {
   storageKey: string
@@ -47,7 +48,9 @@ export class MediaRepository {
   async importFromStore(): Promise<MediaJsonImportResult> {
     const result: MediaJsonImportResult = { media: { inserted: 0, skipped: 0 } }
     if (!this.database) return result
-    const media = this.store.read((state) => state.media)
+    const media = this.store.read((state) =>
+      state.media.filter((item) => !isStandaloneProjectId(item.projectId)),
+    )
     await this.database.transaction(async (client) => {
       for (const item of media) {
         const inserted = await insertMediaFromStore(client, item, this.storageDriver, this.bucket)
@@ -63,6 +66,7 @@ export class MediaRepository {
   }
 
   async canWrite(projectId: string, principal: Principal): Promise<boolean> {
+    if (isStandaloneProjectId(projectId)) return false
     if (this.database) {
       const result = await this.database.query<{ id: string }>(
         `
@@ -71,6 +75,7 @@ export class MediaRepository {
         WHERE id = $1
           AND tenant_id = $2
           AND owner_user_id = $3
+          AND id NOT LIKE 'sm-standalone-%'
           AND status <> 'archived'
         LIMIT 1
         `,
@@ -97,6 +102,7 @@ export class MediaRepository {
     storageKey: string,
     principal: Principal,
   ): Promise<MediaObject> {
+    rejectStandaloneProjectId(projectId)
     if (this.database) {
       const inserted = await this.database.query<MediaObjectRow>(
         `
@@ -171,6 +177,7 @@ export class MediaRepository {
         JOIN projects p ON p.id = mo.project_id AND p.tenant_id = mo.tenant_id
         WHERE mo.id = $1
           AND mo.tenant_id = $2
+          AND mo.project_id NOT LIKE 'sm-standalone-%'
           AND mo.status = 'active'
           AND ($3::boolean OR p.owner_user_id = $4)
         LIMIT 1
@@ -183,6 +190,7 @@ export class MediaRepository {
       const media = state.media.find((item) => item.id === id && item.tenantId === principal.tenantId)
       if (!media) return null
       const canReadAll = canReadAllTenantContent(principal)
+      if (isStandaloneProjectId(media.projectId)) return null
       const project = state.projects.find((item) => item.id === media.projectId)
       return canReadAll || project?.ownerId === principal.userId ? media : null
     })
@@ -196,6 +204,7 @@ export class MediaRepository {
         FROM media_objects mo
         LEFT JOIN projects p ON p.id = mo.project_id AND p.tenant_id = mo.tenant_id
         WHERE mo.id = $1
+          AND mo.project_id NOT LIKE 'sm-standalone-%'
         LIMIT 1
         `,
         [id],
@@ -232,7 +241,7 @@ export class MediaRepository {
       }
     }
     return this.store.read((state) => {
-      const media = state.media.find((item) => item.id === id)
+      const media = state.media.find((item) => item.id === id && !isStandaloneProjectId(item.projectId))
       if (!media) return { reason: 'media_not_found' }
       if (media.tenantId !== principal.tenantId) {
         return {
@@ -265,6 +274,7 @@ export class MediaRepository {
     tenantId: string,
     kind: MediaKind = 'image',
   ): Promise<MediaObjectSource | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (this.database) {
       const result = await this.database.query<{ storage_key: string; content_type: string }>(
         `
@@ -272,6 +282,7 @@ export class MediaRepository {
         FROM media_objects
         WHERE id = $1
           AND project_id = $2
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND tenant_id = $3
           AND media_type = $4
           AND status = 'active'
@@ -285,7 +296,11 @@ export class MediaRepository {
     return this.store.read((state) => {
       const media = state.media.find(
         (item) =>
-          item.id === id && item.projectId === projectId && item.tenantId === tenantId && item.kind === kind,
+          item.id === id &&
+          !isStandaloneProjectId(item.projectId) &&
+          item.projectId === projectId &&
+          item.tenantId === tenantId &&
+          item.kind === kind,
       )
       return media ? sourceFromMedia(media) : null
     })
@@ -298,6 +313,7 @@ export class MediaRepository {
     kind: MediaKind = 'image',
   ): Promise<MediaObjectSource | null> {
     if (!referenceIds.length) return null
+    if (isStandaloneProjectId(projectId)) return null
     if (this.database) {
       const result = await this.database.query<{ storage_key: string; content_type: string }>(
         `
@@ -305,6 +321,7 @@ export class MediaRepository {
         FROM media_objects
         WHERE id = ANY($1::text[])
           AND project_id = $2
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND tenant_id = $3
           AND media_type = $4
           AND status = 'active'
@@ -320,6 +337,7 @@ export class MediaRepository {
       const media = state.media.find(
         (item) =>
           referenceIds.includes(item.id) &&
+          !isStandaloneProjectId(item.projectId) &&
           item.projectId === projectId &&
           item.tenantId === tenantId &&
           item.kind === kind,
@@ -369,7 +387,10 @@ async function insertMediaFromStore(
       updated_at
     )
     SELECT $1, $2, $3, $4, 'upload', $5, $6, $7, $8, $9, $10, $11::jsonb, 'active', $12, $12
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
+    WHERE EXISTS (
+      SELECT 1 FROM projects
+      WHERE id = $2 AND id NOT LIKE 'sm-standalone-%' AND tenant_id = $3
+    )
     ON CONFLICT (id) DO NOTHING
     RETURNING id
     `,

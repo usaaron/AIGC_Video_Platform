@@ -16,7 +16,6 @@ export function AssetLibraryPage({
   currentProject,
   onToast,
   onLoadItems,
-  onSyncExternal,
   onLoadStats,
   onLoadDuplicates,
   onDedupe,
@@ -38,7 +37,6 @@ export function AssetLibraryPage({
   const [preview, setPreview] = useState(null)
   const [template, setTemplate] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
@@ -87,31 +85,7 @@ export function AssetLibraryPage({
       sequence.current += 1
     }
   }, [mode, category, query, page, revision])
-  useEffect(() => {
-    let active = true
-    Promise.resolve(onSyncExternal?.())
-      .then(() => {
-        if (active) setRevision((value) => value + 1)
-      })
-      .catch((failure) => {
-        if (active) onToast?.(failure.message)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  const refresh = async () => {
-    setSyncing(true)
-    try {
-      await onSyncExternal?.()
-    } catch (failure) {
-      onToast?.(failure.message)
-    } finally {
-      setSyncing(false)
-      setRevision((value) => value + 1)
-    }
-  }
+  const refresh = () => setRevision((value) => value + 1)
   const action = async (operation, message, close = false) => {
     if (busy) return
     setBusy(true)
@@ -159,8 +133,8 @@ export function AssetLibraryPage({
         title="每一份灵感，都有归处"
         description="汇集图片、音频与长短剧本，把好素材带进下一次创作。"
       >
-        <button className="button secondary" type="button" disabled={syncing || busy} onClick={refresh}>
-          <RefreshCw size={15} className={syncing ? 'spin' : ''} />
+        <button className="button secondary" type="button" disabled={loading || busy} onClick={refresh}>
+          <RefreshCw size={15} className={loading ? 'spin' : ''} />
           刷新
         </button>
         <button className="button primary" type="button" onClick={() => setTemplate({})}>

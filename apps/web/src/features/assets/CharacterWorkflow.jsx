@@ -14,8 +14,10 @@ import {
 import { useEffect, useState } from 'react'
 import { characterVariantName, characterVariantKey } from '@seqora/contracts'
 import { ImagePreviewModal } from '../../components/ImagePreviewModal'
+import { TaskControls } from '../../components/ui'
 import { isTrustedPortraitTaskActive } from './assetTaskState'
 import { TrustedPortraitPanel } from './TrustedPortraitPanel'
+import { buildTurnaroundReferences, turnaroundPreviewOutputs } from './turnaroundReferences'
 
 const STAGES = [
   ['face', '面部定稿', ScanFace],
@@ -48,6 +50,10 @@ export function CharacterWorkflow({
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
   onEnsureAsset,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
 }) {
   const [error, setError] = useState('')
   const [submittingStage, setSubmittingStage] = useState(null)
@@ -198,18 +204,14 @@ export function CharacterWorkflow({
   const saveAppearanceVariant = async () => {
     if (!activeAppearanceVariant && appearanceVariants.length >= 100)
       throw new Error('每个人物最多保存 100 套造型')
-    const references = (turnaroundTask?.outputs || [])
-      .filter((output) => output.mediaType === 'image' && output.url)
-      .slice(0, 3)
-      .map((output) => toReference(output, `${assetName || '人物'}-${viewLabel(output.view)}`))
+    const references = buildTurnaroundReferences(turnaroundTask?.outputs, assetName)
     const bodyReference =
       attributes.bodyReference ||
       (bodyCandidate ? toReference(bodyCandidate, `${assetName || '人物'}-全身基准`) : null)
     if (!bodyReference) throw new Error('请先确认一整套身体图，再保存人物版本')
-    if (references.length < 3) throw new Error('请等待正面、侧面、背面三张三视图全部生成')
     const name = checkedVariantName()
     const now = new Date().toISOString()
-    const variant = {
+    const variant = mergeAppearanceVariant(activeAppearanceVariant, {
       id: activeAppearanceVariant?.id || createVariantId(),
       name,
       description: activeAppearanceVariant?.description || '',
@@ -218,7 +220,7 @@ export function CharacterWorkflow({
       turnaroundLayout: attributes.turnaroundLayout || 'sheet',
       createdAt: activeAppearanceVariant?.createdAt || now,
       updatedAt: now,
-    }
+    })
     const next = {
       ...attributes,
       appearanceVariants: [...appearanceVariants.filter((item) => item.id !== variant.id), variant],
@@ -446,6 +448,10 @@ export function CharacterWorkflow({
           task={faceTask}
           reference={facePreview}
           showTaskState={false}
+          onPauseTask={onPauseTask}
+          onResumeTask={onResumeTask}
+          onDeleteTask={onDeleteTask}
+          busyTaskId={busyTaskId}
           onPreview={(reference) =>
             setPreview({
               url: reference.url,
@@ -520,6 +526,10 @@ export function CharacterWorkflow({
           onLatestTrustedValidationSession={onLatestTrustedValidationSession}
           onBindTrustedPortrait={onBindTrustedPortrait}
           onRefreshTrustedPortrait={onRefreshTrustedPortrait}
+          onPauseTask={onPauseTask}
+          onResumeTask={onResumeTask}
+          onDeleteTask={onDeleteTask}
+          busyTaskId={busyTaskId}
           onEnsureAsset={onEnsureAsset}
           faceReady={faceConfirmationReady}
           onPreview={(reference) =>
@@ -548,6 +558,10 @@ export function CharacterWorkflow({
             })
           }
           emptyText="选择体型和背景后生成全身候选。"
+          onPauseTask={onPauseTask}
+          onResumeTask={onResumeTask}
+          onDeleteTask={onDeleteTask}
+          busyTaskId={busyTaskId}
         >
           <label className={`asset-toggle compact ${attributes.legStretch ? 'active' : ''}`}>
             <input
@@ -625,6 +639,16 @@ export function CharacterWorkflow({
               })
             }
           />
+          {turnaroundTask && ['queued', 'paused', 'running'].includes(turnaroundTask.status) && (
+            <TaskControls
+              job={turnaroundTask}
+              compact
+              busy={busyTaskId === turnaroundTask.id}
+              onPause={onPauseTask ? () => onPauseTask(turnaroundTask.id) : undefined}
+              onResume={onResumeTask ? () => onResumeTask(turnaroundTask.id) : undefined}
+              onDelete={onDeleteTask ? () => onDeleteTask(turnaroundTask.id) : undefined}
+            />
+          )}
           <AppearanceVariantPanel
             assetName={assetName}
             variants={appearanceVariants}
@@ -685,6 +709,11 @@ export function CharacterWorkflow({
   )
 }
 
+/** Preserve model-authored wardrobe metadata when a generated body/turnaround is saved. */
+export function mergeAppearanceVariant(previous, updates) {
+  return { ...previous, ...updates }
+}
+
 function latestTask(tasks, generationStage) {
   return tasks
     .filter((task) => matchesGenerationStage(task, generationStage))
@@ -727,6 +756,10 @@ function StagePanel({
   emptyText,
   onPreview,
   showTaskState = true,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   children,
 }) {
   return (
@@ -748,6 +781,16 @@ function StagePanel({
           </div>
         )}
         {showTaskState && task && <TaskState task={task} />}
+        {task && ['queued', 'paused', 'running'].includes(task.status) && (
+          <TaskControls
+            job={task}
+            compact
+            busy={busyTaskId === task.id}
+            onPause={onPauseTask ? () => onPauseTask(task.id) : undefined}
+            onResume={onResumeTask ? () => onResumeTask(task.id) : undefined}
+            onDelete={onDeleteTask ? () => onDeleteTask(task.id) : undefined}
+          />
+        )}
       </div>
       <div className="character-stage-actions">{children}</div>
     </div>
@@ -789,11 +832,7 @@ function TaskState({ task }) {
 
 function TurnaroundPreview({ task, variant, onPreview }) {
   const outputs = variant?.turnaroundReferences?.length
-    ? variant.turnaroundReferences.slice(0, 3).map((reference, index) => ({
-        ...reference,
-        mediaType: 'image',
-        view: ['front', 'side', 'back'][index],
-      }))
+    ? turnaroundPreviewOutputs(variant.turnaroundReferences)
     : task?.status === 'completed'
       ? task.outputs.slice(0, 3)
       : []
@@ -889,12 +928,12 @@ function AppearanceVariantPanel({
                 {variant.id === activeVariantId && <small>当前使用</small>}
               </div>
               <div className="appearance-variant-views">
-                {(variant.turnaroundReferences || []).slice(0, 3).map((reference, index) => (
+                {turnaroundPreviewOutputs(variant.turnaroundReferences).map((reference, index) => (
                   <button
                     key={`${variant.id}-${reference.id || index}`}
                     type="button"
                     onClick={() => onPreview(reference)}
-                    aria-label={`预览${variant.name}${['正面', '侧面', '背面'][index]}`}
+                    aria-label={`预览${variant.name}${viewLabel(reference.view)}`}
                   >
                     <img src={reference.url} alt="" />
                   </button>

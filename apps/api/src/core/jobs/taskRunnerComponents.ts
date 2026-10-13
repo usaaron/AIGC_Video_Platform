@@ -1,8 +1,9 @@
-import { hasManualVideoReferences, resolveVideoImages } from './taskVideoReferences.js'
+import { hasBoundVideoReferences, hasManualVideoReferences, resolveVideoImages } from './taskVideoReferences.js'
 import type { GenerationTask } from '@seqora/contracts'
 import {
   compileQualityRules,
   compileStoryboardVideoPrompt,
+  inspectVideoPreflight,
   normalizedVideoDuration,
   QUALITY_RULE_VERSION,
   VIDEO_PROMPT_VERSION,
@@ -26,6 +27,7 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
+import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import { usageCollector } from '../observability/usage.js'
@@ -102,7 +104,12 @@ export class TaskClaimer {
         const image: GenerationTask[] = []
         const local: GenerationTask[] = []
         state.tasks
-          .filter((task) => task.status === 'running' && task.provider !== 'local-compose')
+          .filter(
+            (task) =>
+              !isStandaloneProjectId(task.projectId) &&
+              task.status === 'running' &&
+              task.provider !== 'local-compose',
+          )
           .forEach((task) => {
             const providerName = this.remoteProviderName(task)
             if (!this.ownsTask(task, providerName)) return
@@ -153,6 +160,7 @@ export class TaskClaimer {
       const nextEpisodeScriptTasks: GenerationTask[] = []
 
       for (const task of state.tasks) {
+        if (isStandaloneProjectId(task.projectId)) continue
         const key = `${task.tenantId}:${task.userId}`
         const userTasks = tasksByUser.get(key)
         if (userTasks) userTasks.push(task)
@@ -330,7 +338,7 @@ export class TaskRefundService {
 
   async refundTerminalTasks(): Promise<void> {
     const candidates = this.store.read((state) =>
-      state.tasks.filter((task) => canPotentiallyRefundTask(task)),
+      state.tasks.filter((task) => !isStandaloneProjectId(task.projectId) && canPotentiallyRefundTask(task)),
     )
     if (!candidates.length) return
     const creditLedger = this.creditLedger
@@ -347,6 +355,7 @@ export class TaskRefundService {
         const handled = new Set(handledTaskIds)
         const now = new Date().toISOString()
         for (const task of state.tasks) {
+          if (isStandaloneProjectId(task.projectId)) continue
           if (!handled.has(task.id)) continue
           task.metadata = {
             ...task.metadata,
@@ -360,6 +369,7 @@ export class TaskRefundService {
 
     await this.store.mutate((state) => {
       for (const task of state.tasks) {
+        if (isStandaloneProjectId(task.projectId)) continue
         if (!canPotentiallyRefundTask(task)) continue
         const ledgerIds = state.ledger.map((entry) => entry.id)
         if (!canRefundTask(task, ledgerIds)) continue
@@ -402,6 +412,7 @@ export class TaskWritebackService {
     task: GenerationTask,
     execute: (task: GenerationTask) => Promise<void>,
   ): Promise<void> {
+    if (isStandaloneProjectId(task.projectId)) return
     const leaseToken = stringValue(task.leaseToken, '')
     if (!leaseToken) return
     const stopHeartbeat = this.startLeaseHeartbeat(task.id, leaseToken)
@@ -418,6 +429,7 @@ export class TaskWritebackService {
       state.tasks
         .filter(
           (task) =>
+            !isStandaloneProjectId(task.projectId) &&
             task.status === 'running' &&
             task.provider !== 'local-compose' &&
             !isRemoteProviderName(task.metadata.providerName) &&
@@ -425,6 +437,19 @@ export class TaskWritebackService {
             !shouldSkip(task),
         )
         .forEach((task) => {
+          // A queued video from an older client must never become a demo image
+          // when the real provider is missing. The normal terminal refund path applies.
+          if (task.kind === 'video') {
+            task.status = 'failed'
+            task.progress = 100
+            task.error = '视频生成服务尚未配置，未生成视频；本次积分按失败流程退还'
+            task.outputs = []
+            task.resultUrl = null
+            task.updatedAt = now
+            releaseGenerationTaskLease(task)
+            recordGenerationTaskTerminal(task, new Error(task.error))
+            return
+          }
           task.progress = Math.min(100, task.progress + 12)
           if (task.leaseToken && generationTaskLeaseMatches(task, this.leaseOwnerId, task.leaseToken)) {
             renewGenerationTaskLease(task, this.leaseOwnerId, task.leaseToken, this.leaseTtlMs, new Date(now))
@@ -448,7 +473,7 @@ export class TaskWritebackService {
     diagnostics?: LocalTaskDiagnostics,
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const nowMs = Date.now()
@@ -483,7 +508,7 @@ export class TaskWritebackService {
     stage = 'first-draft',
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.kind !== 'text' || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const now = new Date().toISOString()
@@ -504,7 +529,7 @@ export class TaskWritebackService {
 
   async renewLocalTaskLease(taskId: string, leaseToken: string): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const now = new Date()
@@ -520,7 +545,7 @@ export class TaskWritebackService {
     diagnostics?: LocalTaskDiagnostics,
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task) return
       if (leaseToken && !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const now = new Date().toISOString()
@@ -550,7 +575,7 @@ export class TaskWritebackService {
 
   async retryTimedOutVideoSubmission(taskId: string, leaseToken: string, error: string): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const now = new Date()
@@ -576,7 +601,7 @@ export class TaskWritebackService {
     providerTaskId: string,
   ): Promise<GenerationTask | null> {
     const result = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => item.id === taskId)
+      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return null
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return null
 
@@ -644,7 +669,7 @@ export class TaskWritebackService {
     submission: VideoGenerationSubmission,
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
+      const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
       if (!stored || stored.status !== 'running') return
       if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
       const now = new Date()
@@ -670,6 +695,7 @@ export class TaskWritebackService {
     task: GenerationTask,
     outputs: ImageGenerationOutput[],
   ): Promise<GeneratedOutputDescriptor[]> {
+    if (isStandaloneProjectId(task.projectId)) return []
     return this.resultWriteback.persistImageOutputs(task, outputs)
   }
 
@@ -692,6 +718,7 @@ export class TaskWritebackService {
     providerTaskId: string,
     videoProvider: VideoGenerationProvider,
   ): Promise<GeneratedOutputDescriptor> {
+    if (isStandaloneProjectId(task.projectId)) throw new Error('Main generation worker cannot write an independent project')
     return this.resultWriteback.persistVideoLastFrame(task, providerTaskId, videoProvider)
   }
 
@@ -700,6 +727,7 @@ export class TaskWritebackService {
     providerTaskId: string,
     videoProvider: VideoGenerationProvider,
   ): Promise<GeneratedOutputDescriptor> {
+    if (isStandaloneProjectId(task.projectId)) throw new Error('Main generation worker cannot write an independent project')
     return this.resultWriteback.persistVideoContent(task, providerTaskId, videoProvider)
   }
 
@@ -725,7 +753,7 @@ export class TaskWritebackService {
 
   async markProviderPollError(taskId: string, leaseToken: string, attempts: number): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const stored = state.tasks.find((item) => item.id === taskId)
+      const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!stored || !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
       stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
       renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
@@ -736,7 +764,7 @@ export class TaskWritebackService {
     const intervalMs = Math.max(1_000, Math.floor(this.leaseTtlMs / 3))
     const heartbeat = () => {
       void this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const stored = state.tasks.find((item) => item.id === taskId)
+        const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
         if (!stored || stored.status !== 'running') return
         if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
         const now = new Date()
@@ -769,6 +797,10 @@ export class VideoTaskExecutor {
     if (!leaseToken || !this.options.videoProvider) return
     try {
       const preparedTask = await this.prepareStoryboardVideoTask(task)
+      const source = typeof preparedTask.metadata.sourcePromptSnapshot === 'string'
+        ? preparedTask.metadata.sourcePromptSnapshot : preparedTask.prompt
+      const conflicts = inspectVideoPreflight(source).issues.filter(issue => issue.severity === 'error')
+      if (conflicts.length) throw new Error(`生成前冲突：${conflicts.map(issue => issue.message).join(' ')}`)
       const request = videoRequestFor(
         preparedTask,
         await resolveVideoImages(preparedTask, this.store, this.options),
@@ -799,7 +831,7 @@ export class VideoTaskExecutor {
 
   private prepareStoryboardVideoTask(task: GenerationTask): Promise<GenerationTask> {
     return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
+      const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
       if (!stored) return task
       const leaseToken = stringValue(task.leaseToken, '')
       if (leaseToken && !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) {
@@ -843,12 +875,13 @@ export class VideoTaskExecutor {
         referenceAssets,
         stringValue(stored.metadata.providerName, ''),
       )
-      const hasManualReferenceImages = hasManualVideoReferences(stored)
+      const hasManualReferenceImages = hasManualVideoReferences(stored) || hasBoundVideoReferences(stored)
       const sourcePromptSnapshot = stringValue(stored.metadata.sourcePromptSnapshot, shot.prompt)
       const hasCurrentTaskPromptSnapshot =
         typeof stored.metadata.sourcePromptHash === 'string' &&
         typeof stored.metadata.compiledPrompt === 'string' &&
-        stored.metadata.videoPromptVersion === VIDEO_PROMPT_VERSION
+        // v17 already froze authored prompts; adding view selection must not rewrite queued shots.
+        [VIDEO_PROMPT_VERSION, 'seedance-storyboard-v17'].includes(stringValue(stored.metadata.videoPromptVersion, ''))
       const compiledPrompt = hasCurrentTaskPromptSnapshot
         ? stringValue(stored.metadata.compiledPrompt, stored.prompt)
         : compileStoryboardVideoPrompt({
@@ -898,7 +931,7 @@ export class VideoTaskExecutor {
         duration: normalizedVideoDuration(stored.metadata.duration ?? shot.duration),
         requestedDuration: stored.metadata.requestedDuration ?? shot.duration,
         compiledPrompt,
-        videoPromptVersion: VIDEO_PROMPT_VERSION,
+        videoPromptVersion: hasCurrentTaskPromptSnapshot ? stored.metadata.videoPromptVersion : VIDEO_PROMPT_VERSION,
         qualityRuleVersion: QUALITY_RULE_VERSION,
         qualityPresetIds: quality.presetIds,
         compiledNegativePrompt: quality.negativePrompt,
@@ -956,7 +989,7 @@ export class ImageTaskExecutor {
 
   private prepareImageTask(task: GenerationTask): Promise<GenerationTask> {
     return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
+      const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
       if (!stored) return task
       const leaseToken = stringValue(task.leaseToken, '')
       if (leaseToken && !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) {
@@ -1066,6 +1099,7 @@ export class ProviderPoller {
       state.tasks
         .filter(
           (task) =>
+            !isStandaloneProjectId(task.projectId) &&
             task.status === 'failed' &&
             task.metadata.providerName === this.options.videoProviderName &&
             typeof task.metadata.providerTaskId === 'string' &&
@@ -1097,6 +1131,7 @@ export class ProviderPoller {
       await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
         const now = new Date().toISOString()
         for (const stored of state.tasks) {
+          if (isStandaloneProjectId(stored.projectId)) continue
           if (
             stored.status !== 'cancelled' ||
             stored.metadata.providerName !== this.options.videoProviderName ||
@@ -1142,6 +1177,7 @@ export class ProviderPoller {
       const tasks = state.tasks
         .filter(
           (task) =>
+            !isStandaloneProjectId(task.projectId) &&
             !excludedTaskIds.has(task.id) &&
             task.status === 'running' &&
             task.metadata.providerName === this.options.videoProviderName &&
@@ -1267,7 +1303,7 @@ export class ProviderPoller {
     }
     if (outcome.kind === 'error') {
       const attempts = this.store.read((state) => {
-        const stored = state.tasks.find((item) => item.id === task.id)
+        const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
         return numberValue(stored?.metadata.providerPollErrors, 0) + 1
       })
       if (attempts >= 3) {
@@ -1333,7 +1369,7 @@ export class ProviderPoller {
   async applyRemoteCancellation(task: GenerationTask, outcome: ProviderCancellationOutcome): Promise<void> {
     const claimToken = stringValue(task.metadata.cancelClaimedAt, '')
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)
+      const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
       if (
         !stored ||
         stored.status !== 'cancelled' ||
@@ -1388,6 +1424,7 @@ export class ProviderPoller {
       const eligible = state.tasks
         .filter(
           (task) =>
+            !isStandaloneProjectId(task.projectId) &&
             !excludedTaskIds.has(task.id) &&
             task.status === 'cancelled' &&
             task.metadata.providerName === this.options.videoProviderName &&
@@ -1762,6 +1799,7 @@ function isTimeoutError(error: Error): boolean {
 function canPotentiallyRefundTask(task: GenerationTask): boolean {
   if (task.estimatedCredits <= 0) return false
   if (typeof task.metadata.creditsRefundedAt === 'string') return false
+  if (typeof task.metadata.creditsRefundDisabledAt === 'string') return false
   if (task.status === 'failed') return true
   if (task.status === 'paused') return typeof task.metadata.queueHiddenAt === 'string'
   if (task.status !== 'cancelled') return false
@@ -1883,7 +1921,7 @@ function isVideoProviderName(value: unknown): boolean {
 }
 
 function outputsFor(task: GenerationTask): GenerationTask['outputs'] {
-  if (task.kind === 'image' || task.kind === 'video') {
+  if (task.kind === 'image') {
     const images = ['/demo/station.jpg', '/demo/rain.jpg', '/demo/room.jpg']
     const start = Math.abs(hash(task.id)) % images.length
     const mediaType: 'image' | 'video' = task.kind

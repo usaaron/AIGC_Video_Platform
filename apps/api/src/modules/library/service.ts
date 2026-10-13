@@ -27,6 +27,7 @@ import type { StoredMedia } from '../../infra/store.js'
 import type { GenerationTaskRepository } from '../generation/repository.js'
 import type { MediaRepository } from '../media/repository.js'
 import type { ProjectRepository } from '../projects/repository.js'
+import { rejectStandaloneProjectId } from '../projects/projectSurface.js'
 import type { AssetLibraryRepository } from './repository.js'
 import { createStoredZip } from './zip.js'
 
@@ -142,6 +143,7 @@ export class AssetLibraryService {
     input: SaveProjectAssetToLibrary,
     principal: Principal,
   ): Promise<AssetLibraryItemView> {
+    rejectStandaloneProjectId(projectId)
     const workspace = await this.ownedWorkspace(projectId, principal)
     const asset = workspace.assets.find((item) => item.id === assetId)
     if (!asset) throw new AppError(404, 'SOURCE_ASSET_NOT_FOUND', 'Project asset not found')
@@ -297,6 +299,7 @@ export class AssetLibraryService {
     input: ImportAssetLibraryItem,
     principal: Principal,
   ): Promise<AssetLibraryImportResult> {
+    rejectStandaloneProjectId(projectId)
     const workspace = await this.ownedWorkspace(projectId, principal)
     const item = await this.repository.find(input.itemId, principal)
     if (!item) throw new AppError(404, 'LIBRARY_ITEM_NOT_FOUND', 'Library item not found')
@@ -421,6 +424,7 @@ export class AssetLibraryService {
     source: StoredContentSource & { title: string; description: string; tags: string[] },
     principal: Principal,
   ): Promise<AssetLibraryItemView> {
+    rejectStandaloneProjectId(source.sourceProjectId)
     const now = new Date().toISOString()
     const id = randomUUID()
     const location = await this.contentLocation(source, principal, null, id)
@@ -507,6 +511,7 @@ export class AssetLibraryService {
     input: CreateAssetLibraryItem | CreateAssetLibraryItemVersion,
     principal: Principal,
   ): Promise<StoredContentSource> {
+    if ('projectId' in input) rejectStandaloneProjectId(input.projectId)
     const title = 'title' in input ? input.title : undefined
     const description = 'description' in input ? input.description : undefined
     const tags = 'tags' in input && input.tags ? normalizeTags(input.tags) : undefined
@@ -624,6 +629,7 @@ export class AssetLibraryService {
   }
 
   private async ownedWorkspace(projectId: string, principal: Principal) {
+    rejectStandaloneProjectId(projectId)
     const workspace = await this.projects.workspace(projectId, principal)
     if (!workspace || workspace.project.ownerId !== principal.userId) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found')

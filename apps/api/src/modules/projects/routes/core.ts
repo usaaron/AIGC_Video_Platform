@@ -30,7 +30,13 @@ export function registerProjectCoreRoutes(app: FastifyInstance, service: Project
     async (request, reply) =>
       reply
         .code(201)
-        .send(await service.create(parseRequest(createProjectSchema, request.body), request.principal!)),
+        .send(
+          await service.create(
+            parseRequest(createProjectSchema, request.body),
+            request.principal!,
+            typeof request.headers['idempotency-key'] === 'string' ? request.headers['idempotency-key'] : undefined,
+          ),
+        ),
   )
   app.get('/projects/:projectId', { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) }, (request) =>
     service.workspace(parseRequest(projectParams, request.params).projectId, request.principal!),

@@ -26,6 +26,10 @@ export function ImageStudioPage({
   tasks = [],
   image2ProviderStatus = null,
   onRefresh,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   onOpenBilling,
 }) {
   const [prompt, setPrompt] = useState('')
@@ -588,6 +592,10 @@ export function ImageStudioPage({
             onDelete={handleDeleteResult}
             onRetryFailed={handleRetryFailedRequest}
             retryingTaskId={resultAction?.type === 'retry' ? resultAction.taskId : null}
+            onPauseTask={onPauseTask}
+            onResumeTask={onResumeTask}
+            onDeleteTask={onDeleteTask}
+            busyTaskId={busyTaskId}
           />
         </div>
       </div>

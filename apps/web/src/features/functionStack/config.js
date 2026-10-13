@@ -19,7 +19,8 @@ export const FUNCTION_STACK_ITEMS = [
     label: '剧本大师',
     title: '剧本大师',
     eyebrow: 'WRITING ROOM / 03',
-    description: '长篇故事的世界观、人物关系与分集规划空间。',
+    description: '独立的故事创作、分镜与文件导出工作台。',
+    availability: 'testing',
   },
 ]
 

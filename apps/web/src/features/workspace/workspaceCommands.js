@@ -1,4 +1,4 @@
-import { shotReferenceImages, validateShotReferences } from '@seqora/prompting'
+import { bindVideoAssetReferences, shotReferenceImages, validateShotReferences } from '@seqora/prompting'
 import { ASSET_SUGGESTION_MODEL, SCRIPT_OPERATION_CREDITS } from '@seqora/contracts'
 import {
   compileStoryboardVideoPrompt,
@@ -6,6 +6,7 @@ import {
   VIDEO_PROMPT_VERSION,
 } from '@seqora/prompting'
 import { compileCharacterStagePrompt } from '../assets/promptCompiler'
+import { assetGenerationReferences } from '../assets/assetGenerationReferences'
 import { readProjectTaskCache } from '../generation/projectTaskCache'
 import { hasLastFrame, latestVideoTaskFor } from '../generation/taskMedia'
 import { retryTaskInput } from '../notifications/taskNotifications'
@@ -21,7 +22,13 @@ import {
   planVideoBatch,
 } from '../storyboard/videoBatchPlanner'
 import { api } from '../../services/apiClient'
-import { isActiveWorkspaceProject, normalizeTasks, normalizeWorkspace } from './workspaceLoadingPolicy'
+import {
+  isActiveWorkspaceProject,
+  normalizeTasks,
+  normalizeWorkspace,
+  workflowNavigationBlockMessage,
+  workflowNavigationAccess,
+} from './workspaceLoadingPolicy'
 
 const TASK_KIND_BY_LABEL = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const VIDEO_RESOLUTIONS = new Set(['480p', '720p', '1080p', '4k'])
@@ -33,10 +40,13 @@ export function createWorkspaceCommands({
   tasks,
   workspaceCacheRef,
   activeProjectIdRef,
+  projectCreationInFlightRef,
+  assetOperationInFlightRef,
   replaceTasks,
   refreshSession,
   markNotificationRead,
   setActiveStep,
+  setScriptMasterOpened,
   setMobileNav,
   setWorkspace,
   setActiveProject,
@@ -47,9 +57,18 @@ export function createWorkspaceCommands({
   setToast,
   assetReferenceIndex,
   generationConcurrency = 1,
+  workflowAccess = null,
 }) {
   const resolvedAssetReferenceIndex = assetReferenceIndex || createShotAssetReferenceIndex(workspace?.assets)
+  const creationLock = projectCreationInFlightRef || { current: null }
+  const assetLock = assetOperationInFlightRef || { current: new Map() }
+  if (!(assetLock.current instanceof Map)) assetLock.current = new Map()
   const isCurrentProject = (projectId) => isActiveWorkspaceProject(activeProjectIdRef?.current, projectId)
+
+  const runAssetOperation = (operation, input, work) => {
+    const key = `${project?.id || 'unknown'}:${operation}:${stableOperationValue(input)}`
+    return runSingleFlight(assetLock.current, key, work)
+  }
 
   const refreshWorkspace = async (projectId = project?.id) => {
     if (!projectId) return
@@ -103,50 +122,95 @@ export function createWorkspaceCommands({
     setProjects(nextProjects)
   }
 
-  const createJob = async (label, type = '图片', cost = 6, options = {}) => {
-    if (!project) return
+  // Asset writes can be triggered from both the script handoff and the asset
+  // page. Keep the lock above the network boundary so a rapid double click
+  // shares the same accepted write and never queues two follow-up generations.
+  const persistAsset = async (input) => {
+    if (!project) throw new Error('请先打开一个项目')
+    return api.createAsset(project.id, input)
+  }
+
+  const createAsset = async (input) =>
+    runAssetOperation('create', input, async () => {
+      const created = await persistAsset(input)
+      await refreshWorkspace()
+      setToast(`已加入资产：${created.name}`)
+      return created
+    })
+
+  const importAssets = async (inputs) => {
+    const list = Array.isArray(inputs) ? inputs : []
+    if (!list.length) return []
+    return runAssetOperation('import', list, async () => {
+      const results = await Promise.allSettled(list.map((input) => persistAsset(input)))
+      await refreshWorkspace()
+      const failed = results.find((result) => result.status === 'rejected')
+      if (failed) {
+        throw new Error(failed.reason?.message || '部分资产未能加入，已加入的资产已保留，请重试。')
+      }
+      const created = results.map((result) => result.value)
+      setToast(`已加入 ${created.length} 项资产`)
+      return created
+    })
+  }
+
+  const createJob = (label, type = '图片', cost = 6, options = {}) => {
+    if (!project) return Promise.resolve(undefined)
     try {
       const kind = TASK_KIND_BY_LABEL[type] || 'image'
-      const provider =
-        kind === 'image' ? 'img2' : kind === 'video' ? 'seedance' : kind === 'audio' ? 'audio' : 'local'
-      const created = await api.createTask({
-        clientRequestId: crypto.randomUUID(),
-        projectId: project.id,
-        kind,
-        label,
-        prompt: options.prompt,
-        negativePrompt: options.negativePrompt,
-        provider,
-        model:
-          kind === 'video'
-            ? 'doubao-seedance-2-0-260128'
-            : kind === 'image'
-              ? options.model || 'img2-default'
-              : undefined,
-        estimatedCredits: cost,
-        metadata: options.metadata,
-      })
-      if (options.refreshAfterCreate !== false) {
-        // Once accepted, a failed refresh must not invite another paid submission.
-        if (isCurrentProject(project.id)) {
-          setTasks((current) => [created, ...current.filter((task) => task.id !== created.id)])
+      const assetId = options.metadata?.assetId
+      const singleFlightKey =
+        options.singleFlightKey ||
+        (assetId
+          ? `asset-job:${project.id}:${kind}:${assetId}:${options.metadata?.generationStage || label}`
+          : null)
+      const submit = async () => {
+        const provider =
+          kind === 'image' ? 'img2' : kind === 'video' ? 'seedance' : kind === 'audio' ? 'audio' : 'local'
+        const created = await api.createTask({
+          clientRequestId: crypto.randomUUID(),
+          projectId: project.id,
+          kind,
+          label,
+          prompt: options.prompt,
+          negativePrompt: options.negativePrompt,
+          provider,
+          model:
+            kind === 'video'
+              ? 'doubao-seedance-2-0-260128'
+              : kind === 'image'
+                ? options.model || 'img2-default'
+                : undefined,
+          estimatedCredits: cost,
+          metadata: options.metadata,
+        })
+        if (options.refreshAfterCreate !== false) {
+          // Once accepted, a failed refresh must not invite another paid submission.
+          if (isCurrentProject(project.id)) {
+            setTasks((current) => [created, ...current.filter((task) => task.id !== created.id)])
+          }
+          const refreshed = await Promise.allSettled([
+            api.tasks(project.id).then((next) => {
+              if (isCurrentProject(project.id)) replaceTasks(project.id, next)
+            }),
+            refreshBilling(),
+          ])
+          setToast(
+            refreshed.some((result) => result.status === 'rejected')
+              ? `${label} 已加入生成队列，状态同步稍有延迟，请勿重复提交`
+              : `${label} 已加入生成队列`,
+          )
         }
-        const refreshed = await Promise.allSettled([
-          api.tasks(project.id).then((next) => {
-            if (isCurrentProject(project.id)) replaceTasks(project.id, next)
-          }),
-          refreshBilling(),
-        ])
-        setToast(
-          refreshed.some((result) => result.status === 'rejected')
-            ? `${label} 已加入生成队列，状态同步稍有延迟，请勿重复提交`
-            : `${label} 已加入生成队列`,
-        )
+        return created
       }
-      return created
+      const operation = () => submit().catch((error) => {
+        setToast(error.message)
+        return null
+      })
+      return singleFlightKey ? runSingleFlight(assetLock.current, singleFlightKey, operation) : operation()
     } catch (error) {
       setToast(error.message)
-      return null
+      return Promise.resolve(null)
     }
   }
 
@@ -164,6 +228,47 @@ export function createWorkspaceCommands({
         references: asset.references,
         attributes: asset.attributes,
       },
+    })
+
+  const createAndGenerateAsset = async (input) =>
+    runAssetOperation('create-and-generate', input, async () => {
+      const created = await persistAsset(input)
+      await refreshWorkspace()
+      const currentTasks = await api.tasks(project.id)
+      if (
+        created.imageUrl ||
+        (created.attributes.type === 'character' && created.attributes.faceReference) ||
+        currentTasks.some(
+          (task) =>
+            task.metadata?.assetId === created.id &&
+            task.kind === 'image' &&
+            ['queued', 'paused', 'running', 'completed'].includes(task.status),
+        )
+      ) {
+        setToast(`${created.name}已复用；新造型可在人物设计中选择后生成`)
+        return created
+      }
+      const task =
+        created.kind === 'character'
+          ? await createCharacterFaceJob(created, 'img2-default', '资产建议 · 面部大头照')
+          : await createJob(`${created.name} · 资产建议生成`, created.kind === 'audio' ? '音频' : '图片', 6, {
+              prompt: created.prompt,
+              model: 'img2-default',
+              negativePrompt: created.negativePrompt,
+              metadata: {
+                assetId: created.id,
+                assetKind: created.kind,
+                generationStage: 'asset',
+                aspectRatio: project.aspectRatio,
+                sourceMode: created.sourceMode,
+                references: assetGenerationReferences(created, [...(workspace?.assets || []), created]),
+                attributes: created.attributes,
+                turnaround:
+                  created.attributes.turnaround === true || created.attributes.view === 'turnaround',
+              },
+            })
+      if (!task) throw new Error('资产已写入，但生成任务未能加入队列，请到资产页重试')
+      return task
     })
 
   const createTrustedPortraitJob = async (assetId, assetName = '人物', faceReferenceId) => {
@@ -213,47 +318,66 @@ export function createWorkspaceCommands({
 
   const createScriptJob = async (label, operation, input) => {
     if (!project) return null
-    try {
-      const taskModel = operation === 'suggest-assets' ? ASSET_SUGGESTION_MODEL : input.model
-      const generationStage =
-        operation === 'enrich'
-          ? 'script-enrich'
-          : operation === 'suggest-assets'
-            ? 'script-asset-suggestions'
-            : 'script-generate'
-      const task = await api.createTask({
-        clientRequestId: crypto.randomUUID(),
-        projectId: project.id,
-        kind: 'text',
-        label,
-        provider: 'text',
-        model: taskModel,
-        estimatedCredits: input.episodePlan
-          ? SCRIPT_OPERATION_CREDITS.generate * input.episodePlan.episodes.length
-          : operation === 'enrich'
-            ? SCRIPT_OPERATION_CREDITS.enrich
+    const submit = async () => {
+      try {
+        const taskModel = operation === 'suggest-assets' ? ASSET_SUGGESTION_MODEL : input.model
+        const generationStage =
+          operation === 'enrich'
+            ? 'script-enrich'
             : operation === 'suggest-assets'
-              ? SCRIPT_OPERATION_CREDITS.suggestAssets
-              : SCRIPT_OPERATION_CREDITS.generate,
-        metadata: {
-          generationStage,
-          scriptOperation: operation,
-          billingMode: 'prepaid',
-          ...input,
+              ? 'script-asset-suggestions'
+              : 'script-generate'
+        const task = await api.createTask({
+          clientRequestId: crypto.randomUUID(),
+          projectId: project.id,
+          kind: 'text',
+          label,
+          provider: 'text',
           model: taskModel,
-        },
-      })
-      replaceTasks(project.id, await api.tasks(project.id))
-      await refreshBilling()
-      setToast(`${label}已提交后台生成`)
-      return task
-    } catch (error) {
-      setToast(error.message)
-      throw error
+          estimatedCredits: input.episodePlan
+            ? SCRIPT_OPERATION_CREDITS.generate * input.episodePlan.episodes.length
+            : operation === 'enrich'
+              ? SCRIPT_OPERATION_CREDITS.enrich
+              : operation === 'suggest-assets'
+                ? SCRIPT_OPERATION_CREDITS.suggestAssets
+                : SCRIPT_OPERATION_CREDITS.generate,
+          metadata: {
+            generationStage,
+            scriptOperation: operation,
+            billingMode: 'prepaid',
+            ...input,
+            model: taskModel,
+          },
+        })
+        replaceTasks(project.id, await api.tasks(project.id))
+        await refreshBilling()
+        setToast(`${label}已提交后台生成`)
+        return task
+      } catch (error) {
+        setToast(error.message)
+        throw error
+      }
     }
+    if (operation !== 'suggest-assets') return submit()
+    return runAssetOperation(
+      'suggest-assets',
+      {
+        sourceScriptFingerprint: input.sourceScriptFingerprint,
+        assetRevision: input.assetRevision,
+        script: input.script,
+      },
+      submit,
+    )
   }
 
   const navigateTo = (id) => {
+    if (workflowAccess && Object.hasOwn(workflowAccess, id) && workflowAccess[id] === false) {
+      setToast(workflowNavigationBlockMessage(id, workflowAccess))
+      return false
+    }
+    if (id === 'writing-studio') {
+      setScriptMasterOpened?.(true)
+    }
     setActiveStep(id)
     setMobileNav(false)
     if (id === 'home') {
@@ -266,6 +390,7 @@ export function createWorkspaceCommands({
         .then(setProjects)
         .catch((error) => setToast(error.message))
     }
+    return true
   }
 
   const openProject = async (projectId) => {
@@ -300,8 +425,38 @@ export function createWorkspaceCommands({
 
   const openNotification = async (notification) => {
     markNotificationRead(notification.id)
-    openProject(notification.projectId)
-    navigateTo(notification.target)
+    const opened = await openProject(notification.projectId)
+    if (!opened || !isCurrentProject(notification.projectId)) return false
+
+    // A project summary is enough for the library, but a notification target
+    // needs the complete workspace so its stage gate is evaluated against the
+    // destination project rather than the project that was previously open.
+    let nextWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(notification.projectId))
+    if (!nextWorkspace) {
+      try {
+        nextWorkspace = normalizeWorkspace(await api.project(notification.projectId))
+      } catch (error) {
+        if (isCurrentProject(notification.projectId)) {
+          setToast(error.message || '项目内容暂时无法加载，请稍后重试。')
+        }
+        return false
+      }
+      if (!isCurrentProject(notification.projectId)) return false
+    }
+    if (!nextWorkspace) {
+      setToast('项目内容暂时无法加载，请稍后重试。')
+      return false
+    }
+    workspaceCacheRef.current.set(notification.projectId, nextWorkspace)
+    setWorkspace(nextWorkspace)
+    const access = workflowNavigationAccess(nextWorkspace)
+    if (access[notification.target] === false) {
+      setToast(workflowNavigationBlockMessage(notification.target, access))
+      return false
+    }
+    setActiveStep(notification.target)
+    setMobileNav(false)
+    return true
   }
 
   const retryNotification = async (notification) => {
@@ -318,17 +473,31 @@ export function createWorkspaceCommands({
   }
 
   const createProject = async (input) => {
+    if (creationLock.current) return creationLock.current
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `project-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    const operation = (async () => {
+      try {
+        const created = await api.createProject(input, idempotencyKey)
+        activeProjectIdRef.current = created.id
+        setActiveProject?.(created.id)
+        await refreshWorkspace(created.id)
+        replaceTasks(created.id, readProjectTaskCache(created.id))
+        setNewProjectOpen(false)
+        navigateTo('script')
+        setToast('新项目已创建')
+        return created
+      } catch (error) {
+        setToast(error.message)
+        return null
+      }
+    })()
+
+    creationLock.current = operation
     try {
-      const created = await api.createProject(input)
-      activeProjectIdRef.current = created.id
-      setActiveProject?.(created.id)
-      await refreshWorkspace(created.id)
-      replaceTasks(created.id, readProjectTaskCache(created.id))
-      setNewProjectOpen(false)
-      navigateTo('script')
-      setToast('新项目已创建')
-    } catch (error) {
-      setToast(error.message)
+      return await operation
+    } finally {
+      if (creationLock.current === operation) creationLock.current = null
     }
   }
 
@@ -396,7 +565,7 @@ export function createWorkspaceCommands({
       shot,
       shots: workspace.shots,
       assets: workspace.assets,
-      references,
+      references: bindVideoAssetReferences(references, images, actualContinuityMode === 'continue'),
       continuityMode: actualContinuityMode,
       manualReferenceCount: manualReferenceImages.length,
     })
@@ -559,12 +728,7 @@ export function createWorkspaceCommands({
       return saved
     },
     assetCommands: {
-      onCreate: async (input) => {
-        const created = await api.createAsset(project.id, input)
-        await refreshWorkspace()
-        setToast('资产已添加')
-        return created
-      },
+      onCreate: createAsset,
       onUpdate: async (assetId, input) => {
         const updated = await api.updateAsset(project.id, assetId, input)
         await refreshWorkspace()
@@ -594,6 +758,9 @@ export function createWorkspaceCommands({
     refreshBilling,
     refreshCurrentProjectData,
     createJob,
+    createAsset,
+    importAssets,
+    createAndGenerateAsset,
     createCharacterFaceJob,
     createTrustedPortraitJob,
     confirmCharacterFace,
@@ -634,4 +801,30 @@ export function createCharacterStageJob(createJob, project, asset, stage, prompt
       outputLayout: asset.attributes.turnaroundLayout,
     },
   })
+}
+
+function runSingleFlight(lockMap, key, operation) {
+  const existing = lockMap.get(key)
+  if (existing) return existing
+  const promise = Promise.resolve().then(operation)
+  lockMap.set(key, promise)
+  promise.then(
+    () => {
+      if (lockMap.get(key) === promise) lockMap.delete(key)
+    },
+    () => {
+      if (lockMap.get(key) === promise) lockMap.delete(key)
+    },
+  )
+  return promise
+}
+
+function stableOperationValue(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableOperationValue).join(',')}]`
+  return `{${Object.keys(value)
+    .filter((key) => value[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableOperationValue(value[key])}`)
+    .join(',')}}`
 }

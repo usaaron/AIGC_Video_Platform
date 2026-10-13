@@ -18,6 +18,7 @@ import type { PoolClient, QueryResultRow } from 'pg'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import { automaticCatalogItems } from './automaticCatalog.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
 
 type AssetLibraryItemRow = QueryResultRow & {
   id: string
@@ -152,6 +153,7 @@ export class AssetLibraryRepository {
   }
 
   async saveAutomatic(records: AssetLibraryItemRecord[]): Promise<void> {
+    records = records.filter((item) => !isStandaloneLibraryItem(item))
     if (!records.length) return
     if (this.database) {
       await this.database.transaction(async (client) => {
@@ -178,7 +180,7 @@ export class AssetLibraryRepository {
     }
     if (!this.database || !this.store) return result
     const { items, versions } = this.store.read((state) => ({
-      items: state.assetLibraryItems,
+      items: state.assetLibraryItems.filter((item) => !isStandaloneLibraryItem(item)),
       versions: state.assetLibraryItemVersions,
     }))
     const versionsByItem = groupVersionsByItem(versions)
@@ -205,10 +207,10 @@ export class AssetLibraryRepository {
     if (!this.database || !this.store) return
     const [items, versions] = await Promise.all([
       this.database.query<AssetLibraryItemRow>(
-        `SELECT ${itemColumns} FROM asset_library_items ORDER BY created_at DESC, id DESC`,
+        `SELECT ${itemColumns} FROM asset_library_items WHERE (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%') ORDER BY created_at DESC, id DESC`,
       ),
       this.database.query<AssetLibraryItemVersionRow>(
-        `SELECT ${versionColumns} FROM asset_library_item_versions ORDER BY created_at DESC, version DESC`,
+        `SELECT ${versionColumns} FROM asset_library_item_versions WHERE item_id IN (SELECT id FROM asset_library_items WHERE source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%') ORDER BY created_at DESC, version DESC`,
       ),
     ])
     await this.store.replaceLibraryRuntimeCacheAsync({
@@ -259,6 +261,7 @@ export class AssetLibraryRepository {
           state.assetLibraryItems.find(
             (item) =>
               item.id === itemId &&
+              !isStandaloneLibraryItem(item) &&
               item.tenantId === principal.tenantId &&
               item.ownerUserId === principal.userId &&
               (options.includeDeleted || item.deletedAt === null),
@@ -273,6 +276,7 @@ export class AssetLibraryRepository {
       WHERE id = $1
         AND tenant_id = $2
         AND owner_user_id = $3
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
         ${deletedCondition}
       LIMIT 1
       `,
@@ -295,6 +299,7 @@ export class AssetLibraryRepository {
             (item) =>
               item.tenantId === principal.tenantId &&
               item.ownerUserId === principal.userId &&
+              !isStandaloneLibraryItem(item) &&
               item.kind === kind &&
               item.contentHash === contentHash &&
               item.deletedAt === null,
@@ -310,6 +315,7 @@ export class AssetLibraryRepository {
         AND owner_user_id = $2
         AND kind = $3
         AND content_hash = $4
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
         AND deleted_at IS NULL
       ORDER BY
         CASE WHEN duplicate_of_item_id IS NULL THEN 0 ELSE 1 END,
@@ -326,6 +332,7 @@ export class AssetLibraryRepository {
     item: AssetLibraryItemRecord,
     initialVersion: AssetLibraryItemVersionRecord,
   ): Promise<AssetLibraryItemRecord> {
+    rejectStandaloneProjectId(item.sourceProjectId)
     if (!this.database) {
       return this.requireStore().mutateLibraryRuntimeCache((state) => {
         state.assetLibraryItems.unshift(item)
@@ -416,6 +423,7 @@ export class AssetLibraryRepository {
       WHERE id = $1
         AND tenant_id = $2
         AND owner_user_id = $3
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
         AND deleted_at IS NULL
       RETURNING ${itemColumns}
       `,
@@ -470,6 +478,7 @@ export class AssetLibraryRepository {
         WHERE id = $1
           AND tenant_id = $2
           AND owner_user_id = $3
+          AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
           AND deleted_at IS NULL
         RETURNING ${itemColumns}
         `,
@@ -581,6 +590,7 @@ export class AssetLibraryRepository {
       WHERE id = $1
         AND tenant_id = $2
         AND owner_user_id = $3
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
         AND deleted_at IS NULL
       RETURNING ${itemColumns}
       `,
@@ -612,6 +622,7 @@ export class AssetLibraryRepository {
       WHERE id = $1
         AND tenant_id = $2
         AND owner_user_id = $3
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
       RETURNING ${itemColumns}
       `,
       [itemId, principal.tenantId, principal.userId, restoredAt],
@@ -642,6 +653,7 @@ export class AssetLibraryRepository {
       WHERE id = $1
         AND tenant_id = $2
         AND owner_user_id = $3
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
       RETURNING ${itemColumns}
       `,
       [itemId, principal.tenantId, principal.userId],
@@ -732,7 +744,10 @@ export class AssetLibraryRepository {
     if (!this.database) {
       return this.requireStore().read((state) => [
         state.assetLibraryItems.filter(
-          (item) => item.tenantId === principal.tenantId && item.ownerUserId === principal.userId,
+          (item) =>
+            !isStandaloneLibraryItem(item) &&
+            item.tenantId === principal.tenantId &&
+            item.ownerUserId === principal.userId,
         ),
         state.assetLibraryItemVersions.filter(
           (version) => version.tenantId === principal.tenantId && version.ownerUserId === principal.userId,
@@ -746,15 +761,17 @@ export class AssetLibraryRepository {
         FROM asset_library_items
         WHERE tenant_id = $1
           AND owner_user_id = $2
+          AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
         `,
         [principal.tenantId, principal.userId],
       ),
       this.database.query<AssetLibraryItemVersionRow>(
         `
         SELECT ${versionColumns}
-        FROM asset_library_item_versions
-        WHERE tenant_id = $1
+        FROM asset_library_item_versions v
+        WHERE v.tenant_id = $1
           AND owner_user_id = $2
+          AND v.item_id IN (SELECT id FROM asset_library_items WHERE source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
         `,
         [principal.tenantId, principal.userId],
       ),
@@ -763,7 +780,7 @@ export class AssetLibraryRepository {
   }
 
   private async mirrorItem(item: AssetLibraryItemRecord): Promise<void> {
-    if (!this.store) return
+    if (!this.store || isStandaloneLibraryItem(item)) return
     this.store.mutateLibraryRuntimeCache((state) => {
       const index = state.assetLibraryItems.findIndex((candidate) => candidate.id === item.id)
       if (index >= 0) state.assetLibraryItems[index] = item
@@ -774,6 +791,8 @@ export class AssetLibraryRepository {
   private async mirrorVersion(version: AssetLibraryItemVersionRecord): Promise<void> {
     if (!this.store) return
     this.store.mutateLibraryRuntimeCache((state) => {
+      const item = state.assetLibraryItems.find((candidate) => candidate.id === version.itemId)
+      if (!item || isStandaloneLibraryItem(item)) return
       const index = state.assetLibraryItemVersions.findIndex((candidate) => candidate.id === version.id)
       if (index >= 0) state.assetLibraryItemVersions[index] = version
       else state.assetLibraryItemVersions.unshift(version)
@@ -821,7 +840,8 @@ async function insertItemFromStore(client: PoolClient, item: AssetLibraryItemRec
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
       $11, $12::jsonb, $13, $14, $15, $16, $17, $18,
       $19, $20::jsonb, $21, $22, $23, $24
-    WHERE EXISTS (SELECT 1 FROM tenants WHERE id = $2)
+    WHERE ($7 IS NULL OR $7 NOT LIKE 'sm-standalone-%')
+      AND EXISTS (SELECT 1 FROM tenants WHERE id = $2)
       AND EXISTS (SELECT 1 FROM users WHERE id = $3)
     ON CONFLICT DO NOTHING
     RETURNING id
@@ -853,7 +873,11 @@ async function insertVersionFromStore(
     )
     SELECT
       $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12
-    WHERE EXISTS (SELECT 1 FROM asset_library_items WHERE id = $2)
+    WHERE EXISTS (
+      SELECT 1 FROM asset_library_items
+      WHERE id = $2
+        AND (source_project_id IS NULL OR source_project_id NOT LIKE 'sm-standalone-%')
+    )
       AND EXISTS (SELECT 1 FROM users WHERE id = $12)
     ON CONFLICT (item_id, version) DO NOTHING
     RETURNING id
@@ -942,11 +966,16 @@ function findOwnedItem(
     state.assetLibraryItems.find(
       (item) =>
         item.id === itemId &&
+        !isStandaloneLibraryItem(item) &&
         item.tenantId === principal.tenantId &&
         item.ownerUserId === principal.userId &&
         (includeDeleted || item.deletedAt === null),
     ) ?? null
   )
+}
+
+function isStandaloneLibraryItem(item: Pick<AssetLibraryItemRecord, 'sourceProjectId'>): boolean {
+  return isStandaloneProjectId(item.sourceProjectId)
 }
 
 function applyVersionPatch(

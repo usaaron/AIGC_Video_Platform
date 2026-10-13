@@ -76,6 +76,10 @@ export function AssetEditor({
   onLatestTrustedValidationSession,
   onBindTrustedPortrait,
   onRefreshTrustedPortrait,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
 }) {
   const kind = asset.kind
   const sourceSuggestion = asset.suggestion || null
@@ -464,6 +468,10 @@ export function AssetEditor({
                 onGenerate={generateCharacterStage}
                 onGenerateAppearance={(appearance) => generateCharacterStage('body', false, appearance)}
                 onGenerateAndClose={(stage) => generateCharacterStage(stage, true)}
+                onPauseTask={onPauseTask}
+                onResumeTask={onResumeTask}
+                onDeleteTask={onDeleteTask}
+                busyTaskId={busyTaskId}
                 faceCreationMode={creationMode}
                 settings={
                   characterStage !== 'turnaround' ? (

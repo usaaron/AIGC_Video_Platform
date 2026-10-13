@@ -164,6 +164,14 @@ export function createTextProvider(config: AppConfig): TextGenerationProvider | 
         model: config.REHDASU_MODEL,
         completionsPath: config.REHDASU_CHAT_COMPLETIONS_PATH,
         requestTimeoutMs: config.REHDASU_REQUEST_TIMEOUT_MS,
+        // The web-series path needs the model's final screenplay text. Some
+        // GLM responses otherwise contain only reasoning_content and are
+        // rejected as an empty/invalid screenplay response.
+        extraBody: { enable_thinking: false },
+        // Retry a malformed/empty upstream response once, but never repeat a
+        // full timeout; the batch checkpoint handles timeout recovery.
+        maxAttempts: 2,
+        retryTimeouts: false,
       })
     : null
   if (!deepSeekProvider && !deepSeekV4Provider && !gptProvider && !rehdasuProvider) return null

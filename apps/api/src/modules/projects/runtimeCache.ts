@@ -15,6 +15,7 @@ import {
   type ScriptEpisodeRow,
   type ShotRow,
 } from './repositoryData.js'
+import { isStandaloneProjectId } from './projectSurface.js'
 
 export type ProjectRuntimeCacheOptions = {
   projectIds?: readonly string[]
@@ -33,13 +34,14 @@ export async function readRuntimeProjectVersions(
   database: Queryable,
   projectIds: readonly string[],
 ): Promise<Map<string, string>> {
-  const ids = [...new Set(projectIds.filter(Boolean))]
+  const ids = [...new Set(projectIds.filter((id) => Boolean(id) && !isStandaloneProjectId(id)))]
   if (!ids.length) return new Map()
   const result = await database.query<RuntimeProjectVersionRow>(
     `
     SELECT id, version, updated_at
     FROM projects
     WHERE id = ANY($1::text[])
+      AND id NOT LIKE 'sm-standalone-%'
     `,
     [ids],
   )
@@ -53,7 +55,9 @@ export async function refreshProjectWorkspaceRuntimeCache(
 ): Promise<void> {
   if (!database || !store) return
   const projectIds =
-    options.projectIds === undefined ? undefined : [...new Set(options.projectIds.filter(Boolean))]
+    options.projectIds === undefined
+      ? undefined
+      : [...new Set(options.projectIds.filter((id) => Boolean(id) && !isStandaloneProjectId(id)))]
   if (projectIds && !projectIds.length) {
     await store.replaceProjectWorkspaceRuntimeCacheAsync({
       projects: [],
@@ -63,8 +67,12 @@ export async function refreshProjectWorkspaceRuntimeCache(
     })
     return
   }
-  const projectFilter = projectIds ? ' WHERE id = ANY($1::text[])' : ''
-  const workspaceFilter = projectIds ? ' WHERE project_id = ANY($1::text[])' : ''
+  const projectFilter = projectIds
+    ? " WHERE id = ANY($1::text[]) AND id NOT LIKE 'sm-standalone-%'"
+    : " WHERE id NOT LIKE 'sm-standalone-%'"
+  const workspaceFilter = projectIds
+    ? " WHERE project_id = ANY($1::text[]) AND project_id NOT LIKE 'sm-standalone-%'"
+    : " WHERE project_id NOT LIKE 'sm-standalone-%'"
   const params = projectIds ? [projectIds] : []
   const [projects, scriptEpisodes, assets, shots] = await Promise.all([
     database.query<ProjectRow>(

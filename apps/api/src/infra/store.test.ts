@@ -42,6 +42,93 @@ describe('AppStore mutation queue', () => {
     expect(store.read((state) => state.tasks[0])).toMatchObject({ status: 'running', progress: 8 })
   })
 
+  it('keeps independent task and AI-job rows hidden from the main cache without losing them', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-store-'))
+    const filePath = join(directory, 'app.json')
+    try {
+      const store = new AppStore(filePath, undefined, false, true)
+      await store.initialize()
+      const now = new Date().toISOString()
+      const standaloneTask = {
+        id: 'standalone-runtime-task',
+        clientRequestId: 'standalone-runtime-task-request',
+        projectId: 'sm-standalone-script',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-member',
+        kind: 'text',
+        label: '独立任务',
+        prompt: '',
+        negativePrompt: '',
+        provider: 'text',
+        model: 'text-model',
+        metadata: {},
+        status: 'queued',
+        progress: 0,
+        estimatedCredits: 0,
+        createdAt: now,
+        updatedAt: now,
+        resultUrl: null,
+        outputs: [],
+        error: null,
+      }
+      const standaloneJob = {
+        id: 'standalone-runtime-job',
+        clientRequestId: 'standalone-runtime-job-request',
+        projectId: 'sm-standalone-script',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-member',
+        kind: 'script',
+        label: '独立 AI 任务',
+        provider: 'text',
+        input: {},
+        output: null,
+        status: 'queued',
+        costCredits: 0,
+        attempts: 0,
+        maxAttempts: 3,
+        leaseOwnerId: null,
+        leaseToken: null,
+        leaseAcquiredAt: null,
+        leaseHeartbeatAt: null,
+        leaseExpiresAt: null,
+        error: null,
+        refundedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      await store.mutate((state) => {
+        state.tasks.push(standaloneTask as never)
+        state.aiJobs.push(standaloneJob as never)
+      })
+      store.replaceGenerationTaskRuntimeCache([])
+      store.replaceAiJobRuntimeCache([])
+
+      expect(store.read((state) => state.tasks.some((task) => task.id === standaloneTask.id))).toBe(false)
+      expect(store.read((state) => state.aiJobs.some((job) => job.id === standaloneJob.id))).toBe(false)
+
+      await store.mutate((state) => {
+        state.tasks.push({ ...standaloneTask, status: 'running', progress: 40 } as never)
+        state.aiJobs.push({ ...standaloneJob, status: 'running', attempts: 1 } as never)
+      })
+
+      const persisted = JSON.parse(await readFile(filePath, 'utf8')) as {
+        tasks: Array<{ id: string; status: string; progress: number }>
+        aiJobs: Array<{ id: string; status: string; attempts: number }>
+      }
+      expect(persisted.tasks.find((task) => task.id === standaloneTask.id)).toMatchObject({
+        status: 'running',
+        progress: 40,
+      })
+      expect(persisted.aiJobs.find((job) => job.id === standaloneJob.id)).toMatchObject({
+        status: 'running',
+        attempts: 1,
+      })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('serializes runtime cache writes with ordinary writes', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -219,6 +306,29 @@ describe('AppStore mutation queue', () => {
       })
 
       expect(store.read((state) => state.projects[0]!.name)).toBe('recovered-after-stale-lock')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('clears a recent lock whose owner process no longer exists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'seqora-store-'))
+    const filePath = join(directory, 'app.json')
+    const lockPath = `${filePath}.lock`
+    try {
+      const store = new AppStore(filePath)
+      await store.initialize()
+      await writeFile(
+        lockPath,
+        JSON.stringify({ pid: 999_999, createdAt: Date.now() }),
+        'utf8',
+      )
+
+      await store.mutate((state) => {
+        state.projects[0]!.name = 'recovered-after-dead-owner'
+      })
+
+      expect(store.read((state) => state.projects[0]!.name)).toBe('recovered-after-dead-owner')
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

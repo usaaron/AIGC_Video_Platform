@@ -61,13 +61,23 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
   if (!projects.length) return <ProjectEmptyWelcome onCreate={onCreate} onNavigate={onNavigate} />
 
   return (
-    <div className="page project-home-page">
-      <StudioWelcome onCreate={onCreate} onContinue={() => onOpen(projects[0].id)} onNavigate={onNavigate} />
+    <div className="page project-home-page project-home-page-populated">
+      <header className="project-library-header" aria-label="项目库头部">
+        <div className="project-library-header-copy">
+          <span className="eyebrow">创作空间</span>
+          <h1>项目库</h1>
+          <p>继续已有创作，或创建一个新的故事项目。</p>
+        </div>
+        <button className="button primary project-library-create" onClick={onCreate}>
+          <Plus size={17} />
+          新建项目
+        </button>
+      </header>
 
       <section className="project-library" aria-label="项目列表">
         <div className="project-library-heading">
           <div>
-            <h2>所有创作，一处管理</h2>
+            <h2>全部项目</h2>
             <span>{projects.length} 个项目</span>
           </div>
         </div>
@@ -97,7 +107,7 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
                   <span className="project-folder-date">
                     <Clock3 size={13} /> {formatProjectDate(project.updatedAt)}
                   </span>
-                  <ProjectGenerationState summary={project.generationSummary} />
+                  <ProjectGenerationState status={project.status} summary={project.generationSummary} />
                 </span>
                 <ArrowRight className="project-folder-arrow" size={18} />
               </button>
@@ -132,12 +142,6 @@ export function ProjectHomePage({ projects, onCreate, onOpen, onRename, onDelete
               )}
             </article>
           ))}
-          <button className="project-folder project-folder-create" onClick={onCreate}>
-            <span>
-              <Plus size={22} />
-            </span>
-            <strong>新建项目</strong>
-          </button>
         </div>
       </section>
     </div>
@@ -166,11 +170,12 @@ function visualStyleLabel(value) {
   return 'CG风'
 }
 
-function ProjectGenerationState({ summary }) {
+function ProjectGenerationState({ status, summary }) {
   if (!summary || !summary.latest.length) {
+    const state = projectStatusLabel(status)
     return (
-      <span className="project-folder-state">
-        <i /> 可继续制作
+      <span className={`project-folder-state ${state.tone}`}>
+        <i /> {state.label}
       </span>
     )
   }
@@ -204,6 +209,12 @@ function ProjectGenerationState({ summary }) {
       ))}
     </span>
   )
+}
+
+function projectStatusLabel(status) {
+  if (status === 'completed') return { label: '已完成', tone: 'completed' }
+  if (status === 'producing') return { label: '制作中', tone: 'producing' }
+  return { label: '可继续制作', tone: 'draft' }
 }
 
 function taskStatusLabel(task) {

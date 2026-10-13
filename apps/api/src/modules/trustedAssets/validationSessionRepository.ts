@@ -1,6 +1,7 @@
 import type { Principal } from '@seqora/contracts'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore, StoredTrustedValidationSession } from '../../infra/store.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
 
 export type NewTrustedValidationSession = Omit<StoredTrustedValidationSession, 'createdAt' | 'updatedAt'> & {
   createdAt?: string
@@ -39,6 +40,7 @@ export class TrustedValidationSessionRepository {
   ) {}
 
   async create(input: NewTrustedValidationSession): Promise<StoredTrustedValidationSession> {
+    rejectStandaloneProjectId(input.projectId)
     const now = input.createdAt ?? new Date().toISOString()
     const session = { ...input, createdAt: now, updatedAt: input.updatedAt ?? now }
     if (this.database) {
@@ -85,6 +87,7 @@ export class TrustedValidationSessionRepository {
           status, group_id, provider_asset_id, error, expires_at::text, created_at::text, updated_at::text
         FROM trusted_validation_sessions
         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+          AND project_id NOT LIKE 'sm-standalone-%'
         LIMIT 1
         `,
         [id, principal.tenantId, principal.userId],
@@ -96,6 +99,7 @@ export class TrustedValidationSessionRepository {
         state.trustedValidationSessions?.find(
           (session) =>
             session.id === id &&
+            !isStandaloneProjectId(session.projectId) &&
             session.tenantId === principal.tenantId &&
             session.userId === principal.userId,
         ) ?? null,
@@ -107,6 +111,7 @@ export class TrustedValidationSessionRepository {
     assetId: string,
     principal: Principal,
   ): Promise<StoredTrustedValidationSession | null> {
+    if (isStandaloneProjectId(projectId)) return null
     if (this.database) {
       const result = await this.database.query<SessionRow>(
         `
@@ -114,6 +119,7 @@ export class TrustedValidationSessionRepository {
           status, group_id, provider_asset_id, error, expires_at::text, created_at::text, updated_at::text
         FROM trusted_validation_sessions
         WHERE tenant_id = $1 AND user_id = $2 AND project_id = $3 AND asset_id = $4
+          AND project_id NOT LIKE 'sm-standalone-%'
         ORDER BY created_at DESC
         LIMIT 1
         `,
@@ -128,6 +134,7 @@ export class TrustedValidationSessionRepository {
               .filter(
                 (session) =>
                   session.tenantId === principal.tenantId &&
+                  !isStandaloneProjectId(session.projectId) &&
                   session.userId === principal.userId &&
                   session.projectId === projectId &&
                   session.assetId === assetId,
@@ -154,6 +161,7 @@ export class TrustedValidationSessionRepository {
             expires_at = COALESCE($8::timestamptz, expires_at),
             updated_at = $9::timestamptz
         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+          AND project_id NOT LIKE 'sm-standalone-%'
         RETURNING id, tenant_id, user_id, project_id, asset_id, provider_token, h5_link, qr_code,
           status, group_id, provider_asset_id, error, expires_at::text, created_at::text, updated_at::text
         `,
@@ -175,6 +183,7 @@ export class TrustedValidationSessionRepository {
       const session = state.trustedValidationSessions?.find(
         (candidate) =>
           candidate.id === id &&
+          !isStandaloneProjectId(candidate.projectId) &&
           candidate.tenantId === principal.tenantId &&
           candidate.userId === principal.userId,
       )
@@ -196,6 +205,7 @@ export class TrustedValidationSessionRepository {
         UPDATE trusted_validation_sessions
         SET status = 'uploading', group_id = $4, error = NULL, updated_at = $5::timestamptz
         WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND status = 'pending'
+          AND project_id NOT LIKE 'sm-standalone-%'
         RETURNING id, tenant_id, user_id, project_id, asset_id, provider_token, h5_link, qr_code,
           status, group_id, provider_asset_id, error, expires_at::text, created_at::text, updated_at::text
         `,
@@ -207,6 +217,7 @@ export class TrustedValidationSessionRepository {
       const session = state.trustedValidationSessions?.find(
         (candidate) =>
           candidate.id === id &&
+          !isStandaloneProjectId(candidate.projectId) &&
           candidate.tenantId === principal.tenantId &&
           candidate.userId === principal.userId &&
           candidate.status === 'pending',

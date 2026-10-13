@@ -1,0 +1,38 @@
+.video-content-review { margin-top: 12px; padding: 12px; border: 1px solid #ffffff20; border-radius: 10px; background: #ffffff05; }
+.video-content-review strong { font-size: 13px; color: #dbc7a2; }
+.video-content-review p { display: block; margin: 7px 0; overflow: visible; white-space: normal; font-size: 12px; line-height: 1.6; }
+.video-content-review input { width: 100%; min-width: 0; box-sizing: border-box; margin: 6px 0; padding: 8px; background: #14161c; color: inherit; border: 1px solid #ffffff25; border-radius: 6px; }
+.video-content-review > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.video-content-review button { padding: 8px 10px; border: 1px solid #ffffff25; border-radius: 6px; background: #292b32; color: inherit; font-size: 12px; cursor: pointer; }
+.video-content-review button:disabled { opacity: .45; cursor: default; }
+.video-content-review [role=alert] { color: #ef9696; }
+.scene-execution-review { margin: 8px 0; font-size: 12px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
+.scene-execution-review summary { cursor: pointer; color: #dbc7a2; }
+.scene-execution-review ul { margin: 8px 0; padding-left: 20px; }
+.scene-execution-review li { margin: 6px 0; }
+.rigid-physics-review { margin: 10px 0; padding: 10px; border: 1px solid #d7a85b40; border-radius: 8px; background: #d7a85b08; font-size: 12px; line-height: 1.5; }
+.rigid-physics-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.rigid-physics-status strong { color: #e2c27f; }
+.rigid-physics-status.passed strong { color: #91d7b0; }
+.rigid-physics-status.failed strong { color: #ef9696; }
+.rigid-physics-status span { color: #b8b0a3; }
+.rigid-physics-review p { margin: 5px 0; }
+.rigid-physics-ok { color: #91d7b0; }
+.rigid-physics-blocking { color: #efb0a5; }
+.rigid-physics-violations { margin: 7px 0; padding-left: 19px; color: #efb0a5; }
+.rigid-physics-violations li { margin: 4px 0; }
+.rigid-physics-violations li span { display: block; color: #cdbfb3; }
+.rigid-physics-evidence { margin-top: 8px; }
+.rigid-physics-evidence summary { cursor: pointer; color: #e2c27f; }
+.rigid-physics-evidence ul { margin: 6px 0 0; padding-left: 19px; }
+.rigid-physics-evidence li { margin: 4px 0; }
+.rigid-physics-evidence li span { display: block; color: #cdbfb3; }
+.rigid-physics-frame-list { max-height: 180px; overflow: auto; color: #b8b0a3; }
+@media (max-width: 600px) {
+  .shot-list .shot-row:has(.video-content-review) { grid-template-columns: 30px minmax(0, 1fr); }
+  .shot-list .shot-row:has(.video-content-review) > .shot-number { grid-column: 1; grid-row: 1 / span 3; }
+  .shot-list .shot-row:has(.video-content-review) > .shot-thumb,
+  .shot-list .shot-row:has(.video-content-review) > .shot-content,
+  .shot-list .shot-row:has(.video-content-review) > .shot-actions { grid-column: 2; min-width: 0; }
+  .shot-list .shot-row:has(.video-content-review) > .shot-thumb { height: auto; aspect-ratio: 16 / 9; }
+}

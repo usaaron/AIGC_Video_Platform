@@ -9,6 +9,13 @@ import {
   recordTextProviderUsage,
   type ProviderTokenUsage,
 } from '../observability/usage.js'
+import {
+  completionText,
+  isRecord,
+  readProviderErrorMessage,
+  streamChunkFinished,
+  trimCompletionText,
+} from './chatCompletionText.js'
 
 export type TokenAdventTextOptions = {
   baseUrl: string
@@ -75,9 +82,10 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
       return completion.text
     }
     const payload = await response.json()
-    const content = completionText(payload)
-    if (!content) throw new InvalidTextResponseError()
-    notifyTextProgress(request.onTextProgress, content.trim())
+    const rawContent = completionText(payload, { choiceMode: 'first', includeReasoning: false })
+    if (!rawContent) throw new InvalidTextResponseError()
+    const content = trimCompletionText(rawContent)
+    notifyTextProgress(request.onTextProgress, content)
     notifyTextTiming(request.onTextTiming, {
       ...(request.timingLabel ? { label: request.timingLabel } : {}),
       responseHeadersMs,
@@ -87,7 +95,7 @@ export class TokenAdventTextProvider implements TextGenerationProvider {
       attempt,
     })
     this.recordTokenUsage(request, model, providerTokenUsageFromPayload(payload))
-    return content.trim()
+    return content
   }
 
   private requestCompletion(
@@ -197,7 +205,7 @@ async function readCompletionStream(
     }
     if (!isRecord(value)) return
     usage = providerTokenUsageFromPayload(value) ?? usage
-    const next = completionText(value)
+    const next = completionText(value, { choiceMode: 'first', includeReasoning: false })
     content += next
     if (next) {
       firstTokenAt ??= Date.now()
@@ -256,16 +264,6 @@ async function readCompletionStream(
   }
 }
 
-function streamChunkFinished(value: unknown): boolean {
-  if (!isRecord(value)) return false
-  if (value.done === true || value.finished === true || value.status === 'completed') return true
-  if (!Array.isArray(value.choices)) return false
-  return value.choices.some(
-    (choice) =>
-      isRecord(choice) && typeof choice.finish_reason === 'string' && choice.finish_reason.length > 0,
-  )
-}
-
 function notifyTextProgress(onTextProgress: ((text: string) => void) | undefined, text: string): void {
   if (!onTextProgress || !text) return
   try {
@@ -291,58 +289,8 @@ function timeoutError(): DOMException {
   return new DOMException('TokenAdvent text stream timed out', 'TimeoutError')
 }
 
-function completionText(value: unknown): string {
-  if (!isRecord(value)) return textFromValue(value)
-  const direct = textFromValue(value.output_text ?? value.text ?? value.content)
-  if (direct) return direct
-  if (Array.isArray(value.choices)) {
-    for (const choice of value.choices) {
-      if (!isRecord(choice)) continue
-      const delta = isRecord(choice.delta) ? choice.delta : undefined
-      const message = isRecord(choice.message) ? choice.message : undefined
-      const content = textFromValue(
-        delta?.content ?? delta?.text ?? message?.content ?? message?.text ?? choice.text ?? choice.content,
-      )
-      if (content) return content
-    }
-  }
-  for (const key of ['data', 'result', 'output', 'response', 'payload']) {
-    if (key in value) {
-      const nested = completionText(value[key])
-      if (nested) return nested
-    }
-  }
-  return ''
-}
-
-function textFromValue(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (Array.isArray(value)) {
-    return value
-      .map((part) => {
-        if (typeof part === 'string') return part
-        if (!isRecord(part)) return ''
-        return textFromValue(part.text ?? part.content ?? part.value)
-      })
-      .filter(Boolean)
-      .join('')
-  }
-  return ''
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
 async function textProviderError(response: Response): Promise<TokenAdventHttpError> {
-  const body = await response.text().catch(() => '')
-  let message = body.slice(0, 500)
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string }
-    message = parsed.error?.message || parsed.message || message
-  } catch {
-    // Keep the bounded text response when the provider does not return JSON.
-  }
+  const message = await readProviderErrorMessage(response)
   return new TokenAdventHttpError(
     response.status,
     `TokenAdvent 文本请求失败 (${response.status})${message ? `: ${message}` : ''}`,

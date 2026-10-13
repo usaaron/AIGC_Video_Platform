@@ -3,6 +3,7 @@ import type { QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 type GenerationTaskPollingRow = QueryResultRow & {
   id: string
@@ -45,6 +46,7 @@ const generationTaskPollingColumns = `
     'batchSize', metadata->'batchSize',
     'compositionStage', metadata->'compositionStage',
     'continuityMode', metadata->'continuityMode',
+    'contentReview', metadata->'contentReview',
     'continuitySourceTaskId', metadata->'continuitySourceTaskId',
     'duration', metadata->'duration',
     'episodeId', metadata->'episodeId',
@@ -58,6 +60,9 @@ const generationTaskPollingColumns = `
     'referenceAssetIds', metadata->'referenceAssetIds',
     'resolution', metadata->'resolution',
     'revisionNote', metadata->'revisionNote',
+    'rigidPhysicsAudit', metadata->'rigidPhysicsAudit',
+    'rigidPhysicsBlockingReason', metadata->'rigidPhysicsBlockingReason',
+    'rigidPhysicsContract', metadata->'rigidPhysicsContract',
     'scriptOperation', metadata->'scriptOperation',
     'shotId', metadata->'shotId',
     'sourceScriptFingerprint', metadata->'sourceScriptFingerprint',
@@ -83,6 +88,7 @@ const POLLING_METADATA_KEYS = [
   'batchSize',
   'compositionStage',
   'continuityMode',
+  'contentReview',
   'continuitySourceTaskId',
   'duration',
   'episodeId',
@@ -96,6 +102,9 @@ const POLLING_METADATA_KEYS = [
   'referenceAssetIds',
   'resolution',
   'revisionNote',
+  'rigidPhysicsAudit',
+  'rigidPhysicsBlockingReason',
+  'rigidPhysicsContract',
   'scriptOperation',
   'shotId',
   'sourceScriptFingerprint',
@@ -117,6 +126,7 @@ export async function listPollingTasks(
     SELECT ${generationTaskPollingColumns}
     FROM generation_tasks
     WHERE project_id = $1
+      AND project_id NOT LIKE 'sm-standalone-%'
       AND tenant_id = $2
       AND ($3::boolean OR user_id = $4)
       AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
@@ -144,6 +154,7 @@ export async function readPollingVersion(
       )::text AS signature
     FROM generation_tasks
     WHERE project_id = $1
+      AND project_id NOT LIKE 'sm-standalone-%'
       AND tenant_id = $2
       AND ($3::boolean OR user_id = $4)
       AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
@@ -188,6 +199,7 @@ function filterVisibleTasks(
   return state.tasks.filter(
     (task) =>
       task.projectId === projectId &&
+      !isStandaloneProjectId(task.projectId) &&
       task.tenantId === principal.tenantId &&
       (canReadAll || task.userId === principal.userId) &&
       typeof task.metadata.queueHiddenAt !== 'string',

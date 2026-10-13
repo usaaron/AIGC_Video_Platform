@@ -2,6 +2,7 @@ import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/co
 import { describe, expect, it, vi } from 'vitest'
 import type { FilmPreviewDispatcher } from '../../core/film/filmPreviewComposer.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
+import type { VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { GenerationTaskRepository } from './repository.js'
 import { GenerationService } from './service.js'
 
@@ -254,7 +255,12 @@ describe('GenerationService task creation', () => {
       createWithCharge: vi.fn(async (prepared: CreateGenerationTask) => generationTask(prepared)),
     } as unknown as GenerationTaskRepository
     const dispatcher = { dispatch: vi.fn(async () => undefined) } as unknown as TaskDispatcher
-    const service = new GenerationService(repository, dispatcher)
+    const videoProvider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const service = new GenerationService(repository, dispatcher, videoProvider)
 
     const task = await service.createTask(input, principal)
 

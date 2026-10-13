@@ -1,12 +1,69 @@
 const TASK_DETAIL_STEPS = new Set(['script', 'assets', 'storyboard', 'film', 'image-studio'])
+const INDEPENDENT_WORKSPACE_STEPS = new Set(['writing-studio', 'agent-studio'])
 const PROJECT_CONTENT_TYPES = new Set(['advertisement', 'animation', 'short-drama'])
 const PROJECT_ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1'])
 const ASSET_KINDS = new Set(['character', 'scene', 'prop', 'costume', 'brand', 'audio'])
 const TASK_KINDS = new Set(['text', 'image', 'video', 'audio'])
 const TASK_STATUSES = new Set(['queued', 'paused', 'running', 'completed', 'failed', 'cancelled'])
 
-export function workspacePollingProjectId(activeStep, workspace) {
-  return activeStep === 'home' ? null : workspace?.project?.id || null
+const WORKFLOW_STEPS = ['script', 'assets', 'storyboard', 'generate', 'film']
+
+/**
+ * Project workflow navigation is intentionally derived from persisted output.
+ * A sidebar click must not be able to skip the creative handoff simply because
+ * a page can render an empty state. Existing pages remain reviewable once the
+ * corresponding artifact exists, while future stages stay locked until their
+ * prerequisite is present.
+ */
+export function workflowNavigationAccess(workspace) {
+  const project = workspace?.project
+  if (!project || typeof project !== 'object') {
+    return Object.fromEntries(WORKFLOW_STEPS.map((step) => [step, false]))
+  }
+
+  const scriptEpisodes = Array.isArray(workspace?.scriptEpisodes) ? workspace.scriptEpisodes : []
+  const assets = Array.isArray(workspace?.assets) ? workspace.assets : []
+  const shots = Array.isArray(workspace?.shots) ? workspace.shots : []
+  const projectScript = typeof project.script === 'string' && project.script.trim().length > 0
+  const savedEpisodeScript = scriptEpisodes.some(
+    (episode) =>
+      episode?.status === 'saved' &&
+      typeof episode.content === 'string' &&
+      episode.content.trim().length > 0,
+  )
+  const script = projectScript || savedEpisodeScript
+  const assetsReady = assets.length > 0
+  const shotsReady = shots.length > 0
+
+  return {
+    script: true,
+    // Existing assets and downstream artifacts remain reviewable after a
+    // legacy import even if its original script projection is incomplete.
+    assets: script || assetsReady || shotsReady,
+    // Text storyboard design can start from the saved screenplay. Asset
+    // records and their optional images remain available as references, while
+    // image generation is never a prerequisite for writing shot descriptions.
+    storyboard: script || shotsReady,
+    generate: (script && assetsReady && shotsReady) || shotsReady,
+    film: (script && assetsReady && shotsReady) || shotsReady,
+  }
+}
+
+export function workflowNavigationBlockMessage(step, access = {}) {
+  if (access[step] !== false) return ''
+  if (step === 'assets') return '请先保存剧本，再进入资产设计。'
+  if (step === 'storyboard') return '请先保存剧本，再进入分镜设计。'
+  if (step === 'generate') return '请先完成资产设计并生成至少一个分镜。'
+  if (step === 'film') return '请先完成资产设计并生成至少一个分镜。'
+  return '请先完成前一步创作内容。'
+}
+
+export function workspacePollingOptions(activeStep, activeProjectId) {
+  const includeRecentActivity = INDEPENDENT_WORKSPACE_STEPS.has(activeStep)
+  return {
+    projectId: activeStep === 'home' || includeRecentActivity ? null : activeProjectId || null,
+    includeRecentActivity,
+  }
 }
 
 export function isActiveWorkspaceProject(activeProjectId, projectId) {

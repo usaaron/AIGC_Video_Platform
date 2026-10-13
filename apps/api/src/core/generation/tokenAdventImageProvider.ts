@@ -172,14 +172,12 @@ class TokenAdventImageAssetError extends Error {
 function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest['outputs'][number]): string {
   const viewPrompt = {
     single: '',
-    front: '仅生成角色正面全身视图，标准站姿，完整入镜。',
-    side: '仅生成角色侧面全身视图，标准站姿，完整入镜。',
-    back: '仅生成角色背面全身视图，标准站姿，完整入镜。',
+    front: '本次只输出正面独立源图，主体正对镜头；角色采用既定身体形态的自然站姿，头部至足端完整入镜，物品或服装则保持本体完整。',
+    side: '本次只输出侧面独立源图，主体严格侧对镜头，不转成斜正面；角色从头部至足端完整入镜，物品或服装则保持本体完整。',
+    back: '本次只输出背面独立源图，主体背对镜头、不回头；角色从头部至足端完整入镜，物品或服装则保持本体完整，背部结构、接缝及配件连接延续同一设计。',
     detail: '生成关键细节特写，保持主体设计一致。',
   }[view]
-  const referenceConstraint = request.references.length
-    ? '参考图一是唯一主体与身份基准。严格保持其脸型、五官比例、年龄、肤色、发型和辨识特征；只按要求改变景别、姿态、服装或构图，不得替换成其他人物或重新设计主体。其余参考图仅用于补充造型细节。'
-    : ''
+  const referenceConstraint = referenceIdentityConstraint(request.references)
   const prompt = request.references.length
     ? `${referencePromptGuide(request.references)}\n\n用户需求：${request.prompt}`
     : request.prompt
@@ -187,6 +185,9 @@ function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest
     referenceConstraint,
     prompt,
     viewPrompt,
+    ['front', 'side', 'back'].includes(view)
+      ? '本次输出为后续按视角引用的单张源图。即使需求提到三视图或总览，也不在此源图内拼接其他视角、去掉角色头部、加面部插图、标签、分割线或额外主体。同组源图保持同一身份、造型、状态、比例与照明；只改变要求的观察方向，不镜像衣服标识或配饰位置。'
+      : '',
     // GPT Image receives one prompt, not a separate negative_prompt field.
     // Compiler output already includes imperatives (both 不要 and 保持/只生成).
     // Negating the entire block again reverses those instructions.
@@ -196,6 +197,23 @@ function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+function referenceIdentityConstraint(references: ImageGenerationRequest['references']): string {
+  if (!references.length) return ''
+  const subjects = references.flatMap((reference, index) =>
+    reference.role === 'subject' ? [reference.referenceNumber ?? index + 1] : [],
+  )
+  // Older character-stage requests have untyped face/body references. Preserve
+  // their first-reference anchor, but never promote an explicitly typed style
+  // or clothing reference to an identity source just because it comes first.
+  if (!subjects.length && references.every((reference) => !reference.role)) {
+    subjects.push(references[0]?.referenceNumber ?? 1)
+  }
+  const identity = subjects.length
+    ? `主体与身份基准：${subjects.map((number) => `图 ${number}`).join('、')}。保持主体已确认的身份、物种、结构与识别特征；人物保留脸型、五官、既定年龄和肤色，非人物不添加人体特征。只按本次明确要求改变造型、姿态、景别或风格，不擅自换脸、年轻化或美化身体比例。`
+    : '本次没有标为主体的参考图，不能将服装、配饰、风格或构图参考中的人物当作已确认身份；主体按用户已给定的设定生成。'
+  return `${identity}各参考按其明确用途使用；服装参考只补充造型，风格参考只改变表现方式，构图参考不覆盖身份。保留本次明确的修复或转绘范围，未要求时不做多脸融合、换装或背景重设计。`
 }
 
 function modelForRequest(requestedModel: string | null | undefined, configuredModel: string): string {
@@ -226,15 +244,16 @@ function referencePromptGuide(references: ImageGenerationRequest['references']):
 }
 
 function referenceRolePromptLabel(role: ImageGenerationRequest['references'][number]['role']): string {
+  if (!role) return '未单独指定用途，按本次主体基准与用户说明使用'
   return (
     {
-      subject: '主体角色，只保留身份、脸部、姿态',
+      subject: '主体身份与结构基准；姿态、景别和服装按本次任务',
       clothing: '仅参考服装',
       accessory: '仅参考帽子/配饰',
       style: '仅参考风格',
       composition: '仅参考构图',
       color: '仅参考色调和滤镜',
-    }[role ?? 'style'] ?? '仅作为参考'
+    }[role] ?? '仅作为参考'
   )
 }
 

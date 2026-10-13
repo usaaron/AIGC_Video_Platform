@@ -60,7 +60,10 @@ describe('compileQualityRules', () => {
       const result = compileQualityRules({ mediaKind: 'image', ...input })
       expect(result.presetIds).not.toContain('human-character')
       expect(result.negativePrompt).not.toContain('不要将人类角色生成为动物')
-      expect(result.positivePrompt).toBe('')
+      if (input.assetKind === 'scene' || input.assetKind === 'prop') {
+        expect(result.positivePrompt).toContain('支撑、连接')
+        expect(result.positivePrompt).not.toContain('主体必须是人类')
+      } else expect(result.positivePrompt).toBe('')
     }
   })
 

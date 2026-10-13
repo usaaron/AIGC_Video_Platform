@@ -29,7 +29,7 @@ describe('Script Master delivery reservations', () => {
     const repository = new ScriptMasterDeliveryRepository({ query } as unknown as AccountDatabase)
     expect(await repository.begin(input)).toBeNull()
     expect(query).toHaveBeenCalledTimes(1)
-    expect(query.mock.calls[0][0]).toContain('DO NOTHING')
+    expect(query.mock.calls[0]?.[0]).toContain('DO NOTHING')
   })
 
   it('blocks another caller while an identical database delivery is in progress', async () => {
@@ -94,5 +94,25 @@ describe('Script Master delivery reservations', () => {
     await expect(repository.begin({ ...input, payloadHash: 'changed' })).rejects.toThrow(
       'different delivery payload',
     )
+  })
+
+  it('rejects independent-project references before touching the delivery ledger', async () => {
+    const query = vi.fn()
+    const repository = new ScriptMasterDeliveryRepository({ query } as unknown as AccountDatabase)
+    const standalone = { ...input, targetProjectId: 'sm-standalone-target' }
+
+    await expect(repository.begin(standalone)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PROJECT_SURFACE_DENIED',
+    })
+    await expect(repository.complete(standalone, { importedEpisodes: 1, updatedEpisodes: 0 })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PROJECT_SURFACE_DENIED',
+    })
+    await expect(repository.release(standalone)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'PROJECT_SURFACE_DENIED',
+    })
+    expect(query).not.toHaveBeenCalled()
   })
 })

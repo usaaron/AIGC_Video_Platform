@@ -25,6 +25,22 @@ describe('app shell account entry', () => {
     expect(header).not.toContain('免费版')
   })
 
+  it('exposes active generation controls in the global task panel', () => {
+    const html = renderToStaticMarkup(
+      <AppHeader
+        billing={{ plan: 'free', credits: 10 }}
+        runningJobs={[]}
+        tasks={[{ id: 'queued-image', label: '角色定妆', kind: 'image', status: 'queued', metadata: {} }]}
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onDelete={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('打开生成任务控制')
+    expect(html).toContain('1 个任务处理中')
+  })
+
   it('places the function stack between the project library and creative flow', () => {
     const html = renderToStaticMarkup(
       <AppSidebar {...sidebarProps} canOpenAdminAccounts={false} adminConsoleUrl="http://localhost:5174/" />,
@@ -39,7 +55,9 @@ describe('app shell account entry', () => {
     expect(creativeFlow).toBeGreaterThan(functionStack)
     expect(html).toContain('一句成片')
     expect(html).toContain('生图大师')
-    expect(html).not.toContain('剧本大师')
+    expect(html).toContain('剧本大师')
+    expect(html).toContain('<small>03</small>')
+    expect(html).toContain('测试中')
     expect(html.match(/已启用/g)).toHaveLength(1)
     expect(html).toContain('筹备中')
     expect(html).not.toContain('独立模块')
@@ -61,5 +79,19 @@ describe('app shell account entry', () => {
 
     expect(html).toContain('管理后台')
     expect(html).toContain('href="http://localhost:5174/"')
+  })
+
+  it('marks creative stages that are still gated by persisted prerequisites', () => {
+    const html = renderToStaticMarkup(
+      <AppSidebar
+        {...sidebarProps}
+        workflowAccess={{ script: true, assets: false, storyboard: false, generate: false, film: false }}
+      />,
+    )
+
+    expect(html).toContain('class="nav-item  is-locked"')
+    expect(html).toContain('aria-disabled="true"')
+    expect(html).toContain('title="请先保存剧本，再进入资产设计。"')
+    expect(html.match(/is-locked/g)).toHaveLength(4)
   })
 })

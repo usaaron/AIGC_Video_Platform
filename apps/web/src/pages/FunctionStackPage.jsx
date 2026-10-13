@@ -20,22 +20,16 @@ export function FunctionStackPage({
   tasks,
   image2ProviderStatus = null,
   onRefreshImageStudio,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   onOpenBilling,
-  onOpenScript,
   onOpenHome,
-  onRefreshProduction,
-  onOpenProduction,
 }) {
   const item = FUNCTION_STACK_ITEMS.find((entry) => entry.id === tool) ?? FUNCTION_STACK_ITEMS[0]
   if (item.id === 'writing-studio')
-    return (
-      <WritingStudio
-        project={project}
-        onOpenScript={onOpenScript}
-        onRefreshProduction={onRefreshProduction}
-        onOpenProduction={onOpenProduction}
-      />
-    )
+    return <WritingStudio onOpenHome={onOpenHome} />
   if (item.availability === 'coming-soon') return <AgentComingSoon onOpenHome={onOpenHome} />
   return (
     <div className={`page tool-studio-page ${item.id}`}>
@@ -46,9 +40,28 @@ export function FunctionStackPage({
         tasks={tasks}
         image2ProviderStatus={image2ProviderStatus}
         onRefresh={onRefreshImageStudio}
+        onPauseTask={onPauseTask}
+        onResumeTask={onResumeTask}
+        onDeleteTask={onDeleteTask}
+        busyTaskId={busyTaskId}
         onOpenBilling={onOpenBilling}
       />
     </div>
+  )
+}
+
+function WritingStudio({ onOpenHome }) {
+  return (
+    <section className="page" aria-label="独立剧本大师工作台">
+      <button type="button" className="button secondary" onClick={onOpenHome}>
+        <ArrowLeft size={15} /> 返回项目库
+      </button>
+      <ScriptMasterWorkspace
+        projectId={null}
+        surface="standalone"
+        onReturn={onOpenHome}
+      />
+    </section>
   )
 }
 
@@ -91,21 +104,6 @@ function AgentComingSoon({ onOpenHome }) {
           成片
         </span>
       </div>
-    </section>
-  )
-}
-
-function WritingStudio({ project, onOpenScript, onRefreshProduction, onOpenProduction }) {
-  return (
-    <section className="page" aria-label="剧本大师工作台">
-      <button type="button" className="button secondary" onClick={onOpenScript}>
-        <ArrowLeft size={15} /> 返回项目剧本
-      </button>
-      <ScriptMasterWorkspace
-        projectId={project?.id}
-        onSynced={onRefreshProduction}
-        onNavigate={(view) => (view === 'script' ? onOpenScript?.() : onOpenProduction?.(view))}
-      />
     </section>
   )
 }

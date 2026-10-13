@@ -4,19 +4,42 @@ import {
   normalizeWorkspace,
   normalizeTasks,
   shouldLoadTaskDetails,
-  workspacePollingProjectId,
+  workflowNavigationAccess,
+  workflowNavigationBlockMessage,
+  workspacePollingOptions,
 } from './workspaceLoadingPolicy'
 
 describe('workspace loading policy', () => {
-  const workspace = { project: { id: 'project-1' } }
+  const projectId = 'project-1'
 
   it('does not poll or preload a project while the library is open', () => {
-    expect(workspacePollingProjectId('home', workspace)).toBeNull()
+    expect(workspacePollingOptions('home', projectId)).toEqual({
+      projectId: null,
+      includeRecentActivity: false,
+    })
   })
 
   it('opens the overview with compact task summaries', () => {
-    expect(workspacePollingProjectId('overview', workspace)).toBe('project-1')
+    expect(workspacePollingOptions('overview', projectId)).toEqual({
+      projectId,
+      includeRecentActivity: false,
+    })
     expect(shouldLoadTaskDetails('overview')).toBe(false)
+  })
+
+  it.each(['writing-studio', 'agent-studio'])('%s does not load the host workspace', (step) => {
+    expect(workspacePollingOptions(step, projectId)).toEqual({
+      projectId: null,
+      includeRecentActivity: true,
+    })
+  })
+
+  it('keeps image studio attached to the selected host project', () => {
+    expect(workspacePollingOptions('image-studio', projectId)).toEqual({
+      projectId,
+      includeRecentActivity: false,
+    })
+    expect(workspacePollingOptions('script', null).projectId).toBeNull()
   })
 
   it('only accepts async results for the currently selected project', () => {
@@ -101,6 +124,81 @@ describe('workspace loading policy', () => {
     expect(normalizeWorkspace(null)).toBeNull()
     expect(normalizeWorkspace({ project: null })).toBeNull()
     expect(normalizeWorkspace({ project: { name: '缺少 id' } })).toBeNull()
+  })
+
+  it('locks later creative stages until the persisted prerequisite exists', () => {
+    const empty = workflowNavigationAccess({
+      project: { id: projectId, script: '' },
+      scriptEpisodes: [],
+      assets: [],
+      shots: [],
+    })
+    expect(empty).toEqual({
+      script: true,
+      assets: false,
+      storyboard: false,
+      generate: false,
+      film: false,
+    })
+
+    const scriptOnly = workflowNavigationAccess({
+      project: { id: projectId, script: '已保存剧本' },
+      scriptEpisodes: [],
+      assets: [],
+      shots: [],
+    })
+    expect(scriptOnly).toMatchObject({ script: true, assets: true, storyboard: true, generate: false, film: false })
+
+    const textOnlyAssets = workflowNavigationAccess({
+      project: { id: projectId, script: '已保存剧本' },
+      scriptEpisodes: [],
+      assets: [{ id: 'asset-text', description: '文字设定', prompt: '文字提示词', imageUrl: null }],
+      shots: [],
+    })
+    expect(textOnlyAssets).toMatchObject({ storyboard: true, generate: false, film: false })
+
+    const ready = workflowNavigationAccess({
+      project: { id: projectId, script: '已保存剧本' },
+      scriptEpisodes: [],
+      assets: [{ id: 'asset-1' }],
+      shots: [{ id: 'shot-1' }],
+    })
+    expect(ready).toEqual({ script: true, assets: true, storyboard: true, generate: true, film: true })
+  })
+
+  it('accepts a saved series episode as the script handoff', () => {
+    const access = workflowNavigationAccess({
+      project: { id: projectId, script: '' },
+      scriptEpisodes: [{ id: 'episode-1', status: 'saved', content: '第 1 集' }],
+      assets: [],
+      shots: [],
+    })
+    expect(access).toMatchObject({ script: true, assets: true })
+  })
+
+  it('keeps imported downstream work reviewable when an old script projection is missing', () => {
+    const assets = workflowNavigationAccess({
+      project: { id: projectId, script: '' },
+      scriptEpisodes: [],
+      assets: [{ id: 'asset-1' }],
+      shots: [],
+    })
+    expect(assets).toMatchObject({ assets: true, storyboard: false, generate: false, film: false })
+
+    const shots = workflowNavigationAccess({
+      project: { id: projectId, script: '' },
+      scriptEpisodes: [],
+      assets: [],
+      shots: [{ id: 'shot-1' }],
+    })
+    expect(shots).toMatchObject({ assets: true, storyboard: true, generate: true, film: true })
+  })
+
+  it('explains the blocked destination consistently', () => {
+    expect(workflowNavigationBlockMessage('assets', { assets: false })).toContain('保存剧本')
+    expect(workflowNavigationBlockMessage('storyboard', { storyboard: false })).toContain('保存剧本')
+    expect(workflowNavigationBlockMessage('film', { film: false })).toContain('分镜')
+    expect(workflowNavigationBlockMessage('film', { film: true })).toBe('')
   })
 
   it.each(['script', 'assets', 'storyboard', 'film', 'image-studio'])(

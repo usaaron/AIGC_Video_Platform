@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { AssetLibraryItemRecord, Principal } from '@seqora/contracts'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore } from '../../infra/store.js'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 type Source = {
   projectId: string
@@ -33,6 +34,7 @@ export async function automaticCatalogItems(
     : new Set(store!.read((state) => state.assetLibraryItems.map((item) => item.id)))
   return sources
     .filter((source) => {
+      if (isStandaloneProjectId(source.projectId)) return false
       if (!source.taskId || !source.storageKey) return true
       const prefix = `${principal.tenantId}/${source.projectId}/generated/${source.taskId}-`
       return source.storageKey.startsWith(prefix) && /^[^/\\]+$/u.test(source.storageKey.slice(prefix.length))
@@ -80,7 +82,12 @@ export function catalogRecord(source: Source, principal: Principal): AssetLibrar
 function memorySources(store: AppStore, principal: Principal): Source[] {
   return store.read((state) =>
     state.projects
-      .filter((project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId)
+      .filter(
+        (project) =>
+          !isStandaloneProjectId(project.id) &&
+          project.tenantId === principal.tenantId &&
+          project.ownerId === principal.userId,
+      )
       .flatMap((project) => {
         const base = { projectId: project.id, projectName: project.name }
         const scripts = [
@@ -196,7 +203,7 @@ function memorySources(store: AppStore, principal: Principal): Source[] {
 
 // Read durable output descriptors; existing files are referenced, never copied or downloaded.
 const AUTO_SOURCES_SQL = `
-WITH owned AS (SELECT id, name, script, updated_at FROM projects WHERE tenant_id=$1 AND owner_user_id=$2),
+WITH owned AS (SELECT id, name, script, updated_at FROM projects WHERE tenant_id=$1 AND owner_user_id=$2 AND id NOT LIKE 'sm-standalone-%'),
 sources AS (
   SELECT p.id AS project_id, jsonb_build_object('projectId',p.id,'projectName',p.name,'title',p.name,'kind','script','content',btrim(p.script),'createdAt',p.updated_at) AS source FROM owned p WHERE btrim(p.script)<>''
   UNION ALL

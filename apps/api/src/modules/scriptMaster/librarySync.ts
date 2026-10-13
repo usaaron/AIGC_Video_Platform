@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { Principal } from '@seqora/contracts'
+import { scriptMasterSurfaceSchema, type Principal, type ScriptMasterSurface } from '@seqora/contracts'
 import type { AppConfig } from '../../config.js'
 import { permissionsFor } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
@@ -27,7 +27,11 @@ export async function syncScriptMasterLibrary(
   config: AppConfig,
   repository: AssetLibraryRepository,
   principal: Principal,
+  surface: ScriptMasterSurface,
 ) {
+  if (scriptMasterSurfaceSchema.parse(surface) !== 'embedded') {
+    throw new AppError(403, 'SCRIPT_MASTER_SURFACE_DENIED', '独立剧本大师不能同步到主站资产库')
+  }
   if (!config.SCRIPT_MASTER_URL || !config.SCRIPT_MASTER_SHARED_SECRET) return { synced: false }
   const issuedAt = Math.floor(Date.now() / 1000)
   const token = signClaims(
@@ -43,6 +47,7 @@ export async function syncScriptMasterLibrary(
       roles: [...principal.roles],
       permissions: [...permissionsFor(principal)],
       projectId: null,
+      surface,
     },
     config.SCRIPT_MASTER_SHARED_SECRET,
   )

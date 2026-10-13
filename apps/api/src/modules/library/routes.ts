@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
+import { rejectStandaloneProjectReferences } from '../projects/projectSurface.js'
 import type { AssetLibraryService } from './service.js'
 
 const itemParams = z.object({ itemId: z.string().min(1).max(128) })
@@ -34,7 +35,9 @@ export async function registerLibraryRoutes(
       preHandler: requirePermission(PERMISSIONS.ASSET_LIBRARY_WRITE),
       config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     },
-    (request) => service.syncExternal(request.principal!),
+    async () => {
+      throw new AppError(410, 'SCRIPT_MASTER_LIBRARY_SYNC_DISABLED', '独立剧本大师不再同步到主站资产库')
+    },
   )
   app.get(
     '/library/items',
@@ -42,6 +45,7 @@ export async function registerLibraryRoutes(
     async (request) => {
       const query = listAssetLibraryItemsQuerySchema.safeParse(request.query)
       if (!query.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(query.error))
+      rejectStandaloneProjectReferences(query.data)
       return service.list(query.data, request.principal!)
     },
   )
@@ -52,6 +56,7 @@ export async function registerLibraryRoutes(
     async (request, reply) => {
       const parsed = createAssetLibraryItemSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      rejectStandaloneProjectReferences(parsed.data)
       return reply.code(201).send(await service.create(parsed.data, request.principal!))
     },
   )
@@ -102,6 +107,7 @@ export async function registerLibraryRoutes(
       if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(params.error))
       const parsed = createAssetLibraryItemVersionSchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      rejectStandaloneProjectReferences(parsed.data)
       return reply
         .code(201)
         .send(await service.addVersion(params.data.itemId, parsed.data, request.principal!))
@@ -223,6 +229,7 @@ export async function registerLibraryRoutes(
       if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(params.error))
       const query = listAssetLibraryItemsQuerySchema.safeParse(request.query)
       if (!query.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(query.error))
+      rejectStandaloneProjectReferences(query.data)
       return service.list({ ...query.data, sourceProjectId: params.data.projectId }, request.principal!)
     },
   )
@@ -259,6 +266,7 @@ export async function registerLibraryRoutes(
       if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(params.error))
       const parsed = saveProjectAssetToLibrarySchema.safeParse(request.body)
       if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      rejectStandaloneProjectReferences(parsed.data)
       return reply
         .code(201)
         .send(

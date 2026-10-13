@@ -95,6 +95,7 @@ export class AdminRepository {
       SELECT count(*)::int AS count
       FROM generation_tasks
       WHERE status IN ('queued', 'running')
+        AND project_id NOT LIKE 'sm-standalone-%'
         AND ($1::text IS NULL OR tenant_id = $1)
       `,
       [tenantId ?? null],
@@ -141,6 +142,7 @@ export class AdminRepository {
           count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
         FROM generation_tasks
         WHERE created_at >= $1::timestamptz
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND ($2::text IS NULL OR tenant_id = $2)
         `,
         [periodStart, tenantId ?? null],
@@ -154,6 +156,7 @@ export class AdminRepository {
           count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
         FROM ai_jobs
         WHERE created_at >= $1::timestamptz
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND ($2::text IS NULL OR tenant_id = $2)
         `,
         [periodStart, tenantId ?? null],
@@ -169,6 +172,7 @@ export class AdminRepository {
         FROM generation_tasks
         WHERE provider = 'local-compose'
           AND created_at >= $1::timestamptz
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND ($2::text IS NULL OR tenant_id = $2)
         `,
         [periodStart, tenantId ?? null],
@@ -1883,8 +1887,10 @@ function compliancePromptUnionSql(): string {
     LEFT JOIN projects p ON p.id = gt.project_id AND p.tenant_id = gt.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
     LEFT JOIN LATERAL (${complianceReviewActionSql('gt.id', 'generation_task')}) review ON true
-    WHERE gt.prompt <> ''
+    WHERE gt.project_id NOT LIKE 'sm-standalone-%'
+      AND (gt.prompt <> ''
       OR gt.negative_prompt <> ''
+      )
 
     UNION ALL
 
@@ -1925,7 +1931,8 @@ function compliancePromptUnionSql(): string {
     LEFT JOIN projects p ON p.id = aj.project_id AND p.tenant_id = aj.tenant_id
     LEFT JOIN LATERAL (${primaryIdentitySql('u.id')}) ai ON true
     LEFT JOIN LATERAL (${complianceReviewActionSql('aj.id', 'ai_job')}) review ON true
-    WHERE aj.input <> '{}'::jsonb
+    WHERE aj.project_id NOT LIKE 'sm-standalone-%'
+      AND aj.input <> '{}'::jsonb
   `
 }
 

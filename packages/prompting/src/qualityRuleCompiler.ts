@@ -1,4 +1,4 @@
-export const QUALITY_RULE_VERSION = 'quality-floor-v3'
+export const QUALITY_RULE_VERSION = 'quality-floor-v5'
 
 export type QualityRuleInput = {
   mediaKind: 'image' | 'video'
@@ -26,7 +26,10 @@ const VIDEO_BASE =
   '不要闪烁、频闪、跳帧、卡顿和意外镜头抖动；不要变形、扭曲、畸形和解剖错误；不要多余肢体、缺少肢体、手指畸形和手指粘连；不要运动模糊过重、残影和重影；不要低分辨率、像素化和压缩痕迹；不要水印、未经指定的文字、logo、UI和字幕；不要刺眼爆闪和过曝炸白；不要面部漂移、换脸或不同角度变成不同人物；不要衣服穿帮或材质变塑料'
 
 const PHOTOREAL_VIDEO =
-  '画面里不要出现机械臂、摄影机、轨道、云台、灯架、反光板、工作人员、麦克风等拍摄设备；不要背景穿帮，包括接缝线、折痕、拼接、贴图拉伸、重复纹理、抠像边、漂浮阴影、地面反光断裂和背景色温跳变；不要多余人物和道具；不要广角畸变拉脸；保持真实皮肤、面部、肢体、服装和材质跨帧稳定'
+  '画面里不要出现机械臂、摄影机、轨道、云台、灯架、反光板、工作人员、麦克风等拍摄设备；不要背景穿帮，包括接缝线、折痕、拼接、贴图拉伸、重复纹理、抠像边、漂浮阴影、地面反光断裂和背景色温跳变；不增加剧情之外的角色和道具，但保留既定群众规模与设施支撑；不要广角畸变拉脸；保持真实皮肤、面部、肢体、服装和材质跨帧稳定'
+
+const RIGID_STRUCTURE_VIDEO =
+  '刚性设施必须跨帧保持同一结构；不要像弹簧、橡胶或布料一样伸缩、弯曲、波动或融化；不要改变长度、厚度、杆件数量、杆间距、连接点、底座和材质；不要局部断裂、穿透、分段、凭空增减构件或让固定设施自行弹开；受力只表现为符合支撑关系的整体平移、转动、滑动或保持不动'
 
 const CHARACTER_BASE =
   '不要玻璃眼、空洞眼神、无瞳孔、斜视和眼睛不对称；不要歪鼻子、鼻子融化和缺眉毛；不要歪嘴、缺牙和不对称笑容；不要多余手指、手指粘连、手部扭曲、身体扭曲、关节断裂、长脖子和双躯干'
@@ -74,6 +77,9 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
   if (input.mediaKind === 'video' && photorealistic) {
     presets.push(['photoreal-video', PHOTOREAL_VIDEO])
   }
+  if (input.mediaKind === 'video' && hasRigidObjectMotion(source)) {
+    presets.push(['rigid-structure-continuity', RIGID_STRUCTURE_VIDEO])
+  }
   if (input.assetKind === 'character') {
     presets.push(['character-anatomy', CHARACTER_BASE])
     if (input.subjectType !== 'animal') presets.push(['human-character', HUMAN_CHARACTER_BASE])
@@ -105,11 +111,18 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
     positivePrompt:
       input.mediaKind === 'image' && input.assetKind === 'character' && input.subjectType !== 'animal'
         ? HUMAN_CHARACTER_IDENTITY
-        : '',
+        : input.mediaKind === 'image' && (input.assetKind === 'scene' || input.assetKind === 'prop')
+          ? '按已确定设计保留物件的支撑、连接、底座或安装接口与合理尺度；固定设施和可移动设施分别表现，不把所有物件固定在地面。场景保留已定义通道与行动空间；孤立道具只展示本体及其连接结构，不为展示安装关系添加人物或整套环境。空场图只描述环境，不规定视频的人群规模；关键结构未定义时不得把示意图当作已经确认的安装方案。'
+          : '',
     negativePrompt: clauses.join('；').slice(0, 5_000),
     presetIds: presets.map(([id]) => id),
     version: QUALITY_RULE_VERSION,
   }
+}
+
+function hasRigidObjectMotion(sourcePrompt: string): boolean {
+  return /门|闸|栅栏|隔离栏|栏杆|护栏|墙|架|平台|桥|箱体|车辆外壳|导轨|铰链/.test(sourcePrompt)
+    && /推|拉|撞|挤|挤压|施压|攀爬|承重|打开|关闭|移动|滑动|倾斜|受力|固定/.test(sourcePrompt)
 }
 
 function shouldKeepAtmosphereClear(weather: string | undefined, sourcePrompt: string): boolean {

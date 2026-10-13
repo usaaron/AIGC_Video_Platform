@@ -54,17 +54,22 @@ import {
   normalizeTasks,
   normalizeWorkspace,
   shouldLoadTaskDetails,
+  workflowNavigationBlockMessage,
+  workflowNavigationAccess,
+  workspacePollingOptions,
 } from './features/workspace/workspaceLoadingPolicy'
 
 function App() {
   const { session, logout, refresh: refreshSession } = useAuth()
   const [activeStep, setActiveStep] = useState('home')
+  const [pendingLandingView, setPendingLandingView] = useState(null)
   const [retainedSeriesId, setRetainedSeriesId] = useState(null)
   const [projects, setProjects] = useState([])
   const [workspace, setWorkspace] = useState(null)
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [workspaceLoadError, setWorkspaceLoadError] = useState(null)
   const [tasks, setTasks] = useState([])
+  const [taskActionId, setTaskActionId] = useState(null)
   const [billing, setBilling] = useState(null)
   const [providerHealth, setProviderHealth] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -79,6 +84,8 @@ function App() {
   const [recentTasksLoaded, setRecentTasksLoaded] = useState(false)
   const workspaceCacheRef = useRef(new Map())
   const activeProjectIdRef = useRef(null)
+  const projectCreationInFlightRef = useRef(null)
+  const assetOperationInFlightRef = useRef(new Map())
   const taskCacheWriteAtRef = useRef(new Map())
   const {
     notifications,
@@ -167,7 +174,14 @@ function App() {
           const initialProject = landing?.project ?? projectList[0]
           const initialProjectId = initialProject.id
           selectActiveProject(initialProjectId)
-          if (landing) setActiveStep(landing.view)
+          if (landing?.view === 'script') setActiveStep('script')
+          else if (landing?.view) {
+            // Asset/storyboard deep links must wait for the real workspace
+            // payload. The project list only contains a summary and cannot
+            // prove that a prerequisite exists.
+            setPendingLandingView(landing.view)
+            setActiveStep('overview')
+          }
           const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(initialProjectId))
           if (cachedWorkspace) workspaceCacheRef.current.set(initialProjectId, cachedWorkspace)
           setWorkspace(
@@ -193,7 +207,7 @@ function App() {
   }, [adminOnly, loadAttempt, replaceTasks, selectActiveProject])
 
   useWorkspacePolling({
-    projectId: activeStep === 'home' ? null : activeProjectId,
+    ...workspacePollingOptions(activeStep, activeProjectId),
     includeTaskDetails: shouldLoadTaskDetails(activeStep),
     workspaceCacheRef,
     activeProjectIdRef,
@@ -239,12 +253,140 @@ function App() {
   }, [activeStep])
 
   const project = workspace?.project
-  const retainSeriesEditor =
-    project?.contentType === 'short-drama' && (activeStep === 'script' || retainedSeriesId === project.id)
+  const workflowAccess = useMemo(
+    () => workflowNavigationAccess(workspace),
+    [workspace],
+  )
   useEffect(() => {
-    if (project?.contentType === 'short-drama' && activeStep === 'script') setRetainedSeriesId(project.id)
+    if (!pendingLandingView || !activeProjectId || workspace?.project?.id !== activeProjectId) return
+    if (workflowAccess[pendingLandingView] === false) {
+      setToast(workflowNavigationBlockMessage(pendingLandingView, workflowAccess))
+      setPendingLandingView(null)
+      return
+    }
+    setActiveStep(pendingLandingView)
+    setPendingLandingView(null)
+  }, [activeProjectId, pendingLandingView, workflowAccess, workspace?.project?.id])
+  const retainSeriesEditor =
+    project?.contentType === 'short-drama'
+    && (['script', 'storyboard'].includes(activeStep) || retainedSeriesId === project.id)
+  useEffect(() => {
+    if (
+      project?.contentType === 'short-drama'
+      && ['script', 'storyboard'].includes(activeStep)
+    ) setRetainedSeriesId(project.id)
     else if (retainedSeriesId !== project?.id) setRetainedSeriesId(null)
   }, [activeStep, project?.id, project?.contentType, retainedSeriesId])
+
+  const {
+    refreshWorkspace,
+    mergeWorkspaceAsset,
+    refreshBilling,
+    refreshCurrentProjectData,
+    createJob,
+    createAsset,
+    importAssets,
+    createAndGenerateAsset,
+    createCharacterFaceJob,
+    assetCommands,
+    updateShot,
+    createScriptJob,
+    navigateTo,
+    openProject,
+    openNotification,
+    retryNotification,
+    createProject,
+    createStoryboardVideo,
+    createStoryboardVideoBatch,
+  } = createWorkspaceCommands({
+    project,
+    projects,
+    workspace,
+    tasks,
+    workspaceCacheRef,
+    setActiveProject: selectActiveProject,
+    activeProjectIdRef,
+    projectCreationInFlightRef,
+    assetOperationInFlightRef,
+    replaceTasks,
+    refreshSession,
+    markNotificationRead,
+    setActiveStep,
+    setMobileNav,
+    setWorkspace,
+    setTasks,
+    setBilling,
+    setProjects,
+    setNewProjectOpen,
+    setToast,
+    assetReferenceIndex: workspaceAssetReferenceIndex,
+    generationConcurrency: billing?.concurrency || 1,
+    workflowAccess,
+  })
+
+  // Keep these callbacks before every conditional return. The app renders a
+  // loading state first, so declaring them below that state would change the
+  // Hook order when the workspace finishes loading and crash the whole shell.
+  const pauseTask = useCallback(
+    async (taskId) => {
+      if (!project?.id || taskActionId) return
+      setTaskActionId(taskId)
+      try {
+        const task = tasks.find((item) => item.id === taskId)
+        const running = task?.status === 'running'
+        if (running) await api.stopTask(taskId)
+        else await api.pauseTask(taskId)
+        replaceTasks(project.id, await api.tasks(project.id))
+        setToast(running ? '已停止生成，积分不退还' : '任务已暂停')
+      } catch (error) {
+        setToast(error.message || '任务暂时无法暂停或停止')
+      } finally {
+        setTaskActionId(null)
+      }
+    },
+    [project?.id, replaceTasks, taskActionId, tasks],
+  )
+
+  const reviewVideo = useCallback(async (task, decision, note) => {
+    await api.reviewVideo(task.id, {decision, note, expectedUpdatedAt:task.updatedAt})
+    replaceTasks(project.id, await api.tasks(project.id))
+    setToast(decision === 'approved' ? '该视频版本已通过验收，可供后续镜头承接' : decision === 'rejected' ? '已标记问题，后续镜头等待修复' : '已撤回验收；尚未提交的衔接镜头将等待')
+  }, [project?.id, replaceTasks])
+
+  const resumeTask = useCallback(
+    async (taskId) => {
+      if (!project?.id || taskActionId) return
+      setTaskActionId(taskId)
+      try {
+        await api.resumeTask(taskId)
+        replaceTasks(project.id, await api.tasks(project.id))
+        setToast('任务已继续')
+      } catch (error) {
+        setToast(error.message || '任务暂时无法继续')
+      } finally {
+        setTaskActionId(null)
+      }
+    },
+    [project?.id, replaceTasks, taskActionId],
+  )
+
+  const deleteTask = useCallback(
+    async (taskId) => {
+      if (!project?.id || taskActionId) return
+      setTaskActionId(taskId)
+      try {
+        await api.deleteTask(taskId)
+        replaceTasks(project.id, await api.tasks(project.id))
+        await refreshBilling()
+        setToast('任务已移出队列')
+      } catch (error) {
+        setToast(error.message || '任务暂时无法移出队列')
+      } finally {
+        setTaskActionId(null)
+      }
+    },
+    [project?.id, refreshBilling, replaceTasks, taskActionId],
+  )
 
   if (adminOnly)
     return (
@@ -275,46 +417,6 @@ function App() {
         </button>
       </div>
     )
-
-  const {
-    refreshWorkspace,
-    mergeWorkspaceAsset,
-    refreshBilling,
-    refreshCurrentProjectData,
-    createJob,
-    createCharacterFaceJob,
-    assetCommands,
-    updateShot,
-    createScriptJob,
-    navigateTo,
-    openProject,
-    openNotification,
-    retryNotification,
-    createProject,
-    createStoryboardVideo,
-    createStoryboardVideoBatch,
-  } = createWorkspaceCommands({
-    project,
-    projects,
-    workspace,
-    tasks,
-    workspaceCacheRef,
-    setActiveProject: selectActiveProject,
-    activeProjectIdRef,
-    replaceTasks,
-    refreshSession,
-    markNotificationRead,
-    setActiveStep,
-    setMobileNav,
-    setWorkspace,
-    setTasks,
-    setBilling,
-    setProjects,
-    setNewProjectOpen,
-    setToast,
-    assetReferenceIndex: workspaceAssetReferenceIndex,
-    generationConcurrency: billing?.concurrency || 1,
-  })
 
   const workspaceRequired = new Set(['overview', 'script', 'assets', 'storyboard', 'generate', 'film']).has(
     activeStep,
@@ -373,16 +475,17 @@ function App() {
       return (
         <FunctionStackPage
           tool={step}
-          project={project}
+          project={step === 'image-studio' ? project : undefined}
           billing={billing}
           tasks={tasks}
           image2ProviderStatus={providerHealth?.providers?.img2 ?? null}
           onRefreshImageStudio={refreshCurrentProjectData}
-          onRefreshProduction={refreshWorkspace}
-          onOpenProduction={navigateTo}
+          onPauseTask={pauseTask}
+          onResumeTask={resumeTask}
+          onDeleteTask={deleteTask}
+          busyTaskId={taskActionId}
           onOpenBilling={() => navigateTo('billing')}
           onOpenHome={() => navigateTo('home')}
-          onOpenScript={() => navigateTo('script')}
         />
       )
     }
@@ -443,7 +546,6 @@ function App() {
     if (step === 'library') {
       return (
         <AssetLibraryPage
-          onSyncExternal={api.syncScriptMasterLibrary}
           currentProject={project ?? null}
           onToast={setToast}
           onLoadItems={(query) => api.libraryItems(query)}
@@ -487,6 +589,9 @@ function App() {
           billing={billing}
           setActiveStep={navigateTo}
           setNewProjectOpen={setNewProjectOpen}
+          onPauseTask={pauseTask}
+          onResumeTask={resumeTask}
+          onDeleteTask={deleteTask}
           onUpdateSynopsis={async (synopsis) => {
             await api.updateProject(project.id, { synopsis })
             await refreshWorkspace()
@@ -506,6 +611,7 @@ function App() {
           scriptModelCapabilities={providerHealth?.scriptModels ?? []}
           onRefreshProduction={refreshWorkspace}
           onOpenProduction={navigateTo}
+          scriptMasterView={activeStep === 'storyboard' ? 'storyboard' : 'script'}
           onSave={async (script) => {
             await api.updateProject(project.id, { script })
             await refreshWorkspace()
@@ -616,57 +722,9 @@ function App() {
               'fast',
             )
           }
-          onCreateAsset={async (input) => {
-            const created = await api.createAsset(project.id, input)
-            await refreshWorkspace()
-            setToast(`已加入资产：${created.name}`)
-            return created
-          }}
-          onImportAssets={async (inputs) => {
-            const created = await Promise.all(inputs.map((input) => api.createAsset(project.id, input)))
-            await refreshWorkspace()
-            setToast(`已导入 ${created.length} 个资产，等待在资产设计页生成`)
-            return created
-          }}
-          onCreateAndGenerateAsset={async (input) => {
-            const created = await api.createAsset(project.id, input)
-            await refreshWorkspace()
-            const currentTasks = await api.tasks(project.id)
-            if (
-              created.imageUrl ||
-              (created.attributes.type === 'character' && created.attributes.faceReference) ||
-              currentTasks.some(
-                (task) =>
-                  task.metadata?.assetId === created.id &&
-                  task.kind === 'image' &&
-                  ['queued', 'paused', 'running', 'completed'].includes(task.status),
-              )
-            ) {
-              setToast(`${created.name}已复用；新造型可在人物设计中选择后生成`)
-              return created
-            }
-            const task =
-              created.kind === 'character'
-                ? await createCharacterFaceJob(created, 'img2-default', '资产建议 · 面部大头照')
-                : await createJob(`${created.name} · 资产建议生成`, '图片', 6, {
-                    prompt: created.prompt,
-                    model: 'img2-default',
-                    negativePrompt: created.negativePrompt,
-                    metadata: {
-                      assetId: created.id,
-                      assetKind: created.kind,
-                      generationStage: 'asset',
-                      aspectRatio: project.aspectRatio,
-                      sourceMode: created.sourceMode,
-                      references: assetGenerationReferences(created, [...(workspace?.assets || []), created]),
-                      attributes: created.attributes,
-                      turnaround:
-                        created.attributes.turnaround === true || created.attributes.view === 'turnaround',
-                    },
-                  })
-            if (!task) throw new Error('资产已写入，但生成任务未能加入队列，请到资产页重试')
-            return task
-          }}
+          onCreateAsset={createAsset}
+          onImportAssets={importAssets}
+          onCreateAndGenerateAsset={createAndGenerateAsset}
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onCancelTask={async (taskId, successMessage = '已停止剧本生成，可以切换模型后重试') => {
             await api.deleteTask(taskId)
@@ -680,7 +738,23 @@ function App() {
         <AssetsPage
           project={project}
           assets={workspace.assets}
+          scriptEpisodes={workspace.scriptEpisodes}
+          onSuggestAssetsFast={(script, direction) =>
+            api.suggestScriptAssets(
+              project.id,
+              script,
+              direction,
+              ASSET_SUGGESTION_MODEL,
+              crypto.randomUUID(),
+              'fast',
+            )
+          }
+          onImportAssets={importAssets}
           tasks={tasks}
+          onPauseTask={pauseTask}
+          onResumeTask={resumeTask}
+          onDeleteTask={deleteTask}
+          busyTaskId={taskActionId}
           imageModels={providerHealth?.imageModels}
           concurrency={billing.concurrency}
           billing={billing}
@@ -800,6 +874,11 @@ function App() {
           onUpload={(file) => api.uploadMedia(project.id, file)}
           onGenerateVideo={createStoryboardVideo}
           onGenerateAllVideos={createStoryboardVideoBatch}
+          onReviewVideo={reviewVideo}
+          onPauseTask={pauseTask}
+          onResumeTask={resumeTask}
+          onDeleteTask={deleteTask}
+          busyTaskId={taskActionId}
           onNext={() => navigateTo('generate')}
         />
       ),
@@ -810,34 +889,9 @@ function App() {
           member={billing.plan === 'member'}
           billingScope={billing.billingScope}
           onUpgrade={() => navigateTo('membership')}
-          onPause={async (taskId) => {
-            try {
-              await api.pauseTask(taskId)
-              replaceTasks(project.id, await api.tasks(project.id))
-              setToast('任务已暂停')
-            } catch (error) {
-              setToast(error.message)
-            }
-          }}
-          onResume={async (taskId) => {
-            try {
-              await api.resumeTask(taskId)
-              replaceTasks(project.id, await api.tasks(project.id))
-              setToast('任务已继续')
-            } catch (error) {
-              setToast(error.message)
-            }
-          }}
-          onDelete={async (taskId) => {
-            try {
-              await api.deleteTask(taskId)
-              replaceTasks(project.id, await api.tasks(project.id))
-              await refreshBilling()
-              setToast('任务已移出队列')
-            } catch (error) {
-              setToast(error.message)
-            }
-          }}
+          onPause={pauseTask}
+          onResume={resumeTask}
+          onDelete={deleteTask}
           onClear={async () => {
             await api.clearTasks(project.id)
             replaceTasks(project.id, await api.tasks(project.id))
@@ -859,6 +913,10 @@ function App() {
             setToast(`版本 v${saved.version} 已保存`)
           }}
           onEdit={() => navigateTo('storyboard')}
+          onPauseTask={pauseTask}
+          onResumeTask={resumeTask}
+          onDeleteTask={deleteTask}
+          busyTaskId={taskActionId}
           onComposePreview={async (mode = 'full', episodeNumber = null) => {
             try {
               const task = await api.createFilmPreview(project.id, mode, true, episodeNumber)
@@ -901,6 +959,11 @@ function App() {
         billing={billing}
         account={session.account}
         runningJobs={tasks.filter((task) => task.status === 'running')}
+        tasks={tasks}
+        busyTaskId={taskActionId}
+        onPause={pauseTask}
+        onResume={resumeTask}
+        onDelete={deleteTask}
         notifications={notifications}
         onNotificationOpen={openNotification}
         onNotificationRetry={retryNotification}
@@ -918,6 +981,7 @@ function App() {
         mobileNav={mobileNav}
         billing={billing}
         assetCount=""
+        workflowAccess={workflowAccess}
         canOpenAdminAccounts={canOpenAdminAccounts}
         adminConsoleUrl={adminConsoleUrl}
         onNavigate={navigateTo}
@@ -927,23 +991,32 @@ function App() {
         <button className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileNav(false)} />
       )}
       <main className="workspace">
-        <WorkspaceErrorBoundary
-          projectId={activeProjectId}
-          step={activeStep}
-          onRetry={() => void openProject(activeProjectId)}
-        >
-          {/* Keep the active writer outside other pages' lazy-loading boundary. */}
-          <Suspense fallback={<WorkspaceLoading />}>
-            {retainSeriesEditor && (
-              <div className="retained-series-workspace" hidden={activeStep !== 'script'}>
-                {renderContent('script')}
-              </div>
-            )}
-          </Suspense>
-          <Suspense fallback={<WorkspaceLoading />}>
-            {(!retainSeriesEditor || activeStep !== 'script') && renderContent()}
-          </Suspense>
-        </WorkspaceErrorBoundary>
+        {retainSeriesEditor && (
+          <div
+            className="retained-series-workspace"
+            // Keep the embedded Script Master mounted during storyboard
+            // navigation so its saved shots can finish syncing, but expose
+            // only the host storyboard surface to the user.
+            hidden={activeStep !== 'script'}
+          >
+            <WorkspaceErrorBoundary
+              projectId={project?.id}
+              step="script"
+              onRetry={() => void openProject(project?.id)}
+            >
+              <Suspense fallback={<WorkspaceLoading />}>{renderContent('script')}</Suspense>
+            </WorkspaceErrorBoundary>
+          </div>
+        )}
+        {(!retainSeriesEditor || activeStep !== 'script') && (
+          <WorkspaceErrorBoundary
+            projectId={activeProjectId}
+            step={activeStep}
+            onRetry={() => void openProject(activeProjectId)}
+          >
+            <Suspense fallback={<WorkspaceLoading />}>{renderContent()}</Suspense>
+          </WorkspaceErrorBoundary>
+        )}
       </main>
       {newProjectOpen && (
         <NewProjectModal onClose={() => setNewProjectOpen(false)} onCreate={createProject} />
@@ -997,4 +1070,5 @@ function App() {
     </div>
   )
 }
+
 export default App

@@ -1,7 +1,15 @@
 import { resolveTaskBillingTarget, type TaskBillingTarget } from '../billing/taskBillingTarget.js'
 import { buildQueuedGenerationTask, findTaskByClientRequest, taskInsertParams } from './taskCreation.js'
 import { preparePortraitSubmission, preparePortraitSubmissionInState } from './trustedPortraitSubmission.js'
-import type { CreateGenerationTask, GenerationTask, Principal, Project, Shot } from '@seqora/contracts'
+import type {
+  CreateGenerationTask,
+  GenerationTask,
+  Principal,
+  Project,
+  RigidPhysicsAuditResult,
+  Shot,
+} from '@seqora/contracts'
+import { needsVideoReview, physicalAuditState, videoReviewVersion, type ReviewVideo } from '@seqora/contracts'
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import { AppError } from '../../core/errors.js'
@@ -40,6 +48,13 @@ import {
   taskRuntimeKey,
 } from './taskRuntimeCache.js'
 import { findControlledTask, metadataString } from './taskStateHelpers.js'
+import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
+import {
+  assertStoryboardTaskTarget,
+  assertStoryboardTaskTargetInState,
+  hasStoryboardTarget,
+  lockStoryboardTaskProjects,
+} from './storyboardTaskWriteGuard.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -77,27 +92,32 @@ export class GenerationTaskRepository {
       allQuery: `
         SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at
         FROM generation_tasks
+        WHERE project_id NOT LIKE 'sm-standalone-%'
         ORDER BY created_at DESC, id DESC
       `,
       activeLoader: () => this.loadActiveTasksFromDatabase(),
       cursorQuery: `
         SELECT id, updated_at::text AS runtime_sync_updated_at
         FROM generation_tasks
+        WHERE project_id NOT LIKE 'sm-standalone-%'
         ORDER BY updated_at DESC, id DESC
         LIMIT 1
       `,
       deltaQuery: `
         SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at
         FROM generation_tasks
-        WHERE updated_at > $1::timestamptz
+        WHERE project_id NOT LIKE 'sm-standalone-%'
+          AND (updated_at > $1::timestamptz
            OR (updated_at = $1::timestamptz AND id > $2)
+          )
         ORDER BY updated_at ASC, id ASC
         LIMIT $3
       `,
       sameTimestampQuery: `
         SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at
         FROM generation_tasks
-        WHERE updated_at = $1::timestamptz
+        WHERE project_id NOT LIKE 'sm-standalone-%'
+          AND updated_at = $1::timestamptz
         ORDER BY id ASC
         LIMIT $2
       `,
@@ -115,7 +135,9 @@ export class GenerationTaskRepository {
     const result: GenerationTaskImportResult = { tasks: { inserted: 0, skipped: 0 } }
     if (!this.database || !this.store) return result
 
-    const tasks = this.store.read((state) => state.tasks)
+    const tasks = this.store.read((state) =>
+      state.tasks.filter((task) => !isStandaloneProjectId(task.projectId)),
+    )
     if (!tasks.length) return result
 
     await this.database.transaction(async (client) => {
@@ -133,7 +155,10 @@ export class GenerationTaskRepository {
 
   async refreshRuntimeCacheFromDatabase(options: RuntimeTaskCacheOptions = {}): Promise<GenerationTask[]> {
     if (!this.database || !this.store) {
-      return this.store?.read((state) => state.tasks) ?? []
+      return (
+        this.store?.read((state) => state.tasks.filter((task) => !isStandaloneProjectId(task.projectId))) ??
+        []
+      )
     }
     return this.runtimeCache.refresh(options.activeOnly === true)
   }
@@ -145,7 +170,9 @@ export class GenerationTaskRepository {
   runtimeProjectIds(): string[] {
     if (!this.store) return []
     return this.store.readGenerationTaskRuntimeCache((state) => [
-      ...new Set(state.tasks.map((task) => task.projectId)),
+      ...new Set(
+        state.tasks.filter((task) => !isStandaloneProjectId(task.projectId)).map((task) => task.projectId),
+      ),
     ])
   }
 
@@ -156,6 +183,7 @@ export class GenerationTaskRepository {
       SELECT ${generationTaskColumns}
       FROM generation_tasks
       WHERE id = $1
+        AND project_id NOT LIKE 'sm-standalone-%'
       LIMIT 1
       `,
       [taskId],
@@ -179,7 +207,9 @@ export class GenerationTaskRepository {
     const ids = new Set(taskIds)
     if (!ids.size) return 0
     const snapshot = this.store.read((state) => {
-      const tasks = state.tasks.filter((task) => ids.has(task.id)).map(normalizeGenerationTaskLifecycle)
+      const tasks = state.tasks
+        .filter((task) => ids.has(task.id) && !isStandaloneProjectId(task.projectId))
+        .map(normalizeGenerationTaskLifecycle)
       const taskShotKeys = new Set(
         tasks.flatMap((task) => {
           const shotId = metadataString(task.metadata, 'shotId')
@@ -224,7 +254,7 @@ export class GenerationTaskRepository {
     if (!this.database || !this.store) return false
     const snapshot = this.store.read((state) => {
       const current = state.tasks.find((item) => item.id === taskId)
-      if (!current) return null
+      if (!current || isStandaloneProjectId(current.projectId)) return null
       const task = normalizeGenerationTaskLifecycle(current)
       const shotId = metadataString(task.metadata, 'shotId')
       const shot = shotId ? state.shots.find((item) => item.id === shotId) : null
@@ -252,7 +282,14 @@ export class GenerationTaskRepository {
     if (!this.database || !this.store) return false
     const snapshot = this.store.read((state) => {
       const task = state.tasks.find((item) => item.id === taskId)
-      if (!task || task.kind !== 'text' || task.status !== 'running' || !task.leaseToken) return null
+      if (
+        !task ||
+        isStandaloneProjectId(task.projectId) ||
+        task.kind !== 'text' ||
+        task.status !== 'running' ||
+        !task.leaseToken
+      )
+        return null
       return {
         id: task.id,
         metadata: task.metadata,
@@ -269,6 +306,7 @@ export class GenerationTaskRepository {
           progress = $3,
           updated_at = $4::timestamptz
       WHERE id = $1
+        AND project_id NOT LIKE 'sm-standalone-%'
         AND kind = 'text'
         AND status = 'running'
         AND lease_token = $5
@@ -287,6 +325,7 @@ export class GenerationTaskRepository {
   }
 
   async canCreate(projectId: string, principal: Principal): Promise<boolean> {
+    if (isStandaloneProjectId(projectId)) return false
     if (this.database) {
       const result = await this.database.query<{ id: string }>(
         `
@@ -490,6 +529,7 @@ export class GenerationTaskRepository {
     principal: Principal,
     options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
+    rejectStandaloneProjectId(input.projectId)
     if (this.database) return this.createInDatabase(input, principal, false, options)
     return this.createInStore(input, principal, options)
   }
@@ -499,6 +539,7 @@ export class GenerationTaskRepository {
     principal: Principal,
     options: { traceId?: string | null } = {},
   ): Promise<GenerationTask> {
+    rejectStandaloneProjectId(input.projectId)
     if (this.database) return this.createInDatabase(input, principal, true, options)
     return this.createWithChargeInStore(input, principal, options)
   }
@@ -509,6 +550,7 @@ export class GenerationTaskRepository {
     options: { traceId?: string | null } = {},
   ): Promise<GenerationTask[]> {
     assertUniqueClientRequestIds(inputs)
+    for (const input of inputs) rejectStandaloneProjectId(input.projectId)
     if (this.database) return this.createBatchWithChargeInDatabase(inputs, principal, options)
     return this.createBatchWithChargeInStore(inputs, principal, options)
   }
@@ -518,6 +560,7 @@ export class GenerationTaskRepository {
     principal: Principal,
     includeHidden = false,
   ): Promise<GenerationTask[]> {
+    if (isStandaloneProjectId(projectId)) return []
     await this.recoverExpiredFilmPreviewTasks(principal, projectId)
     if (!this.database) return this.listByProjectFromStore(projectId, principal, includeHidden)
 
@@ -540,6 +583,7 @@ export class GenerationTaskRepository {
   }
 
   async listPollingByProject(projectId: string, principal: Principal) {
+    if (isStandaloneProjectId(projectId)) return []
     await this.recoverPollingTasksIfDue(projectId, principal)
     return this.database
       ? listPollingTasks(this.database, projectId, principal)
@@ -547,6 +591,7 @@ export class GenerationTaskRepository {
   }
 
   async pollingVersion(projectId: string, principal: Principal): Promise<string> {
+    if (isStandaloneProjectId(projectId)) return ''
     await this.recoverPollingTasksIfDue(projectId, principal)
     const key = `${principal.tenantId}:${canReadAllTenantContent(principal) ? 'all' : principal.userId}:${projectId}`
     const inFlight = this.pollingVersionInFlight.get(key)
@@ -569,6 +614,7 @@ export class GenerationTaskRepository {
         SELECT ${generationTaskColumns}
         FROM generation_tasks
         WHERE tenant_id = $1
+          AND project_id NOT LIKE 'sm-standalone-%'
           AND ($2::boolean OR user_id = $3)
           AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
         ORDER BY updated_at DESC, id DESC
@@ -586,6 +632,7 @@ export class GenerationTaskRepository {
         .filter(
           (task) =>
             task.tenantId === principal.tenantId &&
+            !isStandaloneProjectId(task.projectId) &&
             (canReadAll || task.userId === principal.userId) &&
             typeof task.metadata.queueHiddenAt !== 'string',
         )
@@ -595,6 +642,7 @@ export class GenerationTaskRepository {
   }
 
   async filmPreviewPlan(projectId: string, principal: Principal, episodeNumber: number | null = null) {
+    if (isStandaloneProjectId(projectId)) return null
     if (this.database) return this.filmPreviewPlanFromDatabase(projectId, principal, episodeNumber)
     return this.requireStore().read((state) => {
       const project = state.projects.find(
@@ -642,6 +690,7 @@ export class GenerationTaskRepository {
       SELECT ${generationTaskColumns}
       FROM generation_tasks
       WHERE id = $1
+        AND project_id NOT LIKE 'sm-standalone-%'
         AND tenant_id = $2
         AND ($3::boolean OR user_id = $4)
       LIMIT 1
@@ -661,6 +710,7 @@ export class GenerationTaskRepository {
         state.tasks.find(
           (task) =>
             task.clientRequestId === clientRequestId &&
+            !isStandaloneProjectId(task.projectId) &&
             task.tenantId === principal.tenantId &&
             task.userId === principal.userId,
         ) ?? null,
@@ -668,6 +718,7 @@ export class GenerationTaskRepository {
   }
 
   async clearCompleted(projectId: string, principal: Principal): Promise<number> {
+    if (isStandaloneProjectId(projectId)) return 0
     if (this.database) {
       const now = new Date().toISOString()
       const result = await this.database.query<GenerationTaskRow>(
@@ -706,6 +757,91 @@ export class GenerationTaskRepository {
       })
       return terminalTasks.length
     })
+  }
+
+  async reviewVideo(taskId: string, input: ReviewVideo, principal: Principal): Promise<GenerationTask> {
+    const apply = (task: GenerationTask | null | undefined): GenerationTask => {
+      if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '任务不存在或无权验收')
+      if (!needsVideoReview(task) || task.status !== 'completed' || !task.resultUrl)
+        throw new AppError(409, 'VIDEO_NOT_REVIEWABLE', '只能验收已完成的视频版本')
+      if (input.decision === 'approved' && !['none', 'passed'].includes(physicalAuditState(task)))
+        throw new AppError(409, 'RIGID_PHYSICS_BLOCKED', '刚性物理验收尚未通过，暂不能标记内容验收通过')
+      if (task.updatedAt !== input.expectedUpdatedAt)
+        throw new AppError(409, 'VIDEO_REVIEW_STALE', '视频或验收记录已变化，请刷新后重新查看')
+      const now = new Date(Math.max(Date.now(), Date.parse(task.updatedAt) + 1)).toISOString()
+      const previous = task.metadata.contentReview
+      const history = Array.isArray(task.metadata.contentReviewHistory) ? task.metadata.contentReviewHistory : []
+      task.metadata = {...task.metadata,
+        contentReviewHistory: previous ? [...history, previous] : history,
+        contentReview: {decision:input.decision,note:input.note,reviewedBy:principal.userId,reviewedAt:now,
+          method:'human',mediaVersion:videoReviewVersion(task)},
+      }
+      task.updatedAt = now
+      return task
+    }
+    if (this.database) {
+      const task = await this.database.transaction(async client => {
+        const task = apply(await findControlledTaskInDatabase(client, taskId, principal))
+        return await updateGenerationTaskLifecycle(client, task) ?? task
+      })
+      await this.mirrorTask(task, null)
+      return task
+    }
+    return this.requireStore().mutate(state => apply(findControlledTask(state.tasks, taskId, principal)))
+  }
+
+  async persistRigidPhysicsAudit(
+    taskId: string,
+    audit: RigidPhysicsAuditResult,
+    expectedUpdatedAt: string,
+    principal: Principal,
+    rigidPhysicsContract?: unknown,
+  ): Promise<GenerationTask> {
+    const apply = (task: GenerationTask | null | undefined): GenerationTask => {
+      if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权验收')
+      const contract = task.metadata.rigidPhysicsContract ?? rigidPhysicsContract
+      if (
+        task.kind !== 'video' ||
+        task.provider !== 'seedance' ||
+        task.status !== 'completed' ||
+        !task.resultUrl ||
+        !contract
+      ) {
+        throw new AppError(409, 'RIGID_AUDIT_NOT_REVIEWABLE', '只能保存已完成且带物理合同的视频验收')
+      }
+      if (task.updatedAt !== expectedUpdatedAt) {
+        throw new AppError(409, 'RIGID_AUDIT_STALE', '视频或物理验收记录已变化，请刷新后重试')
+      }
+      const now = new Date(Math.max(Date.now(), Date.parse(task.updatedAt) + 1)).toISOString()
+      const previous = task.metadata.rigidPhysicsAudit
+      const history = Array.isArray(task.metadata.rigidPhysicsAuditHistory)
+        ? task.metadata.rigidPhysicsAuditHistory
+        : []
+      task.metadata = {
+        ...task.metadata,
+        rigidPhysicsContract: contract,
+        rigidPhysicsAuditHistory: previous ? [...history, previous] : history,
+        rigidPhysicsAudit: audit,
+        ...(audit.status === 'passed'
+          ? {}
+          : {
+              rigidPhysicsBlockingReason:
+                audit.violations[0]?.detail ?? '等待底脚与连接点逐帧证据',
+            }),
+      }
+      if (audit.status === 'passed') delete task.metadata.rigidPhysicsBlockingReason
+      task.updatedAt = now
+      return task
+    }
+    if (this.database) {
+      const task = await this.database.transaction(async client => {
+        const task = apply(await findControlledTaskInDatabase(client, taskId, principal))
+        return await updateGenerationTaskLifecycle(client, task) ?? task
+      })
+      await this.mirrorTask(task, null)
+      return task
+    }
+    return this.requireStore().mutate(state => apply(findControlledTask(state.tasks, taskId, principal)))
   }
 
   async pause(
@@ -890,6 +1026,71 @@ export class GenerationTaskRepository {
     })
   }
 
+  async stopRunningWithoutRefund(
+    taskId: string,
+    principal: Principal,
+  ): Promise<{
+    outcome: 'not_found' | 'stopped' | 'not_running'
+    task: GenerationTask | null
+  }> {
+    if (this.database) {
+      const result = await this.database.transaction(async (client) => {
+        const task = await findControlledTaskInDatabase(client, taskId, principal)
+        if (!task) return { outcome: 'not_found' as const, task: null }
+        if (task.status !== 'running') return { outcome: 'not_running' as const, task }
+
+        const now = new Date().toISOString()
+        const lock = cancellationResourceLockForTask(task)
+        task.status = 'cancelled'
+        task.progress = 100
+        task.error = null
+        task.metadata = {
+          ...task.metadata,
+          cancelResourceLockKind: lock.kind,
+          cancelResourceLockKey: lock.key,
+          providerCancelRequestedAt: now,
+          cancelledAt: now,
+          stoppedAt: now,
+          stopReason: 'user_confirmed_running_stop',
+          creditsRefundDisabledAt: now,
+          queueHiddenAt: now,
+        }
+        releaseGenerationTaskLease(task)
+        task.updatedAt = now
+        const updated = await updateGenerationTaskLifecycle(client, task)
+        return { outcome: 'stopped' as const, task: updated ?? task }
+      })
+      if (result.task) await this.mirrorTask(result.task, null)
+      return result
+    }
+
+    return this.requireStore().mutate((state) => {
+      const task = findControlledTask(state.tasks, taskId, principal)
+      if (!task) return { outcome: 'not_found' as const, task: null }
+      if (task.status !== 'running') return { outcome: 'not_running' as const, task }
+
+      const now = new Date().toISOString()
+      const lock = cancellationResourceLockForTask(task)
+      task.status = 'cancelled'
+      task.progress = 100
+      task.error = null
+      task.metadata = {
+        ...task.metadata,
+        cancelResourceLockKind: lock.kind,
+        cancelResourceLockKey: lock.key,
+        providerCancelRequestedAt: now,
+        cancelledAt: now,
+        stoppedAt: now,
+        stopReason: 'user_confirmed_running_stop',
+        creditsRefundDisabledAt: now,
+        queueHiddenAt: now,
+      }
+      releaseGenerationTaskLease(task)
+      task.updatedAt = now
+      return { outcome: 'stopped' as const, task }
+    })
+  }
+
   async cancelRunning(taskId: string, principal: Principal): Promise<GenerationTask | null> {
     return this.deleteFromQueue(taskId, principal).then((result) => result.task)
   }
@@ -1004,6 +1205,17 @@ export class GenerationTaskRepository {
         await this.outbox?.enqueueGenerationTaskDispatch(client, replayed)
         return { task: replayed, credits: null }
       }
+
+      await lockStoryboardTaskProjects(client, [input], principal)
+      // Another request can finish while this transaction waits for the project lock.
+      if (hasStoryboardTarget(input)) {
+        const replayedAfterLock = await findTaskByClientRequest(client, input.clientRequestId, principal)
+        if (replayedAfterLock) {
+          await this.outbox?.enqueueGenerationTaskDispatch(client, replayedAfterLock)
+          return { task: replayedAfterLock, credits: null }
+        }
+      }
+      await assertStoryboardTaskTarget(client, input, principal)
 
       const registration = await preparePortraitSubmission(client, input, principal)
       input = registration.input
@@ -1146,10 +1358,14 @@ export class GenerationTaskRepository {
   ): Promise<GenerationTask> {
     return this.requireStore().mutate((state) => {
       const existing = state.tasks.find(
-        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+        (item) =>
+          !isStandaloneProjectId(item.projectId) &&
+          item.clientRequestId === input.clientRequestId &&
+          item.userId === principal.userId,
       )
       if (existing) return existing
 
+      assertStoryboardTaskTargetInState(state, input, principal)
       const registration = preparePortraitSubmissionInState(state, input, principal)
       input = registration.input
       if (registration.existing) return registration.existing
@@ -1174,13 +1390,15 @@ export class GenerationTaskRepository {
       const tasksByClientRequest = new Map<string, GenerationTask>()
       const newInputs: CreateGenerationTask[] = []
 
+      await lockStoryboardTaskProjects(client, inputs, principal)
       for (const input of inputs) {
-        await assertNoActiveShotTask(client, input, principal)
         const replayed = await findTaskByClientRequest(client, input.clientRequestId, principal)
         if (replayed) {
           tasksByClientRequest.set(input.clientRequestId, replayed)
           await this.outbox?.enqueueGenerationTaskDispatch(client, replayed)
         } else {
+          await assertStoryboardTaskTarget(client, input, principal)
+          await assertNoActiveShotTask(client, input, principal)
           newInputs.push(input)
         }
       }
@@ -1262,12 +1480,16 @@ export class GenerationTaskRepository {
       const newInputs: CreateGenerationTask[] = []
       for (const input of inputs) {
         const existing = state.tasks.find(
-          (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+          (item) =>
+            !isStandaloneProjectId(item.projectId) &&
+            item.clientRequestId === input.clientRequestId &&
+            item.userId === principal.userId,
         )
         if (existing) {
           tasksByClientRequest.set(input.clientRequestId, existing)
           continue
         }
+        assertStoryboardTaskTargetInState(state, input, principal)
         assertNoActiveShotTaskInState(state, input, principal)
         newInputs.push(input)
       }
@@ -1322,10 +1544,14 @@ export class GenerationTaskRepository {
     const creditLedger = this.creditLedger
     return this.requireStore().transaction(async (state) => {
       const existing = state.tasks.find(
-        (item) => item.clientRequestId === input.clientRequestId && item.userId === principal.userId,
+        (item) =>
+          !isStandaloneProjectId(item.projectId) &&
+          item.clientRequestId === input.clientRequestId &&
+          item.userId === principal.userId,
       )
       if (existing) return existing
 
+      assertStoryboardTaskTargetInState(state, input, principal)
       const registration = preparePortraitSubmissionInState(state, input, principal)
       input = registration.input
       if (registration.existing) return registration.existing
@@ -1374,6 +1600,7 @@ export class GenerationTaskRepository {
     principal: Principal,
     includeHidden = false,
   ): GenerationTask[] {
+    if (isStandaloneProjectId(projectId)) return []
     const canReadAll = canReadAllTenantContent(principal)
     return this.requireStore().read((state) =>
       state.tasks.filter(
@@ -1414,6 +1641,7 @@ export class GenerationTaskRepository {
         state.tasks.find(
           (task) =>
             task.id === taskId &&
+            !isStandaloneProjectId(task.projectId) &&
             task.tenantId === principal.tenantId &&
             (canReadAll || task.userId === principal.userId),
         ) ?? null,
@@ -1421,6 +1649,7 @@ export class GenerationTaskRepository {
   }
 
   private async mirrorTask(task: GenerationTask, credits: number | null): Promise<void> {
+    if (isStandaloneProjectId(task.projectId)) return
     if (!this.store) return
     await this.store.mutateRuntimeCachesAsync(
       (state) => {
@@ -1437,7 +1666,9 @@ export class GenerationTaskRepository {
     if (!tasks.length) return
     if (!this.store) return
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      for (const task of tasks) upsertTaskInState(state, task)
+      for (const task of tasks) {
+        if (!isStandaloneProjectId(task.projectId)) upsertTaskInState(state, task)
+      }
     })
   }
 
@@ -1445,7 +1676,9 @@ export class GenerationTaskRepository {
     if (!this.store) return
     await this.store.mutateRuntimeCachesAsync(
       (state) => {
-        for (const task of tasks) upsertTaskInState(state, task)
+        for (const task of tasks) {
+          if (!isStandaloneProjectId(task.projectId)) upsertTaskInState(state, task)
+        }
         if (credits === null || !tasks[0]) return
         const user = state.users.find(
           (item) => item.id === tasks[0]!.userId && item.tenantId === tasks[0]!.tenantId,
@@ -1462,6 +1695,7 @@ export class GenerationTaskRepository {
       SELECT ${generationTaskColumns}
       FROM generation_tasks
       WHERE ${activeGenerationTaskPredicate}
+        AND project_id NOT LIKE 'sm-standalone-%'
       ORDER BY created_at ASC, id ASC
       `,
     )
@@ -1470,19 +1704,26 @@ export class GenerationTaskRepository {
 
   private async reconcileActiveTasks(changedTasks: GenerationTask[]): Promise<void> {
     if (!this.store) return
-    const cachedTasks = this.store.readGenerationTaskRuntimeCache((state) => state.tasks)
-    const candidates = latestTasksByRuntimeKey([...cachedTasks, ...changedTasks])
+    const cachedTasks = this.store.readGenerationTaskRuntimeCache((state) =>
+      state.tasks.filter((task) => !isStandaloneProjectId(task.projectId)),
+    )
+    const candidates = latestTasksByRuntimeKey(
+      [...cachedTasks, ...changedTasks].filter((task) => !isStandaloneProjectId(task.projectId)),
+    )
     const tasksWithDependencies = await this.loadTaskDependencyClosure(candidates)
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       for (const task of tasksWithDependencies) upsertTaskInState(state, task)
       const retained = generationTaskRuntimeClosureKeys(state.tasks)
-      state.tasks = state.tasks.filter((task) =>
-        retained.has(taskRuntimeKey(task.id, task.projectId, task.tenantId)),
+      state.tasks = state.tasks.filter(
+        (task) =>
+          !isStandaloneProjectId(task.projectId) &&
+          retained.has(taskRuntimeKey(task.id, task.projectId, task.tenantId)),
       )
     })
   }
 
   private async loadTaskDependencyClosure(seedTasks: GenerationTask[]): Promise<GenerationTask[]> {
+    seedTasks = seedTasks.filter((task) => !isStandaloneProjectId(task.projectId))
     const tasksByKey = new Map(
       seedTasks.map((task) => [taskRuntimeKey(task.id, task.projectId, task.tenantId), task]),
     )
@@ -1498,6 +1739,7 @@ export class GenerationTaskRepository {
         SELECT ${generationTaskColumns}
         FROM generation_tasks
         WHERE id = ANY($1::text[])
+          AND project_id NOT LIKE 'sm-standalone-%'
         `,
         [[...new Set(batch.map((reference) => reference.id))]],
       )
@@ -1563,6 +1805,7 @@ async function preemptActiveScriptTasksInDatabase(
         updated_at = $4::timestamptz
     WHERE tenant_id = $1
       AND user_id = $2
+      AND project_id NOT LIKE 'sm-standalone-%'
       AND kind = 'text'
       AND provider = 'text'
       AND metadata->>'generationStage' LIKE 'script-%'
@@ -1587,6 +1830,7 @@ async function assertNoDraftScriptEpisode(
     SELECT id
     FROM script_episodes
     WHERE project_id = $1
+      AND project_id NOT LIKE 'sm-standalone-%'
       AND tenant_id = $2
       AND status = 'draft'
       AND btrim(draft_content) <> ''
@@ -1703,6 +1947,7 @@ async function findControlledTaskInDatabase(
     SELECT ${generationTaskColumns}
     FROM generation_tasks
     WHERE id = $1
+      AND project_id NOT LIKE 'sm-standalone-%'
       AND tenant_id = $2
       AND ($3::boolean OR user_id = $4)
     LIMIT 1

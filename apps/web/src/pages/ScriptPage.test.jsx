@@ -1,8 +1,29 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ScriptPage } from './ScriptPage'
 
+// Server rendering cannot click the "已交付版本" tab. Initialize that existing
+// view explicitly when checking the delivered episode editor, leaving all other
+// state and the default creation view unchanged.
+const seriesView = vi.hoisted(() => ({ initial: 'creation' }))
+vi.mock('react', async (importOriginal) => {
+  const react = await importOriginal()
+  return {
+    ...react,
+    useState: (initial) => react.useState(initial === 'creation' ? seriesView.initial : initial),
+  }
+})
+
 const noop = () => {}
+
+function renderProductionScriptPage(...args) {
+  seriesView.initial = 'production'
+  try {
+    return renderScriptPage(...args)
+  } finally {
+    seriesView.initial = 'creation'
+  }
+}
 
 function suggestionFingerprint(value) {
   let hash = 2166136261
@@ -177,7 +198,7 @@ describe('script content modes', () => {
       {
         id: 'streaming-script-1',
         name: '实时剧本测试',
-        contentType: 'short-drama',
+        contentType: 'animation',
         episodeDurationSeconds: 60,
         aspectRatio: '9:16',
         synopsis: '主角在雨夜追查真相。',
@@ -189,7 +210,7 @@ describe('script content modes', () => {
           id: 'task-streaming-script',
           projectId: 'streaming-script-1',
           kind: 'text',
-          label: '智能生成网剧剧本',
+          label: '智能生成短片剧本',
           status: 'running',
           metadata: {
             generationStage: 'script-generate',
@@ -220,7 +241,7 @@ describe('script content modes', () => {
       {
         id: 'waiting-script-1',
         name: '等待首字测试',
-        contentType: 'short-drama',
+        contentType: 'animation',
         episodeDurationSeconds: 60,
         aspectRatio: '9:16',
         synopsis: '主角准备推门。',
@@ -232,7 +253,7 @@ describe('script content modes', () => {
           id: 'task-waiting-script',
           projectId: 'waiting-script-1',
           kind: 'text',
-          label: '智能生成网剧剧本',
+          label: '智能生成短片剧本',
           status: 'running',
           createdAt: '2026-08-30T00:00:00.000Z',
           updatedAt: '2026-08-30T00:00:00.000Z',
@@ -247,7 +268,7 @@ describe('script content modes', () => {
     expect(html).toContain('script-live-preview is-waiting')
     expect(html).toContain('正在等待首段内容')
     expect(html).toContain('script-live-preview-skeleton')
-    expect(html).toContain('第 1 集')
+    expect(html).toContain('实时草稿 · 当前内容')
   })
 
   it('offers stop, fast extraction, and skip actions while asset analysis is running', () => {
@@ -255,7 +276,7 @@ describe('script content modes', () => {
     const project = {
       id: 'asset-analysis-controls-1',
       name: '资产分析控制测试',
-      contentType: 'short-drama',
+      contentType: 'animation',
       episodeDurationSeconds: 60,
       aspectRatio: '9:16',
       synopsis: '',
@@ -286,7 +307,7 @@ describe('script content modes', () => {
     const project = {
       id: 'preview-isolation-1',
       name: '预览隔离测试',
-      contentType: 'short-drama',
+      contentType: 'animation',
       episodeDurationSeconds: 60,
       aspectRatio: '9:16',
       synopsis: '验证任务状态和项目隔离。',
@@ -349,7 +370,7 @@ describe('script content modes', () => {
       createdAt: '2026-08-30T00:00:00.000Z',
       updatedAt: '2026-08-30T00:00:00.000Z',
     }
-    const html = renderScriptPage(
+    const html = renderProductionScriptPage(
       project,
       'configured',
       [],
@@ -369,12 +390,15 @@ describe('script content modes', () => {
     expect(navigatorIndex).toBeGreaterThan(-1)
     expect(navigatorIndex).toBeLessThan(editorIndex)
     expect(html).not.toContain('继续生成第 3 集')
-    expect(html).toContain('网剧创作工作台')
+    expect(html).toContain('返回剧本创作')
+    // The embedded workspace stays mounted for background synchronization,
+    // but it must remain hidden while the saved delivery editor is visible.
+    expect(html).toContain('data-surface="embedded" hidden=""')
     expect(html).toContain('value="episode-1" selected=""')
     expect(html).toContain('aria-label="清空全部剧集"')
     expect(html).not.toContain('aria-label="删除第 1 集"')
 
-    const draftHtml = renderScriptPage(
+    const draftHtml = renderProductionScriptPage(
       project,
       'configured',
       [],
@@ -437,6 +461,11 @@ it('web series exposes one creation flow independent of the short-script text pr
   expect(html.split('aria-label="网剧创作工作台"')).toHaveLength(2)
   expect(html).not.toContain('aria-label="剧本生成设置"')
   expect(html).not.toContain('当前预发环境未配置可用的文本模型')
-  expect(html).toContain('全剧规划')
-  expect(html).toContain('制作稿')
+  expect(html).toContain('data-surface="embedded"')
+  expect(html).toContain('写下故事想法，确认安排后生成剧本')
+  expect(html).toContain('完成后进入资产设计')
+  expect(html).not.toContain('正文与分镜将在这里展开')
+  expect(html).not.toContain('文件导出')
+  expect(html).toContain('已交付版本')
+  expect(html).not.toContain('aria-label="选择要编辑的剧集"')
 })

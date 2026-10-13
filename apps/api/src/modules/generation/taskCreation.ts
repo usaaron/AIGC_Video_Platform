@@ -22,6 +22,7 @@ export async function findTaskByClientRequest(
     WHERE tenant_id = $1
       AND user_id = $2
       AND client_request_id = $3
+      AND project_id NOT LIKE 'sm-standalone-%'
     LIMIT 1
     `,
     [principal.tenantId, principal.userId, clientRequestId],
@@ -35,6 +36,8 @@ export function buildQueuedGenerationTask(
   now: string,
   options: { traceId?: string | null } = {},
 ): GenerationTask {
+  // Review and provenance are server-owned; generic create metadata cannot approve new media.
+  const { contentReview: _review, contentReviewHistory: _history, localPostprocess: _post, ...metadata } = input.metadata ?? {}
   return normalizeGenerationTaskLifecycle({
     id: randomUUID(),
     clientRequestId: input.clientRequestId,
@@ -48,7 +51,7 @@ export function buildQueuedGenerationTask(
     provider: input.provider,
     model: input.model ?? null,
     tier: input.tier ?? null,
-    metadata: traceMetadata(input.metadata, options.traceId),
+    metadata: traceMetadata(metadata, options.traceId),
     status: 'queued',
     progress: 0,
     estimatedCredits: input.estimatedCredits,

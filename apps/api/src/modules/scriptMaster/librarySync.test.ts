@@ -28,6 +28,7 @@ describe('Script Master catalog bridge', () => {
           tenantId: principal.tenantId,
           actorId: principal.userId,
           projectId: null,
+          surface: 'embedded',
         })
         const second = new URL(url).searchParams.get('offset') === '1'
         return Response.json({
@@ -44,8 +45,8 @@ describe('Script Master catalog bridge', () => {
         })
       }),
     )
-    await syncScriptMasterLibrary(config, repository, principal)
-    await syncScriptMasterLibrary(config, repository, principal)
+    await syncScriptMasterLibrary(config, repository, principal, 'embedded')
+    await syncScriptMasterLibrary(config, repository, principal, 'embedded')
     const result = await repository.list({ deleted: 'active', page: 1, pageSize: 24 }, principal)
     expect(result.total).toBe(2)
     expect(
@@ -68,9 +69,21 @@ describe('Script Master catalog bridge', () => {
       'fetch',
       vi.fn(async () => new Response(null, { status: 403 })),
     )
-    await expect(syncScriptMasterLibrary(config, repository, principal)).rejects.toMatchObject({
+    await expect(syncScriptMasterLibrary(config, repository, principal, 'embedded')).rejects.toMatchObject({
       code: 'SCRIPT_MASTER_LIBRARY_UNAVAILABLE',
     })
     expect((await repository.list({ deleted: 'active', page: 1, pageSize: 24 }, principal)).total).toBe(0)
+  })
+
+  it('rejects standalone scope before contacting the independent service', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const repository = new AssetLibraryRepository(store)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    await expect(syncScriptMasterLibrary(config, repository, principal, 'standalone')).rejects.toMatchObject({
+      code: 'SCRIPT_MASTER_SURFACE_DENIED',
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

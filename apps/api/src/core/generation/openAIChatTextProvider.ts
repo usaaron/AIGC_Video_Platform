@@ -9,6 +9,13 @@ import {
   recordTextProviderUsage,
   type ProviderTokenUsage,
 } from '../observability/usage.js'
+import {
+  completionParts,
+  completionText,
+  readProviderErrorMessage,
+  streamChunkFinished,
+  trimCompletionText,
+} from './chatCompletionText.js'
 
 export type OpenAIChatTextOptions = {
   baseUrl: string
@@ -21,6 +28,8 @@ export type OpenAIChatTextOptions = {
   maxTokensMode?: 'both' | 'max_tokens' | 'max_completion_tokens'
   extraBody?: Readonly<Record<string, unknown>>
   maxAttempts?: 1 | 2
+  /** Retry malformed/temporary upstream responses without repeating a full timeout. */
+  retryTimeouts?: boolean
   fetcher?: typeof fetch
 }
 
@@ -43,7 +52,12 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
         return await this.generateOnce(request, attempt === 0, attempt + 1)
       } catch (error) {
         lastError = error
-        if (attempt >= maxAttempts - 1 || !isRetryable(error)) break
+        if (
+          attempt >= maxAttempts - 1 ||
+          !isRetryable(error) ||
+          (!this.options.retryTimeouts && isTimeoutError(error))
+        )
+          break
         await new Promise((resolve) => setTimeout(resolve, 300))
       }
     }
@@ -94,9 +108,10 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
       } catch {
         throw new InvalidTextResponseError(this.options.providerLabel)
       }
-      const result = completionText(payload)
-      if (!result) throw new InvalidTextResponseError(this.options.providerLabel)
-      notifyTextProgress(request.onTextProgress, result.trim())
+      const rawResult = completionText(payload)
+      if (!rawResult) throw new InvalidTextResponseError(this.options.providerLabel)
+      const result = trimCompletionText(rawResult)
+      notifyTextProgress(request.onTextProgress, result)
       notifyTextTiming(request.onTextTiming, {
         ...(request.timingLabel ? { label: request.timingLabel } : {}),
         outcome: 'completed',
@@ -108,7 +123,7 @@ export class OpenAIChatTextProvider implements TextGenerationProvider {
       })
       timingRecorded = true
       this.recordTokenUsage(request, providerTokenUsageFromPayload(payload))
-      return result.trim()
+      return result
     } catch (error) {
       if (!timingRecorded) {
         notifyTextTiming(request.onTextTiming, {
@@ -276,16 +291,6 @@ async function readCompletionStream(
   }
 }
 
-function streamChunkFinished(value: unknown): boolean {
-  if (!isRecord(value)) return false
-  if (value.done === true || value.finished === true || value.status === 'completed') return true
-  if (!Array.isArray(value.choices)) return false
-  return value.choices.some(
-    (choice) =>
-      isRecord(choice) && typeof choice.finish_reason === 'string' && choice.finish_reason.length > 0,
-  )
-}
-
 function notifyTextProgress(onTextProgress: ((text: string) => void) | undefined, text: string): void {
   if (!onTextProgress || !text) return
   try {
@@ -307,63 +312,6 @@ function notifyTextTiming(
   }
 }
 
-function completionText(value: unknown): string {
-  const parts = completionParts(value)
-  return parts.content
-}
-
-function completionParts(value: unknown): { content: string; reasoning: string } {
-  if (!isRecord(value)) return { content: textFromValue(value), reasoning: '' }
-
-  let content = textFromValue(value.output_text ?? value.text ?? value.content)
-  let reasoning = textFromValue(value.reasoning_content ?? value.reasoning)
-  if (Array.isArray(value.choices)) {
-    for (const choice of value.choices) {
-      if (!isRecord(choice)) continue
-      const delta = isRecord(choice.delta) ? choice.delta : undefined
-      const message = isRecord(choice.message) ? choice.message : undefined
-      content += textFromValue(
-        delta?.content ?? delta?.text ?? message?.content ?? message?.text ?? choice.text ?? choice.content,
-      )
-      reasoning += textFromValue(
-        delta?.reasoning_content ??
-          delta?.reasoning ??
-          message?.reasoning_content ??
-          message?.reasoning ??
-          choice.reasoning_content,
-      )
-    }
-  }
-
-  if (!content && !reasoning) {
-    for (const key of ['data', 'result', 'output', 'response', 'payload']) {
-      if (!(key in value)) continue
-      const nested = completionParts(value[key])
-      content += nested.content
-      reasoning += nested.reasoning
-      if (content || reasoning) break
-    }
-  }
-  return { content, reasoning }
-}
-
-function textFromValue(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (!Array.isArray(value)) return ''
-  return value
-    .map((part) => {
-      if (typeof part === 'string') return part
-      if (!isRecord(part)) return ''
-      return textFromValue(part.text ?? part.content ?? part.value)
-    })
-    .filter(Boolean)
-    .join('')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
 function timeoutError(): DOMException {
   return new DOMException('Text stream timed out', 'TimeoutError')
 }
@@ -379,14 +327,7 @@ function maxTokenPayload(
 }
 
 async function textProviderError(providerLabel: string, response: Response): Promise<OpenAIChatHttpError> {
-  const body = await response.text().catch(() => '')
-  let message = body.slice(0, 500)
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string }
-    message = parsed.error?.message || parsed.message || message
-  } catch {
-    // Keep the bounded text response when the provider does not return JSON.
-  }
+  const message = await readProviderErrorMessage(response)
   return new OpenAIChatHttpError(response.status, providerLabel, message)
 }
 
@@ -399,6 +340,10 @@ function isRetryable(error: unknown): boolean {
     error instanceof TypeError ||
     (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
   )
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)
 }
 
 function publicProviderError(providerLabel: string, error: unknown): TextGenerationProviderError {

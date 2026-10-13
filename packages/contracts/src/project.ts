@@ -157,12 +157,23 @@ export const mediaReferenceSchema = z.object({
   name: z.string().min(1).max(255),
 })
 
+export const characterTurnaroundReferenceSchema = mediaReferenceSchema.extend({
+  // Independent source angle; optional for legacy appearance saves.
+  view: z.enum(['front', 'side', 'back']).optional(),
+})
+
 export const characterAppearanceVariantSchema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().trim().min(1).max(80),
   description: z.string().trim().max(1_000).optional(),
+  // Model-authored wardrobe details travel with the character look. These
+  // fields are optional so legacy character assets remain readable.
+  prompt: z.string().max(5_000).optional(),
+  continuityNote: z.string().max(2_000).optional(),
+  sourceAssetId: z.string().max(160).optional(),
+  sceneNumbers: z.array(z.number().int().positive().max(2_000)).max(2_000).optional(),
   bodyReference: mediaReferenceSchema.nullable().default(null),
-  turnaroundReferences: z.array(mediaReferenceSchema).max(3).default([]),
+  turnaroundReferences: z.array(characterTurnaroundReferenceSchema).max(3).default([]),
   turnaroundLayout: z.enum(['sheet', 'separate']).default('sheet'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

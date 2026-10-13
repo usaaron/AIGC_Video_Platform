@@ -54,6 +54,7 @@ import {
   type NovelSummaryQueueItemRow,
   type NovelSummaryQueueRow,
 } from './repositoryMappers.js'
+import { isStandaloneProjectId } from '../projects/projectSurface.js'
 
 type NovelChapterDraft = Pick<
   StoredNovelChapter,
@@ -314,13 +315,15 @@ export class NovelRepository {
     if (!this.database) return emptyNovelJsonImportResult()
     const objectStorage = this.requireObjectStorage()
     const snapshot = this.store.read((state) => ({
-      documents: state.novelDocuments,
-      chapters: state.novelChapters,
-      boundaries: state.novelBoundaries,
-      summaries: state.novelChapterSummaries,
-      summaryQueues: state.novelSummaryQueues,
-      summaryQueueItems: state.novelSummaryQueueItems,
-      storyBibles: state.novelStoryBibles,
+      documents: state.novelDocuments.filter((item) => !isStandaloneProjectId(item.projectId)),
+      chapters: state.novelChapters.filter((item) => !isStandaloneProjectId(item.projectId)),
+      boundaries: state.novelBoundaries.filter((item) => !isStandaloneProjectId(item.projectId)),
+      summaries: state.novelChapterSummaries.filter((item) => !isStandaloneProjectId(item.projectId)),
+      summaryQueues: state.novelSummaryQueues.filter((item) => !isStandaloneProjectId(item.projectId)),
+      summaryQueueItems: state.novelSummaryQueueItems.filter(
+        (item) => !isStandaloneProjectId(item.projectId),
+      ),
+      storyBibles: state.novelStoryBibles.filter((item) => !isStandaloneProjectId(item.projectId)),
     }))
     return importNovelSnapshotFromStore(this.database, objectStorage, snapshot)
   }
@@ -1995,6 +1998,7 @@ async function projectVisibleInDatabase(
     FROM projects
     WHERE id = $1
       AND tenant_id = $2
+      AND id NOT LIKE 'sm-standalone-%'
       AND ($3::boolean OR owner_user_id = $4)
     LIMIT 1
     ${forUpdate ? 'FOR UPDATE' : ''}
@@ -2021,6 +2025,7 @@ async function findDocumentInDatabase(
     WHERE d.id = $1
       AND d.project_id = $2
       AND d.tenant_id = $3
+      AND d.project_id NOT LIKE 'sm-standalone-%'
       AND ($4::boolean OR p.owner_user_id = $5)
     LIMIT 1
     ${forUpdate ? 'FOR UPDATE OF d, p' : ''}
@@ -2043,6 +2048,7 @@ async function findDocumentByClientRequest(
     WHERE project_id = $1
       AND tenant_id = $2
       AND client_request_id = $3
+      AND project_id NOT LIKE 'sm-standalone-%'
     LIMIT 1
     `,
     [projectId, principal.tenantId, clientRequestId],
@@ -2728,7 +2734,7 @@ async function importNovelSnapshotFromStore(
   },
 ): Promise<NovelJsonImportResult> {
   const result = emptyNovelJsonImportResult()
-  for (const document of snapshot.documents) {
+  for (const document of snapshot.documents.filter((item) => !isStandaloneProjectId(item.projectId))) {
     const chapters = snapshot.chapters
       .filter((chapter) => chapter.documentId === document.id && chapter.tenantId === document.tenantId)
       .sort((left, right) => left.order - right.order)
@@ -2824,6 +2830,7 @@ function sha256(content: string): string {
 }
 
 function findReadableProject(state: AppState, projectId: string, principal: Principal) {
+  if (isStandaloneProjectId(projectId)) return undefined
   const canReadAll = canReadAllTenantContent(principal)
   return state.projects.find(
     (project) =>
@@ -2834,6 +2841,7 @@ function findReadableProject(state: AppState, projectId: string, principal: Prin
 }
 
 function findWritableProject(state: AppState, projectId: string, principal: Principal) {
+  if (isStandaloneProjectId(projectId)) return undefined
   return state.projects.find(
     (project) =>
       project.id === projectId &&
@@ -2855,6 +2863,7 @@ function findDocument(
   documentId: string,
   tenantId: string,
 ): StoredNovelDocument | null {
+  if (isStandaloneProjectId(projectId)) return null
   return (
     state.novelDocuments.find(
       (document) =>

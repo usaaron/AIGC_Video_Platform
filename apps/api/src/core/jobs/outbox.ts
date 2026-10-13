@@ -4,6 +4,7 @@ import type { QueryResult, QueryResultRow } from 'pg'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import { traceIdFromAiJob, traceIdFromGenerationTask } from '../observability/trace.js'
 import type { TaskDispatchContext, TaskDispatcher } from './taskDispatcher.js'
+import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 
 export type OutboxEventType = 'generation.task.dispatch' | 'ai_job.dispatch'
 
@@ -94,8 +95,10 @@ export class OutboxRepository {
   constructor(private readonly database: AccountDatabase) {}
 
   enqueueGenerationTaskDispatch(queryable: Queryable, task: GenerationTask): Promise<void> {
+    if (isStandaloneProjectId(task.projectId)) return Promise.resolve()
     return enqueueOutboxEvent(queryable, {
       tenantId: task.tenantId,
+      projectId: task.projectId,
       eventType: 'generation.task.dispatch',
       aggregateType: 'generation_task',
       aggregateId: task.id,
@@ -103,6 +106,7 @@ export class OutboxRepository {
       payload: {
         taskId: task.id,
         tenantId: task.tenantId,
+        projectId: task.projectId,
         updatedAt: task.updatedAt,
         ...(traceIdFromGenerationTask(task) ? { traceId: traceIdFromGenerationTask(task) } : {}),
       },
@@ -110,8 +114,10 @@ export class OutboxRepository {
   }
 
   enqueueAiJobDispatch(queryable: Queryable, job: AiJob): Promise<void> {
+    if (isStandaloneProjectId(job.projectId)) return Promise.resolve()
     return enqueueOutboxEvent(queryable, {
       tenantId: job.tenantId,
+      projectId: job.projectId,
       eventType: 'ai_job.dispatch',
       aggregateType: 'ai_job',
       aggregateId: job.id,
@@ -119,6 +125,7 @@ export class OutboxRepository {
       payload: {
         jobId: job.id,
         tenantId: job.tenantId,
+        projectId: job.projectId,
         updatedAt: job.updatedAt,
         ...(traceIdFromAiJob(job) ? { traceId: traceIdFromAiJob(job) } : {}),
       },
@@ -137,6 +144,26 @@ export class OutboxRepository {
         SELECT ${outboxEventColumns}
         FROM outbox_events
         WHERE attempts < max_attempts
+          AND COALESCE(payload->>'projectId', '') NOT LIKE 'sm-standalone-%'
+          -- Older rows did not copy projectId into the payload. Resolve their
+          -- aggregate before leasing so a historical independent task cannot
+          -- enter the main-project relay.
+          AND NOT (
+            event_type = 'generation.task.dispatch'
+            AND EXISTS (
+              SELECT 1 FROM generation_tasks gt
+              WHERE gt.id = outbox_events.aggregate_id
+                AND gt.project_id LIKE 'sm-standalone-%'
+            )
+          )
+          AND NOT (
+            event_type = 'ai_job.dispatch'
+            AND EXISTS (
+              SELECT 1 FROM ai_jobs aj
+              WHERE aj.id = outbox_events.aggregate_id
+                AND aj.project_id LIKE 'sm-standalone-%'
+            )
+          )
           AND (
             (status IN ('pending', 'failed') AND next_attempt_at <= now())
             OR (status = 'processing' AND lease_expires_at <= now())
@@ -300,6 +327,7 @@ export class OutboxTaskDispatcher implements TaskDispatcher {
 
 type EnqueueOutboxInput = {
   tenantId: string
+  projectId: string
   eventType: OutboxEventType
   aggregateType: string
   aggregateId: string
@@ -308,6 +336,7 @@ type EnqueueOutboxInput = {
 }
 
 async function enqueueOutboxEvent(queryable: Queryable, input: EnqueueOutboxInput): Promise<void> {
+  if (isStandaloneProjectId(input.projectId)) return
   const now = new Date().toISOString()
   await queryable.query(
     `

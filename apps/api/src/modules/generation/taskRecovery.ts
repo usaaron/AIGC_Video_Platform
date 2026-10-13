@@ -39,6 +39,7 @@ export async function recoverExpiredFilmPreviewTasks(
           updated_at = $6::timestamptz
       WHERE provider = 'local-compose'
         AND status = 'running'
+        AND project_id NOT LIKE 'sm-standalone-%'
         AND tenant_id = $1
         AND ($2::boolean OR user_id = $3)
         AND ($4::text IS NULL OR project_id = $4)
@@ -60,6 +61,7 @@ export async function recoverExpiredFilmPreviewTasks(
       if (
         task.provider !== 'local-compose' ||
         task.status !== 'running' ||
+        task.projectId.startsWith('sm-standalone-') ||
         task.tenantId !== principal.tenantId ||
         (!canReadAll && task.userId !== principal.userId) ||
         (projectId !== null && task.projectId !== projectId)

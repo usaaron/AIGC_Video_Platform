@@ -1,4 +1,5 @@
 import type { GenerationTask } from '@seqora/contracts'
+import { canUseVideoContinuity } from '@seqora/contracts'
 import type { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
@@ -8,6 +9,10 @@ import { resolveStoredImageReference, videoImageUrl, type VideoSourceUrl } from 
 
 export function hasManualVideoReferences(task: GenerationTask): boolean {
   return Array.isArray(task.metadata.manualReferenceImages) && task.metadata.manualReferenceImages.length > 0
+}
+
+export function hasBoundVideoReferences(task: GenerationTask): boolean {
+  return task.metadata.referenceBindingVersion === 'shot-asset-v1'
 }
 
 export async function resolveVideoImages(
@@ -36,6 +41,7 @@ export async function resolveVideoImages(
             item.status === 'completed',
         ) ?? null,
     )
+    if (!canUseVideoContinuity(sourceTask)) throw new Error('上一镜头尚未通过内容验收，不能使用其尾帧；请先查看并验收该视频版本')
     const lastFrame = generatedDescriptors(sourceTask ?? undefined).find((item) => item.view === 'last-frame')
     if (!lastFrame) throw new Error('上一镜头没有可用尾帧，请重新生成上一镜头后再继续')
     const url = await videoImageUrl(options.objectStorage, lastFrame, options.videoSourceUrl)
@@ -43,11 +49,14 @@ export async function resolveVideoImages(
   }
 
   if (!Array.isArray(task.metadata.images)) return images
-  const hasManualReferenceImages = hasManualVideoReferences(task)
+  const hasManualReferenceImages = hasManualVideoReferences(task) || hasBoundVideoReferences(task)
   if (hasManualReferenceImages && task.metadata.images.length + images.length > 9)
     throw new Error('视频参考图超过 9 张，请重新保存分镜后生成')
   for (const value of task.metadata.images.slice(0, Math.max(0, 9 - images.length))) {
-    if (typeof value !== 'string') continue
+    if (typeof value !== 'string') {
+      if (hasManualReferenceImages) throw new Error('已编号的视频参考图格式无效，请重新保存分镜后生成')
+      continue
+    }
     // Static storyboard frames are a legacy pre-video path. New videos rely on
     // asset references and the preceding real video tail frame instead.
     if (!hasManualReferenceImages && legacyStoryboardImageUrl && value === legacyStoryboardImageUrl) continue

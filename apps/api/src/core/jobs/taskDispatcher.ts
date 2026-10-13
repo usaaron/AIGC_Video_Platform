@@ -8,6 +8,7 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
+import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { usageCollector } from '../observability/usage.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
 import {
@@ -256,7 +257,11 @@ export class GenerationTaskRunner implements TaskDispatcher {
         this.scheduledProviderCancellations,
       )
       const hasActiveTasks = this.store.read((state) =>
-        state.tasks.some((task) => task.status === 'queued' || task.status === 'running'),
+        state.tasks.some(
+          (task) =>
+            !isStandaloneProjectId(task.projectId) &&
+            (task.status === 'queued' || task.status === 'running'),
+        ),
       )
       if (!hasActiveTasks) return maintenanceWork
 
@@ -395,6 +400,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     withHeartbeat = true,
   ): void {
     for (const task of tasks) {
+      if (isStandaloneProjectId(task.projectId)) continue
       if (this.activeExecutions.has(task.id)) continue
       this.activeExecutions.add(task.id)
       usageCollector.startJob({
@@ -419,7 +425,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
   private finishScheduledExecution(task: GenerationTask): void {
     try {
-      const stored = this.store.read((state) => state.tasks.find((item) => item.id === task.id) ?? task)
+      const stored = this.store.read(
+        (state) =>
+          state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id) ?? task,
+      )
       const status = usageStatusForTask(stored)
       usageCollector.finishJob({
         jobId: task.id,
@@ -536,7 +545,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
               onTextProgress: schedulePreview,
               assertActive: async () => {
                 await this.refreshTask?.(task.id)
-                const current = this.store.read((state) => state.tasks.find((item) => item.id === task.id))
+                const current = this.store.read(
+                  (state) =>
+                    state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id),
+                )
                 if (current?.status === 'running' && current.leaseToken !== leaseToken)
                   throw new AppError(409, 'TASK_LEASE_LOST', '剧本任务已由另一个 Worker 接续')
                 if (!current || current.status !== 'running' || current.leaseToken !== leaseToken) {
@@ -718,13 +730,20 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
   private captureTaskVersions(): Map<string, string> {
     return this.store.readGenerationTaskRuntimeCache(
-      (state) => new Map(state.tasks.map((task) => [task.id, task.updatedAt])),
+      (state) =>
+        new Map(
+          state.tasks
+            .filter((task) => !isStandaloneProjectId(task.projectId))
+            .map((task) => [task.id, task.updatedAt]),
+        ),
     )
   }
 
   private changedTaskIdsSince(before: Map<string, string>): string[] {
     return this.store.readGenerationTaskRuntimeCache((state) =>
-      state.tasks.filter((task) => before.get(task.id) !== task.updatedAt).map((task) => task.id),
+      state.tasks
+        .filter((task) => !isStandaloneProjectId(task.projectId) && before.get(task.id) !== task.updatedAt)
+        .map((task) => task.id),
     )
   }
 

@@ -380,7 +380,7 @@ describe('GenerationTaskRepository charged creation', () => {
     let activeQueries = 0
     const database = {
       query: async (sql: string) => {
-        if (sql.includes('WHERE updated_at >')) return { rows: [generationTaskRow(completed)] }
+        if (sql.includes('updated_at >')) return { rows: [generationTaskRow(completed)] }
         if (sql.includes('status IN')) {
           activeQueries += 1
           return { rows: [generationTaskRow(queued)] }

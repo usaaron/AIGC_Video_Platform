@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { scriptMasterProjectContextSchema } from '@seqora/contracts'
 
 export const scriptMasterDeliveryRequestSchema = z
   .object({
@@ -6,6 +7,7 @@ export const scriptMasterDeliveryRequestSchema = z
     sourceProjectId: z.string().trim().min(1).max(160),
     sourceRevision: z.number().int().positive(),
     idempotencyKey: z.string().trim().min(8).max(160),
+    projectContext: scriptMasterProjectContextSchema.optional(),
     episodes: z
       .array(
         z.object({

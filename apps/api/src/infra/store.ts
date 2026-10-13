@@ -111,6 +111,49 @@ export type AppState = {
 
 export type RuntimeCacheSlice = 'account' | 'projectWorkspace' | 'generationTasks' | 'aiJobs' | 'library'
 
+const STANDALONE_PROJECT_PREFIX = 'sm-standalone-'
+
+function isMainProjectId(projectId: string | null | undefined): boolean {
+  return typeof projectId === 'string' && !projectId.startsWith(STANDALONE_PROJECT_PREFIX)
+}
+
+function mainProjectTasks(tasks: readonly GenerationTask[]): GenerationTask[] {
+  return tasks.filter((task) => isMainProjectId(task.projectId))
+}
+
+function mainProjectJobs(jobs: readonly AiJob[]): AiJob[] {
+  return jobs.filter((job) => isMainProjectId(job.projectId))
+}
+
+function standaloneProjectTasks(tasks: readonly GenerationTask[]): GenerationTask[] {
+  return tasks.filter((task) => !isMainProjectId(task.projectId))
+}
+
+function standaloneProjectJobs(jobs: readonly AiJob[]): AiJob[] {
+  return jobs.filter((job) => !isMainProjectId(job.projectId))
+}
+
+function mergeHiddenTasks(
+  persisted: readonly GenerationTask[],
+  hidden: readonly GenerationTask[],
+): GenerationTask[] {
+  const byId = new Map(persisted.map((task) => [task.id, task]))
+  for (const task of hidden) {
+    const current = byId.get(task.id)
+    if (!current || !isMainProjectId(current.projectId)) byId.set(task.id, structuredClone(task))
+  }
+  return [...byId.values()]
+}
+
+function mergeHiddenJobs(persisted: readonly AiJob[], hidden: readonly AiJob[]): AiJob[] {
+  const byId = new Map(persisted.map((job) => [job.id, job]))
+  for (const job of hidden) {
+    const current = byId.get(job.id)
+    if (!current || !isMainProjectId(current.projectId)) byId.set(job.id, structuredClone(job))
+  }
+  return [...byId.values()]
+}
+
 type FileSignature = {
   mtimeMs: number
   size: number
@@ -166,6 +209,11 @@ export class AppStore {
   private generationTaskPersistenceBackup: Pick<AppState, 'tasks'> | null = null
   private aiJobRuntimeCache: Pick<AppState, 'aiJobs'> | null = null
   private aiJobPersistenceBackup: Pick<AppState, 'aiJobs'> | null = null
+  // Runtime caches are deliberately main-project-only. Keep independent
+  // surface rows in a private shadow so refreshing or mutating the main cache
+  // cannot erase them from a shared JSON store.
+  private standaloneGenerationTasks: GenerationTask[] = []
+  private standaloneAiJobs: AiJob[] = []
   private libraryRuntimeCache: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'> | null = null
   private libraryPersistenceBackup: Pick<AppState, 'assetLibraryItems' | 'assetLibraryItemVersions'> | null =
     null
@@ -306,8 +354,10 @@ export class AppStore {
     if (!this.databaseBackedRuntime && !this.generationTaskPersistenceBackup) {
       this.generationTaskPersistenceBackup = structuredClone({ tasks: this.state.tasks })
     }
+    this.rememberStandaloneGenerationTasks(this.state.tasks)
+    this.rememberStandaloneGenerationTasks(tasks)
     this.generationTaskRuntimeCache = {
-      tasks: this.databaseBackedRuntime ? tasks : structuredClone(tasks),
+      tasks: this.databaseBackedRuntime ? mainProjectTasks(tasks) : structuredClone(mainProjectTasks(tasks)),
     }
     this.applyGenerationTaskRuntimeCache()
   }
@@ -322,8 +372,10 @@ export class AppStore {
     if (!this.databaseBackedRuntime && !this.aiJobPersistenceBackup) {
       this.aiJobPersistenceBackup = structuredClone({ aiJobs: this.state.aiJobs })
     }
+    this.rememberStandaloneAiJobs(this.state.aiJobs)
+    this.rememberStandaloneAiJobs(aiJobs)
     this.aiJobRuntimeCache = {
-      aiJobs: this.databaseBackedRuntime ? aiJobs : structuredClone(aiJobs),
+      aiJobs: this.databaseBackedRuntime ? mainProjectJobs(aiJobs) : structuredClone(mainProjectJobs(aiJobs)),
     }
     this.applyAiJobRuntimeCache()
   }
@@ -525,6 +577,7 @@ export class AppStore {
           normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
         }),
       )
+      this.replaceStandaloneShadowsFromState()
       this.fileSignature = signature
       this.applyAccountRuntimeCache()
       this.applyProjectWorkspaceRuntimeCache()
@@ -545,6 +598,7 @@ export class AppStore {
         normalizeLegacyRoleAliases: this.normalizeLegacyRoleAliases,
       }),
     )
+    this.replaceStandaloneShadowsFromState()
     this.fileSignature = signature
     this.applyAccountRuntimeCache()
     this.applyProjectWorkspaceRuntimeCache()
@@ -589,12 +643,16 @@ export class AppStore {
 
   private applyGenerationTaskRuntimeCache(): void {
     if (!this.generationTaskRuntimeCache) return
-    this.state.tasks = this.generationTaskRuntimeCache.tasks
+    this.rememberStandaloneGenerationTasks(this.state.tasks)
+    this.state.tasks = mainProjectTasks(this.generationTaskRuntimeCache.tasks)
+    this.generationTaskRuntimeCache.tasks = this.state.tasks
   }
 
   private applyAiJobRuntimeCache(): void {
     if (!this.aiJobRuntimeCache) return
-    this.state.aiJobs = this.aiJobRuntimeCache.aiJobs
+    this.rememberStandaloneAiJobs(this.state.aiJobs)
+    this.state.aiJobs = mainProjectJobs(this.aiJobRuntimeCache.aiJobs)
+    this.aiJobRuntimeCache.aiJobs = this.state.aiJobs
   }
 
   private applyLibraryRuntimeCache(): void {
@@ -623,12 +681,43 @@ export class AppStore {
 
   private captureGenerationTaskRuntimeCache(): void {
     if (!this.generationTaskRuntimeCache) return
-    this.generationTaskRuntimeCache = { tasks: this.state.tasks }
+    this.rememberStandaloneGenerationTasks(this.state.tasks)
+    this.generationTaskRuntimeCache = { tasks: mainProjectTasks(this.state.tasks) }
+    this.state.tasks = this.generationTaskRuntimeCache.tasks
   }
 
   private captureAiJobRuntimeCache(): void {
     if (!this.aiJobRuntimeCache) return
-    this.aiJobRuntimeCache = { aiJobs: this.state.aiJobs }
+    this.rememberStandaloneAiJobs(this.state.aiJobs)
+    this.aiJobRuntimeCache = { aiJobs: mainProjectJobs(this.state.aiJobs) }
+    this.state.aiJobs = this.aiJobRuntimeCache.aiJobs
+  }
+
+  private replaceStandaloneShadowsFromState(): void {
+    this.standaloneGenerationTasks = structuredClone(standaloneProjectTasks(this.state.tasks))
+    this.standaloneAiJobs = structuredClone(standaloneProjectJobs(this.state.aiJobs))
+  }
+
+  private rememberStandaloneGenerationTasks(tasks: readonly GenerationTask[]): void {
+    const incoming = standaloneProjectTasks(tasks)
+    if (!incoming.length) return
+    const mainIds = new Set(mainProjectTasks(tasks).map((task) => task.id))
+    const byId = new Map(
+      this.standaloneGenerationTasks.filter((task) => !mainIds.has(task.id)).map((task) => [task.id, task]),
+    )
+    for (const task of incoming) byId.set(task.id, structuredClone(task))
+    this.standaloneGenerationTasks = [...byId.values()]
+  }
+
+  private rememberStandaloneAiJobs(jobs: readonly AiJob[]): void {
+    const incoming = standaloneProjectJobs(jobs)
+    if (!incoming.length) return
+    const mainIds = new Set(mainProjectJobs(jobs).map((job) => job.id))
+    const byId = new Map(
+      this.standaloneAiJobs.filter((job) => !mainIds.has(job.id)).map((job) => [job.id, job]),
+    )
+    for (const job of incoming) byId.set(job.id, structuredClone(job))
+    this.standaloneAiJobs = [...byId.values()]
   }
 
   private captureLibraryRuntimeCache(): void {
@@ -645,7 +734,9 @@ export class AppStore {
       !this.projectWorkspacePersistenceBackup &&
       !this.generationTaskPersistenceBackup &&
       !this.aiJobPersistenceBackup &&
-      !this.libraryPersistenceBackup
+      !this.libraryPersistenceBackup &&
+      !this.standaloneGenerationTasks.length &&
+      !this.standaloneAiJobs.length
     )
       return this.state
     const persisted = {
@@ -662,10 +753,20 @@ export class AppStore {
       persisted.shots = structuredClone(this.projectWorkspacePersistenceBackup.shots)
     }
     if (this.generationTaskPersistenceBackup) {
-      persisted.tasks = structuredClone(this.generationTaskPersistenceBackup.tasks)
+      persisted.tasks = mergeHiddenTasks(
+        structuredClone(this.generationTaskPersistenceBackup.tasks),
+        this.standaloneGenerationTasks,
+      )
+    } else if (this.standaloneGenerationTasks.length) {
+      persisted.tasks = mergeHiddenTasks(persisted.tasks, this.standaloneGenerationTasks)
     }
     if (this.aiJobPersistenceBackup) {
-      persisted.aiJobs = structuredClone(this.aiJobPersistenceBackup.aiJobs)
+      persisted.aiJobs = mergeHiddenJobs(
+        structuredClone(this.aiJobPersistenceBackup.aiJobs),
+        this.standaloneAiJobs,
+      )
+    } else if (this.standaloneAiJobs.length) {
+      persisted.aiJobs = mergeHiddenJobs(persisted.aiJobs, this.standaloneAiJobs)
     }
     if (this.libraryPersistenceBackup) {
       persisted.assetLibraryItems = structuredClone(this.libraryPersistenceBackup.assetLibraryItems)
@@ -706,10 +807,23 @@ async function acquireFileLock(lockPath: string) {
 async function removeStaleLock(lockPath: string): Promise<void> {
   const raw = await readFile(lockPath, 'utf8').catch(() => '')
   let createdAt = Number.NaN
+  let ownerPid = Number.NaN
   try {
-    createdAt = Number(JSON.parse(raw || '{}').createdAt)
+    const parsed = JSON.parse(raw || '{}') as { createdAt?: unknown; pid?: unknown }
+    createdAt = Number(parsed.createdAt)
+    ownerPid = Number(parsed.pid)
   } catch {
     createdAt = Number.NaN
+  }
+  if (Number.isInteger(ownerPid) && ownerPid > 0 && ownerPid !== process.pid) {
+    try {
+      process.kill(ownerPid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+        await rm(lockPath, { force: true }).catch(() => {})
+        return
+      }
+    }
   }
   const modifiedAt = Number.isFinite(createdAt)
     ? createdAt

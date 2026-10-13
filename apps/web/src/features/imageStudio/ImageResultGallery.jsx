@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ImagePreviewModal } from '../../components/ImagePreviewModal'
+import { TaskControls } from '../../components/ui'
 import { imageUrlForTask } from './image2Results'
 
 const RESULT_PAGE_SIZE = 10
@@ -28,6 +29,10 @@ export function ImageResultGallery({
   onDelete,
   onRetryFailed,
   retryingTaskId = null,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
 }) {
   const [previewTaskId, setPreviewTaskId] = useState(null)
   const [page, setPage] = useState(1)
@@ -178,47 +183,56 @@ export function ImageResultGallery({
             .join(' ')
           const resultIndex = Number(task.metadata?.batchIndex) || pageStart + index + 1
           return (
-            <button
-              key={task.id}
-              className={tileClassName}
-              type="button"
-              disabled={!interactive}
-              aria-label={
-                completed
-                  ? `预览第 ${resultIndex} 张图片`
-                  : retryable
-                    ? `重试失败图片 ${resultIndex}`
-                    : undefined
-              }
-              title={completed ? '预览图片' : retryable ? '重试失败图片' : undefined}
-              onClick={() => {
-                if (completed) {
-                  setPreviewTaskId(task.id)
-                  return
+            <div key={task.id} className="image2-result-cell">
+              <button
+                className={tileClassName}
+                type="button"
+                disabled={!interactive}
+                aria-label={
+                  completed
+                    ? `预览第 ${resultIndex} 张图片`
+                    : retryable
+                      ? `重试失败图片 ${resultIndex}`
+                      : undefined
                 }
-                if (retryable) onRetryFailed(task)
-              }}
-            >
-              {completed ? (
-                <img src={imageUrl} alt={`${batch.label} ${resultIndex}`} />
-              ) : (
-                <span className="image2-result-placeholder">
-                  {retrying ? (
-                    <LoaderCircle size={22} className="spin" />
-                  ) : task.status === 'failed' ? (
-                    <AlertTriangle size={22} />
-                  ) : task.status === 'completed' ? (
-                    <Check size={22} />
-                  ) : task.status === 'running' ? (
-                    <LoaderCircle size={22} className="spin" />
-                  ) : (
-                    <ImageIcon size={22} />
-                  )}
-                  {retryable && <small>点击重试</small>}
-                </span>
-              )}
-              <span className="image2-result-state">{retrying ? '重试中' : resultStateLabel(task)}</span>
-            </button>
+                title={completed ? '预览图片' : retryable ? '重试失败图片' : undefined}
+                onClick={() => {
+                  if (completed) {
+                    setPreviewTaskId(task.id)
+                    return
+                  }
+                  if (retryable) onRetryFailed(task)
+                }}
+              >
+                {completed ? (
+                  <img src={imageUrl} alt={`${batch.label} ${resultIndex}`} />
+                ) : (
+                  <span className="image2-result-placeholder">
+                    {retrying ? (
+                      <LoaderCircle size={22} className="spin" />
+                    ) : task.status === 'failed' ? (
+                      <AlertTriangle size={22} />
+                    ) : task.status === 'completed' ? (
+                      <Check size={22} />
+                    ) : task.status === 'running' ? (
+                      <LoaderCircle size={22} className="spin" />
+                    ) : (
+                      <ImageIcon size={22} />
+                    )}
+                    {retryable && <small>点击重试</small>}
+                  </span>
+                )}
+                <span className="image2-result-state">{retrying ? '重试中' : resultStateLabel(task)}</span>
+              </button>
+              <TaskControls
+                job={task}
+                compact
+                busy={busyTaskId === task.id}
+                onPause={onPauseTask ? () => onPauseTask(task.id) : undefined}
+                onResume={onResumeTask ? () => onResumeTask(task.id) : undefined}
+                onDelete={onDeleteTask ? () => onDeleteTask(task.id) : undefined}
+              />
+            </div>
           )
         })}
         {!tasks.length && (

@@ -1,5 +1,6 @@
 import type { AiJob, GenerationTask, UsageMetrics } from '@seqora/contracts'
 import type { AppStore } from '../../infra/store.js'
+import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { usageCollector } from './usage.js'
 
 type DurationStats = {
@@ -366,10 +367,16 @@ export function dailyOperationalSummary(store: AppStore, tenantId?: string): Dai
   const periodStart = startOfChinaDay()
   return store.read((state) => {
     const scopedTasks = state.tasks.filter(
-      (task) => task.createdAt >= periodStart && (!tenantId || task.tenantId === tenantId),
+      (task) =>
+        !isStandaloneProjectId(task.projectId) &&
+        task.createdAt >= periodStart &&
+        (!tenantId || task.tenantId === tenantId),
     )
     const scopedAiJobs = state.aiJobs.filter(
-      (job) => job.createdAt >= periodStart && (!tenantId || job.tenantId === tenantId),
+      (job) =>
+        !isStandaloneProjectId(job.projectId) &&
+        job.createdAt >= periodStart &&
+        (!tenantId || job.tenantId === tenantId),
     )
     const completed = scopedTasks.filter((task) => task.status === 'completed').length
     const failed = scopedTasks.filter((task) => task.status === 'failed').length

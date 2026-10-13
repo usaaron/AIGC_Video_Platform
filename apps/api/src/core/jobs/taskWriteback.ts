@@ -3,6 +3,7 @@ import type { ImageGenerationOutput } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider, VideoGenerationStatus } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
+import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { writeCharacterAppearance } from './characterAppearanceWriteback.js'
 import {
   generationTaskLeaseMatches,
@@ -27,6 +28,7 @@ export class GenerationResultWriteback {
     task: GenerationTask,
     outputs: ImageGenerationOutput[],
   ): Promise<GeneratedOutputDescriptor[]> {
+    if (isStandaloneProjectId(task.projectId)) return []
     if (!this.objectStorage) return []
     const descriptors: GeneratedOutputDescriptor[] = []
     for (const output of outputs) {
@@ -50,7 +52,9 @@ export class GenerationResultWriteback {
   ): Promise<GenerationTask | null> {
     return this.store.mutateRuntimeCachesAsync(
       (state) => {
-        const task = state.tasks.find((item) => item.id === taskId)
+        const task = state.tasks.find(
+          (item) => !isStandaloneProjectId(item.projectId) && item.id === taskId,
+        )
         if (!task || task.status !== 'running') return null
         if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return null
         task.status = 'completed'
@@ -91,6 +95,9 @@ export class GenerationResultWriteback {
     providerTaskId: string,
     videoProvider: VideoGenerationProvider,
   ): Promise<GeneratedOutputDescriptor> {
+    if (isStandaloneProjectId(task.projectId)) {
+      throw new Error('Main generation worker cannot write an independent project')
+    }
     if (!this.objectStorage || !videoProvider.getLastFrameContent) {
       throw new Error('Video last frame storage is not configured')
     }
@@ -106,6 +113,9 @@ export class GenerationResultWriteback {
     providerTaskId: string,
     videoProvider: VideoGenerationProvider,
   ): Promise<GeneratedOutputDescriptor> {
+    if (isStandaloneProjectId(task.projectId)) {
+      throw new Error('Main generation worker cannot write an independent project')
+    }
     if (!this.objectStorage) throw new Error('Video storage is not configured')
     const content = await videoProvider.getContent(providerTaskId)
     const buffer = await readableToBuffer(content.stream)
@@ -127,7 +137,9 @@ export class GenerationResultWriteback {
   }): Promise<GenerationTask | null> {
     return this.store.mutateRuntimeCachesAsync(
       (state) => {
-        const stored = state.tasks.find((item) => item.id === input.taskId)
+        const stored = state.tasks.find(
+          (item) => !isStandaloneProjectId(item.projectId) && item.id === input.taskId,
+        )
         if (!stored || stored.status !== 'running') return null
         if (!generationTaskLeaseMatches(stored, input.leaseOwnerId, input.leaseToken)) return null
         const updatedAt = new Date()

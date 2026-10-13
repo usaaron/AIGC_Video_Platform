@@ -11,7 +11,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { PageHeader } from '../components/ui'
+import { PageHeader, TaskControls } from '../components/ui'
 import {
   completedShotVideoTask,
   filmPreviewTaskFor,
@@ -34,6 +34,10 @@ export function FilmPage({
   onSave,
   onEdit,
   onComposePreview,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   onSaveTaskToLibrary,
   onExport,
 }) {
@@ -101,6 +105,7 @@ export function FilmPage({
     (previewTask?.status === 'queued' ||
       previewTask?.status === 'running' ||
       previewTask?.status === 'paused')
+  const activePreviewTask = previewIsCurrent && previewTask && previewActive ? previewTask : null
   const displayUrl = viewMode === 'full' ? previewUrl : videoUrl
   const displayState = viewMode === 'full' ? previewState : videoState
   const displayVideoLoaded = Boolean(
@@ -311,6 +316,16 @@ export function FilmPage({
                   : `${episodeNumber ? '当集' : '全集'}成片已就绪`
                 : `视频生成进度 ${readyShotCount}/${scopedShots.length}`}
           </span>
+          {activePreviewTask && (
+            <TaskControls
+              job={activePreviewTask}
+              compact
+              busy={busyTaskId === activePreviewTask.id}
+              onPause={onPauseTask ? () => onPauseTask(activePreviewTask.id) : undefined}
+              onResume={onResumeTask ? () => onResumeTask(activePreviewTask.id) : undefined}
+              onDelete={onDeleteTask ? () => onDeleteTask(activePreviewTask.id) : undefined}
+            />
+          )}
           {previewUrl && (
             <>
               <a className="button primary" href={videoDownloadUrl(previewUrl, previewDownloadName)}>
@@ -491,6 +506,16 @@ export function FilmPage({
               </dd>
             </div>
           </dl>
+          {viewMode === 'shot' && videoTask && ['queued', 'paused', 'running'].includes(videoTask.status) && (
+            <TaskControls
+              job={videoTask}
+              compact
+              busy={busyTaskId === videoTask.id}
+              onPause={onPauseTask ? () => onPauseTask(videoTask.id) : undefined}
+              onResume={onResumeTask ? () => onResumeTask(videoTask.id) : undefined}
+              onDelete={onDeleteTask ? () => onDeleteTask(videoTask.id) : undefined}
+            />
+          )}
           {viewMode === 'shot' && videoUrl && videoTask && onSaveTaskToLibrary && (
             <div className="film-library-actions">
               <button

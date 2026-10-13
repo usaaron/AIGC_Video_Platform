@@ -28,7 +28,7 @@ export function createShotAssetReferenceIndex(assets) {
       (asset) =>
         asset.kind !== 'audio' &&
         (referenceUrl(asset) ||
-          asset.attributes?.appearanceVariants?.some((item) => item.bodyReference?.url)),
+          asset.attributes?.appearanceVariants?.some((item) => item.bodyReference?.url || item.turnaroundReferences?.some((ref) => ref.url))),
     ),
   }
 }
@@ -36,7 +36,9 @@ export function createShotAssetReferenceIndex(assets) {
 export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, assets = []) {
   const resolvedIndex = assetIndex || createShotAssetReferenceIndex(assets)
   const shotText = normalize(`${shot.title || ''}${shot.prompt || ''}`)
+  const characterNames = [...resolvedIndex.byId.values()].filter((asset) => asset.kind === 'character').map((asset) => asset.name)
   const candidates = resolvedIndex.candidates
+    .filter((asset) => asset.kind !== 'character' || shotMentionsVisibleCharacter(asset.name, shot, characterNames))
     .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText, resolvedIndex.byId) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
 
@@ -50,24 +52,23 @@ export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, 
     if (ownerId) selectedCostumeOwners.add(ownerId)
     if (selected.length >= limit) break
   }
-  if (!selected.some(({ asset }) => asset.kind === 'scene')) {
-    const scene = candidates.find(({ asset }) => asset.kind === 'scene')
-    if (scene && !selected.includes(scene)) selected.push(scene)
-  }
-
   return selected
     .slice(0, limit)
     .map(({ asset }) => {
-      const variant = characterAppearance(asset, `${shot.title || ''}\n${shot.prompt || ''}`)
+      const selection = selectCharacterShotAppearance(asset, shot, [...resolvedIndex.byId.values()].filter((item) => item.kind === 'character').map((item) => item.name))
+      const variant = selection?.variant
       const name = variant ? characterVariantName(asset.name, variant.name) : asset.name
       return {
         id: asset.id,
-        url: referenceUrl(asset, variant),
-        videoUrl: videoReferenceUrl(asset, variant),
+        url: selection ? selection.url : referenceUrl(asset),
+        videoUrl: selection ? selection.videoUrl : referenceUrl(asset),
+        appearanceUrl: selection?.appearanceUrl,
+        role: selection?.role || '外观',
+        appearanceRole: selection?.appearanceRole,
+        view: selection?.view,
         ...(variant
           ? {
-              appearance: { name, description: variant.description || '' },
-              appearanceUrl: variant.bodyReference?.url || null,
+              appearance: { name, description: [variant.description, variant.prompt].filter(Boolean).join('\n') },
             }
           : {}),
         name: `${name}.png`,
@@ -98,7 +99,7 @@ export function selectVideoReferenceImages(manualReferenceUrl, references, limit
 }
 
 function scoreAsset(asset, shotText, assetById) {
-  const name = normalize(asset.kind === 'character' ? characterIdentity(asset.name).name : asset.name)
+  const name = normalize(asset.kind === 'character' ? characterReferenceName(asset.name) : asset.name)
   const exactNameMatch = Boolean(name && shotText.includes(name))
   if (asset.kind === 'character' && !exactNameMatch) {
     return { score: KIND_PRIORITY[asset.kind] || 0, matched: false }
@@ -109,7 +110,8 @@ function scoreAsset(asset, shotText, assetById) {
     const owner = assetById.get(asset.attributes.characterAssetId)
     const ownerName = normalize(owner?.name)
     if (ownerName) matchingName = name.replace(ownerName, '')
-    if (ownerName && shotText.includes(ownerName)) matchScore += 190
+    if (ownerName && shotText.includes(ownerName) &&
+        (exactNameMatch || overlapScore(shotText, matchingName + normalize(asset.description), 1, 1))) matchScore += 190
   }
   matchScore += overlapScore(shotText, matchingName, 20, 40)
   matchScore += overlapScore(shotText, normalize(asset.description), 2, 20)
@@ -141,15 +143,9 @@ function referenceUrl(asset, variant = characterAppearance(asset)) {
   return asset.imageUrl
 }
 
-function videoReferenceUrl(asset, variant) {
-  if (asset.kind !== 'character' || asset.attributes?.type !== 'character') return referenceUrl(asset)
-  const portrait = asset.attributes.trustedPortrait
-  return portrait?.status === 'active' ? `asset://${portrait.assetId}` : referenceUrl(asset, variant)
-}
-
 function normalize(value) {
   return String(value || '')
     .toLowerCase()
     .replace(/[\s\p{P}\p{S}]+/gu, '')
 }
-import { characterAppearance, characterIdentity, characterVariantName } from '@seqora/contracts'
+import { characterAppearance, characterReferenceName, characterVariantName, selectCharacterShotAppearance, shotMentionsVisibleCharacter } from '@seqora/contracts'

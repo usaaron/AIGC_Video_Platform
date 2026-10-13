@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
 import {
   ArrowRight,
@@ -22,6 +22,7 @@ import {
 import { IconButton, PageHeader } from '../components/ui'
 import { ShotRow } from '../features/storyboard/StoryboardComponents'
 import { ShotHistoryModal } from '../features/storyboard/ShotHistoryModal'
+import { ScriptRevisionHistory } from '../features/storyboard/ScriptRevisionHistory'
 import {
   createShotAssetReferenceIndex,
   selectShotAssetReferencesFromIndex,
@@ -48,6 +49,20 @@ import { ShotEditor } from '../features/storyboard/ShotEditor'
 import '../features/storyboard/shotEditor.css'
 import { normalizedVideoDuration } from '@seqora/prompting'
 
+export function createStoryboardOperationLock() {
+  let locked = false
+  return {
+    acquire() {
+      if (locked) return false
+      locked = true
+      return true
+    },
+    release() {
+      locked = false
+    },
+  }
+}
+
 export function StoryboardPage({
   project,
   scriptEpisodes = [],
@@ -66,6 +81,11 @@ export function StoryboardPage({
   onUpload,
   onGenerateVideo,
   onGenerateAllVideos,
+  onReviewVideo,
+  onPauseTask,
+  onResumeTask,
+  onDeleteTask,
+  busyTaskId = null,
   onNext,
 }) {
   const [selected, setSelected] = useState(shots[0]?.id)
@@ -85,6 +105,8 @@ export function StoryboardPage({
   const [operationNotice, setOperationNotice] = useState('')
   const [downloadingVideos, setDownloadingVideos] = useState(false)
   const [deletingShotId, setDeletingShotId] = useState('')
+  const operationLock = useRef(null)
+  if (!operationLock.current) operationLock.current = createStoryboardOperationLock()
   const isWebSeries = project?.contentType === 'short-drama'
   const shotMinDuration = isWebSeries ? 3 : 4
   const episodes = useMemo(
@@ -124,7 +146,7 @@ export function StoryboardPage({
   )
   const activeBatchTasks = useMemo(() => activeVideoTasksForShots(tasks, rangeShots), [tasks, rangeShots])
   const batchLocked = activeBatchTasks.length > 0
-  const controlsLocked = batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll
+  const controlsLocked = batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll || generatingSelected
   const activeShotCount = new Set(activeBatchTasks.map((task) => task.metadata?.shotId)).size
   const totalDuration = useMemo(
     () => rangeShots.reduce((sum, shot) => sum + normalizedVideoDuration(shot.duration, shotMinDuration), 0),
@@ -181,7 +203,7 @@ export function StoryboardPage({
   }, [episodes, selectedEpisode])
 
   const splitFromScript = async (mode, episodeOverride = null) => {
-    if (controlsLocked) return
+    if (controlsLocked || !operationLock.current.acquire()) return
     const targetEpisode = episodeOverride || currentEpisode
     setSplitting(mode)
     setOperationError('')
@@ -200,11 +222,12 @@ export function StoryboardPage({
       setOperationError(error.message)
     } finally {
       setSplitting('')
+      operationLock.current.release()
     }
   }
 
   const autoSplitEpisodes = async () => {
-    if (controlsLocked || !shots.length) return
+    if (controlsLocked || !shots.length || !operationLock.current.acquire()) return
     setSplittingEpisodes(true)
     setOperationError('')
     setOperationNotice('')
@@ -214,11 +237,12 @@ export function StoryboardPage({
       setOperationError(error.message)
     } finally {
       setSplittingEpisodes(false)
+      operationLock.current.release()
     }
   }
 
   const runGenerateAll = async (mode) => {
-    if (controlsLocked) return
+    if (controlsLocked || !operationLock.current.acquire()) return
     setGeneratingAll(true)
     setOperationError('')
     setOperationNotice('')
@@ -228,6 +252,7 @@ export function StoryboardPage({
       setOperationError(error.message)
     } finally {
       setGeneratingAll(false)
+      operationLock.current.release()
     }
   }
 
@@ -261,10 +286,11 @@ export function StoryboardPage({
   }
 
   const regenerateSelected = async (selectionMode = 'continuity') => {
-    if (!selectedRerollShots.length || generatingSelected) return
+    if (!selectedRerollShots.length || generatingSelected || !operationLock.current.acquire()) return
     const activeTasks = activeVideoTasksForShots(tasks, selectedRerollShots)
     if (activeTasks.length) {
       setOperationError('选中的镜头中仍有视频正在生成，请等待完成或先从选择中移除。')
+      operationLock.current.release()
       return
     }
 
@@ -277,7 +303,10 @@ export function StoryboardPage({
         ? `确认独立重做 ${selectedRerollShots.length} 个镜头吗？本次不使用上一镜尾帧，也不会修改原有承接设置；预计消耗 ${selectedRerollCost} 积分。`
         : `确认重做 ${selectedRerollShots.length} 个镜头吗？将沿用当前承接关系，旧版本会保留；预计消耗 ${selectedRerollCost} 积分。${continuityWarning}`,
     )
-    if (!confirmed) return
+    if (!confirmed) {
+      operationLock.current.release()
+      return
+    }
 
     setGeneratingSelected(true)
     setOperationError('')
@@ -297,6 +326,7 @@ export function StoryboardPage({
       setOperationError(error.message)
     } finally {
       setGeneratingSelected(false)
+      operationLock.current.release()
     }
   }
 
@@ -500,6 +530,7 @@ export function StoryboardPage({
               : `批量下载 ${downloadableVideos.length} 条`}
         </button>
       </PageHeader>
+      <ScriptRevisionHistory scriptEpisodes={scriptEpisodes} tasks={tasks} />
       {pendingBatchMode && (
         <div className="storyboard-batch-confirm" role="alert">
           <div>
@@ -509,7 +540,7 @@ export function StoryboardPage({
             <span>
               {pendingBatchMode === 'independent'
                 ? '将忽略尾帧承接，所有镜头直接提交，速度更快但连续性较弱。'
-                : '只并发独立镜头链，同一链按真实尾帧顺序提交，不会重复创建任务。'}
+                : '只并发独立镜头链；同一链等待上一镜生成并通过内容验收后继续。任务入队按现有规则扣积分，可在队列取消未执行镜头。'}
             </span>
           </div>
           <div>
@@ -729,6 +760,11 @@ export function StoryboardPage({
                     onDelete={() => void deleteShot(shot)}
                     deleting={deletingShotId === shot.id}
                     onGenerateVideo={onGenerateVideo}
+                    onReviewVideo={onReviewVideo}
+                    onPauseTask={onPauseTask}
+                    onResumeTask={onResumeTask}
+                    onDeleteTask={onDeleteTask}
+                    busyTaskId={busyTaskId}
                   />
                 )
               })}

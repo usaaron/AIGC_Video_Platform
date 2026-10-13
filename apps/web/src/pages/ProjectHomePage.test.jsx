@@ -28,6 +28,7 @@ describe('project home', () => {
             contentType: 'short-drama',
             visualStyle: 'cinematic-cg',
             aspectRatio: '9:16',
+            status: 'completed',
             updatedAt: '2026-08-10T00:00:00.000Z',
             previewUrl: null,
             generationSummary: null,
@@ -37,11 +38,18 @@ describe('project home', () => {
         onOpen={noop}
         onRename={noop}
         onDelete={noop}
+        onNavigate={noop}
       />,
     )
 
     expect(html).toContain('aria-label="项目列表"')
+    expect(html).toContain('aria-label="项目库头部"')
+    expect(html).toContain('全部项目')
     expect(html).toContain('天穹回想')
+    expect(html).toContain('已完成')
+    expect(html).not.toContain('aria-label="创作工作台"')
+    expect(html).not.toContain('studio-launchers')
+    expect((html.match(/新建项目/g) || []).length).toBe(1)
     expect(html).not.toContain('aria-label="新项目欢迎页"')
   })
 })

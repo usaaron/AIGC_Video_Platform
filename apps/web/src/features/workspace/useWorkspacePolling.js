@@ -25,6 +25,7 @@ const AUXILIARY_REFRESH_MS = 60_000
 
 export function useWorkspacePolling({
   projectId,
+  includeRecentActivity = false,
   includeTaskDetails = false,
   workspaceCacheRef,
   activeProjectIdRef,
@@ -38,7 +39,7 @@ export function useWorkspacePolling({
   onWorkspaceReady,
 }) {
   useEffect(() => {
-    if (!projectId) return undefined
+    if (!projectId && !includeRecentActivity) return undefined
     let cancelled = false
     let requestInFlight = false
     let timer = null
@@ -52,7 +53,23 @@ export function useWorkspacePolling({
     let workspaceVersionEtag = null
     let initialized = false
 
-    const isCurrentProject = () => isActiveWorkspaceProject(activeProjectIdRef?.current, projectId)
+    const isCurrentProject = () =>
+      !projectId || isActiveWorkspaceProject(activeProjectIdRef?.current, projectId)
+
+    const refreshRecentActivity = async ({ includeProjects = true } = {}) => {
+      const [billingResult, recentTasksResult, projectsResult] = await Promise.allSettled([
+        api.billing(),
+        api.recentTasks(),
+        ...(includeProjects ? [api.projects()] : []),
+      ])
+      if (cancelled || !isCurrentProject()) return
+      if (billingResult.status === 'fulfilled') setBilling(billingResult.value)
+      if (projectsResult?.status === 'fulfilled') setProjects(projectsResult.value)
+      if (recentTasksResult.status === 'fulfilled') {
+        setRecentTasks(normalizeTasks(recentTasksResult.value))
+        setRecentTasksLoaded(true)
+      }
+    }
 
     const loadInitialTasks = async () => {
       if (includeTaskDetails) return normalizeTasks(await api.tasks(projectId))
@@ -77,6 +94,13 @@ export function useWorkspacePolling({
       requestInFlight = true
       let nextDelay = IDLE_TASK_POLL_MS
       try {
+        if (!projectId) {
+          // Standalone tools keep account notifications without loading the
+          // previously selected host project's workspace or generation tasks.
+          nextDelay = AUXILIARY_REFRESH_MS
+          await refreshRecentActivity({ includeProjects: false })
+          return
+        }
         let nextTasks
         let nextWorkspace = null
         let taskFinished = false
@@ -89,6 +113,7 @@ export function useWorkspacePolling({
               loadInitialTasks(),
               api.project(projectId),
             ])
+            if (cancelled || !isCurrentProject()) return
             if (workspaceResult.status === 'rejected') {
               onWorkspaceError?.(projectId, workspaceResult.reason)
               throw workspaceResult.reason
@@ -140,6 +165,7 @@ export function useWorkspacePolling({
             lastWorkspaceVersionCheckAt = now
             try {
               const versionResult = await api.pollWorkspaceVersion(projectId, workspaceVersionEtag)
+              if (cancelled || !isCurrentProject()) return
               workspaceVersionEtag = versionResult.etag || workspaceVersionEtag
               workspaceChanged =
                 !versionResult.notModified &&
@@ -159,11 +185,12 @@ export function useWorkspacePolling({
           try {
             nextWorkspace = normalizeOrThrow(await api.project(projectId))
           } catch (error) {
-            onWorkspaceError?.(projectId, error)
+            if (!cancelled && isCurrentProject()) onWorkspaceError?.(projectId, error)
             throw error
           }
           if (cancelled || !isCurrentProject()) return
         }
+        if (cancelled || !isCurrentProject()) return
         const nextTaskKey = taskSnapshotKey(nextTasks)
         if (nextTaskKey !== previousTaskKey) {
           replaceTasks(projectId, nextTasks)
@@ -183,28 +210,18 @@ export function useWorkspacePolling({
         nextDelay = hasActiveTasks ? ACTIVE_TASK_POLL_MS : IDLE_TASK_POLL_MS
         if (!hasActiveTasks && (now - lastAuxiliaryRefreshAt >= AUXILIARY_REFRESH_MS || taskFinished)) {
           lastAuxiliaryRefreshAt = now
-          void Promise.allSettled([api.billing(), api.projects(), api.recentTasks()]).then(
-            ([billingResult, projectsResult, recentTasksResult]) => {
-              if (cancelled || !isCurrentProject()) return
-              if (billingResult.status === 'fulfilled') setBilling(billingResult.value)
-              if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value)
-              if (recentTasksResult.status === 'fulfilled') {
-                setRecentTasks(normalizeTasks(recentTasksResult.value))
-                setRecentTasksLoaded(true)
-              }
-            },
-          )
+          void refreshRecentActivity()
         }
       } catch {
         nextDelay = IDLE_TASK_POLL_MS
       } finally {
         requestInFlight = false
-        schedule(document.hidden ? BACKGROUND_TASK_POLL_MS : nextDelay)
+        schedule(document.hidden ? Math.max(BACKGROUND_TASK_POLL_MS, nextDelay) : nextDelay)
       }
     }
     const handleVisibilityChange = () => {
       window.clearTimeout(timer)
-      if (document.hidden) schedule(BACKGROUND_TASK_POLL_MS)
+      if (document.hidden) schedule(projectId ? BACKGROUND_TASK_POLL_MS : AUXILIARY_REFRESH_MS)
       else void loadWorkspace()
     }
 
@@ -216,6 +233,7 @@ export function useWorkspacePolling({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [
+    includeRecentActivity,
     includeTaskDetails,
     projectId,
     replaceTasks,

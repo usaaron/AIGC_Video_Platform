@@ -89,7 +89,18 @@ describe('batch generation and actual billing', () => {
       (_, i) =>
         `场次：S0${i + 1}｜时长：10秒｜剧情：林晚追查第${i + 1}条线索。｜场景：诊所。｜角色：林晚；程野。｜动作：林晚推门，程野抬眼。｜对白：[对白]林晚：请告诉我实情。[对白]程野：那个人刚离开。[对白]林晚：我要找到他。[对白]程野：跟我来。｜衔接：两人走向门口。`,
     ).join('\n')
-    const provider = { generate: vi.fn(async () => generated) }
+    const secondGenerated = Array.from(
+      { length: 6 },
+      (_, i) =>
+        `场次：T0${i + 1}｜时长：10秒｜剧情：赵岚在气象塔寻找第${i + 1}份航标图。｜场景：气象塔。｜角色：赵岚；顾衡。｜动作：赵岚拆开锈锁，顾衡点亮信号灯。｜对白：[对白]赵岚：信号还在吗？[对白]顾衡：北侧灯已经恢复。[对白]赵岚：把坐标发出去。[对白]顾衡：现在就发。｜衔接：两人转向控制台。`,
+    ).join('\n')
+    let generationCount = 0
+    const provider = {
+      generate: vi.fn(async () => {
+        generationCount += 1
+        return generationCount === 1 ? generated : secondGenerated
+      }),
+    }
     const service = new ProjectService(repository, provider, ledger)
     const project = await service.create(
       createProjectSchema.parse({ name: '扣费恢复', contentType: 'short-drama', aspectRatio: '9:16' }),
