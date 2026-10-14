@@ -11,6 +11,7 @@ import {
   type DeliveryEvidenceStatus,
   type GenerationTask,
 } from '@seqora/contracts'
+import { providerCompletionEvidence } from './providerCompletionEvidence.js'
 
 export type VideoTailDescriptor = {
   storageKey: string
@@ -59,6 +60,7 @@ function evidenceStatusForTask(task: GenerationTask): DeliveryEvidenceStatus {
 function evidenceStatusForProvider(task: GenerationTask): DeliveryEvidenceStatus {
   const state = providerState(task)
   if (state === 'failed' || state === 'cancelled') return 'failed'
+  if (providerCompletionEvidence(task).receipt) return 'passed'
   if (metadataString(task, 'providerTaskId') && ['queued', 'running', 'completed'].includes(state ?? '')) {
     return 'observed'
   }
@@ -187,9 +189,13 @@ export function buildGenerationTaskDeliveryEvidence(task: GenerationTask): Deliv
       task,
       kind: 'provider',
       status: evidenceStatusForProvider(task),
-      requirementIds: [DELIVERY_REQUIREMENT_IDS.providerAccepted],
+      requirementIds: [DELIVERY_REQUIREMENT_IDS.providerAccepted, DELIVERY_REQUIREMENT_IDS.providerCompleted],
       refType: 'provider-task',
-      details: { provider: task.provider, providerState: providerState(task) },
+      details: {
+        provider: task.provider,
+        providerState: providerState(task),
+        completion: providerCompletionEvidence(task),
+      },
     }),
     evidence({
       task,

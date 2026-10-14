@@ -1,6 +1,7 @@
 import { videoReviewVersion } from '@seqora/contracts'
 import type { GenerationTask } from '@seqora/contracts'
 import { VIDEO_PROMPT_VERSION } from '@seqora/prompting'
+import { createHash } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { assert, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
@@ -9,6 +10,13 @@ import { AppStore } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { usageCollector } from '../observability/usage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
+import {
+  memoryObjectStorage,
+  queuedVideoTasks,
+  syntheticTailFrame,
+  syntheticVideo,
+  syntheticVideoContent,
+} from './taskDispatcher.fixture.js'
 import { queuedTextTask } from '../../testing/generationTaskFixtures.js'
 import { DependencyResolver, TaskClaimer, TaskRefundService } from './taskRunnerComponents.js'
 import type { TaskRunnerLock } from './taskRunnerLock.js'
@@ -1108,6 +1116,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
   it('submits and completes configured video tasks through the remote provider', async () => {
     const files = new Map<string, Buffer>()
+    const videoSha256 = createHash('sha256').update(syntheticVideo).digest('hex')
     const provider: VideoGenerationProvider = {
       submit: vi.fn<VideoGenerationProvider['submit']>(async () => ({
         providerTaskId: 'remote-task-1',
@@ -1119,14 +1128,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         progress: 100,
         error: null,
       })),
-      getContent: vi.fn(async () => ({
-        stream: Readable.from([Buffer.from('generated-video')]),
-        contentType: 'video/mp4',
-        contentLength: null,
-        statusCode: 200,
-        acceptRanges: null,
-        contentRange: null,
-      })),
+      getContent: vi.fn(async () => syntheticVideoContent()),
     }
     const objectStorage: ObjectStorage = {
       put: vi.fn(async (key, content) => {
@@ -1219,10 +1221,33 @@ describe('GenerationTaskRunner Seedance integration', () => {
         providerTaskId: 'remote-task-1',
         providerIdempotencyKey: `generation:${task.tenantId}:${task.id}`,
         providerState: 'completed',
-        videoStorageKey: `${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`,
+        videoStorageKey: `${task.tenantId}/${task.projectId}/generated/${task.id}-attempt-1-${videoSha256}-video.mp4`,
         generatedOutputs: expect.arrayContaining([
-          expect.objectContaining({ view: 'single', contentType: 'video/mp4', size: 15 }),
+          expect.objectContaining({
+            view: 'single',
+            contentType: 'video/mp4',
+            size: syntheticVideo.length,
+            sha256: videoSha256,
+          }),
         ]),
+        providerCompletionReceipt: expect.objectContaining({
+          version: 'seqora.provider-completion.v1',
+          attestation: 'server-observed-completion',
+          taskId: task.id,
+          tenantId: task.tenantId,
+          projectId: task.projectId,
+          provider: 'seedance',
+          providerName: 'stringx-seedance',
+          providerTaskId: 'remote-task-1',
+          attempts: 1,
+          media: {
+            view: 'single',
+            storageKey: `${task.tenantId}/${task.projectId}/generated/${task.id}-attempt-1-${videoSha256}-video.mp4`,
+            contentType: 'video/mp4',
+            size: syntheticVideo.length,
+            sha256: videoSha256,
+          },
+        }),
       },
       outputs: [
         {
@@ -1236,13 +1261,15 @@ describe('GenerationTaskRunner Seedance integration', () => {
     expect(onVideoCompleted).toHaveBeenCalledWith(
       expect.objectContaining({ id: task.id, status: 'completed' }),
     )
-    expect(files.get(`${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`)).toEqual(
-      Buffer.from('generated-video'),
-    )
+    expect(
+      files.get(`${task.tenantId}/${task.projectId}/generated/${task.id}-attempt-1-${videoSha256}-video.mp4`),
+    ).toEqual(syntheticVideo)
   })
 
   it('stores a provider tail frame and passes it as first frame to a linked shot', async () => {
     const files = new Map<string, Buffer>()
+    const tailFrame = syntheticTailFrame('tail-frame')
+    const tailSha256 = createHash('sha256').update(tailFrame).digest('hex')
     const provider: VideoGenerationProvider = {
       submit: vi.fn<VideoGenerationProvider['submit']>(async ({ taskId }) => ({
         providerTaskId: `remote-${taskId}`,
@@ -1255,14 +1282,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
         error: null,
       })),
       getLastFrameContent: vi.fn(async () => ({
-        stream: Readable.from([Buffer.from('tail-frame')]),
+        stream: Readable.from([tailFrame]),
         contentType: 'image/jpeg',
-        contentLength: '10',
+        contentLength: String(tailFrame.length),
         statusCode: 200,
         acceptRanges: null,
         contentRange: null,
       })),
-      getContent: vi.fn(),
+      getContent: vi.fn(async () => syntheticVideoContent()),
     }
     const objectStorage: ObjectStorage = {
       put: vi.fn(async (key, content) => {
@@ -1311,8 +1338,10 @@ describe('GenerationTaskRunner Seedance integration', () => {
       expect.arrayContaining([expect.objectContaining({ view: 'last-frame', mediaType: 'image' })]),
     )
     expect(
-      files.get(`${sourceTask.tenantId}/${sourceTask.projectId}/generated/${sourceTask.id}-last-frame.jpg`),
-    ).toEqual(Buffer.from('tail-frame'))
+      files.get(
+        `${sourceTask.tenantId}/${sourceTask.projectId}/generated/${sourceTask.id}-attempt-1-${tailSha256}-last-frame.jpg`,
+      ),
+    ).toEqual(tailFrame)
 
     const targetFrameTask: GenerationTask = {
       ...sourceTask,
@@ -1382,7 +1411,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         images: [
           {
             role: 'first_frame',
-            url: `data:image/jpeg;base64,${Buffer.from('tail-frame').toString('base64')}`,
+            url: `data:image/jpeg;base64,${tailFrame.toString('base64')}`,
           },
         ],
       }),
@@ -1391,6 +1420,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
   it('holds the next continuity shot until source content is reviewed, then resumes without duplicate submissions', async () => {
     const files = new Map<string, Buffer>()
+    const tailFrame = syntheticTailFrame('source-tail-frame')
     const provider: VideoGenerationProvider = {
       submit: vi.fn<VideoGenerationProvider['submit']>(async ({ taskId }) => ({
         providerTaskId: `remote-${taskId}`,
@@ -1403,14 +1433,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
         error: null,
       })),
       getLastFrameContent: vi.fn(async () => ({
-        stream: Readable.from([Buffer.from('source-tail-frame')]),
+        stream: Readable.from([tailFrame]),
         contentType: 'image/jpeg',
-        contentLength: '17',
+        contentLength: String(tailFrame.length),
         statusCode: 200,
         acceptRanges: null,
         contentRange: null,
       })),
-      getContent: vi.fn(),
+      getContent: vi.fn(async () => syntheticVideoContent()),
     }
     const objectStorage: ObjectStorage = {
       put: vi.fn(async (key, content) => {
@@ -1464,7 +1494,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         images: [
           {
             role: 'first_frame',
-            url: `data:image/jpeg;base64,${Buffer.from('source-tail-frame').toString('base64')}`,
+            url: `data:image/jpeg;base64,${tailFrame.toString('base64')}`,
           },
         ],
       }),
@@ -2183,40 +2213,6 @@ describe('GenerationTaskRunner Seedance integration', () => {
   })
 })
 
-function queuedVideoTasks(count: number): GenerationTask[] {
-  const now = new Date().toISOString()
-  return Array.from({ length: count }, (_, index) => {
-    const sequence = index + 1
-    return {
-      id: `parallel-video-${sequence}`,
-      clientRequestId: `parallel-video-client-${sequence}`,
-      projectId: 'project-midnight-film',
-      tenantId: 'tenant-seqora-demo',
-      userId: 'user-member',
-      kind: 'video',
-      label: `并发镜头 ${sequence}`,
-      prompt: `角色执行第 ${sequence} 个独立动作`,
-      negativePrompt: '',
-      provider: 'seedance',
-      model: 'doubao-seedance-2-0-260128',
-      metadata: {
-        shotId: `parallel-shot-${sequence}`,
-        duration: 5,
-        aspectRatio: '16:9',
-        resolution: '720p',
-      },
-      status: 'queued',
-      progress: 0,
-      estimatedCredits: 18,
-      createdAt: now,
-      updatedAt: now,
-      resultUrl: null,
-      outputs: [],
-      error: null,
-    }
-  })
-}
-
 function createTaskClaimer(store: AppStore): TaskClaimer {
   return new TaskClaimer(store, new DependencyResolver(), {
     leaseOwnerId: 'test-worker',
@@ -2251,19 +2247,6 @@ function imageTask(id: string, assetId: string): GenerationTask {
     resultUrl: null,
     outputs: [],
     error: null,
-  }
-}
-
-function memoryObjectStorage(): ObjectStorage {
-  const files = new Map<string, Buffer>()
-  return {
-    put: vi.fn(async (key, content) => {
-      files.set(key, content)
-    }),
-    get: vi.fn(async (key) => files.get(key) ?? Buffer.alloc(0)),
-    delete: vi.fn(async (key) => {
-      files.delete(key)
-    }),
   }
 }
 

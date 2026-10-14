@@ -65,13 +65,10 @@ import {
   assertSingleScriptTaskInput,
   assertNoDraftScriptEpisodeInState,
 } from './scriptTaskPolicy.js'
-import {
-  findControlledTaskInDatabase,
-  updateGenerationTaskLifecycle,
-  updateTaskResultTargets,
-} from './taskLifecyclePersistence.js'
+import { findControlledTaskInDatabase, updateGenerationTaskLifecycle } from './taskLifecyclePersistence.js'
 import { updateBillingBalanceForTask } from './taskBillingPersistence.js'
 import { DeliveryDownloadRepository } from './deliveryDownloadRepository.js'
+import { persistRuntimeTaskSnapshots } from './taskRuntimePersistence.js'
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
     text: string,
@@ -249,21 +246,14 @@ export class GenerationTaskRepository {
     })
     if (!snapshot.tasks.length) return 0
 
-    return this.database.transaction(async (client) => {
-      let updated = 0
-      for (const task of snapshot.tasks) {
-        const persisted = await updateGenerationTaskLifecycle(client, task)
-        if (!persisted) continue
-        updated += 1
-        const shotId = metadataString(task.metadata, 'shotId')
-        await updateTaskResultTargets(
-          client,
-          persisted,
-          shotId ? snapshot.shotSelections.get(shotId) : undefined,
-        )
-      }
-      return updated
-    })
+    return persistRuntimeTaskSnapshots(
+      this.store,
+      this.database,
+      snapshot.tasks.map((task) => ({
+        task,
+        selectedVersions: snapshot.shotSelections.get(metadataString(task.metadata, 'shotId') ?? ''),
+      })),
+    )
   }
 
   async flushRuntimeTaskToDatabase(taskId: string): Promise<boolean> {
@@ -286,12 +276,11 @@ export class GenerationTaskRepository {
       }
     })
     if (!snapshot) return false
-    return this.database.transaction(async (client) => {
-      const persisted = await updateGenerationTaskLifecycle(client, snapshot.task)
-      if (!persisted) return false
-      await updateTaskResultTargets(client, persisted, snapshot.shotId ? snapshot.shotSelection : undefined)
-      return true
-    })
+    return (
+      (await persistRuntimeTaskSnapshots(this.store, this.database, [
+        { task: snapshot.task, selectedVersions: snapshot.shotSelection },
+      ])) > 0
+    )
   }
 
   async flushRuntimeTextPreviewToDatabase(taskId: string): Promise<boolean> {

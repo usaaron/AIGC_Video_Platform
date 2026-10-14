@@ -2,6 +2,8 @@ import type { GenerationTask, Principal } from '@seqora/contracts'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import { generationTaskColumns, type GenerationTaskRow, taskFromRow } from './repositoryData.js'
 import { metadataString } from './taskStateHelpers.js'
+import { findProviderCompletionContext } from '../../core/jobs/providerCompletionContext.js'
+import { providerCompletionEvidence } from './providerCompletionEvidence.js'
 import type { QueryResult, QueryResultRow } from 'pg'
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -34,6 +36,10 @@ export async function updateGenerationTaskLifecycle(
   queryable: Queryable,
   task: GenerationTask,
 ): Promise<GenerationTask | null> {
+  if (task.metadata.providerCompletionReceipt !== undefined && !providerCompletionEvidence(task).receipt) {
+    return null
+  }
+  const completion = findProviderCompletionContext(task)
   const result = await queryable.query<GenerationTaskRow>(
     `
     UPDATE generation_tasks
@@ -53,6 +59,20 @@ export async function updateGenerationTaskLifecycle(
         updated_at = $15
     WHERE id = $1
       AND updated_at <= $15::timestamptz
+      AND (
+        (NOT ($2::jsonb ? 'providerCompletionReceipt') AND NOT (metadata ? 'providerCompletionReceipt'))
+        OR (
+          $3 = 'completed' AND kind = 'video' AND provider = 'seedance'
+          AND tenant_id = $16 AND project_id = $17
+          AND attempts = $5
+          AND metadata->>'providerTaskId' = $2::jsonb->>'providerTaskId'
+          AND metadata->>'providerName' = $2::jsonb->>'providerName'
+          AND (
+            (status = 'running' AND lease_owner_id = $18 AND lease_token = $19)
+            OR (status = 'completed' AND metadata->'providerCompletionReceipt' = $2::jsonb->'providerCompletionReceipt')
+          )
+        )
+      )
     RETURNING ${generationTaskColumns}
     `,
     [
@@ -71,6 +91,10 @@ export async function updateGenerationTaskLifecycle(
       JSON.stringify(task.outputs),
       task.error,
       task.updatedAt,
+      task.tenantId,
+      task.projectId,
+      completion?.leaseOwnerId ?? null,
+      completion?.leaseToken ?? null,
     ],
   )
   return result.rows[0] ? taskFromRow(result.rows[0]) : null

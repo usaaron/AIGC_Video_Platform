@@ -15,6 +15,7 @@ import {
 import type { VideoContent, VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import { claimGenerationTaskLease } from '../../core/jobs/taskLease.js'
+import { providerPollBinding } from '../../core/jobs/providerCompletion.js'
 import { GenerationResultWriteback, type GeneratedOutputDescriptor } from '../../core/jobs/taskWriteback.js'
 import { LocalObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore } from '../../infra/store.js'
@@ -98,6 +99,10 @@ async function fixture(
     '2026-10-14T00:00:00.000Z',
   )
   const leaseToken = claimGenerationTaskLease(task, 'test-worker', 60_000)
+  if (kind === 'video') {
+    task.metadata.providerName = 'dora-router-seedance'
+    task.metadata.providerTaskId = 'synthetic-provider-task'
+  }
   await store.mutate((state) => {
     state.tasks = [task]
   })
@@ -116,6 +121,7 @@ async function fixture(
     expect(lastFrameDescriptor.sha256).toBe(checksum(png))
     completed = await writeback.writeVideoPollResult({
       taskId: task.id,
+      binding: providerPollBinding(task, 'dora-router-seedance'),
       leaseOwnerId: 'test-worker',
       leaseToken,
       leaseTtlMs: 60_000,

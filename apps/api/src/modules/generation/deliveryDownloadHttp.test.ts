@@ -18,6 +18,7 @@ import {
 import type { VideoContent, VideoGenerationProvider } from '../../core/generation/videoProvider.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import { claimGenerationTaskLease } from '../../core/jobs/taskLease.js'
+import { providerPollBinding } from '../../core/jobs/providerCompletion.js'
 import { GenerationResultWriteback, type GeneratedOutputDescriptor } from '../../core/jobs/taskWriteback.js'
 import { LocalObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore } from '../../infra/store.js'
@@ -78,6 +79,7 @@ async function fixture(
     shotIds?: string[]
     episodeId?: string
     mode?: DeliveryMode
+    providerRequirement?: 'provider-accepted' | 'provider-completed'
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'seqora-delivery-download-http-'))
@@ -108,6 +110,10 @@ async function fixture(
     '2026-10-14T00:00:00.000Z',
   )
   const leaseToken = claimGenerationTaskLease(task, 'download-test-worker', 60_000)
+  if (kind === 'video') {
+    task.metadata.providerName = 'dora-router-seedance'
+    task.metadata.providerTaskId = 'synthetic-provider-task'
+  }
   await store.mutate((state) => {
     state.tasks = [task]
   })
@@ -120,6 +126,7 @@ async function fixture(
     descriptors = [main, tail]
     completed = await writeback.writeVideoPollResult({
       taskId: task.id,
+      binding: providerPollBinding(task, 'dora-router-seedance'),
       leaseOwnerId: 'download-test-worker',
       leaseToken,
       leaseTtlMs: 60_000,
@@ -151,6 +158,9 @@ async function fixture(
       must: [
         { id: 'task-completed', statement: '任务完成', source: 'system' },
         { id: 'media-url', statement: '当前主媒体可读取', source: 'system' },
+        ...(options.providerRequirement
+          ? [{ id: options.providerRequirement, statement: '服务端已观察完成并保存媒体', source: 'provider' }]
+          : []),
         ...(kind === 'video'
           ? [
               { id: 'content-review', statement: '当前视频内容验收通过', source: 'review' },
@@ -264,6 +274,39 @@ async function fixture(
 }
 
 describe('formal single-task delivery download HTTP boundary', () => {
+  it.each(['provider-accepted', 'provider-completed'] as const)(
+    'enforces the frozen %s requirement for newly completed videos',
+    async (providerRequirement) => {
+      const test = await fixture({ kind: 'video', providerRequirement })
+      const original = test.currentTask().metadata.providerCompletionReceipt
+      expect(original).toMatchObject({ attestation: 'server-observed-completion' })
+      await test.store.mutate((state) => {
+        delete state.tasks[0]!.metadata.providerCompletionReceipt
+      })
+      await test.denied()
+      await test.store.mutate((state) => {
+        state.tasks[0]!.metadata.providerCompletionReceipt = {
+          ...(original as Record<string, unknown>),
+          attempts: 999,
+        }
+      })
+      await test.denied()
+      await test.store.mutate((state) => {
+        state.tasks[0]!.metadata.providerCompletionReceipt = original
+      })
+      const response = await test.post()
+      expect(response.statusCode, response.body).toBe(200)
+      expect(response.rawPayload).toEqual(video)
+      const receipts = test.currentTask().metadata.deliveryDownloads as unknown[]
+      const receipt = deliveryDownloadReceiptSchema.parse(receipts[0])
+      expect(receipt.snapshot.evidence.find((item) => item.kind === 'provider')).toMatchObject({
+        status: 'passed',
+        details: { completion: { reason: 'verified' } },
+      })
+      test.noProviderOrBilling()
+    },
+  )
+
   it.each(['image', 'video'] as const)(
     'returns verified %s bytes and persists a scoped evidence receipt',
     async (kind) => {

@@ -1,4 +1,5 @@
 import type { CreateGenerationTask, Principal } from '@seqora/contracts'
+import { Readable } from 'node:stream'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
@@ -7,6 +8,7 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore } from '../../infra/store.js'
 import { GenerationTaskRepository } from '../../modules/generation/repository.js'
+import { providerCompletionEvidence } from '../../modules/generation/providerCompletionEvidence.js'
 import { ProjectRepository } from '../../modules/projects/repository.js'
 import { UserRepository } from '../../modules/users/repository.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testing/postgresAuth.js'
@@ -33,6 +35,98 @@ afterAll(async () => {
 })
 
 describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
+  it('carries a verified video receipt from provider ingestion through cloned cache to Postgres restart', async () => {
+    const { database, store, tasks } = await createGenerationContext()
+    const video = Buffer.from('000000186674797069736f6d0000020069736f6d69736f32', 'hex')
+    const videoProvider: VideoGenerationProvider = {
+      submit: vi.fn<VideoGenerationProvider['submit']>(async () => ({
+        providerTaskId: 'synthetic-video-job',
+        status: 'queued',
+        progress: 0,
+      })),
+      getStatus: vi.fn<VideoGenerationProvider['getStatus']>(async () => ({
+        status: 'completed',
+        progress: 100,
+        error: null,
+      })),
+      getContent: vi.fn(async () => ({
+        stream: Readable.from([video]),
+        contentType: 'video/mp4',
+        contentLength: String(video.length),
+        statusCode: 200,
+        acceptRanges: null,
+        contentRange: null,
+      })),
+    }
+    const runner = new GenerationTaskRunner(store, {
+      videoProvider,
+      videoProviderName: 'stringx-seedance',
+      objectStorage: memoryObjectStorage(),
+      providerPollIntervalMs: 0,
+      beforeTick: async () => {
+        await tasks.refreshRuntimeCacheFromDatabase()
+      },
+      refreshTask: async (taskId) => {
+        await tasks.refreshRuntimeTaskFromDatabase(taskId)
+      },
+      persistTickTasks: (taskIds) => tasks.flushRuntimeTasksToDatabase(taskIds).then(() => {}),
+      persistTask: (taskId) => tasks.flushRuntimeTaskToDatabase(taskId).then(() => {}),
+    })
+    try {
+      const task = await tasks.create(
+        generationInput({
+          clientRequestId: 'video-completion-receipt-roundtrip',
+          kind: 'video',
+          provider: 'seedance',
+          model: 'seedance',
+          metadata: { duration: 5, aspectRatio: '16:9' },
+        }),
+        principal,
+      )
+      await runner.tick()
+      await runner.tick()
+      await vi.waitFor(async () => {
+        const persisted = await tasks.findById(task.id, principal)
+        expect(persisted?.status).toBe('completed')
+        expect(providerCompletionEvidence(persisted!).reason).toBe('verified')
+      })
+      const recovered = await recoverTasks(database)
+      const completed = recovered.read((state) => state.tasks.find((current) => current.id === task.id))!
+      expect(completed).toMatchObject({
+        status: 'completed',
+        attempts: 1,
+        leaseOwnerId: null,
+        leaseToken: null,
+      })
+      expect(providerCompletionEvidence(completed)).toMatchObject({
+        reason: 'verified',
+        receipt: {
+          providerTaskId: 'synthetic-video-job',
+          providerName: 'stringx-seedance',
+          attempts: 1,
+          media: { view: 'single', contentType: 'video/mp4', size: video.length },
+        },
+      })
+      expect(JSON.stringify(completed.metadata)).not.toContain('leaseToken')
+      expect(JSON.stringify(completed.metadata)).not.toContain('leaseOwnerId')
+      const repository = new GenerationTaskRepository(recovered, null, database)
+      const reviewed = await repository.reviewVideo(
+        task.id,
+        { decision: 'approved', note: 'Synthetic fixture review', expectedUpdatedAt: completed.updatedAt },
+        principal,
+      )
+      expect(providerCompletionEvidence(reviewed).reason).toBe('verified')
+      expect(reviewed.metadata.providerCompletionReceipt).toEqual(
+        completed.metadata.providerCompletionReceipt,
+      )
+      expect(videoProvider.submit).toHaveBeenCalledOnce()
+      expect(videoProvider.getContent).toHaveBeenCalledOnce()
+    } finally {
+      runner.stop()
+      await database.close()
+    }
+  })
+
   it('flushes taskWriteback image completion into generation_tasks and reloads it after restart', async () => {
     const { database, store, tasks } = await createGenerationContext()
     try {

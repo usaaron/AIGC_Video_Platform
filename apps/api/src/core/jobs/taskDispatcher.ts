@@ -1,6 +1,8 @@
 import type { GenerationTask } from '@seqora/contracts'
 import { AppError } from '../errors.js'
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
+import { videoReviewVersion } from '@seqora/contracts'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { TextGenerationTiming } from '../generation/textProvider.js'
 import type { VideoGenerationProvider, VideoProviderName } from '../generation/videoProvider.js'
@@ -358,7 +360,26 @@ export class GenerationTaskRunner implements TaskDispatcher {
         this.providerPoller.cancelStalledProviderTask(applied.stalledProviderTaskId)
       }
       if (applied.completedTask) {
-        await this.providerPoller.notifyVideoCompleted(applied.completedTask)
+        // Persistence may reject the worker snapshot and restore a cancelled/newer
+        // attempt. Notify only for the same completed media that remains current.
+        const completed = applied.completedTask
+        const current = this.store.readGenerationTaskRuntimeCache((state) =>
+          state.tasks.find((item) => item.id === completed.id),
+        )
+        if (
+          current?.status === 'completed' &&
+          current.tenantId === completed.tenantId &&
+          current.projectId === completed.projectId &&
+          current.attempts === completed.attempts &&
+          current.metadata.providerTaskId === completed.metadata.providerTaskId &&
+          videoReviewVersion(current) === videoReviewVersion(completed) &&
+          isDeepStrictEqual(
+            current.metadata.providerCompletionReceipt,
+            completed.metadata.providerCompletionReceipt,
+          )
+        ) {
+          await this.providerPoller.notifyVideoCompleted(current)
+        }
       }
       return Boolean(
         applied.completedTask ||

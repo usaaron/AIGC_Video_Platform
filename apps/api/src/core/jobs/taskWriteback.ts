@@ -7,6 +7,13 @@ import type { AppStore } from '../../infra/store.js'
 import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { writeCharacterAppearance } from './characterAppearanceWriteback.js'
 import {
+  persistProviderVideo,
+  providerPollLeaseMatches,
+  recordProviderCompletion,
+  remoteMediaStorageKey,
+  type ProviderPollBinding,
+} from './providerCompletion.js'
+import {
   generationTaskLeaseMatches,
   releaseGenerationTaskLease,
   renewGenerationTaskLease,
@@ -105,14 +112,15 @@ export class GenerationResultWriteback {
     }
     const content = await videoProvider.getLastFrameContent(providerTaskId)
     const buffer = await readableToBuffer(content.stream)
-    const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-last-frame.jpg`
+    const sha256 = createHash('sha256').update(buffer).digest('hex')
+    const storageKey = remoteMediaStorageKey(task, sha256, 'last-frame.jpg')
     await this.objectStorage.put(storageKey, buffer, content.contentType)
     return {
       view: 'last-frame',
       storageKey,
       contentType: content.contentType,
       size: buffer.length,
-      sha256: createHash('sha256').update(buffer).digest('hex'),
+      sha256,
     }
   }
 
@@ -125,21 +133,14 @@ export class GenerationResultWriteback {
       throw new Error('Main generation worker cannot write an independent project')
     }
     if (!this.objectStorage) throw new Error('Video storage is not configured')
-    const content = await videoProvider.getContent(providerTaskId)
-    const buffer = await readableToBuffer(content.stream)
-    const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`
-    await this.objectStorage.put(storageKey, buffer, content.contentType)
-    return {
-      view: 'single',
-      storageKey,
-      contentType: content.contentType,
-      size: buffer.length,
-      sha256: createHash('sha256').update(buffer).digest('hex'),
-    }
+    return persistProviderVideo(task, providerTaskId, this.objectStorage, () =>
+      videoProvider.getContent(providerTaskId),
+    )
   }
 
   async writeVideoPollResult(input: {
     taskId: string
+    binding: ProviderPollBinding
     leaseOwnerId: string
     leaseToken: string
     leaseTtlMs: number
@@ -156,6 +157,7 @@ export class GenerationResultWriteback {
         )
         if (!stored || stored.status !== 'running') return null
         if (!generationTaskLeaseMatches(stored, input.leaseOwnerId, input.leaseToken)) return null
+        if (!providerPollLeaseMatches(stored, input.binding)) return null
         const updatedAt = new Date()
         const progressChanged = input.status.progress !== stored.progress
         stored.status = input.status.status
@@ -196,6 +198,7 @@ export class GenerationResultWriteback {
           ...(input.videoCacheError ? { videoCacheError: input.videoCacheError } : {}),
           ...(input.lastFrameError ? { lastFrameError: input.lastFrameError } : {}),
         }
+        delete stored.metadata.providerCompletionReceipt
         if (input.status.status === 'running') {
           renewGenerationTaskLease(stored, input.leaseOwnerId, input.leaseToken, input.leaseTtlMs, updatedAt)
         } else {
@@ -218,6 +221,7 @@ export class GenerationResultWriteback {
               : []),
           ]
           stored.resultUrl = url
+          recordProviderCompletion(stored, input.binding, input.videoDescriptor)
           const shotId = typeof stored.metadata.shotId === 'string' ? stored.metadata.shotId : null
           const shot = state.shots.find(
             (item) =>

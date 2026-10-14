@@ -23,6 +23,13 @@ export async function buildDeliveryVerificationSnapshot(
   const evidence = baseEvidence.map((item) => {
     if (item.kind === 'continuity' && tailEvidence) return tailEvidence
     if (item.kind === 'asset' && mediaEvidence) return mediaEvidence
+    if (item.kind === 'provider' && item.status === 'passed' && mediaEvidence?.status !== 'passed') {
+      return {
+        ...item,
+        status: mediaEvidence?.status === 'failed' ? ('failed' as const) : ('pending' as const),
+        details: { ...item.details, currentMediaProof: mediaEvidence?.details.storageProof ?? null },
+      }
+    }
     return item
   })
   const contractResult = deliveryContractSchema.safeParse(task.metadata.deliveryContract)

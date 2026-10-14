@@ -214,6 +214,11 @@ describe('shot editor references through API snapshot, worker and Dora payload',
       expect(
         store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.videoPromptVersion),
       ).toBe(oldSnapshot ? 'seedance-storyboard-v17' : 'seedance-storyboard-v22')
+      const submitted = store.read((state) => state.tasks.find((item) => item.id === task.id))!
+      expect(submitted.attempts).toBe(1)
+      expect(submitted.metadata.providerName).toBe('dora-router-seedance')
+      expect(submitted.metadata.providerTaskId).toBe('remote')
+      expect(submitted.metadata.providerCompletionReceipt).toBeUndefined()
     },
   )
   it.each([false, true])(
@@ -273,6 +278,11 @@ describe('shot editor references through API snapshot, worker and Dora payload',
         continuity ? '角色参考【图2】，场景参考【图3】' : '角色参考【图1】，场景参考【图2】',
       )
       expect(content[0]!.text).not.toContain('排队后修改')
+      const submitted = store.read((state) => state.tasks.find((item) => item.id === task.id))!
+      expect(submitted.attempts).toBe(1)
+      expect(submitted.metadata.providerName).toBe('dora-router-seedance')
+      expect(submitted.metadata.providerTaskId).toBe('remote')
+      expect(submitted.metadata.providerCompletionReceipt).toBeUndefined()
     },
   )
   it('fails missing or foreign references instead of dropping an image and shifting later slots', async () => {

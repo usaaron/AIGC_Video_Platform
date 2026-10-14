@@ -195,6 +195,7 @@ export type DeliveryGateResult = z.infer<typeof deliveryGateResultSchema>
 export const DELIVERY_REQUIREMENT_IDS = {
   taskCompleted: 'task-completed',
   providerAccepted: 'provider-accepted',
+  providerCompleted: 'provider-completed',
   mediaUrl: 'media-url',
   contentReview: 'content-review',
   physicalReview: 'physical-review',

@@ -23,6 +23,7 @@ export default defineConfig({
     {
       command: `pnpm --filter @seqora/web dev --host 127.0.0.1 --port ${webPort} --strictPort --force`,
       env: {
+        SEQORA_E2E_API_ISOLATION: '1',
         SEQORA_E2E_CACHE_DIR: fileURLToPath(
           new URL(`../web/node_modules/.vite-e2e-${webPort}`, import.meta.url),
         ),
@@ -34,6 +35,7 @@ export default defineConfig({
     {
       command: `pnpm --filter @seqora/admin dev --host 127.0.0.1 --port ${adminPort} --strictPort --force`,
       env: {
+        SEQORA_E2E_API_ISOLATION: '1',
         SEQORA_E2E_CACHE_DIR: fileURLToPath(
           new URL(`../admin/node_modules/.vite-e2e-${adminPort}`, import.meta.url),
         ),

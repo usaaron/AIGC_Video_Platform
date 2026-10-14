@@ -45,11 +45,10 @@ import { cancellationResourceLockForTask, taskResourceLockId } from './taskResou
 import { DependencyResolver } from './taskDependencyResolver.js'
 import { compileImageTaskPrompt } from './imageTaskPrompt.js'
 import { resolveStoredImageReference, type VideoSourceUrl } from './taskImageReferences.js'
-import {
-  GenerationResultWriteback,
-  generatedDescriptors,
-  type GeneratedOutputDescriptor,
-} from './taskWriteback.js'
+import { GenerationResultWriteback, type GeneratedOutputDescriptor } from './taskWriteback.js'
+import { providerPollLeaseMatches, type ProviderPollBinding } from './providerCompletion.js'
+import { requestRemoteVideoPoll, type ProviderVideoPollOutcome } from './remoteVideoPoll.js'
+export type { ProviderVideoPollOutcome } from './remoteVideoPoll.js'
 import {
   type LocalTaskDiagnostics,
   recordGenerationTaskQueueWait,
@@ -65,17 +64,6 @@ export type ClaimedRemoteTasks = {
   image: GenerationTask[]
   local: GenerationTask[]
 }
-
-export type ProviderVideoPollOutcome =
-  | {
-      kind: 'status'
-      status: VideoGenerationStatus
-      videoDescriptor: GeneratedOutputDescriptor | null
-      videoCacheError: string | null
-      lastFrameDescriptor: GeneratedOutputDescriptor | null
-      lastFrameError: string | null
-    }
-  | { kind: 'error'; error: string }
 
 export type ProviderCancellationOutcome = { kind: 'cancelled' } | { kind: 'error'; error: string }
 
@@ -123,6 +111,7 @@ export class TaskClaimer {
             // from that durable writeback even if the final task mutation was interrupted.
             if (recoverScriptTaskFromDraft(task, state, nowIso, leaseActive)) return
             if (leaseActive) return
+            delete task.metadata.providerCompletionReceipt
             if (providerName && !task.metadata.providerTaskId) {
               claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now, {
                 countAttempt: false,
@@ -260,6 +249,7 @@ export class TaskClaimer {
           if (this.dependencyResolver.state(task, userTasks) !== 'ready') continue
           const providerName = this.remoteProviderName(task)
           if (!this.ownsTask(task, providerName)) continue
+          delete task.metadata.providerCompletionReceipt
           if ((task.attempts ?? 0) >= (task.maxAttempts ?? DEFAULT_TASK_MAX_ATTEMPTS)) {
             task.status = 'failed'
             task.progress = 100
@@ -548,13 +538,16 @@ export class TaskWritebackService {
     error: string,
     leaseToken?: string,
     diagnostics?: LocalTaskDiagnostics,
+    binding?: ProviderPollBinding,
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task) return
       if (leaseToken && !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
+      if (binding && (task.status !== 'running' || !providerPollLeaseMatches(task, binding))) return
       const now = new Date().toISOString()
       task.status = 'failed'
+      delete task.metadata.providerCompletionReceipt
       task.progress = 100
       task.error = error.slice(0, 1_000)
       if (diagnostics) {
@@ -585,6 +578,7 @@ export class TaskWritebackService {
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       const now = new Date()
       task.status = 'queued'
+      delete task.metadata.providerCompletionReceipt
       task.progress = 0
       task.error = null
       task.metadata = {
@@ -604,11 +598,13 @@ export class TaskWritebackService {
     taskId: string,
     leaseToken: string,
     providerTaskId: string,
+    binding: ProviderPollBinding,
   ): Promise<GenerationTask | null> {
     const result = await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task || task.status !== 'running') return null
       if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return null
+      if (!providerPollLeaseMatches(task, binding)) return null
 
       const now = new Date()
       const nowIso = now.toISOString()
@@ -622,6 +618,7 @@ export class TaskWritebackService {
         : []
       const {
         providerTaskId: _providerTaskId,
+        providerCompletionReceipt: _providerCompletionReceipt,
         providerSubmittedAt: _providerSubmittedAt,
         providerPolledAt: _providerPolledAt,
         providerProgressChangedAt: _providerProgressChangedAt,
@@ -677,6 +674,7 @@ export class TaskWritebackService {
       const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
       if (!stored || stored.status !== 'running') return
       if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+      delete stored.metadata.providerCompletionReceipt
       const now = new Date()
       stored.progress = Math.max(1, submission.progress)
       stored.metadata = {
@@ -740,6 +738,7 @@ export class TaskWritebackService {
 
   async writeVideoPollResult(input: {
     taskId: string
+    binding: ProviderPollBinding
     leaseToken: string
     status: VideoGenerationStatus
     videoDescriptor?: GeneratedOutputDescriptor | null
@@ -758,10 +757,17 @@ export class TaskWritebackService {
     return task
   }
 
-  async markProviderPollError(taskId: string, leaseToken: string, attempts: number): Promise<void> {
+  async markProviderPollError(
+    taskId: string,
+    leaseToken: string,
+    attempts: number,
+    binding: ProviderPollBinding,
+  ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!stored || !generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
+      if (stored.status !== 'running' || !providerPollLeaseMatches(stored, binding)) return
+      delete stored.metadata.providerCompletionReceipt
       stored.metadata = { ...stored.metadata, providerPollErrors: attempts }
       renewGenerationTaskLease(stored, this.leaseOwnerId, leaseToken, this.leaseTtlMs)
     })
@@ -1124,6 +1130,7 @@ export class ProviderPoller {
             task.error.includes('"status"'),
         )
         .forEach((task) => {
+          delete task.metadata.providerCompletionReceipt
           task.status = 'running'
           task.progress = 50
           task.error = null
@@ -1214,6 +1221,7 @@ export class ProviderPoller {
       for (const stored of tasks) {
         const leaseToken = stringValue(stored.leaseToken, '')
         if (!leaseToken) continue
+        delete stored.metadata.providerCompletionReceipt
         stored.metadata = { ...stored.metadata, providerPolledAt: now }
         renewGenerationTaskLease(stored, this.options.leaseOwnerId, leaseToken, this.options.leaseTtlMs)
         stored.updatedAt = new Date().toISOString()
@@ -1223,98 +1231,22 @@ export class ProviderPoller {
   }
 
   async requestRemoteVideoPoll(task: GenerationTask): Promise<ProviderVideoPollOutcome> {
-    if (!this.options.videoProvider) return { kind: 'error', error: 'Video provider is not configured' }
-    const providerTaskId = stringValue(task.metadata.providerTaskId, '')
-    if (!providerTaskId) return { kind: 'error', error: 'Video provider task ID is missing' }
-    try {
-      const status = await observeProviderCall(
-        {
-          provider: this.options.videoProviderName,
-          operation: 'video.getStatus',
-          tenantId: task.tenantId,
-          organizationId: task.tenantId,
-          userId: task.userId,
-          taskId: task.id,
-          traceId: traceIdFromGenerationTask(task),
-        },
-        () =>
-          withTimeout(
-            () => this.options.videoProvider!.getStatus(providerTaskId),
-            this.options.providerStatusTimeoutMs,
-            'Video provider status request timed out',
-          ),
-      )
-      let videoDescriptor: GeneratedOutputDescriptor | null = null
-      let videoCacheError: string | null = null
-      const hasCachedVideo = generatedDescriptors(task).some(
-        (item) => item.view === 'single' && item.contentType.startsWith('video/'),
-      )
-      if (status.status === 'completed' && !hasCachedVideo && this.options.objectStorage) {
-        try {
-          videoDescriptor = await observeProviderCall(
-            {
-              provider: this.options.videoProviderName,
-              operation: 'video.getContent',
-              tenantId: task.tenantId,
-              organizationId: task.tenantId,
-              userId: task.userId,
-              taskId: task.id,
-              traceId: traceIdFromGenerationTask(task),
-            },
-            () =>
-              this.options.writeback.persistVideoContent(task, providerTaskId, this.options.videoProvider!),
-          )
-        } catch (error) {
-          videoCacheError = messageFor(error)
-        }
-      }
-      let lastFrameDescriptor: GeneratedOutputDescriptor | null = null
-      let lastFrameError: string | null = null
-      const hasLastFrame = generatedDescriptors(task).some((item) => item.view === 'last-frame')
-      if (
-        status.status === 'completed' &&
-        !hasLastFrame &&
-        this.options.videoProvider.getLastFrameContent &&
-        this.options.objectStorage
-      ) {
-        try {
-          lastFrameDescriptor = await observeProviderCall(
-            {
-              provider: this.options.videoProviderName,
-              operation: 'video.getLastFrameContent',
-              tenantId: task.tenantId,
-              organizationId: task.tenantId,
-              userId: task.userId,
-              taskId: task.id,
-              traceId: traceIdFromGenerationTask(task),
-            },
-            () =>
-              this.options.writeback.persistVideoLastFrame(task, providerTaskId, this.options.videoProvider!),
-          )
-        } catch (error) {
-          lastFrameError = messageFor(error)
-        }
-      }
-      return {
-        kind: 'status',
-        status,
-        videoDescriptor,
-        videoCacheError,
-        lastFrameDescriptor,
-        lastFrameError,
-      }
-    } catch (error) {
-      return { kind: 'error', error: messageFor(error) }
-    }
+    return requestRemoteVideoPoll(task, this.options)
   }
 
   async applyRemoteVideoPoll(
     task: GenerationTask,
     outcome: ProviderVideoPollOutcome,
   ): Promise<AppliedVideoPollOutcome> {
-    const leaseToken = stringValue(task.leaseToken, '')
-    const providerTaskId = stringValue(task.metadata.providerTaskId, '')
-    if (!leaseToken || !providerTaskId) {
+    const { leaseToken, providerTaskId } = outcome.binding
+    const current = this.store.read((state) => state.tasks.find((item) => item.id === task.id))
+    if (
+      !leaseToken ||
+      !providerTaskId ||
+      !current ||
+      current.status !== 'running' ||
+      !providerPollLeaseMatches(current, outcome.binding)
+    ) {
       return { completedTask: null, stalledProviderTaskId: null }
     }
     if (outcome.kind === 'error') {
@@ -1325,20 +1257,21 @@ export class ProviderPoller {
         return numberValue(stored?.metadata.providerPollErrors, 0) + 1
       })
       if (attempts >= 3) {
-        await this.options.writeback.failTask(task.id, outcome.error, leaseToken)
+        await this.options.writeback.failTask(task.id, outcome.error, leaseToken, undefined, outcome.binding)
       } else {
-        await this.options.writeback.markProviderPollError(task.id, leaseToken, attempts)
+        await this.options.writeback.markProviderPollError(task.id, leaseToken, attempts, outcome.binding)
       }
       return { completedTask: null, stalledProviderTaskId: null }
     }
     if (
       outcome.status.status === 'running' &&
-      videoProcessingStalled(task, outcome.status, this.options.providerStallTimeoutMs)
+      videoProcessingStalled(current, outcome.status, this.options.providerStallTimeoutMs)
     ) {
       const stalled = await this.options.writeback.handleStalledVideoProcessing(
         task.id,
         leaseToken,
         providerTaskId,
+        outcome.binding,
       )
       return {
         completedTask: null,
@@ -1347,6 +1280,7 @@ export class ProviderPoller {
     }
     const completedTask = await this.options.writeback.writeVideoPollResult({
       taskId: task.id,
+      binding: outcome.binding,
       leaseToken,
       status: outcome.status,
       videoDescriptor: outcome.videoDescriptor,
@@ -1668,25 +1602,6 @@ function optionalBoolean(value: unknown): boolean | null {
 
 function videoResolution(value: unknown): string {
   return value === '480p' || value === '720p' || value === '1080p' || value === '4k' ? value : '720p'
-}
-
-async function withTimeout<T>(operation: () => Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | null = null
-  try {
-    return await Promise.race([
-      operation(),
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => {
-          const error = new Error(message)
-          error.name = 'TimeoutError'
-          reject(error)
-        }, timeoutMs)
-        timer.unref?.()
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }
 
 function messageFor(error: unknown): string {

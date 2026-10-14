@@ -1,8 +1,8 @@
 {
   "apps/admin/src/App.jsx": 3006,
   "apps/api/src/app.test.ts": 5121,
-  "apps/api/src/core/jobs/taskDispatcher.test.ts": 2334,
-  "apps/api/src/core/jobs/taskRunnerComponents.ts": 1850,
+  "apps/api/src/core/jobs/taskDispatcher.test.ts": 2317,
+  "apps/api/src/core/jobs/taskRunnerComponents.ts": 1765,
   "apps/api/src/modules/accountManagement/repository.ts": 1890,
   "apps/api/src/modules/accountManagement/routes.test.ts": 2074,
   "apps/api/src/modules/accountManagement/service.ts": 2000,
@@ -10,7 +10,7 @@
   "apps/api/src/modules/admin/routes.test.ts": 2633,
   "apps/api/src/modules/aiJobs/repository.ts": 1033,
   "apps/api/src/modules/billing/repository.ts": 2028,
-  "apps/api/src/modules/generation/repository.ts": 1997,
+  "apps/api/src/modules/generation/repository.ts": 1986,
   "apps/api/src/modules/novels/repository.ts": 2900,
   "apps/api/src/modules/novels/service.ts": 2750,
   "apps/api/src/modules/projects/repository.ts": 2305
