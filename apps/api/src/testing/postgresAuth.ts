@@ -73,7 +73,10 @@ export async function startPostgresAuthFixture(): Promise<PostgresAuthFixture> {
       async close() {
         await database?.close()
         database = null
-        await adminPool?.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`)
+        // pg-pool can resolve end() before its sockets finish closing. Let
+        // Postgres wait for normal disconnects instead of killing those clients.
+        // A genuinely leaked connection still fails this drop after its bounded wait.
+        await adminPool?.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)}`)
         await adminPool?.end()
         adminPool = null
       },

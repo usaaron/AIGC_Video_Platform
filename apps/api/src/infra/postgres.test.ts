@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../testing/postgresAuth.js'
 import { AccountDatabase } from './postgres.js'
@@ -17,6 +19,25 @@ afterAll(async () => {
 })
 
 describe('postgres migrations', { timeout: 30_000 }, () => {
+  it('lets fixture connections finish closing without forced termination', async () => {
+    const fixture = await startPostgresAuthFixture()
+    const client = new pg.Client({ connectionString: fixture.connectionString })
+    const errors: Error[] = []
+    client.on('error', (error: Error) => errors.push(error))
+    await client.connect()
+    const closing = fixture.close()
+    try {
+      // Keep a backend alive briefly to exercise the pool-end/socket-end gap.
+      await delay(100)
+      expect(errors).toEqual([])
+      expect((await client.query('SELECT 1 AS alive')).rows).toEqual([{ alive: 1 }])
+    } finally {
+      await client.end()
+      await closing
+    }
+    expect(errors).toEqual([])
+  })
+
   it('runs advisory lock operations only while the lock is available', async () => {
     if (!postgres) throw new Error('Postgres fixture is not ready')
     const database = new AccountDatabase(postgres.connectionString)
