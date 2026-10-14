@@ -232,6 +232,10 @@ export class AppStore {
     await this.persist()
   }
 
+  get usesDatabaseRuntime(): boolean {
+    return this.databaseBackedRuntime
+  }
+
   read<T>(reader: (state: Readonly<AppState>) => T): T {
     this.reloadFromDiskSync()
     this.applyAccountRuntimeCache()

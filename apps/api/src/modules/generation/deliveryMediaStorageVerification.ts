@@ -86,6 +86,20 @@ export async function verifyCurrentMediaStorage(
   signal?: AbortSignal,
 ): Promise<DeliveryMediaStorageProof> {
   const descriptor = currentDescriptor(task)
+  return verifyMediaStorageDescriptor(
+    descriptor,
+    storage,
+    signal,
+    task.status === 'completed' && ['image', 'video'].includes(task.kind),
+  )
+}
+
+export async function verifyMediaStorageDescriptor(
+  descriptor: Descriptor | null,
+  storage: ObjectStorage | null,
+  signal?: AbortSignal,
+  ready = true,
+): Promise<DeliveryMediaStorageProof> {
   const proof: DeliveryMediaStorageProof = {
     status: 'pending',
     reason: 'task-not-ready',
@@ -97,8 +111,7 @@ export async function verifyCurrentMediaStorage(
   }
   const result = (status: DeliveryMediaStorageProof['status'], reason: DeliveryMediaStorageProof['reason']) =>
     deliveryMediaStorageProofSchema.parse({ ...proof, status, reason })
-  if (task.status !== 'completed' || !['image', 'video'].includes(task.kind))
-    return result('pending', 'task-not-ready')
+  if (!ready) return result('pending', 'task-not-ready')
   if (!descriptor) return result('pending', 'missing-current-media')
   if (!storage) return result('pending', 'storage-unavailable')
   if (!storage.getStream) return result('pending', 'stream-unavailable')

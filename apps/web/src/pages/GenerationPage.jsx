@@ -294,7 +294,7 @@ function hasFrozenDeliveryContract(job) {
 
 export function canFreezeDeliveryContract(job) {
   return Boolean(
-    job?.kind === 'video' &&
+    (job?.kind === 'video' || (job?.kind === 'image' && job?.provider === 'img2')) &&
     job.status === 'completed' &&
     typeof job.resultUrl === 'string' &&
     job.resultUrl.trim() &&
@@ -518,7 +518,7 @@ export function DeliveryContractFreezeDialog({ dialog, onClose, onSubmit, onTogg
               </div>
               <div>
                 <span>交付物</span>
-                <strong>视频 × 1</strong>
+                <strong>{draft.expectedArtifact.type === 'image' ? '当前主图 × 1' : '视频 × 1'}</strong>
               </div>
               <div>
                 <span>合同项目</span>
@@ -536,7 +536,11 @@ export function DeliveryContractFreezeDialog({ dialog, onClose, onSubmit, onTogg
               </label>
               <label>
                 <input type="checkbox" checked readOnly />
-                <span>必须存在可读取的视频媒体</span>
+                <span>
+                  {draft.expectedArtifact.type === 'image'
+                    ? '必须存在可读取的图片媒体'
+                    : '必须存在可读取的视频媒体'}
+                </span>
               </label>
               <ProviderCompletionRequirement job={job} />
               {job?.metadata?.rigidPhysicsContract || job?.metadata?.rigidPhysicsAudit ? (

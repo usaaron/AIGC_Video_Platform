@@ -19,6 +19,8 @@ const integration = [
   'src/modules/generation/deliveryDownload.postgres.test.ts',
   'src/modules/generation/deliveryContractPolicy.postgres.test.ts',
   'src/modules/generation/taskLifecyclePersistence.postgres.test.ts',
+  'src/modules/generation/imageProviderPersistence.postgres.test.ts',
+  'src/modules/generation/imageWorkspacePersistence.postgres.test.ts',
   'src/modules/scriptMaster/importPostgres.test.ts',
   'src/modules/trustedAssets/faceConfirmation.test.ts',
 ]

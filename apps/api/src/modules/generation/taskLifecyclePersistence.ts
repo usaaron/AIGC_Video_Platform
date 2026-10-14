@@ -62,10 +62,17 @@ export async function updateGenerationTaskLifecycle(
       AND (
         (NOT ($2::jsonb ? 'providerCompletionReceipt') AND NOT (metadata ? 'providerCompletionReceipt'))
         OR (
-          $3 = 'completed' AND kind = 'video' AND provider = 'seedance'
+          $3 = 'completed'
           AND tenant_id = $16 AND project_id = $17
           AND attempts = $5
-          AND metadata->>'providerTaskId' = $2::jsonb->>'providerTaskId'
+          AND (
+            (kind = 'video' AND provider = 'seedance'
+              AND metadata->>'providerTaskId' = $2::jsonb->>'providerTaskId')
+            OR (kind = 'image' AND provider = 'img2'
+              AND metadata->>'providerIdempotencyKey' = $2::jsonb->>'providerIdempotencyKey'
+              AND COALESCE(metadata->'turnaround' = 'true'::jsonb, false)
+                = COALESCE($2::jsonb->'turnaround' = 'true'::jsonb, false))
+          )
           AND metadata->>'providerName' = $2::jsonb->>'providerName'
           AND (
             (status = 'running' AND lease_owner_id = $18 AND lease_token = $19)

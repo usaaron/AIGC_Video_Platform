@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
 import { Readable } from 'node:stream'
-import type { GenerationTask } from '@seqora/contracts'
+import type { GenerationTask, ImageProviderCompletionReceipt } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { currentVideoTailDescriptor } from './deliveryEvidence.js'
 import { currentDescriptor, matchesSignature } from './deliveryMediaStorageVerification.js'
+import { imageProviderCompletionEvidence } from './imageProviderCompletionEvidence.js'
 
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
 const MAX_TAIL_BYTES = 10 * 1024 * 1024
@@ -24,13 +25,16 @@ export async function captureDeliveryMedia(
   if (!descriptor?.sha256)
     throw new AppError(409, 'DELIVERY_MEDIA_UNVERIFIED', '当前媒体缺少可信入库哈希或有效存储描述')
   if (!storage?.getStream) throw new AppError(503, 'DELIVERY_STORAGE_UNAVAILABLE', '媒体存储暂不可用')
-  const content = await captureObject(
-    storage,
-    { ...descriptor, sha256: descriptor.sha256 },
-    MAX_MEDIA_BYTES,
-    signal,
-  )
-  const objects = new Map([[descriptor.storageKey, content]])
+  const imageReceipt = imageProviderCompletionEvidence(task).receipt
+  const objects = imageReceipt
+    ? await captureImageOutputs(storage, imageReceipt, signal)
+    : new Map([
+        [
+          descriptor.storageKey,
+          await captureObject(storage, { ...descriptor, sha256: descriptor.sha256 }, MAX_MEDIA_BYTES, signal),
+        ],
+      ])
+  const content = objects.get(descriptor.storageKey)!
   if (task.kind === 'video') {
     const tail = currentVideoTailDescriptor(task)
     const outputs = Array.isArray(task.metadata.generatedOutputs) ? task.metadata.generatedOutputs : []
@@ -70,6 +74,34 @@ export async function captureDeliveryMedia(
     },
   }
   return { content, descriptor: { ...descriptor, sha256: descriptor.sha256 }, snapshotStorage }
+}
+
+async function captureImageOutputs(
+  storage: ObjectStorage,
+  receipt: ImageProviderCompletionReceipt,
+  signal?: AbortSignal,
+): Promise<Map<string, Buffer>> {
+  const controller = new AbortController()
+  const cancel = () => controller.abort()
+  signal?.addEventListener('abort', cancel, { once: true })
+  if (signal?.aborted) cancel()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, READ_TIMEOUT_MS)
+  const objects = new Map<string, Buffer>()
+  try {
+    for (const output of receipt.outputs)
+      objects.set(output.storageKey, await captureObject(storage, output, MAX_MEDIA_BYTES, controller.signal))
+    return objects
+  } catch (error) {
+    if (timedOut) throw new AppError(503, 'DELIVERY_READ_TIMEOUT', '全部图片读取超时，请稍后重试')
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
+  }
 }
 
 async function captureObject(

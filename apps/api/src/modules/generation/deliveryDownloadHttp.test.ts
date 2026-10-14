@@ -19,6 +19,8 @@ import type { VideoContent, VideoGenerationProvider } from '../../core/generatio
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 import { claimGenerationTaskLease } from '../../core/jobs/taskLease.js'
 import { providerPollBinding } from '../../core/jobs/providerCompletion.js'
+import { prepareImageCompletion } from '../../core/jobs/imageProviderCompletion.js'
+import { imageRequestFor } from '../../core/jobs/imageTaskRequest.js'
 import { GenerationResultWriteback, type GeneratedOutputDescriptor } from '../../core/jobs/taskWriteback.js'
 import { LocalObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore } from '../../infra/store.js'
@@ -100,7 +102,7 @@ async function fixture(
     {
       clientRequestId: 'delivery-download-fixture',
       projectId: 'project-midnight-film',
-      provider: kind === 'video' ? 'seedance' : 'image2',
+      provider: kind === 'video' ? 'seedance' : 'img2',
       kind,
       label: '正式单任务下载测试',
       estimatedCredits: 5,
@@ -113,6 +115,9 @@ async function fixture(
   if (kind === 'video') {
     task.metadata.providerName = 'dora-router-seedance'
     task.metadata.providerTaskId = 'synthetic-provider-task'
+  } else {
+    task.metadata.providerName = 'tokenadvent-img2'
+    task.metadata.providerIdempotencyKey = `generation:${task.tenantId}:${task.id}`
   }
   await store.mutate((state) => {
     state.tasks = [task]
@@ -135,13 +140,18 @@ async function fixture(
       lastFrameDescriptor: tail,
     })
   } else {
-    descriptors = await writeback.persistImageOutputs(task, [
-      {
-        view: 'single',
-        contentType: 'image/png',
-        content: png,
-      },
-    ])
+    const binding = prepareImageCompletion(task, imageRequestFor(task, []))
+    descriptors = await writeback.persistImageOutputs(
+      task,
+      [
+        {
+          view: 'single',
+          contentType: 'image/png',
+          content: png,
+        },
+      ],
+      binding,
+    )
     completed = await writeback.completeImageTask(task.id, 'download-test-worker', leaseToken, descriptors)
   }
   expect(completed?.status).toBe('completed')

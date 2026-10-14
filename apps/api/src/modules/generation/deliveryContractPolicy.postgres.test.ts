@@ -225,12 +225,27 @@ describe('new delivery contract policy in Postgres', () => {
   })
 
   it.each([
-    ['image', 'img2'],
+    ['image', 'hunyuan'],
     ['video', 'local-compose'],
   ] as const)('does not require remote completion for %s/%s', async (kind, provider) => {
     const { task, repository, draft } = await setup(kind, provider)
     const frozen = await repository.freezeDeliveryContract(task.id, draft, task.updatedAt, principal)
     expect((frozen.metadata.deliveryContract as typeof draft).must).toEqual(draft.must)
+  })
+
+  it('requires completion for new Image2 image contracts in Postgres', async () => {
+    const { task, repository, draft } = await setup('image', 'img2')
+    draft.intent.mode = 'asset'
+    draft.expectedArtifact.type = 'image'
+    await expect(
+      repository.freezeDeliveryContract(task.id, draft, task.updatedAt, principal),
+    ).rejects.toMatchObject({ code: 'DELIVERY_PROVIDER_COMPLETION_REQUIRED' })
+    const required = { ...draft, must: [...draft.must, DELIVERY_PROVIDER_COMPLETION_REQUIREMENT] }
+    const frozen = await repository.freezeDeliveryContract(task.id, required, task.updatedAt, principal)
+    expect((frozen.metadata.deliveryContract as typeof draft).must).toEqual(required.must)
+    expect((await repository.findById(task.id, principal))?.metadata.deliveryContract).toEqual(
+      frozen.metadata.deliveryContract,
+    )
   })
 
   it('retains auth/scope/version priorities and preserves old frozen contracts and hashes', async () => {

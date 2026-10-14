@@ -3,15 +3,18 @@ import {
   videoReviewVersion,
   type GenerationTask,
   type ProviderCompletionReceipt,
+  type ImageProviderCompletionReceipt,
 } from '@seqora/contracts'
+import { imageProviderCompletionEvidence } from './imageProviderCompletionEvidence.js'
 
 type CompletionProof = {
   reason: 'verified' | 'task-not-completed' | 'missing-receipt' | 'invalid-receipt' | 'receipt-mismatch'
-  receipt: ProviderCompletionReceipt | null
+  receipt: ProviderCompletionReceipt | ImageProviderCompletionReceipt | null
 }
 
 /** Validates recorded ingestion provenance. Current storage bytes are checked separately. */
 export function providerCompletionEvidence(task: GenerationTask): CompletionProof {
+  if (task.kind === 'image') return imageProviderCompletionEvidence(task)
   if (task.kind !== 'video' || task.provider !== 'seedance' || task.status !== 'completed') {
     return { reason: 'task-not-completed', receipt: null }
   }

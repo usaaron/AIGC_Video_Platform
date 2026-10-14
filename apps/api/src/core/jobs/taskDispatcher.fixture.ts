@@ -6,6 +6,13 @@ import type { VideoContent } from '../generation/videoProvider.js'
 
 export const syntheticVideo = Buffer.from('000000186674797069736f6d0000020069736f6d69736f32', 'hex')
 
+export function syntheticImage(): Buffer {
+  return Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZYsAAAAASUVORK5CYII=',
+    'base64',
+  )
+}
+
 export function syntheticVideoContent(): VideoContent {
   return {
     stream: Readable.from([syntheticVideo]),
@@ -65,5 +72,31 @@ export function memoryObjectStorage(): ObjectStorage {
     delete: vi.fn(async (key) => {
       files.delete(key)
     }),
+  }
+}
+
+export function imageTask(id: string, assetId: string): GenerationTask {
+  const now = new Date().toISOString()
+  return {
+    id,
+    clientRequestId: `${id}-client`,
+    projectId: 'project-midnight-film',
+    tenantId: 'tenant-seqora-demo',
+    userId: 'user-member',
+    kind: 'image',
+    label: id,
+    prompt: '正面人物头像，纯色背景',
+    negativePrompt: '',
+    provider: 'img2',
+    model: 'gpt-image-2',
+    metadata: { assetId, assetKind: 'character', generationStage: 'face', aspectRatio: '1:1' },
+    status: 'queued',
+    progress: 0,
+    estimatedCredits: 4,
+    createdAt: now,
+    updatedAt: now,
+    resultUrl: null,
+    outputs: [],
+    error: null,
   }
 }

@@ -15,7 +15,6 @@ import {
 import type {
   ImageGenerationOutput,
   ImageGenerationProvider,
-  ImageGenerationRequest,
   ImageReference,
 } from '../generation/imageProvider.js'
 import { trustedPortraitAliases } from '../generation/trustedPortraitReferences.js'
@@ -47,6 +46,12 @@ import { compileImageTaskPrompt } from './imageTaskPrompt.js'
 import { resolveStoredImageReference, type VideoSourceUrl } from './taskImageReferences.js'
 import { GenerationResultWriteback, type GeneratedOutputDescriptor } from './taskWriteback.js'
 import { providerPollLeaseMatches, type ProviderPollBinding } from './providerCompletion.js'
+import {
+  imageCompletionMatches,
+  prepareImageCompletion,
+  type ImageCompletionBinding,
+} from './imageProviderCompletion.js'
+import { imageRequestFor, finalizeImage2GenerationSnapshot } from './imageTaskRequest.js'
 import { requestRemoteVideoPoll, type ProviderVideoPollOutcome } from './remoteVideoPoll.js'
 export type { ProviderVideoPollOutcome } from './remoteVideoPoll.js'
 import {
@@ -539,12 +544,14 @@ export class TaskWritebackService {
     leaseToken?: string,
     diagnostics?: LocalTaskDiagnostics,
     binding?: ProviderPollBinding,
+    imageBinding?: ImageCompletionBinding,
   ): Promise<void> {
     await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
       if (!task) return
       if (leaseToken && !generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
       if (binding && (task.status !== 'running' || !providerPollLeaseMatches(task, binding))) return
+      if (imageBinding && (task.status !== 'running' || !imageCompletionMatches(task, imageBinding))) return
       const now = new Date().toISOString()
       task.status = 'failed'
       delete task.metadata.providerCompletionReceipt
@@ -697,9 +704,9 @@ export class TaskWritebackService {
   async persistImageOutputs(
     task: GenerationTask,
     outputs: ImageGenerationOutput[],
+    binding: ImageCompletionBinding,
   ): Promise<GeneratedOutputDescriptor[]> {
-    if (isStandaloneProjectId(task.projectId)) return []
-    return this.resultWriteback.persistImageOutputs(task, outputs)
+    return this.resultWriteback.persistImageOutputs(task, outputs, binding)
   }
 
   async completeImageTask(
@@ -707,13 +714,7 @@ export class TaskWritebackService {
     leaseToken: string,
     descriptors: GeneratedOutputDescriptor[],
   ): Promise<void> {
-    const task = await this.resultWriteback.completeImageTask(
-      taskId,
-      this.leaseOwnerId,
-      leaseToken,
-      descriptors,
-    )
-    if (task) recordGenerationTaskTerminal(task)
+    await this.resultWriteback.completeImageTask(taskId, this.leaseOwnerId, leaseToken, descriptors)
   }
 
   async persistVideoLastFrame(
@@ -986,10 +987,24 @@ export class ImageTaskExecutor {
   async execute(task: GenerationTask): Promise<void> {
     const leaseToken = stringValue(task.leaseToken, '')
     if (!leaseToken || !this.options.imageProvider) return
+    let binding: ImageCompletionBinding | undefined
     try {
       const preparedTask = await this.prepareImageTask(task)
+      if (!preparedTask) return
+      const request = imageRequestFor(preparedTask, [])
+      binding = prepareImageCompletion(preparedTask, request)
+      if (!this.options.objectStorage) throw new Error('Image storage is not configured')
       const references = await this.resolveImageReferences(preparedTask)
-      const request = imageRequestFor(preparedTask, references)
+      request.references.push(...references)
+      const stillCurrent = this.store.read((state) =>
+        state.tasks.some(
+          (current) =>
+            current.id === task.id &&
+            current.status === 'running' &&
+            imageCompletionMatches(current, binding!),
+        ),
+      )
+      if (!stillCurrent) return
       const outputs = await observeProviderCall(
         {
           provider: stringValue(preparedTask.metadata.providerName, 'tokenadvent-img2'),
@@ -1002,20 +1017,27 @@ export class ImageTaskExecutor {
         },
         () => this.options.imageProvider!.generate(request),
       )
-      const descriptors = await this.options.writeback.persistImageOutputs(task, outputs)
+      const descriptors = await this.options.writeback.persistImageOutputs(preparedTask, outputs, binding)
       await this.options.writeback.completeImageTask(task.id, leaseToken, descriptors)
     } catch (error) {
-      await this.options.writeback.failTask(task.id, messageFor(error), leaseToken)
+      await this.options.writeback.failTask(
+        task.id,
+        messageFor(error),
+        leaseToken,
+        undefined,
+        undefined,
+        binding,
+      )
     }
   }
 
-  private prepareImageTask(task: GenerationTask): Promise<GenerationTask> {
+  private prepareImageTask(task: GenerationTask): Promise<GenerationTask | null> {
     return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
       const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
-      if (!stored) return task
+      if (!stored || stored.status !== 'running') return null
       const leaseToken = stringValue(task.leaseToken, '')
-      if (leaseToken && !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) {
-        return task
+      if (!leaseToken || !generationTaskLeaseMatches(stored, this.options.leaseOwnerId, leaseToken)) {
+        return null
       }
       const { attributes, assetKind, quality, userNegativePrompt } = compileImageTaskPrompt(stored, state)
       stored.negativePrompt = quality.negativePrompt
@@ -1449,24 +1471,6 @@ export class ProviderPoller {
   }
 }
 
-function imageRequestFor(task: GenerationTask, references: ImageReference[]): ImageGenerationRequest {
-  const outputs: ImageGenerationRequest['outputs'] =
-    task.metadata.turnaround === true ? ['front', 'side', 'back'] : ['single']
-  const quality = image2Quality(task.metadata.quality)
-  return {
-    taskId: task.id,
-    idempotencyKey: providerIdempotencyKeyFor(task),
-    assetId: stringValue(task.metadata.assetId, ''),
-    model: task.model,
-    aspectRatio: stringValue(task.metadata.aspectRatio, '1:1'),
-    ...(quality ? { quality } : {}),
-    prompt: [task.prompt, stringValue(task.metadata.compiledPositivePrompt, '')].filter(Boolean).join('\n'),
-    negativePrompt: task.negativePrompt,
-    references,
-    outputs,
-  }
-}
-
 function videoRequestFor(
   task: GenerationTask,
   images: VideoGenerationRequest['images'],
@@ -1501,10 +1505,6 @@ function stringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value ? value : fallback
 }
 
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
 function image2ReferenceRole(value: unknown): ImageReference['role'] {
   return value === 'subject' ||
     value === 'clothing' ||
@@ -1514,57 +1514,6 @@ function image2ReferenceRole(value: unknown): ImageReference['role'] {
     value === 'color'
     ? value
     : undefined
-}
-
-function image2Quality(value: unknown): ImageGenerationRequest['quality'] {
-  return value === 'low' || value === 'medium' || value === 'high' ? value : undefined
-}
-
-function finalizeImage2GenerationSnapshot(
-  task: GenerationTask,
-  negativePrompt: string,
-  userNegativePrompt: string,
-): Record<string, unknown> {
-  const existing = objectValue(task.metadata.generationSnapshot)
-  const existingReferences = Array.isArray(existing.references) ? existing.references : null
-  const references =
-    existingReferences ?? (Array.isArray(task.metadata.references) ? task.metadata.references : [])
-  const existingAssist = objectValue(existing.assist)
-  const existingAssistResults = objectValue(existing.assistResults)
-  const promptOptimization = objectValue(task.metadata.promptOptimization)
-  const referenceVision = objectValue(task.metadata.referenceVision)
-
-  return {
-    ...existing,
-    version: 1,
-    finalized: true,
-    model: stringValue(existing.model, task.model ?? 'seqora-image2'),
-    prompt: task.prompt,
-    originalPrompt: stringValue(
-      existing.originalPrompt,
-      stringValue(task.metadata.originalPrompt, task.prompt),
-    ),
-    negativePrompt,
-    userNegativePrompt,
-    aspectRatio: stringValue(existing.aspectRatio, stringValue(task.metadata.aspectRatio, 'auto')),
-    quality: image2Quality(existing.quality) ?? image2Quality(task.metadata.quality) ?? 'low',
-    imageCount: positiveInteger(existing.imageCount) ?? positiveInteger(task.metadata.batchSize) ?? 1,
-    references,
-    assist: {
-      promptOptimization: existingAssist.promptOptimization === true || promptOptimization.requested === true,
-      referenceVision: existingAssist.referenceVision === true || referenceVision.requested === true,
-    },
-    assistResults: {
-      promptOptimization:
-        Object.keys(existingAssistResults.promptOptimization ?? {}).length > 0
-          ? existingAssistResults.promptOptimization
-          : promptOptimization,
-      referenceVision:
-        Object.keys(existingAssistResults.referenceVision ?? {}).length > 0
-          ? existingAssistResults.referenceVision
-          : referenceVision,
-    },
-  }
 }
 
 function numberValue(value: unknown, fallback: number): number {

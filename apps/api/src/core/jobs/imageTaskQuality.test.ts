@@ -5,6 +5,7 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore, defaultAssetAttributes } from '../../infra/store.js'
 import { TokenAdventImageProvider } from '../generation/tokenAdventImageProvider.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
+import { syntheticImage } from './taskDispatcher.fixture.js'
 
 describe('image task subject quality rules', () => {
   it.each([
@@ -132,7 +133,7 @@ describe('image task subject quality rules', () => {
           url: String(url),
           prompt: body instanceof FormData ? String(body.get('prompt')) : JSON.parse(String(body)).prompt,
         })
-        return Response.json({ data: [{ b64_json: Buffer.from('test-png').toString('base64') }] })
+        return Response.json({ data: [{ b64_json: syntheticImage().toString('base64') }] })
       }) as typeof fetch,
     })
     const files = new Map<string, Buffer>([['test-reference.png', Buffer.from('test-reference')]])

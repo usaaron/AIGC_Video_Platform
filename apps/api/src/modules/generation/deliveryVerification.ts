@@ -8,6 +8,8 @@ import { buildGenerationTaskDeliveryEvidence } from './deliveryEvidence.js'
 import { buildVideoTailStorageEvidence } from './deliveryStorageVerification.js'
 import { buildMediaStorageEvidence } from './deliveryMediaStorageVerification.js'
 import { evaluateDeliveryContract } from './deliveryContractEvaluation.js'
+import { imageProviderCompletionEvidence } from './imageProviderCompletionEvidence.js'
+import { verifyImageProviderMedia } from './imageProviderStorageVerification.js'
 
 export async function buildDeliveryVerificationSnapshot(
   task: GenerationTask,
@@ -16,13 +18,33 @@ export async function buildDeliveryVerificationSnapshot(
   signal?: AbortSignal,
 ) {
   const baseEvidence = buildGenerationTaskDeliveryEvidence(task)
-  const [tailEvidence, mediaEvidence] = await Promise.all([
+  const imageReceipt = imageProviderCompletionEvidence(task).receipt
+  const [tailEvidence, mediaEvidence, imageProof] = await Promise.all([
     buildVideoTailStorageEvidence(task, storage, checkedAt, signal),
-    buildMediaStorageEvidence(task, storage, checkedAt, signal),
+    imageReceipt ? null : buildMediaStorageEvidence(task, storage, checkedAt, signal),
+    imageReceipt ? verifyImageProviderMedia(task, storage, signal) : null,
   ])
+  const primaryView = task.outputs.find((output) => output.url === task.resultUrl)?.view
+  const primaryProof = imageProof?.outputs.find((output) => output.view === primaryView)?.storageProof
   const evidence = baseEvidence.map((item) => {
     if (item.kind === 'continuity' && tailEvidence) return tailEvidence
     if (item.kind === 'asset' && mediaEvidence) return mediaEvidence
+    if (item.kind === 'asset' && primaryProof) {
+      return {
+        ...item,
+        status: primaryProof.status,
+        observedAt: checkedAt,
+        details: { ...item.details, storageProof: primaryProof },
+      }
+    }
+    if (item.kind === 'provider' && item.status === 'passed' && imageProof) {
+      return {
+        ...item,
+        status: imageProof.status,
+        observedAt: checkedAt,
+        details: { ...item.details, currentMediaProof: imageProof },
+      }
+    }
     if (item.kind === 'provider' && item.status === 'passed' && mediaEvidence?.status !== 'passed') {
       return {
         ...item,

@@ -28,7 +28,7 @@ export function assertNewDeliveryContractPolicy(task: GenerationTask, contract: 
     throw new AppError(
       400,
       'DELIVERY_PROVIDER_COMPLETION_REQUIRED',
-      '新的 Seedance 视频交付合同必须包含 Provider 完成回执要求，请更新并重新审阅合同草稿',
+      '新的 Seedance 视频或 Image2 图片交付合同必须包含 Provider 完成回执要求，请更新并重新审阅合同草稿',
     )
   }
 }

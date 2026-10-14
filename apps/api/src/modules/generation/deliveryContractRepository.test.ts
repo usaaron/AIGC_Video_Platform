@@ -78,9 +78,9 @@ describe('delivery contract task persistence', () => {
   })
 
   it.each([
-    ['image', 'img2'],
+    ['image', 'hunyuan'],
     ['video', 'local-compose'],
-  ] as const)('does not impose the video provider policy on %s/%s', async (kind, provider) => {
+  ] as const)('does not impose remote completion policy on %s/%s', async (kind, provider) => {
     const { task, repository, store } = await fixture()
     await store.mutate((state) => {
       state.tasks[0]!.kind = kind
@@ -92,6 +92,27 @@ describe('delivery contract task persistence', () => {
     }
     const frozen = await repository.freezeDeliveryContract(task.id, draft, task.updatedAt, principal)
     expect((frozen.metadata.deliveryContract as typeof contract).must).toEqual(draft.must)
+  })
+
+  it('requires completion for new Image2 image contracts while preserving historical contracts', async () => {
+    const { task, repository, store } = await fixture()
+    await store.mutate((state) => {
+      state.tasks[0]!.kind = 'image'
+      state.tasks[0]!.provider = 'img2'
+    })
+    const draft = deliveryContractSchema.parse({
+      ...contract,
+      intent: { ...contract.intent, mode: 'asset' },
+      expectedArtifact: { type: 'image', count: 1 },
+      must: [{ id: 'media-url', source: 'provider', statement: '当前主图可读' }],
+    })
+    await expect(
+      repository.freezeDeliveryContract(task.id, draft, task.updatedAt, principal),
+    ).rejects.toMatchObject({ code: 'DELIVERY_PROVIDER_COMPLETION_REQUIRED' })
+    const required = { ...draft, must: [...draft.must, DELIVERY_PROVIDER_COMPLETION_REQUIREMENT] }
+    const frozen = await repository.freezeDeliveryContract(task.id, required, task.updatedAt, principal)
+    expect((frozen.metadata.deliveryContract as typeof contract).must).toEqual(required.must)
+    expect(draft.must).toHaveLength(1)
   })
 
   it('checks authorization, project, version and already-frozen state before new-freeze policy', async () => {

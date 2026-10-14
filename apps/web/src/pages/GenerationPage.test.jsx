@@ -125,7 +125,7 @@ describe('generation membership entry', () => {
     expect(draft.must.map((item) => item.id)).toEqual(['task-completed', 'media-url', 'physical-review'])
   })
 
-  it('only exposes the freeze action for an unfrozen completed video result', () => {
+  it('only exposes the freeze action for unfrozen completed video and Image2 image results', () => {
     const base = {
       projectId: 'project-1',
       kind: 'video',
@@ -136,6 +136,16 @@ describe('generation membership entry', () => {
     }
     expect(canFreezeDeliveryContract(base)).toBe(true)
     expect(canFreezeDeliveryContract({ ...base, kind: 'image' })).toBe(false)
+    expect(canFreezeDeliveryContract({ ...base, kind: 'image', provider: 'img2' })).toBe(true)
+    expect(canFreezeDeliveryContract({ ...base, kind: 'image', provider: 'hunyuan' })).toBe(false)
+    for (const change of [
+      { status: 'running' },
+      { resultUrl: '' },
+      { projectId: '' },
+      { updatedAt: 'invalid' },
+    ]) {
+      expect(canFreezeDeliveryContract({ ...base, kind: 'image', provider: 'img2', ...change })).toBe(false)
+    }
     expect(
       canFreezeDeliveryContract({
         ...base,
@@ -168,7 +178,7 @@ describe('generation membership entry', () => {
 
   it.each([
     { kind: 'image', provider: 'seedance' },
-    { kind: 'image', provider: 'img2' },
+    { kind: 'image', provider: 'hunyuan' },
     { kind: 'video', provider: 'local-compose' },
     { kind: 'video', provider: 'other' },
     { kind: 'video' },
@@ -242,6 +252,24 @@ describe('generation membership entry', () => {
     expect(draft.intent.mode).toBe('asset')
     expect(draft.expectedArtifact).toEqual({ type: 'image', count: 1 })
     expect(draft.must.find((item) => item.id === 'media-url').statement).toBe('必须存在可读取的图片媒体')
+  })
+
+  it('freezes one main image and requires a receipt covering all requested views', () => {
+    const task = { kind: 'image', provider: 'img2', projectId: 'project-1', metadata: { turnaround: true } }
+    const draft = buildDeliveryContractDraft(task)
+    expect(draft.expectedArtifact).toEqual({ type: 'image', count: 1 })
+    expect(draft.must.map((item) => item.id)).toEqual(['task-completed', 'media-url', 'provider-completed'])
+    const html = renderToStaticMarkup(
+      <DeliveryContractFreezeDialog
+        dialog={{ job: task, draft, status: 'editing' }}
+        onClose={() => {}}
+        onSubmit={() => {}}
+      />,
+    )
+    expect(html).toContain('当前主图 × 1')
+    expect(html).toContain('必须存在可读取的图片媒体')
+    expect(html).toContain('data-testid="provider-completion-required"')
+    expect(html).not.toContain('视频 × 1')
   })
 
   it('shows the formal freeze review and server-owned hash boundary', () => {

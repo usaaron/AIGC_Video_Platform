@@ -13,6 +13,7 @@ import { ProjectRepository } from '../../modules/projects/repository.js'
 import { UserRepository } from '../../modules/users/repository.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from '../../testing/postgresAuth.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
+import { syntheticImage } from './taskDispatcher.fixture.js'
 
 const principal: Principal = {
   userId: 'user-member',
@@ -84,6 +85,11 @@ describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
         principal,
       )
       await runner.tick()
+      await vi.waitFor(async () => {
+        expect((await tasks.findById(task.id, principal))?.metadata.providerTaskId).toBe(
+          'synthetic-video-job',
+        )
+      })
       await runner.tick()
       await vi.waitFor(async () => {
         const persisted = await tasks.findById(task.id, principal)
@@ -127,13 +133,13 @@ describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
     }
   })
 
-  it('flushes taskWriteback image completion into generation_tasks and reloads it after restart', async () => {
+  it('flushes trusted Image2 completion into Postgres and preserves its receipt after restart', async () => {
     const { database, store, tasks } = await createGenerationContext()
     try {
       const objectStorage = memoryObjectStorage()
       const imageProvider: ImageGenerationProvider = {
         generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-          { view: 'single', contentType: 'image/png', content: Buffer.from('image-content') },
+          { view: 'single', contentType: 'image/png', content: syntheticImage() },
         ]),
       }
       const task = await tasks.create(
@@ -182,16 +188,32 @@ describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
         resultUrl: `/api/v1/generation/tasks/${task.id}/outputs/single`,
         metadata: {
           providerState: 'completed',
+          providerCompletionReceipt: {
+            version: 'seqora.provider-image-completion.v1',
+            provider: 'img2',
+            providerName: 'tokenadvent-img2',
+            taskId: task.id,
+            attempts: 1,
+            outputs: [{ view: 'single', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }],
+          },
           generatedOutputs: [
             {
               view: 'single',
-              storageKey: `tenant-seqora-demo/project-midnight-film/generated/${task.id}-single.png`,
+              storageKey: expect.stringContaining(
+                `tenant-seqora-demo/project-midnight-film/generated/${task.id}-`,
+              ),
               contentType: 'image/png',
-              size: Buffer.byteLength('image-content'),
+              size: syntheticImage().length,
             },
           ],
         },
       })
+      const completed = recovered.read((state) => state.tasks.find((item) => item.id === task.id))!
+      expect(providerCompletionEvidence(completed).reason).toBe('verified')
+      expect(JSON.stringify(completed.metadata)).not.toContain('leaseToken')
+      expect(JSON.stringify(completed.metadata)).not.toContain('leaseOwnerId')
+      expect(imageProvider.generate).toHaveBeenCalledOnce()
+      runner.stop()
     } finally {
       await database.close()
     }

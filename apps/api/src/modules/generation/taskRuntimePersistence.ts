@@ -5,6 +5,10 @@ import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore } from '../../infra/store.js'
 import { generationTaskColumns, taskFromRow, type GenerationTaskRow } from './repositoryData.js'
 import { clearProviderCompletionContext } from '../../core/jobs/providerCompletionContext.js'
+import {
+  clearImageWorkspaceWriteback,
+  restoreRejectedImageWorkspaceWriteback,
+} from '../../core/jobs/imageWorkspaceWriteback.js'
 import { updateGenerationTaskLifecycle, updateTaskResultTargets } from './taskLifecyclePersistence.js'
 
 type RuntimeTaskSnapshot = {
@@ -31,8 +35,12 @@ export async function persistRuntimeTaskSnapshots(
     }
     return count
   })
-  for (const { task } of snapshots) clearProviderCompletionContext(task)
+  for (const { task } of snapshots) {
+    clearProviderCompletionContext(task)
+    if (!rejected.includes(task)) clearImageWorkspaceWriteback(store, task)
+  }
   await reconcileRejectedProviderCompletions(store, database, rejected)
+  for (const task of rejected) clearImageWorkspaceWriteback(store, task)
   return updated
 }
 
@@ -49,21 +57,34 @@ async function reconcileRejectedProviderCompletions(
     [rejected.map((task) => task.id)],
   )
   const current = new Map(result.rows.map(taskFromRow).map((task) => [task.id, task]))
-  await store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-    for (const snapshot of rejected) {
-      const persisted = current.get(snapshot.id)
-      if (
-        snapshot.metadata.providerCompletionReceipt === undefined &&
-        persisted?.metadata.providerCompletionReceipt === undefined
-      ) {
-        continue
+  await store.mutateRuntimeCachesAsync(
+    (state) => {
+      for (const snapshot of rejected) {
+        const persisted = current.get(snapshot.id)
+        const accepted =
+          persisted?.status === 'completed' &&
+          isDeepStrictEqual(
+            persisted.metadata.providerCompletionReceipt,
+            snapshot.metadata.providerCompletionReceipt,
+          )
+        if (!accepted) restoreRejectedImageWorkspaceWriteback(store, state, snapshot)
+        if (
+          snapshot.metadata.providerCompletionReceipt === undefined &&
+          persisted?.metadata.providerCompletionReceipt === undefined
+        ) {
+          continue
+        }
+        const index = state.tasks.findIndex((task) => task.id === snapshot.id)
+        if (
+          index < 0 ||
+          !isDeepStrictEqual(normalizeGenerationTaskLifecycle(state.tasks[index]!), snapshot)
+        ) {
+          continue
+        }
+        if (persisted) state.tasks[index] = persisted
+        else state.tasks.splice(index, 1)
       }
-      const index = state.tasks.findIndex((task) => task.id === snapshot.id)
-      if (index < 0 || !isDeepStrictEqual(normalizeGenerationTaskLifecycle(state.tasks[index]!), snapshot)) {
-        continue
-      }
-      if (persisted) state.tasks[index] = persisted
-      else state.tasks.splice(index, 1)
-    }
-  })
+    },
+    ['generationTasks', 'projectWorkspace'],
+  )
 }

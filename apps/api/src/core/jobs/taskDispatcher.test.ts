@@ -12,6 +12,8 @@ import { usageCollector } from '../observability/usage.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
 import {
   memoryObjectStorage,
+  imageTask,
+  syntheticImage,
   queuedVideoTasks,
   syntheticTailFrame,
   syntheticVideo,
@@ -336,7 +338,8 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     const firstTick = runner.tick()
     runner.tick()
-    await vi.waitFor(() => expect(lockTaskStates).toContain('running'))
+    await vi.waitFor(() => expect(persistedTickStates).toEqual(['running']))
+    expect(lockTaskStates).toEqual(['queued'])
     releaseTick()
     await firstTick
     await vi.waitFor(() =>
@@ -419,7 +422,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         await new Promise<void>((resolve) => {
           releases[index] = resolve
         })
-        return [{ view: 'single', contentType: 'image/png', content: Buffer.from(`image-${index + 1}`) }]
+        return [{ view: 'single', contentType: 'image/png', content: syntheticImage() }]
       }),
     }
     const objectStorage = memoryObjectStorage()
@@ -459,7 +462,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         () =>
           new Promise((resolve) => {
             releaseGeneration = () =>
-              resolve([{ view: 'single', contentType: 'image/png', content: Buffer.from('generated-image') }])
+              resolve([{ view: 'single', contentType: 'image/png', content: syntheticImage() }])
           }),
       ),
     }
@@ -519,7 +522,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     let failCompletedTaskRefresh = true
     const imageProvider: ImageGenerationProvider = {
       generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-        { view: 'single', contentType: 'image/png', content: Buffer.from('generated-image') },
+        { view: 'single', contentType: 'image/png', content: syntheticImage() },
       ]),
     }
     const taskRunnerLock: TaskRunnerLock = {
@@ -571,7 +574,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await store.mutate((state) => state.tasks.unshift(task))
     const imageProvider: ImageGenerationProvider = {
       generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-        { view: 'single', contentType: 'image/png', content: Buffer.from('idempotent-image') },
+        { view: 'single', contentType: 'image/png', content: syntheticImage() },
       ]),
     }
 
@@ -605,7 +608,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await store.mutate((state) => state.tasks.unshift(task))
     const imageProvider: ImageGenerationProvider = {
       generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-        { view: 'single', contentType: 'image/png', content: Buffer.from('generated-body') },
+        { view: 'single', contentType: 'image/png', content: syntheticImage() },
       ]),
     }
     const files = new Map([['media/uploaded-face.png', Buffer.from('uploaded-face-content')]])
@@ -1859,7 +1862,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         {
           view: 'single',
           contentType: 'image/png',
-          content: Buffer.from('generated-image'),
+          content: syntheticImage(),
         },
       ]),
     }
@@ -1935,7 +1938,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
   it('waits for a storyboard image before submitting its dependent video', async () => {
     const imageProvider: ImageGenerationProvider = {
       generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-        { view: 'single', contentType: 'image/png', content: Buffer.from('storyboard-image') },
+        { view: 'single', contentType: 'image/png', content: syntheticImage() },
       ]),
     }
     const videoProvider: VideoGenerationProvider = {
@@ -2035,7 +2038,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
         prompt: expect.stringContaining('临港市雨夜，镜头缓慢推向废弃火车站'),
         images: [
           {
-            url: `data:image/png;base64,${Buffer.from('storyboard-image').toString('base64')}`,
+            url: `data:image/png;base64,${syntheticImage().toString('base64')}`,
             role: 'reference_image',
           },
         ],
@@ -2222,32 +2225,6 @@ function createTaskClaimer(store: AppStore): TaskClaimer {
     hasImageProvider: true,
     hasObjectStorage: true,
   })
-}
-
-function imageTask(id: string, assetId: string): GenerationTask {
-  const now = new Date().toISOString()
-  return {
-    id,
-    clientRequestId: `${id}-client`,
-    projectId: 'project-midnight-film',
-    tenantId: 'tenant-seqora-demo',
-    userId: 'user-member',
-    kind: 'image',
-    label: id,
-    prompt: '正面人物头像，纯色背景',
-    negativePrompt: '',
-    provider: 'img2',
-    model: 'gpt-image-2',
-    metadata: { assetId, assetKind: 'character', generationStage: 'face', aspectRatio: '1:1' },
-    status: 'queued',
-    progress: 0,
-    estimatedCredits: 4,
-    createdAt: now,
-    updatedAt: now,
-    resultUrl: null,
-    outputs: [],
-    error: null,
-  }
 }
 
 function deferredVideoProvider(): {

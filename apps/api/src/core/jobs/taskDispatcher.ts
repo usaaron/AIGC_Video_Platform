@@ -24,6 +24,7 @@ import {
   VideoTaskExecutor,
 } from './taskRunnerComponents.js'
 import { noopTaskRunnerLock, type TaskRunnerLock } from './taskRunnerLock.js'
+import { captureImageCompletion, recordPersistedImageCompletion } from './imageCompletionDiagnostics.js'
 import type { LocalGenerationTaskHandler } from './localTaskHandler.js'
 import type { VideoSourceUrl } from './taskImageReferences.js'
 
@@ -250,6 +251,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const maintenanceWork: ProviderMaintenanceWork = { videoPolls: [], cancellations: [] }
     await this.beforeTick?.()
     const taskVersionsBeforeTick = this.captureTaskVersions()
+    let claimedTasks: ClaimedRemoteTasks | null = null
     try {
       await this.providerPoller.recoverStatusParseFailures()
       const recoveredSubmissions = await this.claimer.recoverStaleRunningTasks()
@@ -268,23 +270,29 @@ export class GenerationTaskRunner implements TaskDispatcher {
 
       const remoteTasks = await this.claimer.claimQueuedTasks()
 
-      this.scheduleClaimedTasks({
+      claimedTasks = {
         video: [...recoveredSubmissions.video, ...remoteTasks.video],
         image: [...recoveredSubmissions.image, ...remoteTasks.image],
         local: [...recoveredSubmissions.local, ...remoteTasks.local],
-      })
+      }
+      if (!this.persistTickTasks && !this.afterTick) {
+        this.scheduleClaimedTasks(claimedTasks)
+        claimedTasks = null
+      }
 
       await this.writeback.advanceLocalTasks((task) => this.localTaskHandler?.canHandle(task) ?? false)
       maintenanceWork.videoPolls = await this.providerPoller.claimRemoteVideoPolls(
         Math.max(0, availableMaintenanceSlots - maintenanceWork.cancellations.length),
         this.scheduledProviderPolls,
       )
-      return maintenanceWork
     } finally {
       const changedTaskIds = this.changedTaskIdsSince(taskVersionsBeforeTick)
       if (this.persistTickTasks) await this.persistTickTasks(changedTaskIds)
       else await this.afterTick?.()
     }
+    // Persist the source lease before a fast Provider can produce a completion receipt.
+    if (claimedTasks) this.scheduleClaimedTasks(claimedTasks)
+    return maintenanceWork
   }
 
   private availableProviderMaintenanceSlots(): number {
@@ -421,6 +429,19 @@ export class GenerationTaskRunner implements TaskDispatcher {
   ): void {
     for (const task of tasks) {
       if (isStandaloneProjectId(task.projectId)) continue
+      const current = this.store.readGenerationTaskRuntimeCache((state) =>
+        state.tasks.find((item) => item.id === task.id),
+      )
+      if (
+        !current ||
+        current.status !== 'running' ||
+        current.tenantId !== task.tenantId ||
+        current.projectId !== task.projectId ||
+        current.leaseToken !== task.leaseToken ||
+        current.leaseOwnerId !== task.leaseOwnerId ||
+        current.attempts !== task.attempts
+      )
+        continue
       if (this.activeExecutions.has(task.id)) continue
       this.activeExecutions.add(task.id)
       usageCollector.startJob({
@@ -480,8 +501,10 @@ export class GenerationTaskRunner implements TaskDispatcher {
       await execute(task)
     } finally {
       stopHeartbeat()
+      const completedImage = captureImageCompletion(this.store, task)
       try {
         await this.runTaskMutation(task.id, async () => {}, false)
+        recordPersistedImageCompletion(this.store, completedImage)
       } catch (error) {
         this.warnTaskRunnerFailure('final state refresh', task.id, error)
       }

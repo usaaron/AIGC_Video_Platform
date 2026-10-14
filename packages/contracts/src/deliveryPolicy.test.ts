@@ -9,7 +9,8 @@ describe('new delivery contract provider policy', () => {
   it.each([
     [{ kind: 'video', provider: 'seedance' }, true],
     [{ kind: 'image', provider: 'seedance' }, false],
-    [{ kind: 'image', provider: 'img2' }, false],
+    [{ kind: 'image', provider: 'img2' }, true],
+    [{ kind: 'image', provider: 'hunyuan' }, false],
     [{ kind: 'video', provider: 'local-compose' }, false],
     [{ kind: 'video' }, false],
     [{ provider: 'seedance' }, false],
@@ -23,7 +24,7 @@ describe('new delivery contract provider policy', () => {
     expect(deliveryRequirementSchema.parse(DELIVERY_PROVIDER_COMPLETION_REQUIREMENT)).toEqual({
       id: 'provider-completed',
       source: 'provider',
-      statement: '必须具备服务端观察 Provider 完成并完整保存当前主视频的可信回执',
+      statement: '必须具备服务端观察 Provider 完成并完整保存本次媒体输出的可信回执',
     })
   })
 

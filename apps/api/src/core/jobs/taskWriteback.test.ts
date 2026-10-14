@@ -9,25 +9,33 @@ import { AppStore } from '../../infra/store.js'
 import { claimGenerationTaskLease } from './taskLease.js'
 import { generatedDescriptors, GenerationResultWriteback } from './taskWriteback.js'
 import { providerPollBinding } from './providerCompletion.js'
+import { prepareImageCompletion } from './imageProviderCompletion.js'
+import { imageRequestFor } from './imageTaskRequest.js'
 
 const validVideo = Buffer.from('000000186674797069736f6d0000020069736f6d69736f32', 'hex')
+const validImage = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
 
 describe('GenerationResultWriteback content hashes', () => {
   it('retains a separate exact-byte hash for each stored image through completion', async () => {
     const { store, storage, stored, task, leaseToken, writeback } = await fixture('image')
     const outputs: ImageGenerationOutput[] = [
-      { view: 'front', contentType: 'image/png', content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0xff]) },
-      { view: 'side', contentType: 'image/png', content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0xfe]) },
+      { view: 'front', contentType: 'image/png', content: Buffer.concat([validImage, Buffer.from('front')]) },
+      { view: 'side', contentType: 'image/png', content: Buffer.concat([validImage, Buffer.from('side')]) },
+      { view: 'back', contentType: 'image/png', content: Buffer.concat([validImage, Buffer.from('back')]) },
     ]
-
-    const descriptors = await writeback.persistImageOutputs(task, outputs)
+    task.metadata.turnaround = true
+    await store.mutate((state) => {
+      state.tasks.find((item) => item.id === task.id)!.metadata.turnaround = true
+    })
+    const binding = prepareImageCompletion(task, imageRequestFor(task, []))
+    const descriptors = await writeback.persistImageOutputs(task, outputs, binding)
     await writeback.completeImageTask(task.id, 'test-worker', leaseToken, descriptors)
 
     expect(storage.put).toHaveBeenCalledTimes(outputs.length)
     expect(descriptors).toEqual(
       outputs.map((output) => ({
         view: output.view,
-        storageKey: `${task.tenantId}/${task.projectId}/generated/${task.id}-${output.view}.png`,
+        storageKey: `${task.tenantId}/${task.projectId}/generated/${task.id}-attempt-1-${sha256(output.content)}-${output.view}.png`,
         contentType: output.contentType,
         size: output.content.length,
         sha256: sha256(output.content),
@@ -45,6 +53,11 @@ describe('GenerationResultWriteback content hashes', () => {
     const completed = store.read((state) => state.tasks.find((item) => item.id === task.id))
     expect(completed).toMatchObject({ status: 'completed', leaseToken: null })
     expect(generatedDescriptors(completed)).toEqual(descriptors)
+    expect(completed?.metadata.providerCompletionReceipt).toMatchObject({
+      version: 'seqora.provider-image-completion.v1',
+      requestId: task.metadata.providerIdempotencyKey,
+      outputs: descriptors,
+    })
   })
 
   it('hashes complete binary video and last-frame streams and persists both descriptors', async () => {
@@ -113,7 +126,11 @@ describe('GenerationResultWriteback content hashes', () => {
       const provider = videoProvider(content, content)
       const pending =
         kind === 'image'
-          ? writeback.persistImageOutputs(task, [{ view: 'single', contentType: 'image/png', content }])
+          ? writeback.persistImageOutputs(
+              task,
+              [{ view: 'single', contentType: 'image/png', content: validImage }],
+              prepareImageCompletion(task, imageRequestFor(task, [])),
+            )
           : kind === 'video'
             ? writeback.persistVideoContent(task, 'provider-task', provider)
             : writeback.persistVideoLastFrame(task, 'provider-task', provider)
@@ -250,7 +267,13 @@ async function fixture(kind: 'image' | 'video') {
     negativePrompt: '',
     provider: kind === 'video' ? 'seedance' : 'img2',
     model: null,
-    metadata: kind === 'video' ? { providerName: 'stringx-seedance', providerTaskId: 'provider-task' } : {},
+    metadata:
+      kind === 'video'
+        ? { providerName: 'stringx-seedance', providerTaskId: 'provider-task' }
+        : {
+            providerName: 'tokenadvent-img2',
+            providerIdempotencyKey: 'image-request-key',
+          },
     status: 'running',
     progress: 0,
     estimatedCredits: 1,

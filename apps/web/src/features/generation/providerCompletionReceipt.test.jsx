@@ -74,6 +74,67 @@ function proof(status) {
 
 const render = (value) => renderToStaticMarkup(<ProviderCompletionReceipt snapshot={value} enabled />)
 
+function imageSnapshot(views = ['front', 'side', 'back']) {
+  const value = structuredClone(snapshot())
+  value.contract.expectedArtifact = { type: 'image', count: 1 }
+  value.contract.intent.mode = 'asset'
+  value.evidence[0].details.provider = 'img2'
+  value.evidence[0].details.completion.receipt = {
+    version: 'seqora.provider-image-completion.v1',
+    attestation: 'server-observed-completion',
+    tenantId: 'tenant-1',
+    projectId: 'project-1',
+    taskId: 'task-1',
+    provider: 'img2',
+    providerName: 'tokenadvent-img2',
+    requestId: 'private-image-idempotency-key',
+    attempts: 2,
+    completedAt: checkedAt,
+    mediaVersion: receipt.mediaVersion,
+    outputs: views.map((view, index) => ({
+      view,
+      storageKey: `private-image-storage-key-${view}`,
+      contentType: 'image/png',
+      size: (index + 1) * 1024,
+      sha256: String(index + 1).repeat(64),
+    })),
+  }
+  value.evidence[0].details.currentMediaProof = imageProof(value)
+  return value
+}
+
+function imageProof(value, status = 'passed') {
+  const outputs = value.evidence[0].details.completion.receipt.outputs
+  return {
+    status,
+    reason: status === 'passed' ? 'verified' : status === 'failed' ? 'output-failed' : 'output-pending',
+    expectedOutputCount: outputs.length,
+    verifiedOutputCount: status === 'passed' ? outputs.length : outputs.length - 1,
+    outputs: outputs.map((output, index) => ({
+      view: output.view,
+      storageProof: {
+        status: index === outputs.length - 1 ? status : 'passed',
+        reason:
+          index !== outputs.length - 1 || status === 'passed'
+            ? 'verified'
+            : status === 'failed'
+              ? 'checksum-mismatch'
+              : 'read-timeout',
+        contentType: output.contentType,
+        expectedSize: output.size,
+        actualSize: status === 'pending' && index === outputs.length - 1 ? null : output.size,
+        expectedSha256: output.sha256,
+        actualSha256:
+          index !== outputs.length - 1 || status === 'passed'
+            ? output.sha256
+            : status === 'failed'
+              ? 'f'.repeat(64)
+              : null,
+      },
+    })),
+  }
+}
+
 describe('server provider receipt display', () => {
   it('renders a passed server observation with a minimal safe summary', () => {
     const value = snapshot({ secretExtraField: 'private-metadata-value' })
@@ -202,7 +263,7 @@ describe('server provider receipt display', () => {
   )
 
   it.each([
-    { kind: 'image', provider: 'img2' },
+    { kind: 'image', provider: 'other' },
     { kind: 'video', provider: 'local-compose' },
     { kind: 'video', provider: 'other' },
   ])('does not add a mandatory provider receipt checkbox for $kind/$provider', (job) => {
@@ -214,5 +275,149 @@ describe('server provider receipt display', () => {
     value.contract = null
     value.evidence[0].details.provider = 'local-compose'
     expect(providerCompletionReceiptView(value)).toBeNull()
+  })
+})
+
+describe('image provider receipt display', () => {
+  it.each([['single'], ['front', 'side', 'back']])(
+    'summarizes %j output views without private identifiers',
+    (...views) => {
+      const value = imageSnapshot(views)
+      const html = render(value)
+      const display = providerCompletionReceiptView(value)
+      expect(html).toContain('服务端完成回执已核验')
+      expect(html).toContain('TokenAdvent / Image2')
+      expect(html).toContain('回执覆盖视图')
+      expect(html).toContain('当前全部图片字节通过核验')
+      expect(html).toContain('正式下载仍仅包含当前主图（1 个图片文件）')
+      expect(html).toContain('不会打包下载全部视图')
+      expect(html).not.toContain('主视频')
+      expect(display.receipt.viewCount).toBe(views.length)
+      expect(display.receipt.outputs).toHaveLength(views.length)
+      for (const secret of [
+        'private-image-idempotency-key',
+        'private-image-storage-key',
+        'private-media-version',
+        'requestId',
+        'storageKey',
+        'mediaVersion',
+        '1'.repeat(64),
+      ]) {
+        expect(html).not.toContain(secret)
+        expect(JSON.stringify(display)).not.toContain(secret)
+      }
+    },
+  )
+
+  it.each(['pending', 'failed', 'observed'])(
+    'keeps final server %s status even with a valid image receipt',
+    (status) => {
+      const value = imageSnapshot()
+      value.evidence[0].status = status
+      expect(providerCompletionReceiptView(value).status).toBe(status)
+      expect(render(value)).not.toContain('服务端完成回执已核验')
+    },
+  )
+
+  it.each(['pending', 'failed'])('does not show passed when a secondary view is %s', (status) => {
+    const value = imageSnapshot()
+    value.evidence[0].details.currentMediaProof = imageProof(value, status)
+    expect(providerCompletionReceiptView(value).status).toBe(status)
+    expect(render(value)).not.toContain('服务端完成回执已核验')
+    expect(render(value)).toContain(status === 'failed' ? '当前图片输出核验失败' : '当前图片输出仍待核验')
+  })
+
+  it.each(['absent', 'null', 'wrong-view', 'wrong-count', 'video-proof'])(
+    'keeps incomplete image proof %s pending',
+    (mode) => {
+      const value = imageSnapshot()
+      if (mode === 'absent') delete value.evidence[0].details.currentMediaProof
+      if (mode === 'null') value.evidence[0].details.currentMediaProof = null
+      if (mode === 'wrong-view') value.evidence[0].details.currentMediaProof.outputs[0].view = 'detail'
+      if (mode === 'wrong-count') value.evidence[0].details.currentMediaProof.expectedOutputCount = 1
+      if (mode === 'video-proof') value.evidence[0].details.currentMediaProof = proof('passed')
+      expect(providerCompletionReceiptView(value).status).toBe('pending')
+      expect(render(value)).not.toContain('服务端完成回执已核验')
+    },
+  )
+
+  it.each([
+    ['contentType', 'image/jpeg'],
+    ['expectedSize', 1],
+    ['expectedSha256', 'f'.repeat(64)],
+    ['actualSize', 1],
+    ['actualSha256', 'f'.repeat(64)],
+    ['reason', 'checksum-mismatch'],
+  ])('keeps a passed image proof with mismatched %s pending', (field, invalid) => {
+    const value = imageSnapshot()
+    value.evidence[0].details.currentMediaProof.outputs[1].storageProof[field] = invalid
+    expect(providerCompletionReceiptView(value).status).toBe('pending')
+    expect(render(value)).not.toContain('服务端完成回执已核验')
+  })
+
+  it('preserves final server failure when a current image proof mismatches the receipt', () => {
+    const value = imageSnapshot()
+    value.evidence[0].status = 'failed'
+    value.evidence[0].details.currentMediaProof.outputs[1].storageProof.expectedSha256 = 'f'.repeat(64)
+    expect(providerCompletionReceiptView(value).status).toBe('failed')
+    expect(render(value)).not.toContain('服务端完成回执已核验')
+  })
+
+  it.each([
+    'version',
+    'provider',
+    'providerName',
+    'requestId',
+    'tenant',
+    'project',
+    'task',
+    'mediaVersion',
+    'duplicate-view',
+    'extra-field',
+    'sha256',
+    'empty-outputs',
+  ])('rejects an invalid image receipt %s', (field) => {
+    const value = imageSnapshot()
+    const image = value.evidence[0].details.completion.receipt
+    if (field === 'version') image.version = 'seqora.provider-completion.v1'
+    if (field === 'provider') image.provider = 'seedance'
+    if (field === 'providerName') image.providerName = 'dora-router-seedance'
+    if (field === 'requestId') delete image.requestId
+    if (field === 'tenant') image.tenantId = 'other-tenant'
+    if (field === 'project') image.projectId = 'other-project'
+    if (field === 'task') image.taskId = 'other-task'
+    if (field === 'mediaVersion') image.mediaVersion = 'other-version'
+    if (field === 'duplicate-view') image.outputs.push(image.outputs[0])
+    if (field === 'extra-field') image.outputs[0].privateField = 'unexpected'
+    if (field === 'sha256') image.outputs[0].sha256 = 'invalid'
+    if (field === 'empty-outputs') image.outputs = []
+    expect(providerCompletionReceiptView(value).status).toBe('pending')
+    expect(render(value)).not.toContain('服务端完成回执已核验')
+  })
+
+  it('keeps historical image missing receipts pending and leaves old contracts unchanged', () => {
+    const value = imageSnapshot()
+    value.contract.must = [{ id: 'media-url', source: 'provider', statement: '历史主图可读' }]
+    value.evidence[0].status = 'observed'
+    value.evidence[0].details.completion = { reason: 'missing-receipt', receipt: null }
+    const before = structuredClone(value)
+    const html = render(value)
+    expect(html).toContain('未纳入 Provider 完成回执要求')
+    expect(html).toContain('不会自动补签')
+    expect(html).toContain('正式下载仍仅包含当前主图')
+    expect(html).not.toContain('服务端完成回执已核验')
+    expect(value).toEqual(before)
+  })
+
+  it('shows a fixed image completion requirement and describes one-file download scope', () => {
+    const html = renderToStaticMarkup(
+      <ProviderCompletionRequirement job={{ kind: 'image', provider: 'img2' }} />,
+    )
+    expect(html).toContain('data-testid="provider-completion-required"')
+    expect(html).toContain('checked=""')
+    expect(html).toContain('disabled=""')
+    expect(html).toContain('完整保存本次所有图片视图')
+    expect(html).toContain('不会打包下载全部视图')
+    expect(html).not.toContain('主视频')
   })
 })

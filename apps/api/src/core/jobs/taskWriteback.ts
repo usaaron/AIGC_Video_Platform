@@ -6,6 +6,13 @@ import type { ObjectStorage } from '../../infra/objectStorage.js'
 import type { AppStore } from '../../infra/store.js'
 import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { writeCharacterAppearance } from './characterAppearanceWriteback.js'
+import { captureImageWorkspaceWriteback, recordImageWorkspaceWriteback } from './imageWorkspaceWriteback.js'
+import {
+  persistProviderImages,
+  recordImageProviderCompletion,
+  verifiedImageCompletionBinding,
+  type ImageCompletionBinding,
+} from './imageProviderCompletion.js'
 import {
   persistProviderVideo,
   providerPollLeaseMatches,
@@ -37,22 +44,12 @@ export class GenerationResultWriteback {
   async persistImageOutputs(
     task: GenerationTask,
     outputs: ImageGenerationOutput[],
+    binding: ImageCompletionBinding,
   ): Promise<GeneratedOutputDescriptor[]> {
-    if (isStandaloneProjectId(task.projectId)) return []
-    if (!this.objectStorage) return []
-    const descriptors: GeneratedOutputDescriptor[] = []
-    for (const output of outputs) {
-      const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-${output.view}.png`
-      await this.objectStorage.put(storageKey, output.content, output.contentType)
-      descriptors.push({
-        view: output.view,
-        storageKey,
-        contentType: output.contentType,
-        size: output.content.length,
-        sha256: createHash('sha256').update(output.content).digest('hex'),
-      })
-    }
-    return descriptors
+    if (isStandaloneProjectId(task.projectId))
+      throw new Error('Main generation worker cannot write an independent project')
+    if (!this.objectStorage) throw new Error('Image storage is not configured')
+    return persistProviderImages(task, outputs, this.objectStorage, binding)
   }
 
   async completeImageTask(
@@ -66,24 +63,35 @@ export class GenerationResultWriteback {
         const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
         if (!task || task.status !== 'running') return null
         if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return null
-        task.status = 'completed'
-        task.progress = 100
-        task.error = null
-        task.metadata = { ...task.metadata, providerState: 'completed', generatedOutputs: descriptors }
-        task.outputs = descriptors.map((descriptor) => ({
+        const binding = verifiedImageCompletionBinding(task, descriptors, leaseOwnerId, leaseToken)
+        if (!binding) return null
+        const completed: GenerationTask = {
+          ...task,
+          status: 'completed',
+          progress: 100,
+          error: null,
+          metadata: { ...task.metadata, providerState: 'completed', generatedOutputs: descriptors },
+          updatedAt: new Date().toISOString(),
+        }
+        completed.outputs = descriptors.map((descriptor) => ({
           id: `${task.id}-${descriptor.view}`,
           url: `/api/v1/generation/tasks/${task.id}/outputs/${descriptor.view}`,
           mediaType: 'image',
           view: descriptor.view,
         }))
-        task.resultUrl = task.outputs[0]?.url ?? null
-        task.updatedAt = new Date().toISOString()
+        completed.resultUrl = completed.outputs[0]?.url ?? null
+        if (!recordImageProviderCompletion(completed, descriptors, binding)) return null
+        Object.assign(task, completed)
         releaseGenerationTaskLease(task)
 
         const assetId = typeof task.metadata.assetId === 'string' ? task.metadata.assetId : null
         const shotId = typeof task.metadata.shotId === 'string' ? task.metadata.shotId : null
         const asset = state.assets.find((item) => item.id === assetId && item.projectId === task.projectId)
-        const shot = state.shots.find((item) => item.id === shotId && item.projectId === task.projectId)
+        const shot = state.shots.find(
+          (item) =>
+            item.id === shotId && item.projectId === task.projectId && item.tenantId === task.tenantId,
+        )
+        const workspaceBefore = captureImageWorkspaceWriteback(task, asset, shot)
         if (asset && asset.tenantId === task.tenantId && task.resultUrl) {
           if (writeCharacterAppearance(asset, task)) asset.imageUrl = task.resultUrl
           asset.updatedAt = task.updatedAt
@@ -93,6 +101,7 @@ export class GenerationResultWriteback {
           shot.selectedImageTaskId = task.id
           shot.updatedAt = task.updatedAt
         }
+        recordImageWorkspaceWriteback(this.store, task, workspaceBefore)
         return task
       },
       ['generationTasks', 'projectWorkspace'],

@@ -55,7 +55,12 @@ export async function prepareDeliveryDownload(
     const sourceFingerprint = deliveryTaskFingerprint(task)
     const captured = await captureDeliveryMedia(task, storage, signal)
     const checkedAt = new Date().toISOString()
-    const snapshot = await buildDeliveryVerificationSnapshot(task, captured.snapshotStorage, checkedAt)
+    const snapshot = await buildDeliveryVerificationSnapshot(
+      task,
+      captured.snapshotStorage,
+      checkedAt,
+      signal,
+    )
     const gate = evaluateDeliveryGate({ task, ...snapshot, verifiedAt: checkedAt })
     if (!gate.allowed) throw new AppError(409, 'DELIVERY_GATE_BLOCKED', gate.rationale)
     assertDownloadActive(signal)

@@ -17,9 +17,11 @@ import type { AppConfig } from './config.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import type { ImageGenerationProvider } from './core/generation/imageProvider.js'
 import { TextGenerationProviderError, type TextGenerationProvider } from './core/generation/textProvider.js'
-import type { AssetLibraryProvider, ProviderPortrait } from './core/generation/volcArkAssetLibraryProvider.js'
+import type { AssetLibraryProvider } from './core/generation/volcArkAssetLibraryProvider.js'
 import type { FilmPreviewDispatcher } from './core/film/filmPreviewComposer.js'
 import { GenerationTaskRunner, noopTaskDispatcher } from './core/jobs/taskDispatcher.js'
+import { syntheticImage } from './core/jobs/taskDispatcher.fixture.js'
+import { portrait } from './testing/portraitFixture.js'
 import { createPublicMediaToken } from './core/media/publicMediaToken.js'
 import { AppStore, defaultAssetAttributes } from './infra/store.js'
 import { AccountDatabase } from './infra/postgres.js'
@@ -3655,7 +3657,7 @@ describe('API authorization', () => {
   it('serves a generated image after the background task completes', async () => {
     const imageProvider: ImageGenerationProvider = {
       generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-        { view: 'single', contentType: 'image/png', content: Buffer.from('generated-png') },
+        { view: 'single', contentType: 'image/png', content: syntheticImage() },
       ]),
     }
     app = await buildApp({ config: testConfig, imageProvider, startWorker: false })
@@ -3697,23 +3699,9 @@ describe('API authorization', () => {
     const output = await app.inject({ method: 'GET', url: completed!.resultUrl!, headers })
     expect(output.statusCode).toBe(200)
     expect(output.headers['content-type']).toContain('image/png')
-    expect(output.body).toBe('generated-png')
+    expect(output.rawPayload).toEqual(syntheticImage())
   })
 })
-
-function portrait(groupType: ProviderPortrait['groupType']): ProviderPortrait {
-  return {
-    assetId: groupType === 'LivenessFace' ? 'asset-live-1' : 'asset-aigc-1',
-    groupId: groupType === 'LivenessFace' ? 'group-live-1' : 'group-aigc-1',
-    groupType,
-    name: '演员甲',
-    assetType: 'Image',
-    status: 'active',
-    previewUrl: 'https://assets.example/portrait.jpg',
-    errorCode: null,
-    errorMessage: null,
-  }
-}
 
 describe('film preview composition', () => {
   it('creates a zero-credit composition task from every completed shot video', async () => {
@@ -3910,7 +3898,7 @@ describe('one-click quick start', () => {
   }
   const imageProvider: ImageGenerationProvider = {
     generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
-      { view: 'single', contentType: 'image/png', content: Buffer.from('quick-start-image') },
+      { view: 'single', contentType: 'image/png', content: syntheticImage() },
     ]),
   }
 
