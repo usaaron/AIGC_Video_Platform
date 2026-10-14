@@ -1,12 +1,20 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DELIVERY_REQUIREMENT_IDS } from '@seqora/contracts'
+import {
+  DELIVERY_REQUIREMENT_IDS,
+  DELIVERY_PROVIDER_COMPLETION_REQUIREMENT,
+  deliveryContractRequiresProviderCompletion,
+} from '@seqora/contracts'
 import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Play, Zap } from 'lucide-react'
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { VideoPreviewModal } from '../components/VideoPreviewModal'
 import { JobRow, PageHeader } from '../components/ui'
 import { DeliveryDownload } from '../features/generation/DeliveryDownload'
 import { inspectDeliveryDialog } from '../features/generation/deliveryInspection'
+import {
+  ProviderCompletionReceipt,
+  ProviderCompletionRequirement,
+} from '../features/generation/ProviderCompletionReceipt'
 
 const filters = [
   ['all', '全部'],
@@ -333,6 +341,9 @@ export function buildDeliveryContractDraft(job) {
         statement: artifactType === 'image' ? '必须存在可读取的图片媒体' : '必须存在可读取的视频媒体',
         source: 'provider',
       },
+      ...(deliveryContractRequiresProviderCompletion(job ?? {})
+        ? [{ ...DELIVERY_PROVIDER_COMPLETION_REQUIREMENT }]
+        : []),
       ...(hasPhysicsEvidence
         ? [
             {
@@ -426,6 +437,12 @@ export function DeliveryVerificationDialog({ dialog, onClose, onDownload, onRefr
               {snapshot.evidence?.length || 0} 条
             </small>
           </div>
+        )}
+        {status === 'ready' && (
+          <ProviderCompletionReceipt
+            snapshot={snapshot}
+            enabled={deliveryContractRequiresProviderCompletion(job ?? {})}
+          />
         )}
         {status === 'ready' && gate && (
           <section className={`delivery-gate-result ${gate.status}`} aria-label="正式交付门禁">
@@ -521,6 +538,7 @@ export function DeliveryContractFreezeDialog({ dialog, onClose, onSubmit, onTogg
                 <input type="checkbox" checked readOnly />
                 <span>必须存在可读取的视频媒体</span>
               </label>
+              <ProviderCompletionRequirement job={job} />
               {job?.metadata?.rigidPhysicsContract || job?.metadata?.rigidPhysicsAudit ? (
                 <label>
                   <input

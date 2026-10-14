@@ -144,6 +144,70 @@ describe('generation membership entry', () => {
     ).toBe(false)
   })
 
+  it.each([{}, { providerCompletionReceipt: { forged: true } }, { providerName: 'unknown-adapter' }])(
+    'requires server completion for every new Seedance video contract regardless of metadata',
+    (metadata) => {
+      const task = { kind: 'video', provider: 'seedance', projectId: 'project-1', metadata }
+      const draft = buildDeliveryContractDraft(task)
+      expect(draft.must.map((item) => item.id)).toEqual(['task-completed', 'media-url', 'provider-completed'])
+      const html = renderToStaticMarkup(
+        <DeliveryContractFreezeDialog
+          dialog={{ job: task, draft, status: 'editing' }}
+          onClose={() => {}}
+          onSubmit={() => {}}
+        />,
+      )
+      expect(html).toContain('data-testid="provider-completion-required"')
+      expect(html).toMatch(
+        /<input[^>]+disabled=""[^>]+data-testid="provider-completion-required"[^>]+checked=""/,
+      )
+      expect(html).toContain('此回执不代表上游签名或内容质量验收')
+      expect(html).toContain('不会自动付费重新生成')
+    },
+  )
+
+  it.each([
+    { kind: 'image', provider: 'seedance' },
+    { kind: 'image', provider: 'img2' },
+    { kind: 'video', provider: 'local-compose' },
+    { kind: 'video', provider: 'other' },
+    { kind: 'video' },
+    { kind: 'text', provider: 'seedance' },
+  ])('does not add remote completion requirements to $kind/$provider', (task) => {
+    const draft = buildDeliveryContractDraft({
+      ...task,
+      projectId: 'project-1',
+      metadata: { providerCompletionReceipt: { forged: true } },
+    })
+    expect(draft.must.map((item) => item.id)).not.toContain('provider-completed')
+  })
+
+  it('does not render a provider receipt from task metadata when the server snapshot has none', () => {
+    const html = renderToStaticMarkup(
+      <DeliveryVerificationDialog
+        dialog={{
+          job: {
+            kind: 'video',
+            provider: 'seedance',
+            metadata: {
+              providerCompletionReceipt: {
+                providerTaskId: 'secret-provider-id',
+                media: { storageKey: 'secret-storage-key' },
+              },
+            },
+          },
+          status: 'ready',
+          snapshot: { taskId: 'task-1', contract: null, evidence: [], verification: null },
+        }}
+        onClose={() => {}}
+      />,
+    )
+    expect(html).toContain('完成回执待补证据')
+    expect(html).not.toContain('secret-provider-id')
+    expect(html).not.toContain('secret-storage-key')
+    expect(html).not.toContain('服务端完成回执已核验')
+  })
+
   it('uses a shot contract for a standalone video without inventing a shot ID', () => {
     const draft = buildDeliveryContractDraft({ kind: 'video', projectId: 'project-1', metadata: {} })
     expect(draft.intent).toEqual({

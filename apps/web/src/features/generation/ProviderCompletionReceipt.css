@@ -1,0 +1,69 @@
+.provider-completion-receipt {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  min-width: 0;
+}
+
+.provider-completion-head {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-completion-head span,
+.provider-completion-receipt dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.provider-completion-receipt strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.provider-completion-receipt.passed strong {
+  color: var(--accent-strong);
+}
+
+.provider-completion-receipt.failed strong,
+.provider-completion-receipt.failed .provider-completion-media-state {
+  color: var(--danger);
+}
+
+.provider-completion-receipt p,
+.provider-completion-freeze-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.provider-completion-receipt dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.provider-completion-receipt dl > div {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.provider-completion-receipt dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .provider-completion-receipt dl > div {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+}

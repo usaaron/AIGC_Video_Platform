@@ -6,6 +6,7 @@ import { GenerationService } from './service.js'
 import { registerGenerationRoutes } from './routes.js'
 import { buildQueuedGenerationTask } from './taskCreation.js'
 import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
+import { DELIVERY_PROVIDER_COMPLETION_REQUIREMENT } from '@seqora/contracts'
 
 describe('delivery contract HTTP boundary', () => {
   it('authenticates, validates and persists one frozen contract without dispatching', async () => {
@@ -47,11 +48,23 @@ describe('delivery contract HTTP boundary', () => {
         version: 'seqora.delivery.v1',
         intent: { mode: 'shot', projectId: task.projectId, shotIds: ['shot-1'] },
         expectedArtifact: { type: 'video', count: 1 },
-        must: [{ id: 'media-url', statement: '视频候选可读', source: 'provider' }],
+        must: [
+          DELIVERY_PROVIDER_COMPLETION_REQUIREMENT,
+          { id: 'media-url', statement: '视频候选可读', source: 'provider' },
+        ],
       },
     }
     try {
       expect((await app.inject({ method: 'POST', url, payload: input })).statusCode).toBe(401)
+      const missing = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-test-user': 'member' },
+        payload: { ...input, contract: { ...input.contract, must: [input.contract.must[1]] } },
+      })
+      expect(missing.statusCode).toBe(400)
+      expect(missing.json().code).toBe('DELIVERY_PROVIDER_COMPLETION_REQUIRED')
+      expect(store.read((state) => state.tasks[0]?.metadata.deliveryContract)).toBeUndefined()
       expect(
         (
           await app.inject({

@@ -50,7 +50,7 @@ import {
 } from './taskRuntimeCache.js'
 import { findControlledTask, metadataString } from './taskStateHelpers.js'
 import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
-import { freezeDeliveryContract } from './deliveryContractFreeze.js'
+import { freezeTaskDeliveryContract, requirePersistedDeliveryContract } from './deliveryContractPolicy.js'
 import {
   assertStoryboardTaskTarget,
   assertStoryboardTaskTargetInState,
@@ -810,30 +810,12 @@ export class GenerationTaskRepository {
     expectedUpdatedAt: string,
     principal: Principal,
   ): Promise<GenerationTask> {
-    const apply = (task: GenerationTask | null | undefined): GenerationTask => {
-      if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权冻结合同')
-      if (task.status === 'cancelled') {
-        throw new AppError(409, 'DELIVERY_CONTRACT_NOT_FREEZABLE', '已取消任务不能冻结交付合同')
-      }
-      if (contract.intent.projectId !== task.projectId) {
-        throw new AppError(409, 'DELIVERY_CONTRACT_SCOPE_MISMATCH', '交付合同必须属于当前项目')
-      }
-      if (task.updatedAt !== expectedUpdatedAt) {
-        throw new AppError(409, 'DELIVERY_CONTRACT_STALE', '任务已变化，请刷新后重新冻结合同')
-      }
-      if (task.metadata.deliveryContract !== undefined) {
-        throw new AppError(409, 'DELIVERY_CONTRACT_ALREADY_FROZEN', '当前任务已经冻结交付合同')
-      }
-      const frozenAt = new Date(Math.max(Date.now(), Date.parse(task.updatedAt) + 1)).toISOString()
-      const frozen = freezeDeliveryContract(contract, frozenAt)
-      task.metadata = { ...task.metadata, deliveryContract: frozen }
-      task.updatedAt = frozenAt
-      return task
-    }
+    const apply = (task: GenerationTask | null | undefined) =>
+      freezeTaskDeliveryContract(task, contract, expectedUpdatedAt)
     if (this.database) {
       const task = await this.database.transaction(async (client) => {
         const task = apply(await findControlledTaskInDatabase(client, taskId, principal))
-        return (await updateGenerationTaskLifecycle(client, task)) ?? task
+        return requirePersistedDeliveryContract(await updateGenerationTaskLifecycle(client, task))
       })
       await this.mirrorTask(task, null)
       return task
