@@ -42,8 +42,15 @@ export function evaluateDeliveryGate(input: DeliveryGateInput): DeliveryGateResu
   if (task.status !== 'completed') reasonCodes.push('TASK_NOT_COMPLETED')
 
   const expectedMedia = contract?.expectedArtifact.type
-  if (expectedMedia === 'video' || expectedMedia === 'image' || expectedMedia === 'episode') {
-    if (!hasRequirementEvidence(evidence, 'media-url', 'passed')) reasonCodes.push('MEDIA_NOT_READABLE')
+  const requiresMedia =
+    ['image', 'video'].includes(task.kind) ||
+    expectedMedia === 'video' ||
+    expectedMedia === 'image' ||
+    expectedMedia === 'episode'
+  const mediaFailed = requiresMedia && hasRequirementEvidence(evidence, 'media-url', 'failed')
+  if (requiresMedia) {
+    if (mediaFailed || !hasRequirementEvidence(evidence, 'media-url', 'passed'))
+      reasonCodes.push('MEDIA_NOT_READABLE')
   }
 
   if (needsVideoReview(task)) {
@@ -58,24 +65,27 @@ export function evaluateDeliveryGate(input: DeliveryGateInput): DeliveryGateResu
 
   if (task.kind === 'video') {
     if (hasRequirementEvidence(evidence, 'continuity-ready', 'failed')) reasonCodes.push('CONTINUITY_FAILED')
-    else if (!hasRequirementEvidence(evidence, 'continuity-ready', 'passed')) reasonCodes.push('CONTINUITY_PENDING')
+    else if (!hasRequirementEvidence(evidence, 'continuity-ready', 'passed'))
+      reasonCodes.push('CONTINUITY_PENDING')
   }
 
-  if (verification && verification.status !== 'satisfied') {
+  if (!verification || verification.status !== 'satisfied') {
     reasonCodes.push('DELIVERY_REQUIREMENTS_INCOMPLETE')
   }
 
   const uniqueReasonCodes = [...new Set(reasonCodes)]
   const allowed = uniqueReasonCodes.length === 0
-  const hasHardFailure = uniqueReasonCodes.some((code) =>
-    [
-      'CONTRACT_HASH_INVALID',
-      'TASK_NOT_COMPLETED',
-      'CONTENT_REVIEW_FAILED',
-      'PHYSICAL_REVIEW_FAILED',
-      'CONTINUITY_FAILED',
-    ].includes(code),
-  )
+  const hasHardFailure =
+    mediaFailed ||
+    uniqueReasonCodes.some((code) =>
+      [
+        'CONTRACT_HASH_INVALID',
+        'TASK_NOT_COMPLETED',
+        'CONTENT_REVIEW_FAILED',
+        'PHYSICAL_REVIEW_FAILED',
+        'CONTINUITY_FAILED',
+      ].includes(code),
+    )
   const status = allowed ? 'allowed' : hasHardFailure ? 'blocked' : 'pending'
   const rationale = allowed
     ? '当前冻结合同及其同范围证据满足正式交付门禁'

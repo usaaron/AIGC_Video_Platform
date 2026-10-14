@@ -1,6 +1,6 @@
 import { extractScreenText } from '@seqora/prompting'
 import type { GenerationTask } from '@seqora/contracts'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -297,7 +297,9 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
         '上传完整预览视频超时',
       )
       await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
+        const stored = state.tasks.find(
+          (item) => !isStandaloneProjectId(item.projectId) && item.id === taskId,
+        )
         if (!stored || stored.status !== 'running') return
         if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
         const now = new Date().toISOString()
@@ -314,6 +316,7 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           previewStorageKey: storageKey,
           previewContentType: 'video/mp4',
           previewSize: output.length,
+          previewSha256: createHash('sha256').update(output).digest('hex'),
           compositionCompletedAt: now,
         }
         stored.updatedAt = now
@@ -409,7 +412,13 @@ export class FilmPreviewComposer implements FilmPreviewDispatcher {
           item.kind === 'video',
       )
       if (!stored || cachedVideoOutput(stored)) return
-      const descriptor = { view: 'single', storageKey, contentType, size: content.length } as const
+      const descriptor = {
+        view: 'single',
+        storageKey,
+        contentType,
+        size: content.length,
+        sha256: createHash('sha256').update(content).digest('hex'),
+      } as const
       const generatedOutputs = Array.isArray(stored.metadata.generatedOutputs)
         ? stored.metadata.generatedOutputs.filter(
             (item) => !item || typeof item !== 'object' || (item as { view?: unknown }).view !== 'single',

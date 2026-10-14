@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   deliveryContractSchema,
   deliveryVerificationSchema,
+  videoReviewVersion,
   type DeliveryEvidence,
   type GenerationTask,
 } from '@seqora/contracts'
@@ -39,7 +40,10 @@ function task(overrides: Partial<GenerationTask> = {}): GenerationTask {
   }
 }
 
-function evidence(taskValue: GenerationTask, status: DeliveryEvidence['status'] = 'passed'): DeliveryEvidence {
+function evidence(
+  taskValue: GenerationTask,
+  status: DeliveryEvidence['status'] = 'passed',
+): DeliveryEvidence {
   return {
     evidenceId: 'evidence-1',
     kind: 'task',
@@ -69,6 +73,59 @@ function contract(taskValue: GenerationTask) {
     }),
     '2026-10-14T00:02:00.000Z',
   )
+}
+
+function satisfiedVerification(requirementIds = ['task-completed']) {
+  return deliveryVerificationSchema.parse({
+    status: 'satisfied',
+    satisfiedRequirementIds: requirementIds,
+    pendingRequirementIds: [],
+    failedRequirementIds: [],
+    rationale: '已通过',
+    verifiedAt: '2026-10-14T00:03:00.000Z',
+  })
+}
+
+function mediaTask(kind: 'image' | 'video') {
+  const current = task({
+    kind,
+    provider: kind === 'video' ? 'seedance' : 'image2',
+    resultUrl: `/api/v1/generation/tasks/task-1/${kind === 'video' ? 'content' : 'outputs/single'}`,
+  })
+  if (kind === 'video') {
+    current.metadata.contentReview = {
+      decision: 'approved',
+      mediaVersion: videoReviewVersion(current),
+    }
+  }
+  return current
+}
+
+function mediaEvidence(current: GenerationTask, status: DeliveryEvidence['status']): DeliveryEvidence {
+  return {
+    ...evidence(current, status),
+    evidenceId: `media-${status}`,
+    kind: 'asset',
+    requirementIds: ['media-url'],
+    refType: 'generation-output',
+  }
+}
+
+function otherPassedEvidence(current: GenerationTask): DeliveryEvidence[] {
+  return [
+    evidence(current),
+    ...(current.kind === 'video'
+      ? [
+          {
+            ...evidence(current),
+            evidenceId: 'continuity-passed',
+            kind: 'continuity' as const,
+            requirementIds: ['continuity-ready'],
+            refType: 'video-tail',
+          },
+        ]
+      : []),
+  ]
 }
 
 describe('formal delivery gate', () => {
@@ -114,4 +171,103 @@ describe('formal delivery gate', () => {
     expect(result.status).toBe('blocked')
     expect(result.reasonCodes).toContain('PHYSICAL_REVIEW_FAILED')
   })
+
+  it.each(['image', 'video'] as const)(
+    'requires current %s media even when a satisfied text contract omits media-url',
+    (kind) => {
+      const current = mediaTask(kind)
+      const result = evaluateDeliveryGate({
+        task: current,
+        contract: contract(current),
+        evidence: otherPassedEvidence(current),
+        verification: satisfiedVerification(),
+        verifiedAt: '2026-10-14T00:03:00.000Z',
+      })
+
+      expect(result).toMatchObject({
+        allowed: false,
+        status: 'pending',
+        reasonCodes: ['MEDIA_NOT_READABLE'],
+      })
+    },
+  )
+
+  it('blocks a failed media proof even when another media proof passed and the contract is satisfied', () => {
+    const current = mediaTask('image')
+    const result = evaluateDeliveryGate({
+      task: current,
+      contract: contract(current),
+      evidence: [evidence(current), mediaEvidence(current, 'passed'), mediaEvidence(current, 'failed')],
+      verification: satisfiedVerification(),
+      verifiedAt: '2026-10-14T00:03:00.000Z',
+    })
+
+    expect(result).toMatchObject({
+      allowed: false,
+      status: 'blocked',
+      reasonCodes: ['MEDIA_NOT_READABLE'],
+    })
+  })
+
+  it.each(['pending', 'observed'] as const)('does not allow %s media evidence', (status) => {
+    const current = mediaTask('image')
+    const result = evaluateDeliveryGate({
+      task: current,
+      contract: contract(current),
+      evidence: [evidence(current), mediaEvidence(current, status)],
+      verification: satisfiedVerification(),
+      verifiedAt: '2026-10-14T00:03:00.000Z',
+    })
+
+    expect(result).toMatchObject({
+      allowed: false,
+      status: 'pending',
+      reasonCodes: ['MEDIA_NOT_READABLE'],
+    })
+  })
+
+  it('allows a completed image with passed media proof and a satisfied frozen image contract', () => {
+    const current = mediaTask('image')
+    const frozen = freezeDeliveryContract(
+      deliveryContractSchema.parse({
+        version: 'seqora.delivery.v1',
+        intent: { mode: 'asset', projectId: current.projectId },
+        expectedArtifact: { type: 'image', count: 1 },
+        must: [
+          { id: 'task-completed', statement: '任务必须已完成', source: 'system' },
+          { id: 'media-url', statement: '当前主媒体可读取', source: 'system' },
+        ],
+      }),
+      '2026-10-14T00:02:00.000Z',
+    )
+    const result = evaluateDeliveryGate({
+      task: current,
+      contract: frozen,
+      evidence: [evidence(current), mediaEvidence(current, 'passed')],
+      verification: satisfiedVerification(['task-completed', 'media-url']),
+      verifiedAt: '2026-10-14T00:03:00.000Z',
+    })
+
+    expect(result).toMatchObject({ allowed: true, status: 'allowed', reasonCodes: [] })
+  })
+
+  it.each(['text', 'image'] as const)(
+    'does not allow %s delivery without a contract verification result',
+    (kind) => {
+      const current = kind === 'image' ? mediaTask(kind) : task()
+      const result = evaluateDeliveryGate({
+        task: current,
+        contract: contract(current),
+        evidence: [evidence(current), ...(kind === 'image' ? [mediaEvidence(current, 'passed')] : [])],
+        verification: null,
+        verifiedAt: '2026-10-14T00:03:00.000Z',
+      })
+
+      expect(result).toMatchObject({
+        allowed: false,
+        status: 'pending',
+        reasonCodes: ['DELIVERY_REQUIREMENTS_INCOMPLETE'],
+      })
+    },
+  )
 })

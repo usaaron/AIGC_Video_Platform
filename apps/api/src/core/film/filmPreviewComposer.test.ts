@@ -1,5 +1,6 @@
 import type { GenerationTask } from '@seqora/contracts'
-import { writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
@@ -21,13 +22,18 @@ describe('FilmPreviewComposer', () => {
   it('downloads shot videos and stores one normalized preview MP4', async () => {
     const store = new AppStore(null)
     await store.initialize()
-    const sources = [sourceTask('source-1', 'provider-1'), sourceTask('source-2', 'provider-2')]
-    sources[1].metadata.generatedOutputs = [
+    const downloadedVideo = Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0xff, 0x80])
+    const cachedVideo = Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0xfe, 0x80])
+    const previewVideo = Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0xfd, 0x80])
+    const firstSource = sourceTask('source-1', 'provider-1')
+    const cachedSource = sourceTask('source-2', 'provider-2')
+    const sources = [firstSource, cachedSource]
+    cachedSource.metadata.generatedOutputs = [
       {
         view: 'single',
         storageKey: 'cached/source-2.mp4',
         contentType: 'video/mp4',
-        size: 21,
+        size: cachedVideo.length,
       },
     ]
     const preview = previewTask(sources.map((task) => task.id))
@@ -42,8 +48,8 @@ describe('FilmPreviewComposer', () => {
       getStatus: vi.fn(async () => {
         throw new Error('not used')
       }),
-      getContent: vi.fn(async (providerTaskId) => ({
-        stream: Readable.from(Buffer.from(`video-${providerTaskId}`)),
+      getContent: vi.fn(async () => ({
+        stream: Readable.from([downloadedVideo.subarray(0, 3), downloadedVideo.subarray(3)]),
         contentType: 'video/mp4',
         contentLength: null,
         statusCode: 200,
@@ -51,7 +57,7 @@ describe('FilmPreviewComposer', () => {
         contentRange: null,
       })),
     }
-    const stored = new Map<string, Buffer>([['cached/source-2.mp4', Buffer.from('cached-video-source-2')]])
+    const stored = new Map<string, Buffer>([['cached/source-2.mp4', cachedVideo]])
     const storage: ObjectStorage = {
       put: vi.fn(async (key, content) => {
         stored.set(key, content)
@@ -67,12 +73,16 @@ describe('FilmPreviewComposer', () => {
       onStateChange,
       composeRunner: async (inputPaths, outputPath, nextTarget) => {
         expect(inputPaths).toHaveLength(2)
+        expect(await Promise.all(inputPaths.map((path) => readFile(path)))).toEqual([
+          downloadedVideo,
+          cachedVideo,
+        ])
         expect(usageCollector.snapshot({ userId: preview.userId })).toMatchObject({
           jobConcurrency: 1,
           jobCount: 0,
         })
         target = nextTarget
-        await writeFile(outputPath, Buffer.from('merged-video'))
+        await writeFile(outputPath, previewVideo)
       },
     })
 
@@ -96,14 +106,20 @@ describe('FilmPreviewComposer', () => {
     const completed = store.read((state) => state.tasks.find((task) => task.id === preview.id)!)
     expect(target).toEqual({ width: 1080, height: 1920 })
     expect(provider.getContent).toHaveBeenCalledTimes(1)
-    expect(stored.get(`${sources[0].tenantId}/${sources[0].projectId}/generated/source-1-video.mp4`)).toEqual(
-      Buffer.from('video-provider-1'),
-    )
-    expect(store.read((state) => state.tasks.find((task) => task.id === sources[0].id))).toMatchObject({
+    expect(provider.getContent).toHaveBeenCalledWith('provider-1')
+    expect(
+      stored.get(`${firstSource.tenantId}/${firstSource.projectId}/generated/source-1-video.mp4`),
+    ).toEqual(downloadedVideo)
+    expect(store.read((state) => state.tasks.find((task) => task.id === firstSource.id))).toMatchObject({
       metadata: {
-        videoStorageKey: `${sources[0].tenantId}/${sources[0].projectId}/generated/source-1-video.mp4`,
+        videoStorageKey: `${firstSource.tenantId}/${firstSource.projectId}/generated/source-1-video.mp4`,
         generatedOutputs: expect.arrayContaining([
-          expect.objectContaining({ view: 'single', contentType: 'video/mp4' }),
+          expect.objectContaining({
+            view: 'single',
+            contentType: 'video/mp4',
+            size: downloadedVideo.length,
+            sha256: createHash('sha256').update(downloadedVideo).digest('hex'),
+          }),
         ]),
       },
     })
@@ -118,10 +134,24 @@ describe('FilmPreviewComposer', () => {
       metadata: {
         providerState: 'completed',
         previewContentType: 'video/mp4',
-        previewSize: 12,
+        previewSize: previewVideo.length,
+        previewSha256: createHash('sha256').update(previewVideo).digest('hex'),
       },
     })
-    expect(stored.get(String(completed.metadata.previewStorageKey))?.toString()).toBe('merged-video')
+    expect(stored.get(String(completed.metadata.previewStorageKey))).toEqual(previewVideo)
+    expect(storage.put).toHaveBeenCalledTimes(2)
+    expect(
+      store.read(
+        (state) => state.tasks.find((task) => task.id === cachedSource.id)?.metadata.generatedOutputs,
+      ),
+    ).toEqual([
+      {
+        view: 'single',
+        storageKey: 'cached/source-2.mp4',
+        contentType: 'video/mp4',
+        size: cachedVideo.length,
+      },
+    ])
     expect(onStateChange).toHaveBeenCalled()
     expect(onStateChange).toHaveBeenCalledWith(preview.id)
     expect(usageCollector.snapshot({ userId: preview.userId })).toMatchObject({

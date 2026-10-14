@@ -38,6 +38,7 @@ import type { GenerationTaskRepository } from './repository.js'
 import { auditRigidVideoBuffer, type RawVideoFrameAudit } from '../../core/generation/rigidFrameAudit.js'
 import { buildGenerationTaskDeliveryEvidence } from './deliveryEvidence.js'
 import { buildVideoTailStorageEvidence } from './deliveryStorageVerification.js'
+import { buildMediaStorageEvidence } from './deliveryMediaStorageVerification.js'
 import { evaluateDeliveryContract } from './deliveryContractEvaluation.js'
 import { evaluateDeliveryGate } from './deliveryGate.js'
 
@@ -338,10 +339,15 @@ export class GenerationService {
     checkedAt: string,
   ): Promise<DeliveryVerificationSnapshot> {
     const baseEvidence = buildGenerationTaskDeliveryEvidence(task)
-    const storageEvidence = await buildVideoTailStorageEvidence(task, this.objectStorage, checkedAt)
-    const evidence = storageEvidence
-      ? [...baseEvidence.filter((item) => item.kind !== 'continuity'), storageEvidence]
-      : baseEvidence
+    const [tailEvidence, mediaEvidence] = await Promise.all([
+      buildVideoTailStorageEvidence(task, this.objectStorage, checkedAt),
+      buildMediaStorageEvidence(task, this.objectStorage, checkedAt),
+    ])
+    const evidence = baseEvidence.map((item) => {
+      if (item.kind === 'continuity' && tailEvidence) return tailEvidence
+      if (item.kind === 'asset' && mediaEvidence) return mediaEvidence
+      return item
+    })
     const contractResult = deliveryContractSchema.safeParse(task.metadata.deliveryContract)
     const scope = evidence[0]?.scope
     const verification =

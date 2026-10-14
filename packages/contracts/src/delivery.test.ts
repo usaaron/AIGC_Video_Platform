@@ -3,6 +3,7 @@ import {
   deliveryContractFreezeRequestSchema,
   deliveryContractSchema,
   deliveryEvidenceSchema,
+  deliveryMediaStorageProofSchema,
   deliveryVerificationSnapshotSchema,
 } from './delivery.js'
 
@@ -28,6 +29,34 @@ const evidence = (input: Record<string, unknown> = {}) =>
   })
 
 describe('delivery contracts and evidence', () => {
+  it('validates bounded media proof fields and SHA-256 values', () => {
+    const proof = {
+      status: 'passed',
+      reason: 'verified',
+      contentType: 'video/mp4',
+      expectedSize: 24,
+      actualSize: 24,
+      expectedSha256: 'a'.repeat(64),
+      actualSha256: 'a'.repeat(64),
+    }
+    expect(deliveryMediaStorageProofSchema.parse(proof)).toEqual(proof)
+    for (const invalid of [
+      { actualSize: -1 },
+      { expectedSize: 1.5 },
+      { actualSha256: 'invalid' },
+      { reason: 'unknown' },
+    ]) {
+      expect(deliveryMediaStorageProofSchema.safeParse({ ...proof, ...invalid }).success).toBe(false)
+    }
+    expect(
+      deliveryMediaStorageProofSchema.parse({
+        ...proof,
+        status: 'pending',
+        reason: 'missing-checksum',
+        expectedSha256: null,
+      }).expectedSha256,
+    ).toBeNull()
+  })
   it('allows a draft contract but requires a hash and timestamp together when frozen', () => {
     expect(
       deliveryContractSchema.parse({

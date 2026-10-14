@@ -1,4 +1,5 @@
 import type { GenerationTask } from '@seqora/contracts'
+import { createHash } from 'node:crypto'
 import type { ImageGenerationOutput } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider, VideoGenerationStatus } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
@@ -16,6 +17,8 @@ export type GeneratedOutputDescriptor = {
   storageKey: string
   contentType: string
   size: number
+  /** SHA-256 of the exact bytes written to object storage. Legacy descriptors may omit it. */
+  sha256?: string
 }
 
 export class GenerationResultWriteback {
@@ -39,6 +42,7 @@ export class GenerationResultWriteback {
         storageKey,
         contentType: output.contentType,
         size: output.content.length,
+        sha256: createHash('sha256').update(output.content).digest('hex'),
       })
     }
     return descriptors
@@ -52,9 +56,7 @@ export class GenerationResultWriteback {
   ): Promise<GenerationTask | null> {
     return this.store.mutateRuntimeCachesAsync(
       (state) => {
-        const task = state.tasks.find(
-          (item) => !isStandaloneProjectId(item.projectId) && item.id === taskId,
-        )
+        const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
         if (!task || task.status !== 'running') return null
         if (!generationTaskLeaseMatches(task, leaseOwnerId, leaseToken)) return null
         task.status = 'completed'
@@ -105,7 +107,13 @@ export class GenerationResultWriteback {
     const buffer = await readableToBuffer(content.stream)
     const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-last-frame.jpg`
     await this.objectStorage.put(storageKey, buffer, content.contentType)
-    return { view: 'last-frame', storageKey, contentType: content.contentType, size: buffer.length }
+    return {
+      view: 'last-frame',
+      storageKey,
+      contentType: content.contentType,
+      size: buffer.length,
+      sha256: createHash('sha256').update(buffer).digest('hex'),
+    }
   }
 
   async persistVideoContent(
@@ -121,7 +129,13 @@ export class GenerationResultWriteback {
     const buffer = await readableToBuffer(content.stream)
     const storageKey = `${task.tenantId}/${task.projectId}/generated/${task.id}-video.mp4`
     await this.objectStorage.put(storageKey, buffer, content.contentType)
-    return { view: 'single', storageKey, contentType: content.contentType, size: buffer.length }
+    return {
+      view: 'single',
+      storageKey,
+      contentType: content.contentType,
+      size: buffer.length,
+      sha256: createHash('sha256').update(buffer).digest('hex'),
+    }
   }
 
   async writeVideoPollResult(input: {

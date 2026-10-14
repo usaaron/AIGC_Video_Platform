@@ -97,6 +97,40 @@ export const deliveryEvidenceScopeSchema = z.object({
 })
 export type DeliveryEvidenceScope = z.infer<typeof deliveryEvidenceScopeSchema>
 
+/** Read-only proof from a complete object read, compared with its ingestion checksum. */
+export const deliveryMediaStorageProofSchema = z.object({
+  status: z.enum(['passed', 'failed', 'pending']),
+  reason: z.enum([
+    'task-not-ready',
+    'missing-current-media',
+    'storage-unavailable',
+    'stream-unavailable',
+    'read-limit-exceeded',
+    'read-timeout',
+    'not-found',
+    'read-error',
+    'empty-object',
+    'size-mismatch',
+    'unsupported-content-type',
+    'content-type-mismatch',
+    'missing-checksum',
+    'checksum-mismatch',
+    'verified',
+  ]),
+  contentType: z.string().nullable(),
+  expectedSize: z.number().int().nonnegative().nullable(),
+  actualSize: z.number().int().nonnegative().nullable(),
+  expectedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
+  actualSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
+})
+export type DeliveryMediaStorageProof = z.infer<typeof deliveryMediaStorageProofSchema>
+
 export const deliveryEvidenceSchema = z.object({
   evidenceId: z.string().trim().min(1).max(200),
   kind: deliveryEvidenceKindSchema,

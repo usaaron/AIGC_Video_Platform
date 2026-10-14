@@ -22,7 +22,6 @@ describe('rigid physics audit HTTP contract', () => {
         estimatedCredits: 18,
         metadata: {
           rigidPhysicsContract: { version: 'rigid-physics-v1', objects: [] },
-          generatedOutputs: [{ view: 'single', storageKey: '1-1.mp4', contentType: 'video/mp4', size: 8 }],
         },
       },
       principal,
@@ -30,6 +29,9 @@ describe('rigid physics audit HTTP contract', () => {
     )
     task.status = 'completed'
     task.resultUrl = '/video'
+    task.metadata.generatedOutputs = [
+      { view: 'single', storageKey: '1-1.mp4', contentType: 'video/mp4', size: 8 },
+    ]
     await store.mutate((state) => {
       state.tasks = [task]
     })

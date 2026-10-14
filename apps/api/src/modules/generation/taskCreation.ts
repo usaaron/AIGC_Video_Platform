@@ -42,6 +42,16 @@ export function buildQueuedGenerationTask(
     contentReviewHistory: _history,
     localPostprocess: _post,
     deliveryContract: _deliveryContract,
+    generatedOutputs: _generatedOutputs,
+    videoStorageKey: _videoStorageKey,
+    videoContentType: _videoContentType,
+    videoSize: _videoSize,
+    lastFrameStorageKey: _lastFrameStorageKey,
+    lastFrameContentType: _lastFrameContentType,
+    previewStorageKey: _previewStorageKey,
+    previewContentType: _previewContentType,
+    previewSize: _previewSize,
+    previewSha256: _previewSha256,
     ...metadata
   } = input.metadata ?? {}
   return normalizeGenerationTaskLifecycle({
