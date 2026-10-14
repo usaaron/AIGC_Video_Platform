@@ -1,5 +1,5 @@
 import type { Principal } from '@seqora/contracts'
-import Fastify from 'fastify'
+import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppError } from '../../core/errors.js'
 import { noopTaskDispatcher } from '../../core/jobs/taskDispatcher.js'
@@ -17,7 +17,7 @@ const member: Principal = {
 
 describe('Agent HTTP routes', () => {
   let store: AppStore
-  let app: ReturnType<typeof Fastify>
+  let app: FastifyInstance
   let availableCredits: number
 
   beforeEach(async () => {

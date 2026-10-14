@@ -20,7 +20,6 @@ import {
   OverviewPage,
   ProjectHomePage,
   RechargePage,
-  ScriptPage,
   SettingsPage,
   StoryboardPage,
 } from './components/LazyWorkspacePages'
@@ -42,11 +41,7 @@ import {
 import { useTaskNotifications } from './features/notifications/useTaskNotifications'
 import { exportProject } from './features/projects/exportProject'
 import { projectLinkTarget } from './features/projects/projectLink'
-import {
-  assetSuggestionRevision,
-  scriptGenerationTaskLabel,
-  scriptSegmentTaskLabel,
-} from './features/script/scriptTaskLabels'
+import { WorkspaceScriptPage } from './features/workspace/WorkspaceScriptPage'
 import { useTrustedPortraitSynchronization } from './features/workspace/useTrustedPortraitSynchronization'
 import { useWorkspacePolling } from './features/workspace/useWorkspacePolling'
 import { createWorkspaceCommands, createCharacterStageJob } from './features/workspace/workspaceCommands'
@@ -112,6 +107,7 @@ function App() {
     activeProjectIdRef.current = projectId
     setActiveProjectId(projectId)
     setWorkspaceLoadError(null)
+    setPendingLandingView(null)
   }, [])
 
   const handleWorkspaceError = useCallback((projectId, error) => {
@@ -179,7 +175,7 @@ function App() {
             // Asset/storyboard deep links must wait for the real workspace
             // payload. The project list only contains a summary and cannot
             // prove that a prerequisite exists.
-            setPendingLandingView(landing.view)
+            setPendingLandingView({ projectId: initialProjectId, view: landing.view })
             setActiveStep('overview')
           }
           const cachedWorkspace = normalizeWorkspace(workspaceCacheRef.current.get(initialProjectId))
@@ -253,28 +249,31 @@ function App() {
   }, [activeStep])
 
   const project = workspace?.project
-  const workflowAccess = useMemo(
-    () => workflowNavigationAccess(workspace),
-    [workspace],
-  )
+  const workflowAccess = useMemo(() => workflowNavigationAccess(workspace), [workspace])
   useEffect(() => {
-    if (!pendingLandingView || !activeProjectId || workspace?.project?.id !== activeProjectId) return
-    if (workflowAccess[pendingLandingView] === false) {
-      setToast(workflowNavigationBlockMessage(pendingLandingView, workflowAccess))
+    if (!pendingLandingView) return
+    const { projectId, view } = pendingLandingView
+    if (projectId !== activeProjectId || activeStep !== 'overview') {
       setPendingLandingView(null)
       return
     }
-    setActiveStep(pendingLandingView)
+    // The initial project-list placeholder has no real assets or shots. Only
+    // the loaded workspace may decide whether the requested stage is available.
+    if (workspace?.project?.id !== projectId || workspaceCacheRef.current.get(projectId) !== workspace) return
+    if (workflowAccess[view] === false) {
+      setToast(workflowNavigationBlockMessage(view, workflowAccess))
+      setPendingLandingView(null)
+      return
+    }
+    setActiveStep(view)
     setPendingLandingView(null)
-  }, [activeProjectId, pendingLandingView, workflowAccess, workspace?.project?.id])
+  }, [activeProjectId, activeStep, pendingLandingView, workflowAccess, workspace])
   const retainSeriesEditor =
-    project?.contentType === 'short-drama'
-    && (['script', 'storyboard'].includes(activeStep) || retainedSeriesId === project.id)
+    project?.contentType === 'short-drama' &&
+    (['script', 'storyboard'].includes(activeStep) || retainedSeriesId === project.id)
   useEffect(() => {
-    if (
-      project?.contentType === 'short-drama'
-      && ['script', 'storyboard'].includes(activeStep)
-    ) setRetainedSeriesId(project.id)
+    if (project?.contentType === 'short-drama' && ['script', 'storyboard'].includes(activeStep))
+      setRetainedSeriesId(project.id)
     else if (retainedSeriesId !== project?.id) setRetainedSeriesId(null)
   }, [activeStep, project?.id, project?.contentType, retainedSeriesId])
 
@@ -347,11 +346,20 @@ function App() {
     [project?.id, replaceTasks, taskActionId, tasks],
   )
 
-  const reviewVideo = useCallback(async (task, decision, note) => {
-    await api.reviewVideo(task.id, {decision, note, expectedUpdatedAt:task.updatedAt})
-    replaceTasks(project.id, await api.tasks(project.id))
-    setToast(decision === 'approved' ? '该视频版本已通过验收，可供后续镜头承接' : decision === 'rejected' ? '已标记问题，后续镜头等待修复' : '已撤回验收；尚未提交的衔接镜头将等待')
-  }, [project?.id, replaceTasks])
+  const reviewVideo = useCallback(
+    async (task, decision, note) => {
+      await api.reviewVideo(task.id, { decision, note, expectedUpdatedAt: task.updatedAt })
+      replaceTasks(project.id, await api.tasks(project.id))
+      setToast(
+        decision === 'approved'
+          ? '该视频版本已通过验收，可供后续镜头承接'
+          : decision === 'rejected'
+            ? '已标记问题，后续镜头等待修复'
+            : '已撤回验收；尚未提交的衔接镜头将等待',
+      )
+    },
+    [project?.id, replaceTasks],
+  )
 
   const resumeTask = useCallback(
     async (taskId) => {
@@ -600,138 +608,22 @@ function App() {
         />
       ),
       script: () => (
-        <ScriptPage
+        <WorkspaceScriptPage
           key={project.id}
           project={project}
-          scriptEpisodes={workspace.scriptEpisodes || []}
-          assets={workspace.assets}
+          workspace={workspace}
           billing={billing}
           tasks={tasks}
-          textProviderStatus={providerHealth?.providers?.text ?? null}
-          scriptModelCapabilities={providerHealth?.scriptModels ?? []}
-          onRefreshProduction={refreshWorkspace}
-          onOpenProduction={navigateTo}
-          scriptMasterView={activeStep === 'storyboard' ? 'storyboard' : 'script'}
-          onSave={async (script) => {
-            await api.updateProject(project.id, { script })
-            await refreshWorkspace()
-            setToast('剧本已保存')
-          }}
-          onSaveEpisode={async (episodeId, content) => {
-            const episode = await api.saveScriptEpisode(project.id, {
-              ...(episodeId ? { episodeId } : {}),
-              content,
-            })
-            await refreshWorkspace()
-            setToast(`${episode.title}已保存`)
-            return episode
-          }}
-          onDeleteEpisode={async (episodeId) => {
-            await api.deleteScriptEpisode(project.id, episodeId)
-            await refreshWorkspace()
-            setToast('最后一集已删除')
-          }}
-          onClearEpisodes={async () => {
-            await api.clearScriptEpisodes(project.id)
-            await refreshWorkspace()
-            setToast('所有剧集已清空')
-          }}
-          onUpdateEpisodeDuration={async (episodeDurationSeconds) => {
-            await api.updateProject(project.id, { episodeDurationSeconds })
-            await refreshWorkspace()
-            setToast(
-              project.contentType === 'short-drama'
-                ? '网剧剧本按单集生成；该时长仅用于后续分镜分集'
-                : `已设置目标成片 ${episodeDurationSeconds} 秒，脚本与分镜会沿用该时长`,
-            )
-          }}
-          onGenerate={async (
-            draft,
-            direction,
-            productionMode,
-            episodeDurationSeconds,
-            model,
-            revisionNote,
-            setPhase,
-            episodeId,
-            episodePlan,
-          ) => {
-            setPhase?.('submitting')
-            const isRevision = Boolean(revisionNote?.trim())
-            return createScriptJob(
-              episodePlan
-                ? `分集改编 · ${episodePlan.episodes.length} 集`
-                : isRevision
-                  ? '改写当前剧集'
-                  : scriptGenerationTaskLabel(project.contentType),
-              isRevision ? 'enrich' : 'generate',
-              {
-                ...(isRevision ? { script: draft } : { draft, mode: 'quick' }),
-                ...(episodePlan ? { episodePlan } : {}),
-                direction,
-                productionMode,
-                episodeDurationSeconds,
-                episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
-                model,
-                revisionNote,
-                episodeId,
-              },
-            )
-          }}
-          onGenerateSegment={async (
-            draft,
-            direction,
-            segment,
-            productionMode,
-            episodeDurationSeconds,
-            model,
-            revisionNote,
-            setPhase,
-            episodeId,
-          ) => {
-            setPhase?.('submitting')
-            return createScriptJob(scriptSegmentTaskLabel(project.contentType), 'generate', {
-              draft,
-              direction,
-              mode: 'segment',
-              segment,
-              productionMode,
-              episodeDurationSeconds,
-              episodeMinutes: Math.max(1, Math.ceil(episodeDurationSeconds / 60)),
-              model,
-              revisionNote,
-              episodeId,
-            })
-          }}
-          onSuggestAssets={(script, direction, sourceScriptFingerprint) =>
-            createScriptJob('资产建议', 'suggest-assets', {
-              script,
-              direction,
-              sourceScriptFingerprint,
-              assetRevision: assetSuggestionRevision(workspace?.assets),
-              model: ASSET_SUGGESTION_MODEL,
-            })
-          }
-          onSuggestAssetsFast={(script, direction) =>
-            api.suggestScriptAssets(
-              project.id,
-              script,
-              direction,
-              ASSET_SUGGESTION_MODEL,
-              crypto.randomUUID(),
-              'fast',
-            )
-          }
-          onCreateAsset={createAsset}
-          onImportAssets={importAssets}
-          onCreateAndGenerateAsset={createAndGenerateAsset}
-          onUpload={(file) => api.uploadMedia(project.id, file)}
-          onCancelTask={async (taskId, successMessage = '已停止剧本生成，可以切换模型后重试') => {
-            await api.deleteTask(taskId)
-            replaceTasks(project.id, await api.tasks(project.id))
-            setToast(successMessage)
-          }}
-          onNext={() => navigateTo('assets')}
+          providerHealth={providerHealth}
+          refreshWorkspace={refreshWorkspace}
+          navigateTo={navigateTo}
+          activeStep={activeStep}
+          setToast={setToast}
+          createScriptJob={createScriptJob}
+          createAsset={createAsset}
+          importAssets={importAssets}
+          createAndGenerateAsset={createAndGenerateAsset}
+          replaceTasks={replaceTasks}
         />
       ),
       assets: () => (

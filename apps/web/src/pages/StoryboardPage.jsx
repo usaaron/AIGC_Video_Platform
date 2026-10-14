@@ -146,7 +146,8 @@ export function StoryboardPage({
   )
   const activeBatchTasks = useMemo(() => activeVideoTasksForShots(tasks, rangeShots), [tasks, rangeShots])
   const batchLocked = activeBatchTasks.length > 0
-  const controlsLocked = batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll || generatingSelected
+  const controlsLocked =
+    batchLocked || Boolean(splitting) || splittingEpisodes || generatingAll || generatingSelected
   const activeShotCount = new Set(activeBatchTasks.map((task) => task.metadata?.shotId)).size
   const totalDuration = useMemo(
     () => rangeShots.reduce((sum, shot) => sum + normalizedVideoDuration(shot.duration, shotMinDuration), 0),

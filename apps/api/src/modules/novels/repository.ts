@@ -55,6 +55,15 @@ import {
   type NovelSummaryQueueRow,
 } from './repositoryMappers.js'
 import { isStandaloneProjectId } from '../projects/projectSurface.js'
+import {
+  documentColumns,
+  chapterColumns,
+  boundaryColumns,
+  summaryColumns,
+  summaryQueueColumns,
+  summaryQueueItemColumns,
+  storyBibleColumns,
+} from './repositoryColumns.js'
 
 type NovelChapterDraft = Pick<
   StoredNovelChapter,
@@ -150,152 +159,6 @@ type NovelJsonImportResult = {
   summaryQueueItems: { inserted: number; skipped: number }
   storyBibles: { inserted: number; skipped: number }
 }
-
-const documentColumns = `
-  id,
-  project_id,
-  tenant_id,
-  name,
-  format,
-  character_count,
-  chapter_count,
-  content_storage_key,
-  content_sha256,
-  client_request_id,
-  created_at,
-  updated_at
-`
-
-const chapterColumns = `
-  id,
-  document_id,
-  project_id,
-  tenant_id,
-  chapter_order,
-  title,
-  start_offset,
-  end_offset,
-  source_start_offset,
-  source_end_offset,
-  source_chapter_title,
-  split_mode,
-  overlap_before_chars,
-  overlap_after_chars,
-  crosses_chapter_boundary,
-  character_count,
-  preview,
-  preview_truncated,
-  created_at
-`
-
-const boundaryColumns = `
-  id,
-  document_id,
-  project_id,
-  tenant_id,
-  previous_chapter_id,
-  next_chapter_id,
-  previous_order,
-  next_order,
-  status,
-  severity,
-  issues,
-  previous_tail,
-  next_head,
-  note,
-  created_at,
-  updated_at
-`
-
-const summaryColumns = `
-  id,
-  document_id,
-  chapter_id,
-  project_id,
-  tenant_id,
-  chapter_order,
-  title,
-  summary,
-  key_events,
-  characters,
-  locations,
-  timeline,
-  key_props,
-  foreshadowing,
-  world_rules,
-  adaptation_notes,
-  created_at,
-  updated_at
-`
-
-const summaryQueueColumns = `
-  id,
-  document_id,
-  project_id,
-  tenant_id,
-  status,
-  batch_size,
-  force,
-  total_items,
-  pending_count,
-  running_count,
-  completed_count,
-  failed_count,
-  skipped_count,
-  client_request_id,
-  created_at,
-  updated_at
-`
-
-const summaryQueueItemColumns = `
-  id,
-  queue_id,
-  document_id,
-  chapter_id,
-  project_id,
-  tenant_id,
-  chapter_order,
-  title,
-  status,
-  attempts,
-  max_attempts,
-  character_count,
-  source_start_offset,
-  source_end_offset,
-  source_chapter_title,
-  crosses_chapter_boundary,
-  summary_id,
-  result,
-  error_message,
-  locked_at,
-  created_at,
-  updated_at
-`
-
-const storyBibleColumns = `
-  id,
-  document_id,
-  project_id,
-  tenant_id,
-  title,
-  logline,
-  premise,
-  synopsis,
-  themes,
-  characters,
-  locations,
-  timeline,
-  key_props,
-  foreshadowing,
-  world_rules,
-  adaptation_strategy,
-  risks,
-  next_step,
-  source_summary_count,
-  chapter_count,
-  created_at,
-  updated_at
-`
 
 export class NovelRepository {
   constructor(

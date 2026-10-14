@@ -11,18 +11,13 @@ export type CompletionTextOptions = {
 
 const nestedCompletionKeys = ['data', 'result', 'output', 'response', 'payload'] as const
 
-export function completionParts(
-  value: unknown,
-  options: CompletionTextOptions = {},
-): CompletionParts {
+export function completionParts(value: unknown, options: CompletionTextOptions = {}): CompletionParts {
   const choiceMode = options.choiceMode ?? 'all'
   const includeReasoning = options.includeReasoning ?? true
   if (!isRecord(value)) return { content: textFromValue(value), reasoning: '' }
 
   let content = textFromValue(value.output_text ?? value.text ?? value.content)
-  let reasoning = includeReasoning
-    ? textFromValue(value.reasoning_content ?? value.reasoning)
-    : ''
+  let reasoning = includeReasoning ? textFromValue(value.reasoning_content ?? value.reasoning) : ''
   if (choiceMode === 'first' && content) return { content, reasoning }
   if (Array.isArray(value.choices)) {
     for (const choice of value.choices) {

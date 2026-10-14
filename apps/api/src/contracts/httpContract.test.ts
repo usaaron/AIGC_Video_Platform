@@ -566,7 +566,7 @@ async function login(email: string, password: string, userAgent?: string) {
   const response = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
-    headers: userAgent ? { 'user-agent': userAgent } : undefined,
+    headers: userAgent ? { 'user-agent': userAgent } : {},
     payload: { email, password },
   })
   expect(response.statusCode).toBe(200)

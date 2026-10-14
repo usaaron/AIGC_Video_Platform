@@ -3,23 +3,41 @@ import type { ImageGenerationRequest, ImageReference } from './imageProvider.js'
 import { TokenAdventImageProvider } from './tokenAdventImageProvider.js'
 
 function reference(role?: ImageReference['role'], referenceNumber?: number): ImageReference {
-  return { name: 'reference.png', contentType: 'image/png', content: Buffer.from('reference'),
-    ...(role ? { role } : {}), ...(referenceNumber ? { referenceNumber } : {}) }
+  return {
+    name: 'reference.png',
+    contentType: 'image/png',
+    content: Buffer.from('reference'),
+    ...(role ? { role } : {}),
+    ...(referenceNumber ? { referenceNumber } : {}),
+  }
 }
 
 async function capture(overrides: Partial<ImageGenerationRequest> = {}) {
   const prompts: string[] = []
   const provider = new TokenAdventImageProvider({
-    baseUrl: 'https://image.test', apiKey: 'test-key', model: 'gpt-image-2', quality: 'low', requestTimeoutMs: 1000,
+    baseUrl: 'https://image.test',
+    apiKey: 'test-key',
+    model: 'gpt-image-2',
+    quality: 'low',
+    requestTimeoutMs: 1000,
     fetcher: (async (_url, init) => {
-      prompts.push(init?.body instanceof FormData
-        ? String(init.body.get('prompt')) : JSON.parse(String(init?.body)).prompt)
+      prompts.push(
+        init?.body instanceof FormData
+          ? String(init.body.get('prompt'))
+          : JSON.parse(String(init?.body)).prompt,
+      )
       return Response.json({ data: [{ b64_json: Buffer.from('fake-test-image').toString('base64') }] })
     }) as typeof fetch,
   })
   const request: ImageGenerationRequest = {
-    taskId: 'test.asset-views', assetId: 'asset.character', aspectRatio: '16:9',
-    prompt: '保留左胸徽章与右肩背带，灰色制服。', negativePrompt: '', references: [], outputs: ['single'], ...overrides,
+    taskId: 'test.asset-views',
+    assetId: 'asset.character',
+    aspectRatio: '16:9',
+    prompt: '保留左胸徽章与右肩背带，灰色制服。',
+    negativePrompt: '',
+    references: [],
+    outputs: ['single'],
+    ...overrides,
   }
   const before = structuredClone(request)
   const outputs = await provider.generate(request)
@@ -29,8 +47,11 @@ async function capture(overrides: Partial<ImageGenerationRequest> = {}) {
 
 describe('source asset reference prompts', () => {
   it('generates exactly three individually addressable views without a fourth overview request', async () => {
-    const { prompts, outputs } = await capture({ references: [reference(), reference()], outputs: ['front', 'side', 'back'] })
-    expect(outputs.map(item => item.view)).toEqual(['front', 'side', 'back'])
+    const { prompts, outputs } = await capture({
+      references: [reference(), reference()],
+      outputs: ['front', 'side', 'back'],
+    })
+    expect(outputs.map((item) => item.view)).toEqual(['front', 'side', 'back'])
     expect(prompts).toHaveLength(3)
     for (const [index, view] of ['正面', '侧面', '背面'].entries()) {
       expect(prompts[index]).toContain(`本次只输出${view}独立源图`)
@@ -46,7 +67,9 @@ describe('source asset reference prompts', () => {
   })
 
   it('uses the explicit subject number rather than the first style image', async () => {
-    const { prompts } = await capture({ references: [reference('style', 4), reference('subject', 7), reference('clothing', 9)] })
+    const { prompts } = await capture({
+      references: [reference('style', 4), reference('subject', 7), reference('clothing', 9)],
+    })
     expect(prompts[0]).toContain('主体与身份基准：图 7')
     expect(prompts[0]).not.toContain('主体与身份基准：图 4')
     expect(prompts[0]).toContain('图 9（reference.png）：仅参考服装')
@@ -62,7 +85,7 @@ describe('source asset reference prompts', () => {
     const prompt = '生成一张横向3:2三联资产总览，左侧去头身体，中间完整背面，右侧面部特写。'
     const { prompts, outputs } = await capture({ prompt, aspectRatio: '3:2' })
     expect(prompts).toEqual([prompt])
-    expect(outputs.map(item => item.view)).toEqual(['single'])
+    expect(outputs.map((item) => item.view)).toEqual(['single'])
   })
 
   it('keeps a scoped texture repair request intact and never starts automatic repair calls', async () => {

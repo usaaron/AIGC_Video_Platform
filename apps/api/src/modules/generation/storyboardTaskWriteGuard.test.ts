@@ -171,7 +171,10 @@ describe('storyboard task creation after script revision', () => {
     const { repository } = await fixture()
     await expect(
       repository.createWithCharge(
-        { ...input(), metadata: { shotId: 'revision-shot', sourceShotUpdatedAt: '2026-09-20T09:00:00+08:00' } },
+        {
+          ...input(),
+          metadata: { shotId: 'revision-shot', sourceShotUpdatedAt: '2026-09-20T09:00:00+08:00' },
+        },
         principal,
       ),
     ).resolves.toMatchObject({ status: 'queued' })
@@ -188,29 +191,30 @@ describe('database storyboard creation transaction boundary', () => {
         let heldProject = false
         let timestamp: string | null = originalTime
         const database = {
-          transaction: async (run: (client: unknown) => Promise<unknown>) => run({
-            query: async (sql: string, params: unknown[]) => {
-              if (sql.includes('FROM generation_tasks') && sql.includes('client_request_id =')) {
-                return { rows: [] }
-              }
-              if (sql.includes('FROM projects')) {
-                expect(sql).toContain('FOR UPDATE')
-                expect(params).toEqual([projectId, principal.tenantId, false, principal.userId])
-                events.push('project-lock')
-                timestamp = removed ? null : revisedTime
-                heldProject = true
-                return { rows: [{ id: projectId }] }
-              }
-              if (sql.includes('FROM shots')) {
-                expect(heldProject).toBe(true)
-                expect(params).toEqual(['revision-shot', projectId, principal.tenantId])
-                events.push('read-shot')
-                return { rows: timestamp ? [{ updated_at: new Date(timestamp) }] : [] }
-              }
-              events.push('unexpected-billing-or-write')
-              throw new Error(`Unexpected query before rejecting the stale target: ${sql}`)
-            },
-          }),
+          transaction: async (run: (client: unknown) => Promise<unknown>) =>
+            run({
+              query: async (sql: string, params: unknown[]) => {
+                if (sql.includes('FROM generation_tasks') && sql.includes('client_request_id =')) {
+                  return { rows: [] }
+                }
+                if (sql.includes('FROM projects')) {
+                  expect(sql).toContain('FOR UPDATE')
+                  expect(params).toEqual([projectId, principal.tenantId, false, principal.userId])
+                  events.push('project-lock')
+                  timestamp = removed ? null : revisedTime
+                  heldProject = true
+                  return { rows: [{ id: projectId }] }
+                }
+                if (sql.includes('FROM shots')) {
+                  expect(heldProject).toBe(true)
+                  expect(params).toEqual(['revision-shot', projectId, principal.tenantId])
+                  events.push('read-shot')
+                  return { rows: timestamp ? [{ updated_at: new Date(timestamp) }] : [] }
+                }
+                events.push('unexpected-billing-or-write')
+                throw new Error(`Unexpected query before rejecting the stale target: ${sql}`)
+              },
+            }),
         } as unknown as AccountDatabase
         const repository = new GenerationTaskRepository(null, null, database)
 
@@ -266,31 +270,32 @@ describe('film preview task creation after script revision', () => {
       const events: string[] = []
       let locked = false
       const database = {
-        transaction: async (run: (client: unknown) => Promise<unknown>) => run({
-          query: async (sql: string, params: unknown[]) => {
-            if (sql.includes('FROM generation_tasks') && sql.includes('client_request_id =')) {
-              return { rows: [] }
-            }
-            if (sql.includes('FROM projects')) {
-              expect(sql).toContain('FOR UPDATE')
-              events.push('project-lock')
-              locked = true
-              return { rows: [{ id: projectId }] }
-            }
-            if (sql.includes('FROM shots')) {
-              expect(locked).toBe(true)
-              expect(params).toEqual([['revision-shot', 'second-shot'], projectId, principal.tenantId])
-              events.push('read-film-shots')
-              return {
-                rows: [
-                  { id: 'revision-shot', selected_video_task_id: 'first-video' },
-                  ...(removed ? [] : [{ id: 'second-shot', selected_video_task_id: 'new-video' }]),
-                ],
+        transaction: async (run: (client: unknown) => Promise<unknown>) =>
+          run({
+            query: async (sql: string, params: unknown[]) => {
+              if (sql.includes('FROM generation_tasks') && sql.includes('client_request_id =')) {
+                return { rows: [] }
               }
-            }
-            throw new Error('Preview task must be rejected before billing or insertion')
-          },
-        }),
+              if (sql.includes('FROM projects')) {
+                expect(sql).toContain('FOR UPDATE')
+                events.push('project-lock')
+                locked = true
+                return { rows: [{ id: projectId }] }
+              }
+              if (sql.includes('FROM shots')) {
+                expect(locked).toBe(true)
+                expect(params).toEqual([['revision-shot', 'second-shot'], projectId, principal.tenantId])
+                events.push('read-film-shots')
+                return {
+                  rows: [
+                    { id: 'revision-shot', selected_video_task_id: 'first-video' },
+                    ...(removed ? [] : [{ id: 'second-shot', selected_video_task_id: 'new-video' }]),
+                  ],
+                }
+              }
+              throw new Error('Preview task must be rejected before billing or insertion')
+            },
+          }),
       } as unknown as AccountDatabase
       const repository = new GenerationTaskRepository(null, null, database)
 

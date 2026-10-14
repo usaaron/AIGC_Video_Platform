@@ -172,7 +172,8 @@ class TokenAdventImageAssetError extends Error {
 function promptFor(request: ImageGenerationRequest, view: ImageGenerationRequest['outputs'][number]): string {
   const viewPrompt = {
     single: '',
-    front: '本次只输出正面独立源图，主体正对镜头；角色采用既定身体形态的自然站姿，头部至足端完整入镜，物品或服装则保持本体完整。',
+    front:
+      '本次只输出正面独立源图，主体正对镜头；角色采用既定身体形态的自然站姿，头部至足端完整入镜，物品或服装则保持本体完整。',
     side: '本次只输出侧面独立源图，主体严格侧对镜头，不转成斜正面；角色从头部至足端完整入镜，物品或服装则保持本体完整。',
     back: '本次只输出背面独立源图，主体背对镜头、不回头；角色从头部至足端完整入镜，物品或服装则保持本体完整，背部结构、接缝及配件连接延续同一设计。',
     detail: '生成关键细节特写，保持主体设计一致。',

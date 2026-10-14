@@ -1,14 +1,15 @@
 import { expect, test } from '@playwright/test'
-import { createWebE2EState, mockWebApi } from '../fixtures.js'
+import { createNavigationE2EState, createWebE2EState, mockWebApi } from '../fixtures.js'
 
 for (const width of [1440, 390]) {
   test(`新工作台引导、页面导航与支付预览 ${width}`, async ({ page }, testInfo) => {
     test.setTimeout(90_000)
-    const state = createWebE2EState()
+    const state = createNavigationE2EState()
     state.session.account.plan = 'free'
     state.billing.plan = 'free'
     const errors = []
     const writes = []
+    const suggestions = []
     page.on('pageerror', (error) => errors.push(error.message))
     page.on('request', (request) => {
       const pathname = new URL(request.url()).pathname
@@ -21,10 +22,23 @@ for (const width of [1440, 390]) {
         writes.push(pathname)
     })
     await mockWebApi(page, state)
+    await page.route('**/api/v1/generation/tasks', async (route) => {
+      const input = route.request().postDataJSON()
+      if (input?.metadata?.scriptOperation !== 'suggest-assets') return route.fallback()
+      suggestions.push(input)
+      const task = {
+        ...input,
+        id: 'navigation-asset-suggestions',
+        status: 'completed',
+        metadata: { ...input.metadata, textResult: { summary: '已有资产可继续使用。', assets: [] } },
+      }
+      state.tasks.push(task)
+      await route.fulfill({ json: task })
+    })
     await page.setViewportSize({ width, height: 900 })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/')
-    const create = page.getByRole('button', { name: '开始新创作', exact: true })
+    const create = page.getByRole('button', { name: '新建项目', exact: true })
     await expect(create).toBeVisible()
     await expect(page.locator('.studio-particles')).toBeHidden()
     await create.click()
@@ -43,9 +57,18 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: /定义角色与场景/ }).click()
     await expect(page.getByRole('heading', { name: '建立可复用的视觉资产' })).toBeVisible()
 
-    const navigate = async (name) => {
+    const navigate = async (view, name) => {
+      if (view === 'overview') {
+        await page.locator('.project-folder-open').filter({ hasText: state.workspace.project.name }).click()
+        return
+      }
+      if (view === 'settings') {
+        await page.getByTitle('账号设置', { exact: true }).click()
+        return
+      }
       if (width === 390) await page.getByRole('button', { name: '打开导航', exact: true }).click()
-      await page.locator('.sidebar').getByRole('button', { name, exact: true }).click()
+      if (view === 'billing') await page.locator('.sidebar .usage-box').click()
+      else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click()
     }
     for (const [view, name] of [
       ['home', '项目库'],
@@ -61,9 +84,9 @@ for (const width of [1440, 390]) {
       ['billing', '积分账单'],
       ['membership', '会员中心'],
       ['recharge', '积分充值'],
-      ['settings', '项目设置'],
+      ['settings', '账号中心'],
     ]) {
-      await navigate(name)
+      await navigate(view, name)
       await expect(page.locator('.app-shell')).toHaveAttribute('data-workspace', view)
       await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible()
       await expect
@@ -72,7 +95,7 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: testInfo.outputPath(`${view}-${width}.png`), fullPage: true })
     }
 
-    await navigate('积分充值')
+    await navigate('recharge', '积分充值')
     const pack = page.getByRole('radio', { name: '500 积分，45 元', exact: true })
     await page.locator('.recharge-pack').filter({ has: pack }).click()
     await expect(pack).toBeChecked()
@@ -88,7 +111,44 @@ for (const width of [1440, 390]) {
     await page.keyboard.press('Escape')
     await expect(payment).toHaveCount(0)
     await expect(page.getByRole('button', { name: '立即充值', exact: true })).toBeFocused()
-    expect(writes).toEqual([])
+    // Opening the saved script requests its automatic suggestions. Payment
+    // previews and the remaining navigation must not submit any other write.
+    expect(suggestions).toEqual([
+      expect.objectContaining({
+        projectId: state.workspace.project.id,
+        kind: 'text',
+        metadata: expect.objectContaining({
+          scriptOperation: 'suggest-assets',
+          script: state.workspace.project.script,
+        }),
+      }),
+    ])
+    expect(writes).toEqual(['/api/v1/generation/tasks'])
     expect(errors).toEqual([])
+  })
+
+  test(`空项目阻断跳过剧本与分镜的导航 ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await mockWebApi(page, createWebE2EState())
+    await page.goto('/?projectId=project-1&view=assets')
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-workspace', 'overview')
+    if (width === 390) await page.getByRole('button', { name: '打开导航', exact: true }).click()
+    const workflow = page.getByRole('navigation', { name: '创作流程' })
+    for (const name of ['03 资产设计', '04 分镜', '05 生成队列', '06 成片']) {
+      await expect(workflow.getByRole('button', { name, exact: true })).toBeDisabled()
+    }
+    if (width === 390)
+      await page.locator('.sidebar').getByRole('button', { name: '关闭导航', exact: true }).click()
+    for (const title of ['定义角色与场景', '安排每一个镜头', '让画面动起来', '预览你的作品']) {
+      await page.getByLabel('创作指引', { exact: true }).click()
+      await page.getByRole('button', { name: new RegExp(title) }).click()
+      await expect(page.locator('.app-shell')).toHaveAttribute('data-workspace', 'overview')
+      await expect(page.locator('.toast')).toContainText('请先')
+    }
+    for (const view of ['assets', 'storyboard']) {
+      await page.goto(`/?projectId=project-1&view=${view}`)
+      await expect(page.locator('.app-shell')).toHaveAttribute('data-workspace', 'overview')
+      await expect(page.locator('.toast')).toContainText('请先')
+    }
   })
 }

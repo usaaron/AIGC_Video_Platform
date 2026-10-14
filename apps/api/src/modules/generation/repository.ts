@@ -1,4 +1,4 @@
-import { resolveTaskBillingTarget, type TaskBillingTarget } from '../billing/taskBillingTarget.js'
+import { resolveTaskBillingTarget } from '../billing/taskBillingTarget.js'
 import { buildQueuedGenerationTask, findTaskByClientRequest, taskInsertParams } from './taskCreation.js'
 import { preparePortraitSubmission, preparePortraitSubmissionInState } from './trustedPortraitSubmission.js'
 import type {
@@ -57,6 +57,20 @@ import {
   hasStoryboardTarget,
   lockStoryboardTaskProjects,
 } from './storyboardTaskWriteGuard.js'
+import {
+  preemptActiveScriptTasksInDatabase,
+  assertNoDraftScriptEpisode,
+  isScriptGenerationTask,
+  preemptActiveScriptTasksInState,
+  assertSingleScriptTaskInput,
+  assertNoDraftScriptEpisodeInState,
+} from './scriptTaskPolicy.js'
+import {
+  findControlledTaskInDatabase,
+  updateGenerationTaskLifecycle,
+  updateTaskResultTargets,
+} from './taskLifecyclePersistence.js'
+import { updateBillingBalanceForTask } from './taskBillingPersistence.js'
 
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -772,24 +786,33 @@ export class GenerationTaskRepository {
         throw new AppError(409, 'VIDEO_REVIEW_STALE', '视频或验收记录已变化，请刷新后重新查看')
       const now = new Date(Math.max(Date.now(), Date.parse(task.updatedAt) + 1)).toISOString()
       const previous = task.metadata.contentReview
-      const history = Array.isArray(task.metadata.contentReviewHistory) ? task.metadata.contentReviewHistory : []
-      task.metadata = {...task.metadata,
+      const history = Array.isArray(task.metadata.contentReviewHistory)
+        ? task.metadata.contentReviewHistory
+        : []
+      task.metadata = {
+        ...task.metadata,
         contentReviewHistory: previous ? [...history, previous] : history,
-        contentReview: {decision:input.decision,note:input.note,reviewedBy:principal.userId,reviewedAt:now,
-          method:'human',mediaVersion:videoReviewVersion(task)},
+        contentReview: {
+          decision: input.decision,
+          note: input.note,
+          reviewedBy: principal.userId,
+          reviewedAt: now,
+          method: 'human',
+          mediaVersion: videoReviewVersion(task),
+        },
       }
       task.updatedAt = now
       return task
     }
     if (this.database) {
-      const task = await this.database.transaction(async client => {
+      const task = await this.database.transaction(async (client) => {
         const task = apply(await findControlledTaskInDatabase(client, taskId, principal))
-        return await updateGenerationTaskLifecycle(client, task) ?? task
+        return (await updateGenerationTaskLifecycle(client, task)) ?? task
       })
       await this.mirrorTask(task, null)
       return task
     }
-    return this.requireStore().mutate(state => apply(findControlledTask(state.tasks, taskId, principal)))
+    return this.requireStore().mutate((state) => apply(findControlledTask(state.tasks, taskId, principal)))
   }
 
   async freezeDeliveryContract(
@@ -819,14 +842,14 @@ export class GenerationTaskRepository {
       return task
     }
     if (this.database) {
-      const task = await this.database.transaction(async client => {
+      const task = await this.database.transaction(async (client) => {
         const task = apply(await findControlledTaskInDatabase(client, taskId, principal))
-        return await updateGenerationTaskLifecycle(client, task) ?? task
+        return (await updateGenerationTaskLifecycle(client, task)) ?? task
       })
       await this.mirrorTask(task, null)
       return task
     }
-    return this.requireStore().mutate(state => apply(findControlledTask(state.tasks, taskId, principal)))
+    return this.requireStore().mutate((state) => apply(findControlledTask(state.tasks, taskId, principal)))
   }
 
   async persistRigidPhysicsAudit(
@@ -864,8 +887,7 @@ export class GenerationTaskRepository {
         ...(audit.status === 'passed'
           ? {}
           : {
-              rigidPhysicsBlockingReason:
-                audit.violations[0]?.detail ?? '等待底脚与连接点逐帧证据',
+              rigidPhysicsBlockingReason: audit.violations[0]?.detail ?? '等待底脚与连接点逐帧证据',
             }),
       }
       if (audit.status === 'passed') delete task.metadata.rigidPhysicsBlockingReason
@@ -873,14 +895,14 @@ export class GenerationTaskRepository {
       return task
     }
     if (this.database) {
-      const task = await this.database.transaction(async client => {
+      const task = await this.database.transaction(async (client) => {
         const task = apply(await findControlledTaskInDatabase(client, taskId, principal))
-        return await updateGenerationTaskLifecycle(client, task) ?? task
+        return (await updateGenerationTaskLifecycle(client, task)) ?? task
       })
       await this.mirrorTask(task, null)
       return task
     }
-    return this.requireStore().mutate(state => apply(findControlledTask(state.tasks, taskId, principal)))
+    return this.requireStore().mutate((state) => apply(findControlledTask(state.tasks, taskId, principal)))
   }
 
   async pause(
@@ -1809,300 +1831,6 @@ export class GenerationTaskRepository {
   }
 }
 
-async function preemptActiveScriptTasksInDatabase(
-  queryable: Queryable,
-  input: CreateGenerationTask,
-  principal: Principal,
-): Promise<GenerationTask[]> {
-  if (!isScriptGenerationTask(input)) return []
-
-  // Serialize script creation per account so a new project cannot be blocked by an old script task.
-  await queryable.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
-    scriptAccountLockKey(principal.userId, principal.tenantId),
-  ])
-  const replayed = await findTaskByClientRequest(queryable, input.clientRequestId, principal)
-  if (replayed) return []
-  await assertNoDraftScriptEpisode(queryable, input, principal)
-  const result = await queryable.query<GenerationTaskRow>(
-    `
-    UPDATE generation_tasks
-    SET status = 'cancelled',
-        progress = 100,
-        error = $3,
-        metadata = metadata || jsonb_build_object(
-          'providerState', 'cancelled',
-          'accountPreemptedAt', $4::text,
-          'cancelReason', 'new_script_task',
-          'cancelledAt', $4::text,
-          'queueHiddenAt', $4::text
-        ),
-        lease_owner_id = NULL,
-        lease_token = NULL,
-        lease_acquired_at = NULL,
-        lease_heartbeat_at = NULL,
-        lease_expires_at = NULL,
-        updated_at = $4::timestamptz
-    WHERE tenant_id = $1
-      AND user_id = $2
-      AND project_id NOT LIKE 'sm-standalone-%'
-      AND kind = 'text'
-      AND provider = 'text'
-      AND metadata->>'generationStage' LIKE 'script-%'
-      AND metadata->>'scriptOperation' IN ('generate', 'enrich', 'suggest-assets')
-      AND status IN ('queued', 'paused', 'running')
-      AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
-    RETURNING ${generationTaskColumns}
-    `,
-    [principal.tenantId, principal.userId, SCRIPT_TASK_PREEMPT_ERROR, new Date().toISOString()],
-  )
-  return result.rows.map(taskFromRow)
-}
-
-async function assertNoDraftScriptEpisode(
-  queryable: Queryable,
-  input: CreateGenerationTask | GenerationTask,
-  principal: Principal,
-): Promise<void> {
-  if (!isNextEpisodeScriptTask(input)) return
-  const result = await queryable.query<{ id: string }>(
-    `
-    SELECT id
-    FROM script_episodes
-    WHERE project_id = $1
-      AND project_id NOT LIKE 'sm-standalone-%'
-      AND tenant_id = $2
-      AND status = 'draft'
-      AND btrim(draft_content) <> ''
-    ORDER BY episode_number DESC
-    LIMIT 1
-    `,
-    [input.projectId, principal.tenantId],
-  )
-  if (result.rows[0]) throw scriptEpisodeDraftConflict()
-}
-
-function isScriptGenerationTask(input: CreateGenerationTask | GenerationTask): boolean {
-  return (
-    input.kind === 'text' &&
-    input.provider === 'text' &&
-    String(input.metadata?.generationStage || '').startsWith('script-') &&
-    (input.metadata?.scriptOperation === 'generate' || input.metadata?.scriptOperation === 'enrich')
-  )
-}
-
-function isPreemptibleScriptTask(input: CreateGenerationTask | GenerationTask): boolean {
-  return (
-    isScriptGenerationTask(input) ||
-    (input.kind === 'text' &&
-      input.provider === 'text' &&
-      String(input.metadata?.generationStage || '').startsWith('script-') &&
-      input.metadata?.scriptOperation === 'suggest-assets')
-  )
-}
-
-function isNextEpisodeScriptTask(input: CreateGenerationTask | GenerationTask): boolean {
-  return isScriptGenerationTask(input) && input.metadata?.mode === 'segment'
-}
-
-function scriptAccountLockKey(userId: string, tenantId: string): string {
-  return `seqora:script-account:${tenantId}:${userId}`
-}
-
-function preemptActiveScriptTasksInState(
-  state: AppState,
-  input: CreateGenerationTask,
-  principal: Principal,
-): GenerationTask[] {
-  if (!isScriptGenerationTask(input)) return []
-  assertNoDraftScriptEpisodeInState(state, input, principal)
-  const now = new Date().toISOString()
-  return state.tasks
-    .filter(
-      (task) =>
-        task.tenantId === principal.tenantId &&
-        task.userId === principal.userId &&
-        isPreemptibleScriptTask(task) &&
-        ['queued', 'paused', 'running'].includes(task.status) &&
-        typeof task.metadata.queueHiddenAt !== 'string',
-    )
-    .map((task) => {
-      task.status = 'cancelled'
-      task.progress = 100
-      task.error = SCRIPT_TASK_PREEMPT_ERROR
-      task.metadata = {
-        ...task.metadata,
-        providerState: 'cancelled',
-        accountPreemptedAt: now,
-        cancelReason: 'new_script_task',
-        cancelledAt: now,
-        queueHiddenAt: now,
-      }
-      releaseGenerationTaskLease(task)
-      task.updatedAt = now
-      return task
-    })
-}
-
-function assertSingleScriptTaskInput(inputs: CreateGenerationTask[]): void {
-  const count = inputs.filter(isScriptGenerationTask).length
-  if (count > 1) {
-    throw new AppError(409, 'SCRIPT_TASK_BATCH_CONFLICT', '一次只能提交一个剧本生成任务')
-  }
-}
-
-const SCRIPT_TASK_PREEMPT_ERROR = '同一账号已启动新的剧本任务，本任务已自动停止'
-
-function assertNoDraftScriptEpisodeInState(
-  state: AppState,
-  input: CreateGenerationTask | GenerationTask,
-  principal: Principal,
-): void {
-  if (!isNextEpisodeScriptTask(input)) return
-  const hasDraft = state.scriptEpisodes.some(
-    (episode) =>
-      episode.projectId === input.projectId &&
-      episode.tenantId === principal.tenantId &&
-      episode.status === 'draft' &&
-      episode.draftContent.trim().length > 0,
-  )
-  if (hasDraft) throw scriptEpisodeDraftConflict()
-}
-
-function scriptEpisodeDraftConflict(): AppError {
-  return new AppError(
-    409,
-    'SCRIPT_EPISODE_DRAFT_EXISTS',
-    '当前项目已有未保存的剧集草稿，请先保存本集后再继续生成',
-  )
-}
-
-async function findControlledTaskInDatabase(
-  queryable: Queryable,
-  taskId: string,
-  principal: Principal,
-): Promise<GenerationTask | null> {
-  const result = await queryable.query<GenerationTaskRow>(
-    `
-    SELECT ${generationTaskColumns}
-    FROM generation_tasks
-    WHERE id = $1
-      AND project_id NOT LIKE 'sm-standalone-%'
-      AND tenant_id = $2
-      AND ($3::boolean OR user_id = $4)
-    LIMIT 1
-    FOR UPDATE
-    `,
-    [taskId, principal.tenantId, canReadAllTenantContent(principal), principal.userId],
-  )
-  return result.rows[0] ? taskFromRow(result.rows[0]) : null
-}
-
-async function updateGenerationTaskLifecycle(
-  queryable: Queryable,
-  task: GenerationTask,
-): Promise<GenerationTask | null> {
-  const result = await queryable.query<GenerationTaskRow>(
-    `
-    UPDATE generation_tasks
-    SET metadata = $2::jsonb,
-        status = $3,
-        progress = $4,
-        attempts = $5,
-        max_attempts = $6,
-        lease_owner_id = $7,
-        lease_token = $8,
-        lease_acquired_at = $9,
-        lease_heartbeat_at = $10,
-        lease_expires_at = $11,
-        result_url = $12,
-        outputs = $13::jsonb,
-        error = $14,
-        updated_at = $15
-    WHERE id = $1
-      AND updated_at <= $15::timestamptz
-    RETURNING ${generationTaskColumns}
-    `,
-    [
-      task.id,
-      JSON.stringify(task.metadata),
-      task.status,
-      task.progress,
-      task.attempts ?? 0,
-      task.maxAttempts ?? null,
-      task.leaseOwnerId ?? null,
-      task.leaseToken ?? null,
-      task.leaseAcquiredAt ?? null,
-      task.leaseHeartbeatAt ?? null,
-      task.leaseExpiresAt ?? null,
-      task.resultUrl,
-      JSON.stringify(task.outputs),
-      task.error,
-      task.updatedAt,
-    ],
-  )
-  return result.rows[0] ? taskFromRow(result.rows[0]) : null
-}
-
-async function updateTaskResultTargets(
-  queryable: Queryable,
-  task: GenerationTask,
-  selectedVersions?: { imageTaskId: string | null; videoTaskId: string | null },
-): Promise<void> {
-  if (task.status !== 'completed') return
-  const updatedAt = task.updatedAt
-  const assetId = metadataString(task.metadata, 'assetId')
-  if (task.kind === 'image' && task.resultUrl && assetId) {
-    await queryable.query(
-      `
-      UPDATE assets
-      SET image_url = $4,
-          updated_at = GREATEST(updated_at, $5::timestamptz)
-      WHERE id = $1
-        AND project_id = $2
-        AND tenant_id = $3
-      `,
-      [assetId, task.projectId, task.tenantId, task.resultUrl, updatedAt],
-    )
-  }
-  const shotId = metadataString(task.metadata, 'shotId')
-  if (
-    task.kind === 'image' &&
-    task.resultUrl &&
-    shotId &&
-    (!selectedVersions?.imageTaskId || selectedVersions.imageTaskId === task.id)
-  ) {
-    await queryable.query(
-      `
-      UPDATE shots
-      SET image_url = $4,
-          selected_image_task_id = $5,
-          updated_at = GREATEST(updated_at, $6::timestamptz)
-      WHERE id = $1
-        AND project_id = $2
-        AND tenant_id = $3
-      `,
-      [shotId, task.projectId, task.tenantId, task.resultUrl, task.id, updatedAt],
-    )
-  }
-  if (
-    task.kind === 'video' &&
-    shotId &&
-    (!selectedVersions?.videoTaskId || selectedVersions.videoTaskId === task.id)
-  ) {
-    await queryable.query(
-      `
-      UPDATE shots
-      SET selected_video_task_id = $4,
-          updated_at = $5
-      WHERE id = $1
-        AND project_id = $2
-        AND tenant_id = $3
-      `,
-      [shotId, task.projectId, task.tenantId, task.id, updatedAt],
-    )
-  }
-}
-
 async function assertNoActiveShotTask(
   queryable: Queryable,
   input: CreateGenerationTask,
@@ -2151,104 +1879,6 @@ function videoShotConflict(): AppError {
     409,
     'VIDEO_SHOT_BATCH_CONFLICT',
     'This shot already has an active video generation task. Pause or delete it before creating another one.',
-  )
-}
-
-async function updateBillingBalanceForTask(
-  queryable: Queryable,
-  principal: Principal,
-  membership: TaskBillingTarget,
-  nextCredits: number,
-  clientRequestId: string,
-  credits: number,
-  description: string,
-  now: string,
-): Promise<void> {
-  if (membership.billingScope === 'organization') {
-    await queryable.query(
-      `
-      UPDATE organization_billing_accounts
-      SET credits = $2,
-          updated_at = now()
-      WHERE tenant_id = $1
-      `,
-      [principal.tenantId, nextCredits],
-    )
-    await queryable.query(
-      `
-      INSERT INTO organization_billing_ledger_entries (
-        id,
-        tenant_id,
-        user_id,
-        membership_id,
-        reference_id,
-        related_entry_id,
-        entry_type,
-        amount,
-        balance,
-        description,
-        created_by_user_id,
-        created_at,
-        updated_at,
-        metadata
-      )
-      VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
-      `,
-      [
-        `generation-${clientRequestId}`,
-        principal.tenantId,
-        principal.userId,
-        membership.id,
-        clientRequestId,
-        -credits,
-        nextCredits,
-        description,
-        now,
-      ],
-    )
-    return
-  }
-
-  await queryable.query(
-    `
-    UPDATE billing_accounts
-    SET credits = $2,
-        updated_at = now()
-    WHERE membership_id = $1
-    `,
-    [membership.id, nextCredits],
-  )
-  await queryable.query(
-    `
-    INSERT INTO billing_ledger_entries (
-      id,
-      tenant_id,
-      user_id,
-      membership_id,
-      reference_id,
-      related_entry_id,
-      entry_type,
-      amount,
-      balance,
-      description,
-      created_by_user_id,
-      created_at,
-      updated_at,
-      metadata
-    )
-    VALUES ($1, $2, $3, $4, $5, NULL, 'generation', $6, $7, $8, $3, $9, $9, '{}'::jsonb)
-    `,
-    [
-      `generation-${clientRequestId}`,
-      principal.tenantId,
-      principal.userId,
-      membership.id,
-      clientRequestId,
-      -credits,
-      nextCredits,
-      description,
-      now,
-    ],
   )
 }
 

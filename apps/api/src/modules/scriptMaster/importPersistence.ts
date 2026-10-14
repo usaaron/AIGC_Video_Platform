@@ -24,9 +24,10 @@ export async function writeImportEntities(
 ) {
   await client.query('SET CONSTRAINTS shots_project_order_unique DEFERRED')
   if (plan.removedShotIds?.length && plan.episodes[0]) {
-    await client.query('DELETE FROM shots WHERE id = ANY($1::text[]) AND project_id = $2 AND tenant_id = $3', [
-      plan.removedShotIds, plan.episodes[0].projectId, plan.episodes[0].tenantId,
-    ])
+    await client.query(
+      'DELETE FROM shots WHERE id = ANY($1::text[]) AND project_id = $2 AND tenant_id = $3',
+      [plan.removedShotIds, plan.episodes[0].projectId, plan.episodes[0].tenantId],
+    )
   }
   await writeRows(
     client,

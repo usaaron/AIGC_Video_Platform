@@ -33,7 +33,7 @@ describe('AgentRunRepository in-memory fallback', () => {
 
   it('does not expose runs across users', async () => {
     const draft = await repository.savePlan({ originalPrompt: '完整要求', plan: completePlan(), principal })
-    const stranger = { ...principal, userId: 'user-owner', roles: ['owner'] as const }
+    const stranger = { ...principal, userId: 'user-owner', roles: ['owner' as const] }
     await expect(repository.find(draft.id, stranger)).resolves.toBeNull()
     await expect(repository.list(stranger)).resolves.toEqual([])
   })

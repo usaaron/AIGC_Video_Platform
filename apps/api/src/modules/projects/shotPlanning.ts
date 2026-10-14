@@ -33,6 +33,7 @@ export function assignShotEpisodes<
     episodeNumber: number
     episodeTitle: string
     episodeKind: 'standard' | 'hook'
+    continuityMode: 'independent' | 'continue'
   }
 > {
   let episodeNumber = 1
@@ -234,10 +235,12 @@ function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[
     const [header = '', ...body] = paragraph.text.split('\n')
     const chunks = groupNarrativeUnits(body, '\n')
     if (chunks.length < 2) return [paragraph]
-    return chunks.map((chunk, index) => withBreaks(
-      `${header.replace(/(场次\s*[：:]\s*)[^｜|\s]+/u, `$1${sceneNumber(index)}`)}\n${chunk}`,
-      index,
-    ))
+    return chunks.map((chunk, index) =>
+      withBreaks(
+        `${header.replace(/(场次\s*[：:]\s*)[^｜|\s]+/u, `$1${sceneNumber(index)}`)}\n${chunk}`,
+        index,
+      ),
+    )
   }
 
   const bodyFields = ['动作', '剧情', '对白'] as const
@@ -245,9 +248,10 @@ function expandLongScriptParagraph(paragraph: ScriptParagraph): ScriptParagraph[
     .filter((field) => Boolean(fields[field]) && !(field === '剧情' && fields.剧情 === fields.动作))
     .map((field) => ({
       field,
-      chunks: field === '对白' && /\[(?:对白|台词|画外音|内心独白|音效|环境声|音乐)/u.test(fields[field] || '')
-        ? groupNarrativeUnits(splitTaggedAudioCues(fields[field] || ''), '；')
-        : splitLongNarrative(fields[field] || ''),
+      chunks:
+        field === '对白' && /\[(?:对白|台词|画外音|内心独白|音效|环境声|音乐)/u.test(fields[field] || '')
+          ? groupNarrativeUnits(splitTaggedAudioCues(fields[field] || ''), '；')
+          : splitLongNarrative(fields[field] || ''),
     }))
   if (!fields.场次 || !narrative.length) {
     const chunks = splitLongNarrative(paragraph.text)
@@ -533,9 +537,7 @@ export function splitScriptIntoSceneShots(
       duration: structured
         ? estimateShotDuration(action, fields.对白, fields, isWebSeries)
         : Math.min(15, Math.max(isWebSeries ? 3 : 4, Math.ceil(paragraph.length / 18))),
-      prompt: structured
-        ? compactShotPrompt(fields, direction, action, fields.对白, 0, 1)
-        : paragraph,
+      prompt: structured ? compactShotPrompt(fields, direction, action, fields.对白, 0, 1) : paragraph,
       negativePrompt: '',
       imageUrl: null,
       episodeBreakBefore: scriptParagraph.forceEpisodeBreakBefore,

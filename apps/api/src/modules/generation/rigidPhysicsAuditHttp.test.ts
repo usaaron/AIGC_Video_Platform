@@ -9,7 +9,11 @@ import type { TaskDispatcher } from '../../core/jobs/taskDispatcher.js'
 
 describe('rigid physics audit HTTP contract', () => {
   it('requires auth, validates the body, and never dispatches a generation task', async () => {
-    const principal = { tenantId: 'tenant-seqora-demo', userId: 'user-member', roles: ['member'] as ['member'] }
+    const principal = {
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-member',
+      roles: ['member'] as ['member'],
+    }
     const store = new AppStore(null)
     await store.initialize()
     const task = buildQueuedGenerationTask(
@@ -72,9 +76,15 @@ describe('rigid physics audit HTTP contract', () => {
     try {
       expect((await app.inject({ method: 'POST', url, payload: input })).statusCode).toBe(401)
       expect(
-        (await app.inject({ method: 'POST', url, headers: { 'x-test-user': 'member' }, payload: {} })).statusCode,
+        (await app.inject({ method: 'POST', url, headers: { 'x-test-user': 'member' }, payload: {} }))
+          .statusCode,
       ).toBe(400)
-      const response = await app.inject({ method: 'POST', url, headers: { 'x-test-user': 'member' }, payload: input })
+      const response = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-test-user': 'member' },
+        payload: input,
+      })
       expect(response.statusCode).toBe(200)
       expect(response.json().metadata.rigidPhysicsAudit).toMatchObject({ status: 'needs-evidence' })
       expect(dispatch).not.toHaveBeenCalled()

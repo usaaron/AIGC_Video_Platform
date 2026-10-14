@@ -34,7 +34,9 @@ export function registerProjectCoreRoutes(app: FastifyInstance, service: Project
           await service.create(
             parseRequest(createProjectSchema, request.body),
             request.principal!,
-            typeof request.headers['idempotency-key'] === 'string' ? request.headers['idempotency-key'] : undefined,
+            typeof request.headers['idempotency-key'] === 'string'
+              ? request.headers['idempotency-key']
+              : undefined,
           ),
         ),
   )

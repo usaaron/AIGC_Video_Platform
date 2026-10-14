@@ -135,7 +135,7 @@ describe('image task subject quality rules', () => {
         return Response.json({ data: [{ b64_json: Buffer.from('test-png').toString('base64') }] })
       }) as typeof fetch,
     })
-    const files = new Map([['test-reference.png', Buffer.from('test-reference')]])
+    const files = new Map<string, Buffer>([['test-reference.png', Buffer.from('test-reference')]])
     const objectStorage: ObjectStorage = {
       put: async (key, content) => {
         files.set(key, content)
@@ -193,9 +193,9 @@ describe('image task subject quality rules', () => {
       submitted.every((request) => request.prompt.includes(String(metadata.compiledNegativePrompt))),
     ).toBe(true)
     if (scenario.stage === 'turnaround') {
-      expect(submitted[0]!.prompt).toContain('仅生成角色正面全身视图')
-      expect(submitted[1]!.prompt).toContain('仅生成角色侧面全身视图')
-      expect(submitted[2]!.prompt).toContain('仅生成角色背面全身视图')
+      expect(submitted[0]!.prompt).toContain('本次只输出正面独立源图')
+      expect(submitted[1]!.prompt).toContain('本次只输出侧面独立源图')
+      expect(submitted[2]!.prompt).toContain('本次只输出背面独立源图')
     }
     if (scenario.subjectType === 'human' && scenario.stage === 'turnaround') {
       const originalSubmissions = submitted.map((request) => ({ ...request }))

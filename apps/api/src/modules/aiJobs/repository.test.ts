@@ -1,3 +1,4 @@
+import type { Principal } from '@seqora/contracts'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccountDatabase } from '../../infra/postgres.js'
 import { AppStore } from '../../infra/store.js'
@@ -7,11 +8,11 @@ import { UserRepository } from '../users/repository.js'
 import { AiJobRepository } from './repository.js'
 import { AiJobRunner, type AiJobHandler } from '../../core/jobs/aiJobRunner.js'
 
-const principal = {
+const principal: Principal = {
   userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
   roles: ['member'],
-} as const
+}
 
 let postgres: PostgresAuthFixture | undefined
 

@@ -1,14 +1,15 @@
+import type { Principal } from '@seqora/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppStore } from '../../infra/store.js'
 import { AiJobRepository } from '../../modules/aiJobs/repository.js'
 import { usageCollector } from '../observability/usage.js'
 import { AiJobRunner, type AiJobHandler } from './aiJobRunner.js'
 
-const principal = {
+const principal: Principal = {
   userId: 'user-member',
   tenantId: 'tenant-seqora-demo',
   roles: ['member'],
-} as const
+}
 
 describe('AiJobRunner', () => {
   beforeEach(() => {

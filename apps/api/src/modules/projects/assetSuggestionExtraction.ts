@@ -353,8 +353,9 @@ function extractAssetNameCandidates(
   kind: ScriptAssetKind,
   screenplay = extractScreenplayAssetFields(script),
 ): string[] {
-  const values = [...extractScriptFieldValues(script, fields), ...screenplay[kind]]
-    .flatMap((value) => splitAssetNameList(value, kind))
+  const values = [...extractScriptFieldValues(script, fields), ...screenplay[kind]].flatMap((value) =>
+    splitAssetNameList(value, kind),
+  )
   return values
     .map((value) => cleanAssetName(value, kind))
     .filter((value) => isPlausibleAssetName(value, kind))
@@ -393,7 +394,9 @@ export function extractScriptAssetFieldCandidates(
   return Object.fromEntries(
     (Object.keys(SCRIPT_ASSET_NAME_FIELDS) as ScriptAssetKind[]).map((kind) => [
       kind,
-      kinds.includes(kind) ? extractAssetNameCandidates(script, SCRIPT_ASSET_NAME_FIELDS[kind], kind, screenplay) : [],
+      kinds.includes(kind)
+        ? extractAssetNameCandidates(script, SCRIPT_ASSET_NAME_FIELDS[kind], kind, screenplay)
+        : [],
     ]),
   ) as ScriptAssetNameIndex
 }

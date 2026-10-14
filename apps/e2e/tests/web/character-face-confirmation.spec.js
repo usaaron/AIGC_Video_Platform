@@ -176,6 +176,7 @@ function character(attributes = {}) {
 
 async function characterApi(page, initialAsset) {
   const state = createWebE2EState()
+  state.workspace.project.script = '已保存的剧本：人物在雨夜车站等待来信。'
   Object.assign(state, {
     created: [],
     patches: [],

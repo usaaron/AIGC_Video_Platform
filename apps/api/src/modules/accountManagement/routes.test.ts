@@ -1953,7 +1953,7 @@ describe('account management api', { timeout: 30_000 }, () => {
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
-  return loadConfig({
+  const defaults = loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
     EMAIL_PROVIDER: 'none',
@@ -1961,8 +1961,8 @@ function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     DATA_FILE: ':memory:',
     STORAGE_DRIVER: 'local',
     UPLOAD_DIR: resolve('./data/test-uploads'),
-    ...overrides,
   })
+  return { ...defaults, ...overrides }
 }
 
 async function createMemberWithWorkspace(email: string, password: string, workspaceName: string) {

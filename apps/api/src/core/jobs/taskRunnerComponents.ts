@@ -1,4 +1,8 @@
-import { hasBoundVideoReferences, hasManualVideoReferences, resolveVideoImages } from './taskVideoReferences.js'
+import {
+  hasBoundVideoReferences,
+  hasManualVideoReferences,
+  resolveVideoImages,
+} from './taskVideoReferences.js'
 import type { GenerationTask } from '@seqora/contracts'
 import {
   compileQualityRules,
@@ -14,7 +18,6 @@ import type {
   ImageGenerationRequest,
   ImageReference,
 } from '../generation/imageProvider.js'
-import type { TextGenerationTiming } from '../generation/textProvider.js'
 import { trustedPortraitAliases } from '../generation/trustedPortraitReferences.js'
 import type {
   VideoGenerationProvider,
@@ -30,7 +33,6 @@ import type { MediaRepository } from '../../modules/media/repository.js'
 import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
 import { observabilityMetrics, observeProviderCall } from '../observability/metrics.js'
 import { traceIdFromGenerationTask } from '../observability/trace.js'
-import { usageCollector } from '../observability/usage.js'
 import {
   DEFAULT_TASK_MAX_ATTEMPTS,
   claimGenerationTaskLease,
@@ -48,17 +50,20 @@ import {
   generatedDescriptors,
   type GeneratedOutputDescriptor,
 } from './taskWriteback.js'
+import {
+  type LocalTaskDiagnostics,
+  recordGenerationTaskQueueWait,
+  recordGenerationTaskTerminal,
+  progressiveTextValidation,
+  summarizeTextTiming,
+  durationSince,
+} from './taskDiagnostics.js'
+export type { LocalTaskDiagnostics } from './taskDiagnostics.js'
 
 export type ClaimedRemoteTasks = {
   video: GenerationTask[]
   image: GenerationTask[]
   local: GenerationTask[]
-}
-
-export type LocalTaskDiagnostics = {
-  executionStartedAtMs: number
-  firstPreviewAtMs: number | null
-  textTimings: TextGenerationTiming[]
 }
 
 export type ProviderVideoPollOutcome =
@@ -718,7 +723,8 @@ export class TaskWritebackService {
     providerTaskId: string,
     videoProvider: VideoGenerationProvider,
   ): Promise<GeneratedOutputDescriptor> {
-    if (isStandaloneProjectId(task.projectId)) throw new Error('Main generation worker cannot write an independent project')
+    if (isStandaloneProjectId(task.projectId))
+      throw new Error('Main generation worker cannot write an independent project')
     return this.resultWriteback.persistVideoLastFrame(task, providerTaskId, videoProvider)
   }
 
@@ -727,7 +733,8 @@ export class TaskWritebackService {
     providerTaskId: string,
     videoProvider: VideoGenerationProvider,
   ): Promise<GeneratedOutputDescriptor> {
-    if (isStandaloneProjectId(task.projectId)) throw new Error('Main generation worker cannot write an independent project')
+    if (isStandaloneProjectId(task.projectId))
+      throw new Error('Main generation worker cannot write an independent project')
     return this.resultWriteback.persistVideoContent(task, providerTaskId, videoProvider)
   }
 
@@ -764,7 +771,9 @@ export class TaskWritebackService {
     const intervalMs = Math.max(1_000, Math.floor(this.leaseTtlMs / 3))
     const heartbeat = () => {
       void this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-        const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
+        const stored = state.tasks.find(
+          (item) => !isStandaloneProjectId(item.projectId) && item.id === taskId,
+        )
         if (!stored || stored.status !== 'running') return
         if (!generationTaskLeaseMatches(stored, this.leaseOwnerId, leaseToken)) return
         const now = new Date()
@@ -797,10 +806,13 @@ export class VideoTaskExecutor {
     if (!leaseToken || !this.options.videoProvider) return
     try {
       const preparedTask = await this.prepareStoryboardVideoTask(task)
-      const source = typeof preparedTask.metadata.sourcePromptSnapshot === 'string'
-        ? preparedTask.metadata.sourcePromptSnapshot : preparedTask.prompt
-      const conflicts = inspectVideoPreflight(source).issues.filter(issue => issue.severity === 'error')
-      if (conflicts.length) throw new Error(`生成前冲突：${conflicts.map(issue => issue.message).join(' ')}`)
+      const source =
+        typeof preparedTask.metadata.sourcePromptSnapshot === 'string'
+          ? preparedTask.metadata.sourcePromptSnapshot
+          : preparedTask.prompt
+      const conflicts = inspectVideoPreflight(source).issues.filter((issue) => issue.severity === 'error')
+      if (conflicts.length)
+        throw new Error(`生成前冲突：${conflicts.map((issue) => issue.message).join(' ')}`)
       const request = videoRequestFor(
         preparedTask,
         await resolveVideoImages(preparedTask, this.store, this.options),
@@ -881,7 +893,9 @@ export class VideoTaskExecutor {
         typeof stored.metadata.sourcePromptHash === 'string' &&
         typeof stored.metadata.compiledPrompt === 'string' &&
         // v17 already froze authored prompts; adding view selection must not rewrite queued shots.
-        [VIDEO_PROMPT_VERSION, 'seedance-storyboard-v17'].includes(stringValue(stored.metadata.videoPromptVersion, ''))
+        [VIDEO_PROMPT_VERSION, 'seedance-storyboard-v17'].includes(
+          stringValue(stored.metadata.videoPromptVersion, ''),
+        )
       const compiledPrompt = hasCurrentTaskPromptSnapshot
         ? stringValue(stored.metadata.compiledPrompt, stored.prompt)
         : compileStoryboardVideoPrompt({
@@ -931,7 +945,9 @@ export class VideoTaskExecutor {
         duration: normalizedVideoDuration(stored.metadata.duration ?? shot.duration),
         requestedDuration: stored.metadata.requestedDuration ?? shot.duration,
         compiledPrompt,
-        videoPromptVersion: hasCurrentTaskPromptSnapshot ? stored.metadata.videoPromptVersion : VIDEO_PROMPT_VERSION,
+        videoPromptVersion: hasCurrentTaskPromptSnapshot
+          ? stored.metadata.videoPromptVersion
+          : VIDEO_PROMPT_VERSION,
         qualityRuleVersion: QUALITY_RULE_VERSION,
         qualityPresetIds: quality.presetIds,
         compiledNegativePrompt: quality.negativePrompt,
@@ -1303,7 +1319,9 @@ export class ProviderPoller {
     }
     if (outcome.kind === 'error') {
       const attempts = this.store.read((state) => {
-        const stored = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id)
+        const stored = state.tasks.find(
+          (item) => !isStandaloneProjectId(item.projectId) && item.id === task.id,
+        )
         return numberValue(stored?.metadata.providerPollErrors, 0) + 1
       })
       if (attempts >= 3) {
@@ -1650,116 +1668,6 @@ function optionalBoolean(value: unknown): boolean | null {
 
 function videoResolution(value: unknown): string {
   return value === '480p' || value === '720p' || value === '1080p' || value === '4k' ? value : '720p'
-}
-
-function recordGenerationTaskQueueWait(task: GenerationTask, now = Date.now()): void {
-  observabilityMetrics.recordTaskQueueWait({
-    kind: taskMetricKind(task),
-    tenantId: task.tenantId,
-    taskId: task.id,
-    waitMs: durationSince(task.createdAt, now),
-  })
-}
-
-function recordGenerationTaskTerminal(task: GenerationTask, error?: unknown): void {
-  observabilityMetrics.recordTaskTerminal({
-    kind: taskMetricKind(task),
-    tenantId: task.tenantId,
-    taskId: task.id,
-    status: task.status,
-  })
-  observabilityMetrics.recordTaskExecution({
-    kind: taskMetricKind(task),
-    tenantId: task.tenantId,
-    taskId: task.id,
-    durationMs: durationSince(task.createdAt),
-    ok: task.status === 'completed',
-    error,
-  })
-  if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
-    usageCollector.recordJobTerminal({
-      jobId: task.id,
-      source: 'generation_task',
-      kind: task.kind,
-      status: task.status,
-      creditsUsed: task.status === 'completed' ? task.estimatedCredits : 0,
-      tenantId: task.tenantId,
-      organizationId: task.tenantId,
-      userId: task.userId,
-      traceId: traceIdFromGenerationTask(task),
-    })
-  }
-}
-
-function taskMetricKind(task: GenerationTask): string {
-  return `${task.kind}:${task.provider}`
-}
-
-function progressiveTextValidation(preview: string): Record<string, number> {
-  const scenes = preview
-    .split(/(?=场次\s*[:：])/u)
-    .map((scene) => scene.trim())
-    .filter((scene) => /^场次\s*[:：]/u.test(scene))
-  const closedScenes = scenes.slice(0, -1)
-  const structurallyCompleteScenes = closedScenes.filter((scene) =>
-    ['剧情', '场景', '角色', '动作'].every((field) => new RegExp(`${field}\\s*[:：]`, 'u').test(scene)),
-  )
-  const dialogueScenes = closedScenes.filter((scene) => /(?:对白|画外音|内心独白)\s*[:：]/u.test(scene))
-  return {
-    recognizedScenes: scenes.length,
-    checkedScenes: closedScenes.length,
-    structurallyCompleteScenes: structurallyCompleteScenes.length,
-    dialogueScenes: dialogueScenes.length,
-  }
-}
-
-function summarizeTextTiming(
-  task: GenerationTask,
-  diagnostics: LocalTaskDiagnostics,
-  completedAtMs: number,
-): Record<string, unknown> {
-  const calls = diagnostics.textTimings.map((timing, index) => ({
-    label: timing.label || `call-${index + 1}`,
-    outcome: timing.outcome || 'completed',
-    responseHeadersMs: timing.responseHeadersMs,
-    firstTokenMs: timing.firstTokenMs,
-    firstTokenWaitMs:
-      timing.firstTokenMs === null || timing.responseHeadersMs === null
-        ? null
-        : Math.max(0, timing.firstTokenMs - timing.responseHeadersMs),
-    generationMs: timing.generationMs,
-    totalMs: timing.totalMs,
-    attempt: timing.attempt,
-  }))
-  const providerMs = calls.reduce((total, call) => total + call.totalMs, 0)
-  const executionMs = Math.max(0, completedAtMs - diagnostics.executionStartedAtMs)
-  const createdAtMs = Date.parse(task.createdAt)
-  const queueWaitMs = Number.isFinite(createdAtMs)
-    ? Math.max(0, diagnostics.executionStartedAtMs - createdAtMs)
-    : 0
-  const primary = calls[0] ?? null
-  return {
-    queueWaitMs,
-    responseHeadersMs: primary?.responseHeadersMs ?? null,
-    firstTokenWaitMs: primary?.firstTokenWaitMs ?? null,
-    firstTokenMs: primary?.firstTokenMs ?? null,
-    generationMs: primary?.generationMs ?? null,
-    providerMs,
-    appProcessingMs: Math.max(0, executionMs - providerMs),
-    executionMs,
-    totalMs: Number.isFinite(createdAtMs) ? Math.max(0, completedAtMs - createdAtMs) : executionMs,
-    firstVisibleMs:
-      diagnostics.firstPreviewAtMs === null
-        ? null
-        : Math.max(0, diagnostics.firstPreviewAtMs - diagnostics.executionStartedAtMs),
-    extraModelCalls: Math.max(0, calls.length - 1),
-    calls,
-  }
-}
-
-function durationSince(startIso: string, now = Date.now()): number {
-  const startedAt = Date.parse(startIso)
-  return Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : 0
 }
 
 async function withTimeout<T>(operation: () => Promise<T>, timeoutMs: number, message: string): Promise<T> {

@@ -28,8 +28,7 @@ export function FunctionStackPage({
   onOpenHome,
 }) {
   const item = FUNCTION_STACK_ITEMS.find((entry) => entry.id === tool) ?? FUNCTION_STACK_ITEMS[0]
-  if (item.id === 'writing-studio')
-    return <WritingStudio onOpenHome={onOpenHome} />
+  if (item.id === 'writing-studio') return <WritingStudio onOpenHome={onOpenHome} />
   if (item.availability === 'coming-soon') return <AgentComingSoon onOpenHome={onOpenHome} />
   return (
     <div className={`page tool-studio-page ${item.id}`}>
@@ -56,11 +55,7 @@ function WritingStudio({ onOpenHome }) {
       <button type="button" className="button secondary" onClick={onOpenHome}>
         <ArrowLeft size={15} /> 返回项目库
       </button>
-      <ScriptMasterWorkspace
-        projectId={null}
-        surface="standalone"
-        onReturn={onOpenHome}
-      />
+      <ScriptMasterWorkspace projectId={null} surface="standalone" onReturn={onOpenHome} />
     </section>
   )
 }

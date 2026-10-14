@@ -10,7 +10,8 @@ export class DependencyResolver {
         ? [task.metadata.dependsOnTaskId]
         : []
     const continuityId = task.metadata.continuitySourceTaskId
-    if (typeof continuityId === 'string' && !dependencyIds.includes(continuityId)) dependencyIds.push(continuityId)
+    if (typeof continuityId === 'string' && !dependencyIds.includes(continuityId))
+      dependencyIds.push(continuityId)
     if (!dependencyIds.length) return 'ready'
 
     let waiting = false
@@ -29,7 +30,12 @@ export class DependencyResolver {
       }
       if (this.continuityDependencyMissingFrame(task, userTasks)) return 'failed'
       if (dependency.status !== 'completed') waiting = true
-      if (dependencyId === continuityId && dependency.status === 'completed' && !canUseVideoContinuity(dependency)) waiting = true
+      if (
+        dependencyId === continuityId &&
+        dependency.status === 'completed' &&
+        !canUseVideoContinuity(dependency)
+      )
+        waiting = true
     }
     return waiting ? 'waiting' : 'ready'
   }

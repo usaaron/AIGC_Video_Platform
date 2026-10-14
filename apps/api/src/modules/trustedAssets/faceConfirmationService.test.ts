@@ -125,11 +125,11 @@ describe('face confirmation recovery and local compatibility', () => {
       ),
     )
     expect(new Set(created.map((task) => task.id)).size).toBe(1)
-    expect(created[0].estimatedCredits).toBe(1)
+    expect(created[0]!.estimatedCredits).toBe(1)
     expect(
       store.read((state) =>
         state.ledger
-          .filter((entry) => entry.id === `generation-${created[0].clientRequestId}`)
+          .filter((entry) => entry.id === `generation-${created[0]!.clientRequestId}`)
           .map((entry) => entry.amount),
       ),
     ).toEqual([-1])

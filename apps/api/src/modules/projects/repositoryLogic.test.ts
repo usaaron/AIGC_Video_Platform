@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { defaultAssetAttributes } from '../../infra/store.js'
 import { mergeAssetAttributes } from './repository.js'
 
-function characterAsset(status: 'processing' | 'active', checkedAt: string): Asset {
+function characterAsset(
+  status: 'processing' | 'active',
+  checkedAt: string,
+): Asset & { attributes: Extract<Asset['attributes'], { type: 'character' }> } {
   return {
     id: 'character-1',
     projectId: 'project-1',

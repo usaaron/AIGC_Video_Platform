@@ -207,10 +207,21 @@ export class GenerationService {
     }
     const context = await this.repository.storyboardVideoContext(input, principal)
     if (!context) throw new AppError(404, 'SHOT_NOT_FOUND', '分镜不存在或无权生成')
-    const videoPreflight = inspectVideoPreflight(context.shot.prompt, context.assets.filter(asset =>
-      Array.isArray(input.metadata?.referenceAssetIds) && input.metadata.referenceAssetIds.includes(asset.id)))
-    const conflicts = videoPreflight.issues.filter(issue => issue.severity === 'error')
-    if (conflicts.length) throw new AppError(409, 'VIDEO_PROMPT_CONFLICT', `${conflicts.map(issue => issue.message).join(' ')} 本次未扣费。`)
+    const videoPreflight = inspectVideoPreflight(
+      context.shot.prompt,
+      context.assets.filter(
+        (asset) =>
+          Array.isArray(input.metadata?.referenceAssetIds) &&
+          input.metadata.referenceAssetIds.includes(asset.id),
+      ),
+    )
+    const conflicts = videoPreflight.issues.filter((issue) => issue.severity === 'error')
+    if (conflicts.length)
+      throw new AppError(
+        409,
+        'VIDEO_PROMPT_CONFLICT',
+        `${conflicts.map((issue) => issue.message).join(' ')} 本次未扣费。`,
+      )
     const referenceAssetIds = Array.isArray(input.metadata.referenceAssetIds)
       ? input.metadata.referenceAssetIds.filter((value): value is string => typeof value === 'string')
       : []
@@ -405,9 +416,10 @@ export class GenerationService {
       cameraCuts: raw.physics.cameraCuts,
       violations: raw.physics.violations,
       metrics: raw.physics.metrics,
-      version: typeof (contract as { version?: unknown }).version === 'string'
-        ? (contract as { version: string }).version
-        : 'rigid-physics-v1',
+      version:
+        typeof (contract as { version?: unknown }).version === 'string'
+          ? (contract as { version: string }).version
+          : 'rigid-physics-v1',
       mediaVersion: videoReviewVersion(task),
       auditedAt,
       auditedBy: principal.userId,
@@ -418,7 +430,13 @@ export class GenerationService {
         objects: raw.physics.evidence,
       },
     })
-    return this.repository.persistRigidPhysicsAudit(taskId, result, input.expectedUpdatedAt, principal, contract)
+    return this.repository.persistRigidPhysicsAudit(
+      taskId,
+      result,
+      input.expectedUpdatedAt,
+      principal,
+      contract,
+    )
   }
 
   private async readVideoBytesForRigidAudit(task: GenerationTask): Promise<Buffer> {

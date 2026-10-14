@@ -89,11 +89,7 @@ export function assertStoryboardTaskTargetInState(
     const shots = state.shots.filter(
       (item) => item.projectId === input.projectId && item.tenantId === principal.tenantId,
     )
-    assertFilmSources(
-      input,
-      sourceShotIds,
-      new Map(shots.map((shot) => [shot.id, shot.selectedVideoTaskId])),
-    )
+    assertFilmSources(input, sourceShotIds, new Map(shots.map((shot) => [shot.id, shot.selectedVideoTaskId])))
   }
 }
 

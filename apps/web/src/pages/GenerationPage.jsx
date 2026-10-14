@@ -71,7 +71,13 @@ export function GenerationPage({
 
   const openFreezeDelivery = (job) => {
     if (!onFreezeDelivery || !canFreezeDeliveryContract(job)) return
-    setFreezeDialog({ job, draft: buildDeliveryContractDraft(job), status: 'editing', result: null, error: '' })
+    setFreezeDialog({
+      job,
+      draft: buildDeliveryContractDraft(job),
+      status: 'editing',
+      result: null,
+      error: '',
+    })
   }
 
   const submitFreezeDelivery = async () => {
@@ -84,7 +90,9 @@ export function GenerationPage({
       setFreezeDialog((current) => (current ? { ...current, status: 'success', result, error: '' } : current))
     } catch (error) {
       setFreezeDialog((current) =>
-        current ? { ...current, status: 'error', result: null, error: error?.message || '合同暂时无法冻结' } : current,
+        current
+          ? { ...current, status: 'error', result: null, error: error?.message || '合同暂时无法冻结' }
+          : current,
       )
     } finally {
       setBusyTaskId(null)
@@ -203,10 +211,14 @@ export function GenerationPage({
                   })
                 }
                 onInspectDelivery={
-                  onInspectDelivery && hasFrozenDeliveryContract(job) ? () => void inspectDelivery(job) : undefined
+                  onInspectDelivery && hasFrozenDeliveryContract(job)
+                    ? () => void inspectDelivery(job)
+                    : undefined
                 }
                 onFreezeDelivery={
-                  onFreezeDelivery && canFreezeDeliveryContract(job) ? () => openFreezeDelivery(job) : undefined
+                  onFreezeDelivery && canFreezeDeliveryContract(job)
+                    ? () => openFreezeDelivery(job)
+                    : undefined
                 }
               />
             ))
@@ -227,10 +239,7 @@ export function GenerationPage({
       )}
       {deliveryDialog &&
         createPortal(
-          <DeliveryVerificationDialog
-            dialog={deliveryDialog}
-            onClose={() => setDeliveryDialog(null)}
-          />,
+          <DeliveryVerificationDialog dialog={deliveryDialog} onClose={() => setDeliveryDialog(null)} />,
           document.body,
         )}
       {freezeDialog &&
@@ -282,19 +291,22 @@ function hasFrozenDeliveryContract(job) {
 export function canFreezeDeliveryContract(job) {
   return Boolean(
     job?.kind === 'video' &&
-      job.status === 'completed' &&
-      typeof job.resultUrl === 'string' &&
-      job.resultUrl.trim() &&
-      typeof job.projectId === 'string' &&
-      job.projectId.trim() &&
-      typeof job.updatedAt === 'string' &&
-      Number.isFinite(Date.parse(job.updatedAt)) &&
-      !job.metadata?.deliveryContract,
+    job.status === 'completed' &&
+    typeof job.resultUrl === 'string' &&
+    job.resultUrl.trim() &&
+    typeof job.projectId === 'string' &&
+    job.projectId.trim() &&
+    typeof job.updatedAt === 'string' &&
+    Number.isFinite(Date.parse(job.updatedAt)) &&
+    !job.metadata?.deliveryContract,
   )
 }
 
 export function buildDeliveryContractDraft(job) {
-  const shotId = typeof job?.metadata?.shotId === 'string' && job.metadata.shotId.trim() ? job.metadata.shotId.trim() : null
+  const shotId =
+    typeof job?.metadata?.shotId === 'string' && job.metadata.shotId.trim()
+      ? job.metadata.shotId.trim()
+      : null
   const episodeId =
     typeof job?.metadata?.episodeId === 'string' && job.metadata.episodeId.trim()
       ? job.metadata.episodeId.trim()
@@ -411,7 +423,8 @@ export function DeliveryVerificationDialog({ dialog, onClose }) {
               </div>
             </dl>
             <small>
-              合同哈希：{snapshot.contract?.contractHash?.slice(0, 12) || '不可用'} · 证据 {snapshot.evidence?.length || 0} 条
+              合同哈希：{snapshot.contract?.contractHash?.slice(0, 12) || '不可用'} · 证据{' '}
+              {snapshot.evidence?.length || 0} 条
             </small>
           </div>
         )}
@@ -441,7 +454,9 @@ export function DeliveryVerificationDialog({ dialog, onClose }) {
 
 export function DeliveryContractFreezeDialog({ dialog, onClose, onSubmit, onTogglePhysicalReview }) {
   const { job, draft, status, result, error } = dialog
-  const physicalReview = draft.must.some((requirement) => requirement.id === DELIVERY_REQUIREMENT_IDS.physicalReview)
+  const physicalReview = draft.must.some(
+    (requirement) => requirement.id === DELIVERY_REQUIREMENT_IDS.physicalReview,
+  )
   const frozenContract = result?.metadata?.deliveryContract
   const isBusy = status === 'loading'
   const isSuccess = status === 'success'

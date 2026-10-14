@@ -1,5 +1,10 @@
 import { spawn } from 'node:child_process'
-import { deriveRigidPhysicsContract, auditRigidFrameSeries, type RigidFrameAudit, type RigidFrameObservation } from '@seqora/prompting'
+import {
+  deriveRigidPhysicsContract,
+  auditRigidFrameSeries,
+  type RigidFrameAudit,
+  type RigidFrameObservation,
+} from '@seqora/prompting'
 
 export type RawVideoFrameAuditOptions = {
   width?: number
@@ -50,22 +55,23 @@ export function auditRigidVideoFrames(input: {
   cutThreshold?: number
 }): RawVideoFrameAudit {
   const fps = input.fps ?? 24
-  const cutEvidence = detectHardCuts(input.frames, input.cutThreshold === undefined ? {} : { cutThreshold: input.cutThreshold })
+  const cutEvidence = detectHardCuts(
+    input.frames,
+    input.cutThreshold === undefined ? {} : { cutThreshold: input.cutThreshold },
+  )
   const contract = deriveRigidPhysicsContract({ prompt: input.prompt })
-  const cameraCutFrames = new Set(cutEvidence.map(item => item.frame))
+  const cameraCutFrames = new Set(cutEvidence.map((item) => item.frame))
   const suppliedObservations = input.observations ?? []
   const sourceObservations: RigidFrameObservation[] = suppliedObservations.length
     ? suppliedObservations
-    : contract?.objects.flatMap(object =>
-        input.frames.map((_, frame) => ({ frame, objectId: object.id } satisfies RigidFrameObservation)),
-      ) ?? []
-  const observations = sourceObservations.map(observation => ({
+    : (contract?.objects.flatMap((object) =>
+        input.frames.map((_, frame) => ({ frame, objectId: object.id }) satisfies RigidFrameObservation),
+      ) ?? [])
+  const observations = sourceObservations.map((observation) => ({
     ...observation,
     cameraCut: observation.cameraCut || cameraCutFrames.has(observation.frame),
   }))
-  const physics = contract
-    ? auditRigidFrameSeries(contract, observations, { strictEvidence: true })
-    : null
+  const physics = contract ? auditRigidFrameSeries(contract, observations, { strictEvidence: true }) : null
   const completeFrameCoverage = contract
     ? hasCompleteFrameCoverage(contract, observations, input.frames.length)
     : true
@@ -73,21 +79,21 @@ export function auditRigidVideoFrames(input: {
     physics.violations = uniqueViolations([
       ...physics.violations,
       ...contract.objects
-        .filter(object => object.observable.requireAnchorTracking)
-        .map(object => ({
+        .filter((object) => object.observable.requireAnchorTracking)
+        .map((object) => ({
           code: 'FRAME_EVIDENCE_MISSING' as const,
           objectId: object.id,
           detail: `${object.label} 未提供每帧完整底脚/连接点证据`,
         })),
     ])
-    physics.status = physics.violations.some(item => item.code !== 'FRAME_EVIDENCE_MISSING')
+    physics.status = physics.violations.some((item) => item.code !== 'FRAME_EVIDENCE_MISSING')
       ? 'failed'
       : 'needs-evidence'
   }
   return {
     frameCount: input.frames.length,
     fps,
-    cutFrames: cutEvidence.map(item => item.frame),
+    cutFrames: cutEvidence.map((item) => item.frame),
     meanDiffs: cutEvidence,
     physics,
     observationCount: suppliedObservations.length,
@@ -118,20 +124,32 @@ export async function readGrayscaleVideoFrames(
   const height = options.height ?? 36
   const fps = options.fps ?? 24
   const frameSize = width * height
-  const args = ['-v', 'error', '-i', videoPath, '-vf', `fps=${fps},scale=${width}:${height},format=gray`, '-f', 'rawvideo', '-']
+  const args = [
+    '-v',
+    'error',
+    '-i',
+    videoPath,
+    '-vf',
+    `fps=${fps},scale=${width}:${height},format=gray`,
+    '-f',
+    'rawvideo',
+    '-',
+  ]
   const child = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
   const chunks: Buffer[] = []
   const errors: Buffer[] = []
-  child.stdout.on('data', chunk => chunks.push(Buffer.from(chunk)))
-  child.stderr.on('data', chunk => errors.push(Buffer.from(chunk)))
+  child.stdout.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+  child.stderr.on('data', (chunk) => errors.push(Buffer.from(chunk)))
   const exitCode = await new Promise<number>((resolve, reject) => {
     child.once('error', reject)
-    child.once('close', code => resolve(code ?? 1))
+    child.once('close', (code) => resolve(code ?? 1))
   })
-  if (exitCode !== 0) throw new Error(`ffmpeg frame extraction failed: ${Buffer.concat(errors).toString('utf8').trim()}`)
+  if (exitCode !== 0)
+    throw new Error(`ffmpeg frame extraction failed: ${Buffer.concat(errors).toString('utf8').trim()}`)
   const raw = Buffer.concat(chunks)
   const frames: Uint8Array[] = []
-  for (let offset = 0; offset + frameSize <= raw.length; offset += frameSize) frames.push(raw.subarray(offset, offset + frameSize))
+  for (let offset = 0; offset + frameSize <= raw.length; offset += frameSize)
+    frames.push(raw.subarray(offset, offset + frameSize))
   return { frames, fps }
 }
 
@@ -157,18 +175,20 @@ export async function readGrayscaleVideoFramesFromBuffer(
   const child = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] })
   const chunks: Buffer[] = []
   const errors: Buffer[] = []
-  child.stdout.on('data', chunk => chunks.push(Buffer.from(chunk)))
-  child.stderr.on('data', chunk => errors.push(Buffer.from(chunk)))
+  child.stdout.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+  child.stderr.on('data', (chunk) => errors.push(Buffer.from(chunk)))
   const exitCodePromise = new Promise<number>((resolve, reject) => {
     child.once('error', reject)
-    child.once('close', code => resolve(code ?? 1))
+    child.once('close', (code) => resolve(code ?? 1))
   })
   child.stdin.end(video)
   const exitCode = await exitCodePromise
-  if (exitCode !== 0) throw new Error(`ffmpeg frame extraction failed: ${Buffer.concat(errors).toString('utf8').trim()}`)
+  if (exitCode !== 0)
+    throw new Error(`ffmpeg frame extraction failed: ${Buffer.concat(errors).toString('utf8').trim()}`)
   const raw = Buffer.concat(chunks)
   const frames: Uint8Array[] = []
-  for (let offset = 0; offset + frameSize <= raw.length; offset += frameSize) frames.push(raw.subarray(offset, offset + frameSize))
+  for (let offset = 0; offset + frameSize <= raw.length; offset += frameSize)
+    frames.push(raw.subarray(offset, offset + frameSize))
   return { frames, fps }
 }
 
@@ -178,13 +198,16 @@ function hasCompleteFrameCoverage(
   frameCount: number,
 ): boolean {
   if (!frameCount || !observations.length) return false
-  const byKey = new Map(observations.map(observation => [`${observation.frame}:${observation.objectId}`, observation]))
-  return contract.objects.every(object => {
-    const anchorIds = object.anchors.map(anchor => anchor.id)
+  const byKey = new Map(
+    observations.map((observation) => [`${observation.frame}:${observation.objectId}`, observation]),
+  )
+  return contract.objects.every((object) => {
+    const anchorIds = object.anchors.map((anchor) => anchor.id)
     for (let frame = 0; frame < frameCount; frame += 1) {
       const observation = byKey.get(`${frame}:${object.id}`)
       if (!observation || observation.visible === false) return false
-      if (!observation.anchorPoints || anchorIds.some(anchorId => !observation.anchorPoints?.[anchorId])) return false
+      if (!observation.anchorPoints || anchorIds.some((anchorId) => !observation.anchorPoints?.[anchorId]))
+        return false
     }
     return true
   })
@@ -194,7 +217,7 @@ function uniqueViolations<T extends { code: string; objectId?: string; frame?: n
   items: T[],
 ): T[] {
   const seen = new Set<string>()
-  return items.filter(item => {
+  return items.filter((item) => {
     const key = JSON.stringify([item.code, item.objectId, item.frame, item.detail])
     if (seen.has(key)) return false
     seen.add(key)

@@ -86,6 +86,6 @@ test('手机资产库与弹窗无横向溢出，筹备页不请求历史任务',
   await expect(page.getByText('制作任务', { exact: true })).toHaveCount(0)
   await expect(page.locator('textarea')).toHaveCount(0)
   await page.getByRole('button', { name: '前往项目创作' }).click()
-  await expect(page.getByRole('heading', { name: '所有创作，一处管理' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '项目库', exact: true })).toBeVisible()
   expect(agentRequests).toEqual([])
 })

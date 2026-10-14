@@ -135,15 +135,15 @@ describe('HTTP security controls', { timeout: 45_000 }, () => {
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
-  return loadConfig({
+  const defaults = loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
     DATABASE_URL: authDatabase.connectionString,
     DATA_FILE: ':memory:',
     STORAGE_DRIVER: 'local',
     UPLOAD_DIR: resolve('./data/test-uploads'),
-    ...overrides,
   })
+  return { ...defaults, ...overrides }
 }
 
 async function login(email: string, password: string) {

@@ -32,17 +32,20 @@ export async function registerGenerationRoutes(
   app: FastifyInstance,
   service: GenerationService,
 ): Promise<void> {
-  app.post('/generation/tasks/:taskId/content-review',
-    {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
+  app.post(
+    '/generation/tasks/:taskId/content-review',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
     async (request) => {
       const params = taskParamsSchema.safeParse(request.params)
       const body = reviewVideoSchema.safeParse(request.body)
-      if (!params.success || !body.success) throw new AppError(400, 'VALIDATION_ERROR', '验收参数无效；标记问题时须填写原因')
+      if (!params.success || !body.success)
+        throw new AppError(400, 'VALIDATION_ERROR', '验收参数无效；标记问题时须填写原因')
       return service.reviewVideo(params.data.taskId, body.data, request.principal!)
     },
   )
-  app.post('/generation/tasks/:taskId/delivery-contract',
-    {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
+  app.post(
+    '/generation/tasks/:taskId/delivery-contract',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
     async (request) => {
       const params = taskParamsSchema.safeParse(request.params)
       const body = deliveryContractFreezeRequestSchema.safeParse(request.body)
@@ -68,8 +71,9 @@ export async function registerGenerationRoutes(
       return service.deliveryGate(params.data.taskId, request.principal!)
     },
   )
-  app.post('/generation/tasks/:taskId/rigid-audit',
-    {preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE)},
+  app.post(
+    '/generation/tasks/:taskId/rigid-audit',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
     async (request) => {
       const params = taskParamsSchema.safeParse(request.params)
       const body = rigidPhysicsAuditRequestSchema.safeParse(request.body)

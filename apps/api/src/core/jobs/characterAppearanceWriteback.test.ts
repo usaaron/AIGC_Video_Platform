@@ -23,11 +23,11 @@ describe('queued outfit writeback', () => {
       updatedAt: new Date().toISOString(),
     } as unknown as GenerationTask
     expect(writeCharacterAppearance(asset, task)).toBe(false)
-    expect(attributes.appearanceVariants[1].bodyReference).toMatchObject({ id: 'body-work' })
-    expect(attributes.appearanceVariants[0].bodyReference).toBeNull()
+    expect(attributes.appearanceVariants[1]!.bodyReference).toMatchObject({ id: 'body-work' })
+    expect(attributes.appearanceVariants[0]!.bodyReference).toBeNull()
     attributes.faceReference.id = 'new-face'
-    task.outputs[0].id = 'stale-result'
+    task.outputs[0]!.id = 'stale-result'
     expect(writeCharacterAppearance(asset, task)).toBe(false)
-    expect(attributes.appearanceVariants[1].bodyReference).toMatchObject({ id: 'body-work' })
+    expect(attributes.appearanceVariants[1]!.bodyReference).toMatchObject({ id: 'body-work' })
   })
 })

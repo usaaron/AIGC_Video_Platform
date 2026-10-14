@@ -1,5 +1,5 @@
-import { DEFAULT_SCRIPT_DIRECTION } from '@seqora/contracts'
-import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_SCRIPT_DIRECTION, type Principal } from '@seqora/contracts'
+import { assert, describe, expect, it, vi } from 'vitest'
 import { AppStore, type AppState } from '../../infra/store.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -42,7 +42,7 @@ describe('ProjectService script billing', () => {
       'short-video',
       1,
       'queued-script-1',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'seqora-5.6',
       '',
       'prepaid',
@@ -83,7 +83,7 @@ describe('ProjectService script billing', () => {
       'short-video',
       1,
       'reasoning-cleanup',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'seqora-5.6',
       '',
       'prepaid',
@@ -127,7 +127,7 @@ describe('ProjectService script billing', () => {
         'short-video',
         1,
         'truncated-scenes',
-        { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+        { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
         'seqora-5.6',
         '',
         'prepaid',
@@ -171,7 +171,7 @@ describe('ProjectService script billing', () => {
       'short-video',
       1,
       'repair-english-script',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
 
     expect(result.script).toBe(repairedScript)
@@ -215,7 +215,7 @@ describe('ProjectService script billing', () => {
       'web-series',
       1,
       'preserve-scene-count',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
 
     expect(splitScriptParagraphs(result.script)).toHaveLength(2)
@@ -251,7 +251,7 @@ describe('ProjectService script billing', () => {
       'web-series',
       1,
       'rewrite-to-ten-scenes',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'deepseek-v4-flash',
       '只要10个场次，保留核心剧情并压紧节奏。',
       'prepaid',
@@ -292,7 +292,7 @@ describe('ProjectService script billing', () => {
         'web-series',
         1,
         'reject-extra-scenes',
-        { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+        { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
         'deepseek-v4-flash',
         '只保留10场。',
         'prepaid',
@@ -338,7 +338,7 @@ describe('ProjectService script billing', () => {
       'web-series',
       1,
       'repair-missing-web-series-dialogue',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
 
     expect(textProvider.generate).toHaveBeenCalledTimes(1)
@@ -378,7 +378,7 @@ describe('ProjectService script billing', () => {
       'web-series',
       1,
       'voiceover-density',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
 
     expect(result.script.match(/\[画外音\]/gu) || []).toHaveLength(0)
@@ -421,7 +421,7 @@ describe('ProjectService script billing', () => {
       'web-series',
       1,
       'complete-provider-dialogue-gap',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
 
     expect(result.script).not.toContain('无台词')
@@ -464,7 +464,7 @@ describe('ProjectService script billing', () => {
         }),
     }
     const service = new ProjectService(repository, textProvider)
-    const previews: Array<{ text: string; stage?: string }> = []
+    const previews: Array<{ text: string; stage?: string | undefined }> = []
 
     const result = await service.generateScript(
       'project-1',
@@ -475,7 +475,7 @@ describe('ProjectService script billing', () => {
       'web-series',
       1,
       'repair-web-series-scene-count',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'seqora-5.6',
       '',
       'prepaid',
@@ -518,7 +518,7 @@ describe('ProjectService script billing', () => {
       generate: vi.fn(async () => generated),
     }
     const service = new ProjectService(repository, textProvider)
-    const principal = { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] as const }
+    const principal = { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] as Principal['roles'] }
 
     await service.generateScript(
       'project-1',
@@ -532,10 +532,12 @@ describe('ProjectService script billing', () => {
       principal,
     )
     const firstRequest = vi.mocked(textProvider.generate).mock.calls[0]?.[0]
-    expect(firstRequest?.maxOutputTokens).toBe(6_000)
+    expect(firstRequest?.maxOutputTokens).toBe(4_000)
     expect(firstRequest?.userPrompt).toContain('本次只生成 1 集')
     expect(firstRequest?.userPrompt).toContain('优先恰好输出 3 个可识别长场次')
-    expect(splitScriptParagraphs(repository.update.mock.calls[0]?.[1]?.script || '')).toHaveLength(7)
+    expect(splitScriptParagraphs(vi.mocked(repository.update).mock.calls[0]?.[1]?.script || '')).toHaveLength(
+      7,
+    )
 
     const previous = generated
     await service.generateScript(
@@ -550,10 +552,12 @@ describe('ProjectService script billing', () => {
       principal,
     )
     const nextRequest = vi.mocked(textProvider.generate).mock.calls[1]?.[0]
-    expect(nextRequest?.maxOutputTokens).toBe(6_000)
+    expect(nextRequest?.maxOutputTokens).toBe(4_000)
     expect(nextRequest?.userPrompt).toContain('1 个下一集生产单元')
     expect(nextRequest?.userPrompt).toContain('优先恰好输出 3 个长场次')
-    expect(splitScriptParagraphs(repository.update.mock.calls[1]?.[1]?.script || '')).toHaveLength(14)
+    expect(splitScriptParagraphs(vi.mocked(repository.update).mock.calls[1]?.[1]?.script || '')).toHaveLength(
+      14,
+    )
   })
 
   it('uses the project content type to generate a timed advertising production script', async () => {
@@ -587,7 +591,7 @@ describe('ProjectService script billing', () => {
       'short-video',
       1,
       'advertisement-script',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'seqora-5.6',
       '',
       'prepaid',
@@ -634,7 +638,7 @@ describe('ProjectService script billing', () => {
       'short-video',
       1,
       'short-film-script',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'seqora-5.6',
       '',
       'prepaid',
@@ -682,7 +686,7 @@ describe('ProjectService script billing', () => {
       'short-video',
       1,
       'repair-advertisement-echo',
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       'seqora-5.6',
       '',
       'prepaid',
@@ -720,7 +724,7 @@ describe('ProjectService asset suggestions', () => {
       'project-1',
       '场次：S01｜场景：雨夜车站｜角色：林夏｜道具：旧雨伞',
       DEFAULT_SCRIPT_DIRECTION,
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       onTextProgress,
       onTextTiming,
     )
@@ -762,7 +766,7 @@ describe('ProjectService asset suggestions', () => {
       'project-1',
       '场次：S01｜场景：雨夜车站｜角色：林夏｜道具：旧雨伞',
       DEFAULT_SCRIPT_DIRECTION,
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       undefined,
       undefined,
       'fast',
@@ -807,7 +811,7 @@ describe('ProjectService asset suggestions', () => {
       'project-1',
       script,
       DEFAULT_SCRIPT_DIRECTION,
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
       undefined,
       undefined,
       'fast',
@@ -881,8 +885,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'beat', maxShots: 2, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots).toHaveLength(2)
     expect(shots.map((shot) => shot.duration)).toEqual([4, 5])
@@ -910,8 +915,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots).toHaveLength(1)
     expect(shots[0]?.prompt).toContain('动作1：岚星抬眼看向光点')
@@ -930,8 +936,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots).toHaveLength(2)
     expect(shots.map((shot) => shot.duration)).toEqual([10, 10])
@@ -957,8 +964,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots).toHaveLength(2)
     expect(shots.map((shot) => shot.duration)).toEqual([10, 10])
@@ -984,8 +992,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots.length).toBeGreaterThan(8)
     expect(shots.length).toBeLessThanOrEqual(120)
@@ -1008,8 +1017,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'scene', maxShots: 120, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots).toHaveLength(2)
     expect(shots[0]?.prompt).toContain('动作2：岚星停步')
@@ -1028,8 +1038,9 @@ describe('ProjectService director beat splitting', () => {
     const shots = await service.generateShots(
       'project-1',
       { mode: 'beat', maxShots: 120, episodeDurationSeconds: 60 },
-      { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] },
+      { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] },
     )
+    assert(shots)
 
     expect(shots).toHaveLength(1)
     expect(shots[0]?.prompt).toContain('林砚抬眼，收紧剑柄，侧身让开道路')
@@ -1047,7 +1058,7 @@ describe('ProjectService shot deletion', () => {
       service.deleteShot('project-1', 'shot-1', {
         userId: 'user-1',
         tenantId: 'tenant-1',
-        roles: ['creator'],
+        roles: ['member'],
       }),
     ).rejects.toThrow('这个分镜仍在排队、暂停或生成中')
   })
@@ -1061,7 +1072,7 @@ describe('ProjectRepository shot ordering', () => {
     const principal = {
       userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['member'] as const,
+      roles: ['member'] as Principal['roles'],
     }
     const before = await repository.workspace('project-midnight-film', principal)
     const anchor = before?.shots[1]
@@ -1071,6 +1082,7 @@ describe('ProjectRepository shot ordering', () => {
       'project-midnight-film',
       {
         title: '插入镜头',
+        scriptEpisodeId: null,
         framing: '中景',
         duration: 5,
         prompt: '承接第二镜后的补充动作。',
@@ -1089,7 +1101,7 @@ describe('ProjectRepository shot ordering', () => {
     expect(inserted?.order).toBe(3)
     const afterInsert = await repository.workspace('project-midnight-film', principal)
     expect(afterInsert?.shots.map((shot) => shot.order)).toEqual(
-      Array.from({ length: afterInsert.shots.length }, (_, index) => index + 1),
+      Array.from({ length: afterInsert!.shots.length }, (_, index) => index + 1),
     )
     expect(afterInsert?.shots[2]?.id).toBe(inserted?.id)
 
@@ -1098,7 +1110,7 @@ describe('ProjectRepository shot ordering', () => {
     )
     const afterDelete = await repository.workspace('project-midnight-film', principal)
     expect(afterDelete?.shots.map((shot) => shot.order)).toEqual(
-      Array.from({ length: afterDelete.shots.length }, (_, index) => index + 1),
+      Array.from({ length: afterDelete!.shots.length }, (_, index) => index + 1),
     )
   })
 })
@@ -1111,7 +1123,7 @@ describe('ProjectRepository script episodes', () => {
     const principal = {
       userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['member'] as const,
+      roles: ['member'] as Principal['roles'],
     }
     const before = await repository.workspace('project-midnight-film', principal)
     const originalAggregate = before!.project.script
@@ -1150,7 +1162,7 @@ describe('ProjectRepository script episodes', () => {
     const principal = {
       userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['member'] as const,
+      roles: ['member'] as Principal['roles'],
     }
     const first = (await repository.workspace('project-midnight-film', principal))!.scriptEpisodes[0]!
     const secondDraft = await repository.writeScriptEpisodeDraft(
@@ -1207,7 +1219,7 @@ describe('ProjectRepository project archiving', () => {
     const member = {
       userId: 'user-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['member'] as const,
+      roles: ['member'] as Principal['roles'],
     }
 
     const listed = await repository.list(member)
@@ -1222,7 +1234,7 @@ describe('ProjectRepository project archiving', () => {
     const owner = {
       userId: 'user-owner',
       tenantId: 'tenant-seqora-demo',
-      roles: ['owner'] as const,
+      roles: ['owner'] as Principal['roles'],
     }
 
     await expect(repository.archive('project-midnight-film', owner)).resolves.toBe(true)
@@ -1238,7 +1250,7 @@ describe('ProjectRepository project archiving', () => {
     const member = {
       userId: 'user-other-member',
       tenantId: 'tenant-seqora-demo',
-      roles: ['member'] as const,
+      roles: ['member'] as Principal['roles'],
     }
 
     await expect(repository.archive('project-midnight-film', member)).resolves.toBe(false)

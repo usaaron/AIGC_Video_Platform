@@ -10,10 +10,7 @@ import {
 describe('chat completion response helpers', () => {
   it('keeps provider-specific choice handling explicit', () => {
     const value = {
-      choices: [
-        { message: { content: '首个结果' } },
-        { message: { content: '第二个结果' } },
-      ],
+      choices: [{ message: { content: '首个结果' } }, { message: { content: '第二个结果' } }],
     }
 
     expect(completionText(value, { choiceMode: 'first', includeReasoning: false })).toBe('首个结果')
@@ -22,10 +19,13 @@ describe('chat completion response helpers', () => {
 
   it('preserves direct text precedence and rejects reasoning-only content as visible text', () => {
     expect(
-      completionText({
-        content: ' 直接结果 ',
-        choices: [{ message: { content: '不应追加' } }],
-      }, { choiceMode: 'first', includeReasoning: false }),
+      completionText(
+        {
+          content: ' 直接结果 ',
+          choices: [{ message: { content: '不应追加' } }],
+        },
+        { choiceMode: 'first', includeReasoning: false },
+      ),
     ).toBe(' 直接结果 ')
     expect(completionParts({ reasoning_content: '内部推理' })).toEqual({
       content: '',
@@ -45,6 +45,8 @@ describe('chat completion response helpers', () => {
     await expect(
       readProviderErrorMessage(Response.json({ error: { message: '上游拒绝' } }, { status: 503 })),
     ).resolves.toBe('上游拒绝')
-    await expect(readProviderErrorMessage(new Response('x'.repeat(600), { status: 500 }))).resolves.toHaveLength(500)
+    await expect(
+      readProviderErrorMessage(new Response('x'.repeat(600), { status: 500 })),
+    ).resolves.toHaveLength(500)
   })
 })

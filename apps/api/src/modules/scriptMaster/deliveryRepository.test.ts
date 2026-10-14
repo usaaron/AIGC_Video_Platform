@@ -105,7 +105,9 @@ describe('Script Master delivery reservations', () => {
       statusCode: 403,
       code: 'PROJECT_SURFACE_DENIED',
     })
-    await expect(repository.complete(standalone, { importedEpisodes: 1, updatedEpisodes: 0 })).rejects.toMatchObject({
+    await expect(
+      repository.complete(standalone, { importedEpisodes: 1, updatedEpisodes: 0 }),
+    ).rejects.toMatchObject({
       statusCode: 403,
       code: 'PROJECT_SURFACE_DENIED',
     })

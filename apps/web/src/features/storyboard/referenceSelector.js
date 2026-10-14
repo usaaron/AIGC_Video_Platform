@@ -28,7 +28,9 @@ export function createShotAssetReferenceIndex(assets) {
       (asset) =>
         asset.kind !== 'audio' &&
         (referenceUrl(asset) ||
-          asset.attributes?.appearanceVariants?.some((item) => item.bodyReference?.url || item.turnaroundReferences?.some((ref) => ref.url))),
+          asset.attributes?.appearanceVariants?.some(
+            (item) => item.bodyReference?.url || item.turnaroundReferences?.some((ref) => ref.url),
+          )),
     ),
   }
 }
@@ -36,9 +38,13 @@ export function createShotAssetReferenceIndex(assets) {
 export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, assets = []) {
   const resolvedIndex = assetIndex || createShotAssetReferenceIndex(assets)
   const shotText = normalize(`${shot.title || ''}${shot.prompt || ''}`)
-  const characterNames = [...resolvedIndex.byId.values()].filter((asset) => asset.kind === 'character').map((asset) => asset.name)
+  const characterNames = [...resolvedIndex.byId.values()]
+    .filter((asset) => asset.kind === 'character')
+    .map((asset) => asset.name)
   const candidates = resolvedIndex.candidates
-    .filter((asset) => asset.kind !== 'character' || shotMentionsVisibleCharacter(asset.name, shot, characterNames))
+    .filter(
+      (asset) => asset.kind !== 'character' || shotMentionsVisibleCharacter(asset.name, shot, characterNames),
+    )
     .map((asset, index) => ({ asset, index, ...scoreAsset(asset, shotText, resolvedIndex.byId) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
 
@@ -55,7 +61,11 @@ export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, 
   return selected
     .slice(0, limit)
     .map(({ asset }) => {
-      const selection = selectCharacterShotAppearance(asset, shot, [...resolvedIndex.byId.values()].filter((item) => item.kind === 'character').map((item) => item.name))
+      const selection = selectCharacterShotAppearance(
+        asset,
+        shot,
+        [...resolvedIndex.byId.values()].filter((item) => item.kind === 'character').map((item) => item.name),
+      )
       const variant = selection?.variant
       const name = variant ? characterVariantName(asset.name, variant.name) : asset.name
       return {
@@ -68,7 +78,10 @@ export function selectShotAssetReferencesFromIndex(assetIndex, shot, limit = 6, 
         view: selection?.view,
         ...(variant
           ? {
-              appearance: { name, description: [variant.description, variant.prompt].filter(Boolean).join('\n') },
+              appearance: {
+                name,
+                description: [variant.description, variant.prompt].filter(Boolean).join('\n'),
+              },
             }
           : {}),
         name: `${name}.png`,
@@ -110,8 +123,12 @@ function scoreAsset(asset, shotText, assetById) {
     const owner = assetById.get(asset.attributes.characterAssetId)
     const ownerName = normalize(owner?.name)
     if (ownerName) matchingName = name.replace(ownerName, '')
-    if (ownerName && shotText.includes(ownerName) &&
-        (exactNameMatch || overlapScore(shotText, matchingName + normalize(asset.description), 1, 1))) matchScore += 190
+    if (
+      ownerName &&
+      shotText.includes(ownerName) &&
+      (exactNameMatch || overlapScore(shotText, matchingName + normalize(asset.description), 1, 1))
+    )
+      matchScore += 190
   }
   matchScore += overlapScore(shotText, matchingName, 20, 40)
   matchScore += overlapScore(shotText, normalize(asset.description), 2, 20)
@@ -148,4 +165,10 @@ function normalize(value) {
     .toLowerCase()
     .replace(/[\s\p{P}\p{S}]+/gu, '')
 }
-import { characterAppearance, characterReferenceName, characterVariantName, selectCharacterShotAppearance, shotMentionsVisibleCharacter } from '@seqora/contracts'
+import {
+  characterAppearance,
+  characterReferenceName,
+  characterVariantName,
+  selectCharacterShotAppearance,
+  shotMentionsVisibleCharacter,
+} from '@seqora/contracts'

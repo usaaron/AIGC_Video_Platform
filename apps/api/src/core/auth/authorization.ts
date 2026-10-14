@@ -1,12 +1,12 @@
 import { ROLE_PERMISSIONS, type Permission, type Principal } from '@seqora/contracts'
-import type { preHandlerHookHandler } from 'fastify'
+import type { preHandlerAsyncHookHandler } from 'fastify'
 import { AppError } from '../errors.js'
 
 export function permissionsFor(principal: Principal): Set<Permission> {
   return new Set(principal.roles.flatMap((role) => ROLE_PERMISSIONS[role]))
 }
 
-export function requirePermission(permission: Permission): preHandlerHookHandler {
+export function requirePermission(permission: Permission): preHandlerAsyncHookHandler {
   return async (request) => {
     if (!request.principal) {
       throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')
@@ -17,7 +17,7 @@ export function requirePermission(permission: Permission): preHandlerHookHandler
   }
 }
 
-export function requireAnyPermission(...permissions: Permission[]): preHandlerHookHandler {
+export function requireAnyPermission(...permissions: Permission[]): preHandlerAsyncHookHandler {
   return async (request) => {
     if (!request.principal) {
       throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required')

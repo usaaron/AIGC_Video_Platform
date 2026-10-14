@@ -12,6 +12,9 @@ export function removeLegacyDemoCharacters(state: AppState): AppState {
   }
 }
 
+export function defaultAssetAttributes<Kind extends Asset['kind']>(
+  kind: Kind,
+): Extract<Asset['attributes'], { type: Kind }>
 export function defaultAssetAttributes(kind: Asset['kind']): Asset['attributes'] {
   if (kind === 'character') {
     return {

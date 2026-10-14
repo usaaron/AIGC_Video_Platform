@@ -259,8 +259,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
       const hasActiveTasks = this.store.read((state) =>
         state.tasks.some(
           (task) =>
-            !isStandaloneProjectId(task.projectId) &&
-            (task.status === 'queued' || task.status === 'running'),
+            !isStandaloneProjectId(task.projectId) && (task.status === 'queued' || task.status === 'running'),
         ),
       )
       if (!hasActiveTasks) return maintenanceWork
@@ -545,9 +544,8 @@ export class GenerationTaskRunner implements TaskDispatcher {
               onTextProgress: schedulePreview,
               assertActive: async () => {
                 await this.refreshTask?.(task.id)
-                const current = this.store.read(
-                  (state) =>
-                    state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id),
+                const current = this.store.read((state) =>
+                  state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === task.id),
                 )
                 if (current?.status === 'running' && current.leaseToken !== leaseToken)
                   throw new AppError(409, 'TASK_LEASE_LOST', '剧本任务已由另一个 Worker 接续')

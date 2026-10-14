@@ -30,7 +30,11 @@ describe('rigid physics audit contracts', () => {
         checkedFrames: 1,
         cameraCuts: [],
         violations: [],
-        metrics: { maxAnchorDrift: Number.NaN, maxDimensionDriftRatio: null, maxMemberSpacingDriftRatio: null },
+        metrics: {
+          maxAnchorDrift: Number.NaN,
+          maxDimensionDriftRatio: null,
+          maxMemberSpacingDriftRatio: null,
+        },
         version: 'rigid-physics-v1',
         mediaVersion: '["task","media"]',
         auditedAt: '2026-10-11T00:00:01.000Z',

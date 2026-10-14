@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  cacheDir: process.env.SEQORA_E2E_CACHE_DIR || undefined,
   server: {
     port: 5174,
     proxy: {

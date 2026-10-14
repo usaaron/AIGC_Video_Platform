@@ -61,7 +61,61 @@ export function createWebE2EState(overrides = {}) {
   }
 }
 
+// Navigation exercises every production page with its persisted prerequisites.
+// Keep the default fixture empty so onboarding and workflow gates stay testable.
+export function createNavigationE2EState() {
+  const state = createWebE2EState()
+  Object.assign(state.workspace.project, {
+    contentType: 'animation',
+    script: '场次：S01｜场景：雨夜车站。｜动作：旅客在长椅旁拿起一封信。',
+  })
+  state.workspace.assets = [
+    {
+      id: 'navigation-prop',
+      projectId: 'project-1',
+      kind: 'prop',
+      name: '信封',
+      description: '未拆封的白色信封',
+      prompt: '',
+      references: [],
+      attributes: {},
+      status: 'draft',
+    },
+  ]
+  state.workspace.shots = [
+    {
+      id: 'navigation-shot',
+      projectId: 'project-1',
+      order: 1,
+      title: '雨夜来信',
+      framing: '中景',
+      prompt: '旅客拿起信封。',
+      duration: 5,
+      episodeNumber: 1,
+      episodeTitle: '雨夜来信',
+      episodeKind: 'standard',
+      continuityMode: 'independent',
+    },
+  ]
+  return state
+}
+
 export async function mockWebApi(page, state = createWebE2EState()) {
+  await isolateApiContext(page.context())
+  // The host retains the embedded workbench while showing storyboard pages.
+  // Serve a test frame rather than falling through Vite's SPA fallback.
+  await page.route('**/script-master?**', (route) => {
+    const params = new URL(route.request().url()).searchParams
+    const ready = {
+      type: 'seqora:script-master:ready',
+      surface: params.get('surface'),
+      projectId: params.get('host_project_id'),
+    }
+    return route.fulfill({
+      contentType: 'text/html; charset=utf-8',
+      body: `<h1>剧本工作台测试夹具</h1><script>parent.postMessage(${JSON.stringify(ready)}, location.origin)</script>`,
+    })
+  })
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -72,11 +126,28 @@ export async function mockWebApi(page, state = createWebE2EState()) {
     if (method === 'GET' && path === '/projects') return fulfillJson(route, state.projects)
     if (method === 'GET' && path === '/billing/summary') return fulfillJson(route, state.billing)
     if (method === 'GET' && path === '/health') return fulfillJson(route, state.health)
+    if (method === 'GET' && (path === '/organizations' || path === '/auth/sessions'))
+      return fulfillJson(route, [])
+    if (method === 'GET' && path === '/trusted-assets/configuration')
+      return fulfillJson(route, {
+        configured: false,
+        virtualRegistrationReady: false,
+        realValidationReady: false,
+      })
     if (method === 'GET' && path === `/projects/${state.workspace.project.id}`) {
       return fulfillJson(route, state.workspace)
     }
     if (method === 'GET' && path === `/projects/${state.workspace.project.id}/generation/tasks`) {
       return fulfillJson(route, state.tasks)
+    }
+    if (method === 'GET' && path === `/projects/${state.workspace.project.id}/generation/tasks/poll`) {
+      return fulfillJson(
+        route,
+        state.tasks.map(({ outputs: _outputs, ...task }) => task),
+      )
+    }
+    if (method === 'GET' && path === `/projects/${state.workspace.project.id}/workspace/version`) {
+      return fulfillJson(route, { version: JSON.stringify(state.workspace) })
     }
     if (method === 'GET' && path === '/generation/tasks/recent') return fulfillJson(route, state.tasks)
     if (method === 'POST' && path === '/image2/batches') {
@@ -312,6 +383,7 @@ export function createAdminE2EState(overrides = {}) {
 }
 
 export async function mockAdminApi(page, state = createAdminE2EState()) {
+  await isolateApiContext(page.context())
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -698,6 +770,22 @@ function updateAdminMembership(state, membershipId, { plan, creditsDelta = 0 }) 
     account.credits += creditsDelta
     account.updatedAt = now
   }
+}
+
+const isolatedApiContexts = new WeakSet()
+
+async function isolateApiContext(context) {
+  if (isolatedApiContexts.has(context)) return
+  // Page mocks take precedence, but may be removed while background refreshes
+  // are still in flight. Keep a context-level boundary until the browser closes
+  // so an unhandled API request never reaches Vite's local-preview proxy.
+  await context.route('**/api/v1/**', (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: { code: 'E2E_API_UNMOCKED', message: 'No API fixture handled this request.' } },
+    }),
+  )
+  isolatedApiContexts.add(context)
 }
 
 function meta(total) {

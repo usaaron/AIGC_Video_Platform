@@ -59,10 +59,13 @@ describe('structured script asset evidence', () => {
     const result = cache.analyze(scope, [{ id: 'empty', content: revisedBody, assetEvidence: complete }])
     expect(result.names).toEqual({ character: [], scene: [], prop: [], costume: [], brand: [] })
     expect(result.complete).toEqual({ character: true, scene: true, prop: true })
-    const partial = cache.analyze(scope, [{
-      id: 'empty', content: revisedBody,
-      assetEvidence: { ...complete, complete: { character: true, scene: false, prop: false } },
-    }])
+    const partial = cache.analyze(scope, [
+      {
+        id: 'empty',
+        content: revisedBody,
+        assetEvidence: { ...complete, complete: { character: true, scene: false, prop: false } },
+      },
+    ])
     expect(partial.names.character).toEqual([])
     expect(partial.names.scene).toEqual(['阅览室 - 夜', '旧码头 - 日'])
     expect(partial.names.prop).toEqual([])
@@ -72,8 +75,13 @@ describe('structured script asset evidence', () => {
     const result = new ScriptAssetSourceIndexCache().analyze(scope, [
       { id: 'original', content, assetEvidence: evidence() },
       {
-        id: 'edited', content: revisedBody,
-        assetEvidence: { ...evidence(revisedBody), complete: { character: false, scene: false, prop: false }, assets: [] },
+        id: 'edited',
+        content: revisedBody,
+        assetEvidence: {
+          ...evidence(revisedBody),
+          complete: { character: false, scene: false, prop: false },
+          assets: [],
+        },
       },
     ])
     expect(result.names.character).toEqual(['林夏', '顾砚', '陆青'])
@@ -82,16 +90,36 @@ describe('structured script asset evidence', () => {
     expect(result.complete).toEqual({ character: false, scene: false, prop: false })
   })
 
-  it.each(['INT. 档案室 - 夜', 'EXT. 档案室 - 日', 'INT./EXT. 档案室 - 夜'])('keeps the real location in screenplay heading %s', async (heading) => {
-    const declared = evidence()
-    declared.assets = [{ kind: 'scene', name: heading, facts: {}, sourceSceneIds: ['episode-1:1'] }]
-    const state = { project: { name: '快速正文', contentType: 'short-drama', visualStyle: 'cinematic-cg', aspectRatio: '9:16' },
-      assets: [], scriptEpisodes: [{ id: 'one', status: 'saved', content, continuityState: { scriptAssetEvidence: declared } }] }
-    const service = new ProjectService({ workspace: async () => state } as unknown as ProjectRepository)
-    const result = await service.suggestScriptAssets(scope.projectId, '', DEFAULT_SCRIPT_DIRECTION,
-      { tenantId: scope.tenantId, userId: 'user-1', roles: ['creator'] }, undefined, undefined, 'fast')
-    expect(result.assets.map(asset => asset.name)).toEqual([heading.replace(/^[A-Z./]+\s+/u, '')])
-  })
+  it.each(['INT. 档案室 - 夜', 'EXT. 档案室 - 日', 'INT./EXT. 档案室 - 夜'])(
+    'keeps the real location in screenplay heading %s',
+    async (heading) => {
+      const declared = evidence()
+      declared.assets = [{ kind: 'scene', name: heading, facts: {}, sourceSceneIds: ['episode-1:1'] }]
+      const state = {
+        project: {
+          name: '快速正文',
+          contentType: 'short-drama',
+          visualStyle: 'cinematic-cg',
+          aspectRatio: '9:16',
+        },
+        assets: [],
+        scriptEpisodes: [
+          { id: 'one', status: 'saved', content, continuityState: { scriptAssetEvidence: declared } },
+        ],
+      }
+      const service = new ProjectService({ workspace: async () => state } as unknown as ProjectRepository)
+      const result = await service.suggestScriptAssets(
+        scope.projectId,
+        '',
+        DEFAULT_SCRIPT_DIRECTION,
+        { tenantId: scope.tenantId, userId: 'user-1', roles: ['member'] },
+        undefined,
+        undefined,
+        'fast',
+      )
+      expect(result.assets.map((asset) => asset.name)).toEqual([heading.replace(/^[A-Z./]+\s+/u, '')])
+    },
+  )
 
   it('keeps explicit delivered facts when model fields disagree', async () => {
     const state = {
@@ -130,7 +158,7 @@ describe('structured script asset evidence', () => {
     const result = await service.suggestScriptAssets(scope.projectId, '', DEFAULT_SCRIPT_DIRECTION, {
       tenantId: scope.tenantId,
       userId: 'user-1',
-      roles: ['creator'],
+      roles: ['member'],
     })
     const character = result.assets.find((asset) => asset.name === '林夏')!
     expect(character.sourceFacts).toMatchObject({
@@ -180,7 +208,7 @@ describe('structured script asset evidence', () => {
       service.suggestScriptAssets(scope.projectId, '', DEFAULT_SCRIPT_DIRECTION, {
         tenantId: scope.tenantId,
         userId: 'user-1',
-        roles: ['creator'],
+        roles: ['member'],
       })
     expect((await run()).assets.some((asset) => asset.kind === 'character')).toBe(false)
     expect(prompt).toContain('旧车站')
@@ -291,7 +319,7 @@ describe('structured script asset evidence', () => {
         scope.projectId,
         content,
         DEFAULT_SCRIPT_DIRECTION,
-        { tenantId: scope.tenantId, userId: 'user-1', roles: ['creator'] },
+        { tenantId: scope.tenantId, userId: 'user-1', roles: ['member'] },
         undefined,
         undefined,
         'fast',

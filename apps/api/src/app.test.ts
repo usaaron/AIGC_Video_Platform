@@ -8,11 +8,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import { readFile, rm, stat } from 'node:fs/promises'
 import { createHmac } from 'node:crypto'
-import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { TextDecoder } from 'node:util'
 import { buildApp } from './app.js'
 import { quickStartAnalysis } from './testing/quickStartFixture.js'
+import { testConfig } from './testing/appConfig.js'
 import type { AppConfig } from './config.js'
 import type { VideoGenerationProvider } from './core/generation/videoProvider.js'
 import type { ImageGenerationProvider } from './core/generation/imageProvider.js'
@@ -27,158 +27,10 @@ import { ProjectRepository } from './modules/projects/repository.js'
 import { UserRepository } from './modules/users/repository.js'
 import { LocalObjectStorage } from './infra/objectStorage.js'
 import { startPostgresAuthFixture, type PostgresAuthFixture } from './testing/postgresAuth.js'
+import { testVideoProvider } from './testing/videoProviderFixture.js'
+import { MemoryLogger } from './testing/memoryLogger.js'
 
-const testConfig: AppConfig = {
-  NODE_ENV: 'test',
-  API_HOST: '127.0.0.1',
-  API_PORT: 8787,
-  WEB_ORIGIN: 'http://localhost:5173',
-  PUBLIC_API_BASE_URL: '',
-  SCRIPT_MASTER_URL: '',
-  SCRIPT_MASTER_SHARED_SECRET: '',
-  SCRIPT_MASTER_LAUNCH_TTL_SECONDS: 300,
-  TRUST_PROXY: false,
-  RATE_LIMIT_MAX: 300,
-  TASK_QUEUE_DRIVER: 'inline',
-  TASK_QUEUE_NAME: 'seqora-generation-test',
-  TASK_QUEUE_WORKER_CONCURRENCY: 2,
-  TASK_QUEUE_POLL_INTERVAL_MS: 5_000,
-  REDIS_URL: '',
-  AUTH_MODE: 'demo',
-  AUTH_SECRET: 'test-secret-with-at-least-32-characters',
-  BILLING_WEBHOOK_SECRET: 'test-billing-webhook-secret-32-chars',
-  EMAIL_PROVIDER: 'console',
-  EMAIL_FROM: 'Seqora <no-reply@seqora.local>',
-  EMAIL_REPLY_TO: '',
-  RESEND_API_KEY: '',
-  AUTH_PASSWORD_RESET_URL: 'http://localhost:5173/reset-password',
-  AUTH_INVITATION_URL: 'http://localhost:5173/register',
-  PAYMENT_PROVIDER: 'none',
-  BILLING_SUCCESS_URL: '',
-  BILLING_CANCEL_URL: '',
-  STRIPE_SECRET_KEY: '',
-  STRIPE_WEBHOOK_SECRET: '',
-  STRIPE_MEMBER_PRICE_ID: '',
-  STRIPE_CREDIT_PRICE_ID: '',
-  STRIPE_CREDIT_PACK_CREDITS: 100,
-  BOOTSTRAP_MEMBER_NAME: '默认 C 端用户',
-  BOOTSTRAP_MEMBER_EMAIL: 'member@seqora.local',
-  BOOTSTRAP_MEMBER_PASSWORD: 'MemberPassword123!',
-  BOOTSTRAP_OWNER_NAME: '平台所有者',
-  BOOTSTRAP_OWNER_EMAIL: 'owner@seqora.local',
-  BOOTSTRAP_OWNER_PASSWORD: 'OwnerPassword123!',
-  BOOTSTRAP_SUPER_ADMIN_NAME: '超级管理员',
-  BOOTSTRAP_SUPER_ADMIN_EMAIL: 'superadmin@seqora.local',
-  BOOTSTRAP_SUPER_ADMIN_PASSWORD: 'SuperAdmin123!',
-  BOOTSTRAP_ADMIN_NAME: '平台管理员',
-  BOOTSTRAP_ADMIN_EMAIL: 'admin@seqora.local',
-  BOOTSTRAP_ADMIN_PASSWORD: 'Admin123!',
-  BOOTSTRAP_ACCOUNTS_ON_START: true,
-  BOOTSTRAP_DEMO_WORKSPACE: true,
-  DATA_FILE: ':memory:',
-  STORAGE_DRIVER: 'local',
-  UPLOAD_DIR: resolve('./data/test-uploads'),
-  GCS_BUCKET: '',
-  MAX_UPLOAD_BYTES: 10_485_760,
-  DORA_ROUTER_BASE_URL: 'https://www.dorarouter.com',
-  DORA_ROUTER_API_KEY: '',
-  DORA_ROUTER_VIDEO_MODEL: 'TH-doubao-seedance2.0',
-  DORA_ROUTER_REQUEST_TIMEOUT_MS: 30_000,
-  DORA_ROUTER_ASSET_REQUEST_TIMEOUT_MS: 30_000,
-  VIDEO_PROVIDER: 'stringx',
-  STRINGX_BASE_URL: 'https://maas.stringx.top/api/v3',
-  STRINGX_API_KEY: '',
-  STRINGX_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
-  STRINGX_SEEDANCE_DEFAULT_TIER: 'fast',
-  STRINGX_SEEDANCE_MINI_MODEL: 'doubao-seedance-2-0-260128',
-  STRINGX_SEEDANCE_FAST_MODEL: 'doubao-seedance-2-0-260128',
-  STRINGX_SEEDANCE_PRO_MODEL: 'doubao-seedance-2-0-260128',
-  STRINGX_REQUEST_TIMEOUT_MS: 30_000,
-  VIDEO_POLL_INTERVAL_MS: 5_000,
-  VIDEO_STATUS_TIMEOUT_MS: 10_000,
-  VIDEO_POLL_CONCURRENCY: 6,
-  VIDEO_PROCESSING_STALL_TIMEOUT_MS: 360_000,
-  ARK_API_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3',
-  ARK_API_KEY: '',
-  ARK_VIDEO_MODEL: 'doubao-seedance-2-0-260128',
-  ARK_REQUEST_TIMEOUT_MS: 30_000,
-  ASSET_LIBRARY_PROVIDER: 'dora-router',
-  VOLC_ASSET_BASE_URL: 'https://maas-ark.stringx.top',
-  VOLC_ACCESS_KEY: '',
-  VOLC_SECRET_KEY: '',
-  VOLC_ARK_PROJECT_NAME: 'default',
-  ASSET_LIBRARY_CONSOLE_URL: '',
-  VOLC_ASSET_REQUEST_TIMEOUT_MS: 30_000,
-  FFMPEG_PATH: 'ffmpeg',
-  FILM_PREVIEW_TIMEOUT_MS: 60_000,
-  DEEPSEEK_BASE_URL: 'https://maas.stringx.top',
-  DEEPSEEK_API_KEY: '',
-  DEEPSEEK_MODEL: 'deepseekV3',
-  DEEPSEEK_CHAT_COMPLETIONS_PATH: '/api/v1/chat/completions',
-  DEEPSEEK_REQUEST_TIMEOUT_MS: 180_000,
-  DEEPSEEK_V4_BASE_URL: 'https://hk.shanyoucloud.com',
-  DEEPSEEK_V4_API_KEY: '',
-  DEEPSEEK_V4_MODEL: 'deepseek-v4-flash',
-  DEEPSEEK_V4_CHAT_COMPLETIONS_PATH: '/chat/completions',
-  DEEPSEEK_V4_REQUEST_TIMEOUT_MS: 180_000,
-  DASHSCOPE_BASE_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  DASHSCOPE_API_KEY: '',
-  DASHSCOPE_MODEL: 'deepseek-v4-flash-0731',
-  DASHSCOPE_CHAT_COMPLETIONS_PATH: '/chat/completions',
-  DASHSCOPE_REQUEST_TIMEOUT_MS: 180_000,
-  REHDASU_BASE_URL: 'https://tokenadvent.com',
-  REHDASU_API_KEY: '',
-  REHDASU_MODEL: 'glm-5.2',
-  REHDASU_CHAT_COMPLETIONS_PATH: '/v1/chat/completions',
-  REHDASU_REQUEST_TIMEOUT_MS: 180_000,
-  TOKENADVENT_BASE_URL: 'https://tokenadvent.com',
-  TOKENADVENT_API_KEY: '',
-  SEQORA_IMAGE2_BASE_URL: 'https://tokenadvent.com',
-  SEQORA_IMAGE2_API_KEY: '',
-  SEQORA_IMAGE2_MODEL: 'gpt-image-2',
-  IMG2_MODEL: 'gpt-image-2',
-  IMG2_QUALITY: 'low',
-  TEXT_MODEL: 'gpt-5.6',
-  TOKENADVENT_REQUEST_TIMEOUT_MS: 180_000,
-}
-type MemoryLogEntry = {
-  level: string
-  args: unknown[]
-}
-class MemoryLogger {
-  public readonly entries: MemoryLogEntry[] = []
-  public level = 'info'
-  public silent = false
-
-  child(): MemoryLogger {
-    return this
-  }
-
-  trace(...args: unknown[]): void {
-    this.entries.push({ level: 'trace', args })
-  }
-
-  debug(...args: unknown[]): void {
-    this.entries.push({ level: 'debug', args })
-  }
-
-  info(...args: unknown[]): void {
-    this.entries.push({ level: 'info', args })
-  }
-
-  warn(...args: unknown[]): void {
-    this.entries.push({ level: 'warn', args })
-  }
-
-  error(...args: unknown[]): void {
-    this.entries.push({ level: 'error', args })
-  }
-
-  fatal(...args: unknown[]): void {
-    this.entries.push({ level: 'fatal', args })
-  }
-}
-
+const testVideoRuntime = { videoProvider: testVideoProvider(), taskDispatcher: noopTaskDispatcher }
 let app: FastifyInstance | undefined
 const runLocalNovelRegression = process.env.RUN_NOVEL_FIXTURE_REGRESSION === '1'
 const localNovelRegression = runLocalNovelRegression ? describe : describe.skip
@@ -192,7 +44,6 @@ afterEach(async () => {
   app = undefined
   await rm(testConfig.UPLOAD_DIR, { recursive: true, force: true })
 })
-
 describe('API authorization', () => {
   it('returns the persisted project when creating a project', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
@@ -337,6 +188,7 @@ describe('API authorization', () => {
     app = await buildApp({
       config: testConfig,
       assetLibraryProvider,
+      videoProvider: testVideoProvider(),
       startWorker: false,
     })
     const headers = {
@@ -534,10 +386,9 @@ describe('API authorization', () => {
     expect(response.statusCode).toBe(202)
     expect(response.json()).toMatchObject({ projectId: 'project-midnight-film', status: 'queued' })
   })
-
   it('blocks a second active video batch for the same shot without charging, then allows a terminal retry', async () => {
     const store = new AppStore(null)
-    app = await buildApp({ config: testConfig, store, startWorker: false })
+    app = await buildApp({ config: testConfig, store, ...testVideoRuntime, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
       'x-demo-user-id': 'user-member',
@@ -834,7 +685,7 @@ describe('API authorization', () => {
 
   it('stops a running task without refunding its reserved credits', async () => {
     const store = new AppStore(null)
-    app = await buildApp({ config: testConfig, store, startWorker: false })
+    app = await buildApp({ config: testConfig, store, ...testVideoRuntime, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
       'x-demo-user-id': 'user-member',
@@ -851,6 +702,7 @@ describe('API authorization', () => {
         projectId: 'project-midnight-film',
         kind: 'video',
         label: '确认停止任务',
+        provider: 'seedance',
         estimatedCredits: 18,
       },
     })
@@ -880,14 +732,24 @@ describe('API authorization', () => {
     await new GenerationTaskRunner(store).tick()
     const after = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(after.json().credits).toBe(startingCredits - 18)
-    expect(after.json().entries.filter((entry: { id: string }) => entry.id === `refund-${taskId}`)).toHaveLength(0)
+    expect(
+      after.json().entries.filter((entry: { id: string }) => entry.id === `refund-${taskId}`),
+    ).toHaveLength(0)
   })
 
   it('marks a running StringX task for cancellation without calling the Provider directly', async () => {
     const cancel = vi.fn(async () => {})
     const videoProvider: VideoGenerationProvider = {
-      submit: vi.fn(async () => ({ providerTaskId: 'unused', status: 'queued', progress: 0 })),
-      getStatus: vi.fn(async () => ({ status: 'running', progress: 20, error: null })),
+      submit: vi.fn<VideoGenerationProvider['submit']>(async () => ({
+        providerTaskId: 'unused',
+        status: 'queued',
+        progress: 0,
+      })),
+      getStatus: vi.fn<VideoGenerationProvider['getStatus']>(async () => ({
+        status: 'running',
+        progress: 20,
+        error: null,
+      })),
       getContent: vi.fn(),
       cancel,
     }
@@ -1088,8 +950,8 @@ describe('API authorization', () => {
       contentRange: 'bytes 0-12/100',
     }))
     const provider: VideoGenerationProvider = {
-      submit: vi.fn(),
-      getStatus: vi.fn(),
+      submit: vi.fn<VideoGenerationProvider['submit']>(),
+      getStatus: vi.fn<VideoGenerationProvider['getStatus']>(),
       getContent,
     }
     const store = new AppStore(null)
@@ -1187,7 +1049,7 @@ describe('API authorization', () => {
   })
 
   it('suggests reusable assets from the current script without creating them', async () => {
-    const generate = vi.fn(async () => scriptAssetSuggestionsJson())
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => scriptAssetSuggestionsJson())
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -1249,19 +1111,19 @@ describe('API authorization', () => {
     expect(after.json().assets).toHaveLength(before.json().assets.length)
     expect(after.json().project.script).toBe(before.json().project.script)
     expect(generate).toHaveBeenCalledOnce()
-    expect(generate.mock.calls[0][0]).toMatchObject({
+    expect(generate.mock.calls[0]![0]).toMatchObject({
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('已有资产'),
     })
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBeGreaterThanOrEqual(2_200)
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBeLessThanOrEqual(3_200)
-    expect(generate.mock.calls[0][0].systemPrompt).toContain('不要返回完整生产提示词')
-    expect(generate.mock.calls[0][0].userPrompt).toContain('全剧结构化字段索引')
-    expect(generate.mock.calls[0][0].userPrompt).toContain('服装候选：女剑客雪夜衣装')
+    expect(generate.mock.calls[0]![0].maxOutputTokens).toBeGreaterThanOrEqual(2_200)
+    expect(generate.mock.calls[0]![0].maxOutputTokens).toBeLessThanOrEqual(3_200)
+    expect(generate.mock.calls[0]![0].systemPrompt).toContain('不要返回完整生产提示词')
+    expect(generate.mock.calls[0]![0].userPrompt).toContain('全剧结构化字段索引')
+    expect(generate.mock.calls[0]![0].userPrompt).toContain('服装候选：女剑客雪夜衣装')
   })
 
   it('keeps late-scene asset evidence while compacting a long script suggestion request', async () => {
-    const generate = vi.fn(async () =>
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () =>
       JSON.stringify({
         summary: '优先建立贯穿全剧和结尾揭晓所需的核心资产。',
         assets: [
@@ -1324,13 +1186,13 @@ describe('API authorization', () => {
       ]),
     )
     expect(generate).toHaveBeenCalledOnce()
-    expect(generate.mock.calls[0][0].userPrompt).toContain('星图密钥')
-    expect(generate.mock.calls[0][0].userPrompt.length).toBeLessThan(script.length)
-    expect(generate.mock.calls[0][0].maxOutputTokens).toBeLessThanOrEqual(4_000)
+    expect(generate.mock.calls[0]![0].userPrompt).toContain('星图密钥')
+    expect(generate.mock.calls[0]![0].userPrompt.length).toBeLessThan(script.length)
+    expect(generate.mock.calls[0]![0].maxOutputTokens).toBeLessThanOrEqual(4_000)
   })
 
   it('samples the ending of an unstructured long script for asset suggestions', async () => {
-    const generate = vi.fn(async () =>
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () =>
       JSON.stringify({
         summary: '已覆盖全文筛选核心资产。',
         assets: [
@@ -1373,12 +1235,14 @@ describe('API authorization', () => {
     })
 
     expect(response.statusCode, response.body).toBe(200)
-    expect(generate.mock.calls[0][0].userPrompt).toContain('启明计划品牌标识')
-    expect(generate.mock.calls[0][0].userPrompt.length).toBeLessThan(script.length)
+    expect(generate.mock.calls[0]![0].userPrompt).toContain('启明计划品牌标识')
+    expect(generate.mock.calls[0]![0].userPrompt.length).toBeLessThan(script.length)
   })
 
   it('fills all structured asset categories when the compact provider result is empty', async () => {
-    const generate = vi.fn(async () => JSON.stringify({ summary: '未识别出核心资产。', assets: [] }))
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () =>
+      JSON.stringify({ summary: '未识别出核心资产。', assets: [] }),
+    )
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -1430,7 +1294,7 @@ describe('API authorization', () => {
   })
 
   it('normalizes usable script asset JSON instead of falling back when optional provider fields are missing', async () => {
-    const generate = vi.fn(async () =>
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () =>
       JSON.stringify({
         summary: '建议围绕翠翠、渡口和渡船建立核心资产。',
         assets: [
@@ -1598,7 +1462,7 @@ describe('API authorization', () => {
   })
 
   it('falls back to readable character suggestions when the script asset provider returns invalid JSON', async () => {
-    const generate = vi.fn(async () => '这不是有效 JSON')
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => '这不是有效 JSON')
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2071,7 +1935,7 @@ describe('API authorization', () => {
   })
 
   it('generates boundary reconciliation notes without changing original chunks', async () => {
-    const generate = vi.fn(async () =>
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () =>
       JSON.stringify({
         notes: [
           {
@@ -2216,7 +2080,7 @@ describe('API authorization', () => {
   })
 
   it('creates a durable novel summary queue without calling the text provider', async () => {
-    const generate = vi.fn(async () => novelChapterSummariesJson())
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => novelChapterSummariesJson())
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2297,7 +2161,7 @@ describe('API authorization', () => {
   })
 
   it('enqueues novel summary queue batches as AI jobs without calling the text provider', async () => {
-    const generate = vi.fn(async () => novelChapterSummariesJson())
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => novelChapterSummariesJson())
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2377,7 +2241,7 @@ describe('API authorization', () => {
 
   it('runs novel summary queue batches and supports pause, retry and skip', async () => {
     const generate = vi
-      .fn()
+      .fn<TextGenerationProvider['generate']>()
       .mockResolvedValueOnce(novelChapterSummariesJson())
       .mockRejectedValueOnce(new Error('provider down'))
     app = await buildApp({
@@ -2510,7 +2374,7 @@ describe('API authorization', () => {
   })
 
   it('commits completed summary queue results into the chapter summary fact store', async () => {
-    const generate = vi.fn(async () => novelChapterSummariesJson())
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => novelChapterSummariesJson())
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2547,7 +2411,7 @@ describe('API authorization', () => {
         headers,
       })
       queueAfterRun = response.json()
-      expect(queueAfterRun.queue).toMatchObject({
+      expect(queueAfterRun!.queue).toMatchObject({
         status: 'completed',
         completedCount: 2,
       })
@@ -2612,7 +2476,7 @@ describe('API authorization', () => {
   })
 
   it('generates chapter summaries in batches without exposing chapter content', async () => {
-    const generate = vi.fn(async () => novelChapterSummariesJson())
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => novelChapterSummariesJson())
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2684,7 +2548,7 @@ describe('API authorization', () => {
   })
 
   it('normalizes richer provider chapter summary JSON into stable string arrays', async () => {
-    const generate = vi.fn(async () => novelChapterSummariesRichJson())
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => novelChapterSummariesRichJson())
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2718,7 +2582,9 @@ describe('API authorization', () => {
   })
 
   it('reports truncated provider chapter summary JSON as incomplete output', async () => {
-    const generate = vi.fn(async () => '{"summaries":[{"order":1,"title":"第一章","summary":"摘要尚未写完"')
+    const generate = vi.fn<TextGenerationProvider['generate']>(
+      async () => '{"summaries":[{"order":1,"title":"第一章","summary":"摘要尚未写完"',
+    )
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -2752,7 +2618,7 @@ describe('API authorization', () => {
 
   it('generates a story overview only after all chapter summaries are ready', async () => {
     const generate = vi
-      .fn()
+      .fn<TextGenerationProvider['generate']>()
       .mockResolvedValueOnce(novelChapterSummariesJson())
       .mockResolvedValueOnce(novelStoryBibleJson())
     app = await buildApp({
@@ -2811,7 +2677,7 @@ describe('API authorization', () => {
       missingSummaryCount: 0,
       storyBible: expect.objectContaining({ title: '雨夜旧站' }),
     })
-    expect(generate.mock.calls[1][0]).toMatchObject({
+    expect(generate.mock.calls[1]![0]).toMatchObject({
       systemPrompt: expect.stringContaining('故事概要编辑'),
       userPrompt: expect.stringContaining('本次使用章节摘要数量：2 / 2'),
       maxOutputTokens: 6_000,
@@ -2824,7 +2690,7 @@ describe('API authorization', () => {
 
   it('generates a partial story overview from the selected number of chapter summaries', async () => {
     const generate = vi
-      .fn()
+      .fn<TextGenerationProvider['generate']>()
       .mockResolvedValueOnce(novelChapterSummariesJson())
       .mockResolvedValueOnce(novelStoryBibleJson())
     app = await buildApp({
@@ -2861,16 +2727,16 @@ describe('API authorization', () => {
       missingSummaryCount: 1,
       warnings: [expect.stringContaining('1 / 2 章摘要')],
     })
-    expect(generate.mock.calls[1][0]).toMatchObject({
+    expect(generate.mock.calls[1]![0]).toMatchObject({
       userPrompt: expect.stringContaining('本次使用章节摘要数量：1 / 2'),
       maxOutputTokens: 6_000,
     })
-    expect(generate.mock.calls[1][0].userPrompt).toContain('开篇权重：高')
+    expect(generate.mock.calls[1]![0].userPrompt).toContain('开篇权重：高')
   })
 
   it('normalizes richer provider story overview JSON into stable content', async () => {
     const generate = vi
-      .fn()
+      .fn<TextGenerationProvider['generate']>()
       .mockResolvedValueOnce(novelChapterSummariesJson())
       .mockResolvedValueOnce(novelStoryBibleRichJson())
     app = await buildApp({
@@ -2926,7 +2792,7 @@ describe('API authorization', () => {
 
   it('suggests reusable assets from novel facts and infers old ferryman attributes', async () => {
     const generate = vi
-      .fn()
+      .fn<TextGenerationProvider['generate']>()
       .mockResolvedValueOnce(bianchengChapterSummariesJson())
       .mockResolvedValueOnce('不是 JSON')
     app = await buildApp({
@@ -3014,7 +2880,7 @@ describe('API authorization', () => {
       response.json().assets.some((asset: { kind: string; name: string }) => asset.name === '茶峒渡口'),
     ).toBe(true)
     expect(generate).toHaveBeenCalledTimes(2)
-    expect(generate.mock.calls[1][0]).toMatchObject({
+    expect(generate.mock.calls[1]![0]).toMatchObject({
       systemPrompt: expect.stringContaining('资产制片'),
       userPrompt: expect.stringContaining('老船夫/祖父/摆渡老人'),
       maxOutputTokens: 6_000,
@@ -3024,7 +2890,7 @@ describe('API authorization', () => {
   it('adapts selected novel chapters into a video script without returning private source content', async () => {
     const adaptedScript =
       '场次：1｜剧情：林夏收到匿名来信并决定赴约。｜场景：雨夜室内｜角色：林夏｜动作：她拆开信纸，抬头看向窗外雨线。｜对白：林夏：旧车站？你到底是谁？｜风格：写实悬疑｜构图：近景手部转中景人物｜光影：冷色低调光｜运镜：缓慢推进｜衔接：雨声压入旧站台远景'
-    const generate = vi.fn(async () => adaptedScript)
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => adaptedScript)
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -3070,7 +2936,7 @@ describe('API authorization', () => {
   })
 
   it('requires matching chapter summaries when chapter summary source is selected', async () => {
-    const generate = vi.fn(async () => '不会被调用')
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => '不会被调用')
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -3115,7 +2981,7 @@ describe('API authorization', () => {
       (_, index) =>
         `场次：${index + 1}｜剧情：林夏必须在列车离站前找回父亲留下的胶片，线索突然中断。｜场景：雨夜旧车站站台，冷色灯光映在积水上。｜角色：林夏，短发导演，穿深色风衣，焦急寻找。｜动作：她沿着站台快步搜索，在长椅下发现一只旧铁盒并抬头看向远处。｜对白：林夏（压低声音）“你到底把它藏在哪儿？”`,
     ).join('\n')
-    const generate = vi.fn(async () => quickScript)
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => quickScript)
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -3161,7 +3027,7 @@ describe('API authorization', () => {
       (_, index) =>
         `场次：${index + 1}｜剧情：主角沿着旧线索继续调查并发现新的阻力。｜场景：雨夜车站。｜角色：林夏。｜动作：她打开铁盒确认线索。｜对白：我必须查清楚。`,
     ).join('\n')
-    const generate = vi.fn(async () => '场次：1｜剧情：过短')
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => '场次：1｜剧情：过短')
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -3206,7 +3072,7 @@ describe('API authorization', () => {
       '场次：3｜剧情：林夏带着旧铁盒进入地下档案室，发现父亲留下的编号被人抹去。｜场景：地下档案室。｜角色：林夏。｜动作：她用手电扫过文件架，在空缺编号前停住。｜对白：林夏：“有人比我先来过。”',
       '场次：4｜剧情：门外脚步逼近，林夏必须藏起铁盒并决定是否继续追查。｜场景：地下档案室门口。｜角色：林夏、陌生看守。｜动作：她关掉手电躲进文件架阴影，铁盒被压在怀里。｜对白：陌生看守：“编号七的档案不能留。”',
     ].join('\n')
-    const generate = vi.fn(async () => nextSegment)
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => nextSegment)
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -3278,7 +3144,10 @@ describe('API authorization', () => {
         `衔接：${detail}`,
       ].join('｜'),
     ).join('\n')
-    const generate = vi.fn().mockResolvedValueOnce(quickScript).mockResolvedValueOnce(detailedScript)
+    const generate = vi
+      .fn<TextGenerationProvider['generate']>()
+      .mockResolvedValueOnce(quickScript)
+      .mockResolvedValueOnce(detailedScript)
     app = await buildApp({
       config: testConfig,
       textProvider: { generate },
@@ -3361,7 +3230,7 @@ describe('API authorization', () => {
       '场次：1｜剧情：主角找到线索。｜场景：雨夜车站。｜角色：林夏。｜动作：打开铁盒。｜对白：找到了。'
     const detailedScript = `${quickScript}｜风格：电影 CG｜构图：三分法｜光影：低调光｜运镜：缓慢推进｜衔接：动作匹配`
     const generate = vi
-      .fn()
+      .fn<TextGenerationProvider['generate']>()
       .mockResolvedValueOnce(quickScript)
       .mockResolvedValueOnce(detailedScript)
       .mockRejectedValueOnce(new TextGenerationProviderError('上游暂时不可用'))
@@ -3432,7 +3301,7 @@ describe('API authorization', () => {
 
   it('does not call the text provider when script credits are insufficient', async () => {
     const store = new AppStore(null)
-    const generate = vi.fn(async () => '不应调用')
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => '不应调用')
     app = await buildApp({ config: testConfig, store, textProvider: { generate }, startWorker: false })
     await store.mutate((state) => {
       const user = state.users.find((item) => item.id === 'user-member')!
@@ -3488,7 +3357,7 @@ describe('API authorization', () => {
   })
 
   it('splits the script into at most eight predictable shots without calling the text provider', async () => {
-    const generate = vi.fn(async () => '不应调用')
+    const generate = vi.fn<TextGenerationProvider['generate']>(async () => '不应调用')
     app = await buildApp({ config: testConfig, textProvider: { generate }, startWorker: false })
     const headers = {
       'x-demo-role': 'member',
@@ -3785,7 +3654,7 @@ describe('API authorization', () => {
 
   it('serves a generated image after the background task completes', async () => {
     const imageProvider: ImageGenerationProvider = {
-      generate: vi.fn(async () => [
+      generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
         { view: 'single', contentType: 'image/png', content: Buffer.from('generated-png') },
       ]),
     }
@@ -3988,11 +3857,7 @@ describe('film preview composition', () => {
       filmPreviewComposer: null,
     })
     const storageKey = 'tenant-seqora-demo/project-midnight-film/generated/range-preview.mp4'
-    await new LocalObjectStorage(testConfig.UPLOAD_DIR).put(
-      storageKey,
-      Buffer.from('0123456789'),
-      'video/mp4',
-    )
+    await new LocalObjectStorage(testConfig.UPLOAD_DIR).put(storageKey, Buffer.from('0123456789'))
     const now = new Date().toISOString()
     await store.mutate((state) => {
       state.tasks.unshift({
@@ -4044,7 +3909,7 @@ describe('one-click quick start', () => {
     'x-demo-tenant-id': 'tenant-seqora-demo',
   }
   const imageProvider: ImageGenerationProvider = {
-    generate: vi.fn(async () => [
+    generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
       { view: 'single', contentType: 'image/png', content: Buffer.from('quick-start-image') },
     ]),
   }
@@ -4736,11 +4601,7 @@ describe('local authentication', () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const storageKey =
       'tenant-seqora-demo/project-midnight-film/generated/4b1916b0-6676-4950-a2da-ba053ba5ebd1-single.png'
-    await new LocalObjectStorage(testConfig.UPLOAD_DIR).put(
-      storageKey,
-      Buffer.from('public-source'),
-      'image/png',
-    )
+    await new LocalObjectStorage(testConfig.UPLOAD_DIR).put(storageKey, Buffer.from('public-source'))
     const token = createPublicMediaToken(
       { storageKey, contentType: 'image/png' },
       testConfig.AUTH_SECRET,

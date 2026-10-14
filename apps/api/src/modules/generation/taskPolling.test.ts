@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mockQueryRows } from '../../testing/databaseQueryFixture.js'
+import { describe, expect, it } from 'vitest'
 import type { Principal } from '@seqora/contracts'
 import { AppStore } from '../../infra/store.js'
 import {
@@ -82,27 +83,25 @@ describe('generation task polling projection', () => {
   })
 
   it('uses a narrow database projection and tenant-scoped filters', async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          id: 'db-polling-task',
-          client_request_id: 'db-polling-request',
-          project_id: 'project-midnight-film',
-          kind: 'video',
-          label: '镜头 01',
-          provider: 'seedance',
-          model: 'seedance-2.0',
-          metadata: { providerState: 'running' },
-          status: 'running',
-          progress: '55',
-          estimated_credits: '18',
-          result_url: null,
-          error: null,
-          created_at: new Date('2026-08-01T00:00:00.000Z'),
-          updated_at: new Date('2026-08-01T00:00:01.000Z'),
-        },
-      ],
-    }))
+    const query = mockQueryRows([
+      {
+        id: 'db-polling-task',
+        client_request_id: 'db-polling-request',
+        project_id: 'project-midnight-film',
+        kind: 'video',
+        label: '镜头 01',
+        provider: 'seedance',
+        model: 'seedance-2.0',
+        metadata: { providerState: 'running' },
+        status: 'running',
+        progress: '55',
+        estimated_credits: '18',
+        result_url: null,
+        error: null,
+        created_at: new Date('2026-08-01T00:00:00.000Z'),
+        updated_at: new Date('2026-08-01T00:00:01.000Z'),
+      },
+    ])
 
     const tasks = await listPollingTasks({ query }, 'project-midnight-film', memberPrincipal)
 
@@ -126,9 +125,9 @@ describe('generation task polling projection', () => {
   })
 
   it('reads the version aggregate without selecting prompts or outputs', async () => {
-    const query = vi.fn(async () => ({
-      rows: [{ task_count: 3, latest_updated_at: new Date('2026-08-01T00:00:01.000Z'), signature: '42' }],
-    }))
+    const query = mockQueryRows([
+      { task_count: 3, latest_updated_at: new Date('2026-08-01T00:00:01.000Z'), signature: '42' },
+    ])
 
     await expect(readPollingVersion({ query }, 'project-midnight-film', memberPrincipal)).resolves.toBe(
       '3:2026-08-01T00:00:01.000Z:42',

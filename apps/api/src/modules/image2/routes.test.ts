@@ -392,7 +392,7 @@ async function startConfiguredAppAndCreateProject(
 }
 
 function localConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return loadConfig({
+  const defaults = loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
     DATABASE_URL: '',
@@ -400,8 +400,8 @@ function localConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     TASK_QUEUE_DRIVER: 'inline',
     STORAGE_DRIVER: 'local',
     UPLOAD_DIR: resolve('./data/test-uploads'),
-    ...overrides,
   })
+  return { ...defaults, ...overrides }
 }
 
 async function login(email: string, password: string): Promise<string> {

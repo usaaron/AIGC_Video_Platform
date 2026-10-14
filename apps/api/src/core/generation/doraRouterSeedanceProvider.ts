@@ -7,7 +7,11 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import { z } from 'zod'
-import { boundedInlineVideoBody, createInlineReferenceEncoder, type InlineReferenceEncoder } from './videoInlineReferences.js'
+import {
+  boundedInlineVideoBody,
+  createInlineReferenceEncoder,
+  type InlineReferenceEncoder,
+} from './videoInlineReferences.js'
 import type {
   VideoContent,
   VideoGenerationProvider,
@@ -119,29 +123,31 @@ export class DoraRouterSeedanceProvider implements VideoGenerationProvider {
 
     const body = await boundedInlineVideoBody(
       images.slice(0, 9),
-      (references) => JSON.stringify({
-        model: this.resolveModel(request.model),
-        content: [
-          { type: 'text', text: effectivePrompt },
-          ...references.map((image) => ({
-            type: 'image_url',
-            image_url: { url: image.url },
-            // DoraRouter documents reference_image as the supported image role.
-            role: 'reference_image',
-          })),
-        ],
-        resolution: normalizeResolution(request.resolution),
-        ratio: request.ratio,
-        duration: request.seconds,
-        generate_audio: request.generateAudio,
-        return_last_frame: request.returnLastFrame !== false,
-        watermark: request.watermark ?? false,
-        ...(request.seed === undefined ? {} : { seed: request.seed }),
-      }),
-      this.options.inlineReferenceEncoder ?? createInlineReferenceEncoder(
-        this.options.ffmpegPath ?? 'ffmpeg',
-        this.options.frameExtractionTimeoutMs ?? this.options.requestTimeoutMs,
-      ),
+      (references) =>
+        JSON.stringify({
+          model: this.resolveModel(request.model),
+          content: [
+            { type: 'text', text: effectivePrompt },
+            ...references.map((image) => ({
+              type: 'image_url',
+              image_url: { url: image.url },
+              // DoraRouter documents reference_image as the supported image role.
+              role: 'reference_image',
+            })),
+          ],
+          resolution: normalizeResolution(request.resolution),
+          ratio: request.ratio,
+          duration: request.seconds,
+          generate_audio: request.generateAudio,
+          return_last_frame: request.returnLastFrame !== false,
+          watermark: request.watermark ?? false,
+          ...(request.seed === undefined ? {} : { seed: request.seed }),
+        }),
+      this.options.inlineReferenceEncoder ??
+        createInlineReferenceEncoder(
+          this.options.ffmpegPath ?? 'ffmpeg',
+          this.options.frameExtractionTimeoutMs ?? this.options.requestTimeoutMs,
+        ),
     )
     const response = await this.requestJson(SEEDANCE_TASK_PATH, {
       method: 'POST',

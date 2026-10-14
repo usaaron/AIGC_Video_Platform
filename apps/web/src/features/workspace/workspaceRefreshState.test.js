@@ -16,7 +16,9 @@ describe('workspace refresh state', () => {
     const next = [{ id: 'task-1', status: 'completed', updatedAt: '2026-10-13T00:00:01.000Z' }]
 
     expect(taskPollingNeedsDetailRefresh(previous, next, true, false)).toBe(true)
-    expect(taskPollingNeedsDetailRefresh(previous, [{ ...next[0], status: 'running' }], true, false)).toBe(false)
+    expect(taskPollingNeedsDetailRefresh(previous, [{ ...next[0], status: 'running' }], true, false)).toBe(
+      false,
+    )
     expect(taskPollingNeedsDetailRefresh(previous, next, false, false)).toBe(false)
   })
 

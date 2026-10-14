@@ -65,7 +65,7 @@ test('失败图片点击重试会确认积分并删除原失败任务', async ({
 })
 
 test('预览弹窗可以查看并复制完整生成提示词', async ({ browser, baseURL }) => {
-  const context = await browser.newContext()
+  const context = await browser.newContext({ baseURL })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL })
   const page = await context.newPage()
   await mockWebApi(

@@ -263,7 +263,12 @@ describe('compileStoryboardVideoPrompt', () => {
   it('rewrites contradictory flexible motion for a fixed rigid barrier', () => {
     const result = compileStoryboardVideoPrompt({
       project: { aspectRatio: '16:9' },
-      shot: shot('rigid', '固定隔离栏底板以螺栓固定。压力使栏片弯曲震颤。栏片可弯曲震颤，底座不滑移。人群继续推挤。', '远景', 5),
+      shot: shot(
+        'rigid',
+        '固定隔离栏底板以螺栓固定。压力使栏片弯曲震颤。栏片可弯曲震颤，底座不滑移。人群继续推挤。',
+        '远景',
+        5,
+      ),
     })
     expect(result).toContain('栏片保持刚性不弯曲')
     expect(result).toContain('刚性物体连续性')
@@ -273,12 +278,21 @@ describe('compileStoryboardVideoPrompt', () => {
   it('adds anchor and continuous-time rules for rigid continuous shots', () => {
     const result = compileStoryboardVideoPrompt({
       project: { aspectRatio: '16:9' },
-      shot: shot('rigid-continuity', [
-        '首帧与空间调度', '前排人群接触固定隔离栏，滑动闸门关闭。',
-        '支撑与受力', '隔离栏底板以螺栓固定于混凝土地面；双侧滑动闸门沿轨道运动。',
-        '摄影机', '固定机位，单一连续镜头，不在镜内切换。',
-        '动作时序', '人群推挤隔离栏，闸门沿轨道滑动。',
-      ].join('\n'), '远景', 5),
+      shot: shot(
+        'rigid-continuity',
+        [
+          '首帧与空间调度',
+          '前排人群接触固定隔离栏，滑动闸门关闭。',
+          '支撑与受力',
+          '隔离栏底板以螺栓固定于混凝土地面；双侧滑动闸门沿轨道运动。',
+          '摄影机',
+          '固定机位，单一连续镜头，不在镜内切换。',
+          '动作时序',
+          '人群推挤隔离栏，闸门沿轨道滑动。',
+        ].join('\n'),
+        '远景',
+        5,
+      ),
     })
     expect(result).toContain('左右两处底脚/螺栓底板')
     expect(result).toContain('轨道与门体连接点')

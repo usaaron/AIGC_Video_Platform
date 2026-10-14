@@ -295,7 +295,7 @@ async function buildPaymentApp() {
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
-  return loadConfig({
+  const defaults = loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
     DATABASE_URL: authDatabase.connectionString,
@@ -308,8 +308,8 @@ function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     STRIPE_MEMBER_PRICE_ID: 'price_member_test',
     STRIPE_CREDIT_PRICE_ID: 'price_credits_test',
     STRIPE_CREDIT_PACK_CREDITS: '100',
-    ...overrides,
   })
+  return { ...defaults, ...overrides }
 }
 
 async function login(email: string, password: string): Promise<string> {

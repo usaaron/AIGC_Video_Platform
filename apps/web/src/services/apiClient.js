@@ -79,7 +79,11 @@ async function conditionalValueRequest(path, etag) {
   }
 }
 
-const json = (method, body, headers) => ({ method, body: JSON.stringify(body), ...(headers ? { headers } : {}) })
+const json = (method, body, headers) => ({
+  method,
+  body: JSON.stringify(body),
+  ...(headers ? { headers } : {}),
+})
 const emptyJsonPost = () => json('POST', {})
 const queryString = (query) => {
   const params = new URLSearchParams()
@@ -128,7 +132,8 @@ export const api = {
   health: () => request('/health'),
   scriptMasterConfig: () => request('/script-master/config'),
   scriptMasterLaunch: (projectId, surface = 'embedded') => {
-    if (surface !== 'standalone' && !projectId) return Promise.reject(new Error('请先进入一个主项目，再打开剧本大师。'))
+    if (surface !== 'standalone' && !projectId)
+      return Promise.reject(new Error('请先进入一个主项目，再打开剧本大师。'))
     const params = new URLSearchParams({ surface })
     if (surface !== 'standalone') params.set('projectId', projectId)
     return request(`/script-master/launch?${params.toString()}`)
@@ -166,7 +171,10 @@ export const api = {
   skipAgentStage: (runId, stage) => request(`/agent/runs/${runId}/stages/${stage}/skip`, { method: 'POST' }),
   project: (id) => request(`/projects/${id}`, { timeoutMs: 20_000 }),
   createProject: (input, idempotencyKey) =>
-    request('/projects', json('POST', input, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined)),
+    request(
+      '/projects',
+      json('POST', input, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),
+    ),
   updateProject: (id, input) => request(`/projects/${id}`, json('PATCH', input)),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   suggestScriptAssets: (
@@ -317,7 +325,8 @@ export const api = {
   createFilmPreview: (projectId, mode = 'full', force = false, episodeNumber = null) =>
     request(`/projects/${projectId}/film-preview`, json('POST', { mode, force, episodeNumber })),
   pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
-  reviewVideo: (taskId, input) => request(`/generation/tasks/${taskId}/content-review`, { method: 'POST', body: JSON.stringify(input) }),
+  reviewVideo: (taskId, input) =>
+    request(`/generation/tasks/${taskId}/content-review`, { method: 'POST', body: JSON.stringify(input) }),
   freezeDeliveryContract: (taskId, input) =>
     request(`/generation/tasks/${taskId}/delivery-contract`, json('POST', input)),
   deliveryVerification: (taskId) => request(`/generation/tasks/${taskId}/delivery-verification`),

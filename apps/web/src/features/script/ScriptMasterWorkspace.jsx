@@ -45,16 +45,10 @@ export function scriptMasterFrameUrl(launch, origin, scope) {
   const urlProjectId = url.searchParams.get('host_project_id') || null
   const urlSurface = url.searchParams.get('surface') || null
   const urlModule = url.searchParams.get('module') || null
-  const moduleSurface = urlModule === 'project-script'
-    ? 'embedded'
-    : urlModule === 'standalone'
-      ? 'standalone'
-      : null
-  const launchModuleSurface = launch.module === 'project-script'
-    ? 'embedded'
-    : launch.module === 'standalone'
-      ? 'standalone'
-      : null
+  const moduleSurface =
+    urlModule === 'project-script' ? 'embedded' : urlModule === 'standalone' ? 'standalone' : null
+  const launchModuleSurface =
+    launch.module === 'project-script' ? 'embedded' : launch.module === 'standalone' ? 'standalone' : null
   const validSurface = (value) => value === null || value === 'embedded' || value === 'standalone'
   const validModule = (value) => value === null || value === 'project-script' || value === 'standalone'
   if (
@@ -71,16 +65,18 @@ export function scriptMasterFrameUrl(launch, origin, scope) {
     throw new Error('剧本工作台入口与项目范围不一致，请重新连接。')
   }
   const launchProjectId = urlProjectId || launch.project?.id || null
-  const actualSurface = launch.surface
-    ?? urlSurface
-    ?? moduleSurface
-    ?? launchModuleSurface
-    ?? (launchProjectId ? 'embedded' : 'standalone')
+  const actualSurface =
+    launch.surface ??
+    urlSurface ??
+    moduleSurface ??
+    launchModuleSurface ??
+    (launchProjectId ? 'embedded' : 'standalone')
   if (
     (urlProjectId && launch.project?.id && urlProjectId !== launch.project.id) ||
     (actualSurface === 'standalone' && (urlProjectId || launch.project?.id)) ||
-    (actualSurface === 'embedded' && !launchProjectId
-      && (urlSurface || moduleSurface || launch.surface || launchModuleSurface))
+    (actualSurface === 'embedded' &&
+      !launchProjectId &&
+      (urlSurface || moduleSurface || launch.surface || launchModuleSurface))
   ) {
     throw new Error('剧本工作台入口与项目范围不一致，请重新连接。')
   }
@@ -140,9 +136,11 @@ export function ScriptMasterWorkspace({
     setState({ url: '', status: 'loading', error: '' })
     // Both surfaces load a stable same-origin entry. The embedded app then
     // requests its project-scoped launch ticket once from its own session.
-    const launchRequest = Promise.resolve().then(() => launchSurface === 'standalone'
-      ? standaloneScriptMasterFrameUrl(window.location.origin)
-      : embeddedScriptMasterFrameUrl(window.location.origin, boundProjectId))
+    const launchRequest = Promise.resolve().then(() =>
+      launchSurface === 'standalone'
+        ? standaloneScriptMasterFrameUrl(window.location.origin)
+        : embeddedScriptMasterFrameUrl(window.location.origin, boundProjectId),
+    )
     void launchRequest
       .then((launch) => {
         if (active) setState({ url: launch, status: 'loading', error: '' })
@@ -205,9 +203,7 @@ export function ScriptMasterWorkspace({
         <div className="script-master-connection" role="status">
           <LoaderCircle size={22} className="spin" />
           <strong>{standalone ? '正在连接剧本大师…' : '正在恢复当前项目的创作…'}</strong>
-          <span>
-            写下故事想法，确认安排后生成剧本，完成后进入资产设计
-          </span>
+          <span>写下故事想法，确认安排后生成剧本，完成后进入资产设计</span>
         </div>
       )}
       {state.error && (

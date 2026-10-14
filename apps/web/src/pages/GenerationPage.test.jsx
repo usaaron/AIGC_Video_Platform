@@ -108,9 +108,12 @@ describe('generation membership entry', () => {
     }
     expect(canFreezeDeliveryContract(base)).toBe(true)
     expect(canFreezeDeliveryContract({ ...base, kind: 'image' })).toBe(false)
-    expect(canFreezeDeliveryContract({ ...base, metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } } })).toBe(
-      false,
-    )
+    expect(
+      canFreezeDeliveryContract({
+        ...base,
+        metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } },
+      }),
+    ).toBe(false)
   })
 
   it('shows the formal freeze review and server-owned hash boundary', () => {

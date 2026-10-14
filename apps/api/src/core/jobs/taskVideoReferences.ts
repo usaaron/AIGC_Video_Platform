@@ -41,7 +41,8 @@ export async function resolveVideoImages(
             item.status === 'completed',
         ) ?? null,
     )
-    if (!canUseVideoContinuity(sourceTask)) throw new Error('上一镜头尚未通过内容验收，不能使用其尾帧；请先查看并验收该视频版本')
+    if (!canUseVideoContinuity(sourceTask))
+      throw new Error('上一镜头尚未通过内容验收，不能使用其尾帧；请先查看并验收该视频版本')
     const lastFrame = generatedDescriptors(sourceTask ?? undefined).find((item) => item.view === 'last-frame')
     if (!lastFrame) throw new Error('上一镜头没有可用尾帧，请重新生成上一镜头后再继续')
     const url = await videoImageUrl(options.objectStorage, lastFrame, options.videoSourceUrl)

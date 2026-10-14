@@ -39,12 +39,15 @@ describe('automatic catalog in Postgres', () => {
     const principal: Principal = { userId: 'user-owner', tenantId: 'tenant-seqora-demo', roles: ['member'] }
     const repository = new AssetLibraryRepository(store, database)
     const files = new Map<string, Buffer>()
-    const storage = {
+    const storage: ObjectStorage = {
       put: async (key: string, body: Buffer) => {
         files.set(key, body)
       },
       get: async (key: string) => files.get(key)!,
-    } as ObjectStorage
+      delete: async (key) => {
+        files.delete(key)
+      },
+    }
     const service = new AssetLibraryService(
       repository,
       new ProjectRepository(store, database),

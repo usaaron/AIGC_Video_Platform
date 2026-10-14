@@ -154,6 +154,7 @@
 - 使用真实 Next 创作界面与主站本地预览人工检查了导航、输入保留和同步弹窗。浏览器 API 测试使用模拟数据，未调用真实付费模型；不代表生产生成链路或模型质量验收。
 
 主站命令：`pnpm --filter @seqora/web test`、Web lint/build、`pnpm check:architecture`、`pnpm exec playwright test --project=web --workers=1`；导航修正后定向重跑 `tests/web/studio-navigation.spec.js`。剧本大师融合命令：`node node_modules/@playwright/test/cli.js test --config playwright.host.config.ts --workers=1`。
+
 ## 主项目快速剧本本地候选（2026-09-20）
 
 主项目新中文作品默认「故事梗概 → 创作安排 → 剧本正文」，作者只需确认梗概和一次完整的创作安排。人物与逐集逐场安排一次生成，正文按集顺序写作，先保存再检查；不要求快速作品完成长总纲或递归故事树。每集局部修复最多一次，重大歧义或未解决问题暂停后续依赖；作者修改既有正文后，后续检查失效但原稿保留。

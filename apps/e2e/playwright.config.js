@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const webPort = Number(process.env.SEQORA_E2E_WEB_PORT || 6173)
 const adminPort = Number(process.env.SEQORA_E2E_ADMIN_PORT || 6174)
@@ -20,15 +21,25 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `pnpm --filter @seqora/web dev --host 127.0.0.1 --port ${webPort}`,
+      command: `pnpm --filter @seqora/web dev --host 127.0.0.1 --port ${webPort} --strictPort --force`,
+      env: {
+        SEQORA_E2E_CACHE_DIR: fileURLToPath(
+          new URL(`../web/node_modules/.vite-e2e-${webPort}`, import.meta.url),
+        ),
+      },
       url: `http://127.0.0.1:${webPort}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120_000,
     },
     {
-      command: `pnpm --filter @seqora/admin dev --host 127.0.0.1 --port ${adminPort}`,
+      command: `pnpm --filter @seqora/admin dev --host 127.0.0.1 --port ${adminPort} --strictPort --force`,
+      env: {
+        SEQORA_E2E_CACHE_DIR: fileURLToPath(
+          new URL(`../admin/node_modules/.vite-e2e-${adminPort}`, import.meta.url),
+        ),
+      },
       url: `http://127.0.0.1:${adminPort}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120_000,
     },
   ],

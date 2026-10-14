@@ -156,15 +156,15 @@ describe('media postgres api', { timeout: 30_000 }, () => {
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (!postgres) throw new Error('Postgres fixture is not ready')
-  return loadConfig({
+  const defaults = loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
     DATABASE_URL: postgres.connectionString,
     DATA_FILE: ':memory:',
     STORAGE_DRIVER: 'local',
     UPLOAD_DIR: testUploadDirectory,
-    ...overrides,
   })
+  return { ...defaults, ...overrides }
 }
 
 async function login(email: string, password: string): Promise<string> {

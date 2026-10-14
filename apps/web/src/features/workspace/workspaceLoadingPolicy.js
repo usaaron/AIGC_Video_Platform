@@ -27,9 +27,7 @@ export function workflowNavigationAccess(workspace) {
   const projectScript = typeof project.script === 'string' && project.script.trim().length > 0
   const savedEpisodeScript = scriptEpisodes.some(
     (episode) =>
-      episode?.status === 'saved' &&
-      typeof episode.content === 'string' &&
-      episode.content.trim().length > 0,
+      episode?.status === 'saved' && typeof episode.content === 'string' && episode.content.trim().length > 0,
   )
   const script = projectScript || savedEpisodeScript
   const assetsReady = assets.length > 0

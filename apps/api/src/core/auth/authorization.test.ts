@@ -14,32 +14,44 @@ describe('authorization', () => {
 
   it('rejects missing authentication and missing permissions', async () => {
     await expect(
-      requirePermission(PERMISSIONS.USER_MANAGE)({ principal: null } as never),
+      requirePermission(PERMISSIONS.USER_MANAGE).call({} as never, { principal: null } as never, {} as never),
     ).rejects.toMatchObject({
       statusCode: 401,
       code: 'AUTHENTICATION_REQUIRED',
     } satisfies Partial<AppError>)
 
     await expect(
-      requirePermission(PERMISSIONS.USER_MANAGE)({
-        principal: account([ROLES.MEMBER]),
-      } as never),
+      requirePermission(PERMISSIONS.USER_MANAGE).call(
+        {} as never,
+        {
+          principal: account([ROLES.MEMBER]),
+        } as never,
+        {} as never,
+      ),
     ).rejects.toMatchObject({
       statusCode: 403,
       code: 'PERMISSION_DENIED',
     })
 
     await expect(
-      requireAnyPermission(PERMISSIONS.USER_MANAGE)({ principal: null } as never),
+      requireAnyPermission(PERMISSIONS.USER_MANAGE).call(
+        {} as never,
+        { principal: null } as never,
+        {} as never,
+      ),
     ).rejects.toMatchObject({
       statusCode: 401,
       code: 'AUTHENTICATION_REQUIRED',
     } satisfies Partial<AppError>)
 
     await expect(
-      requireAnyPermission(PERMISSIONS.USER_MANAGE)({
-        principal: account([ROLES.MEMBER]),
-      } as never),
+      requireAnyPermission(PERMISSIONS.USER_MANAGE).call(
+        {} as never,
+        {
+          principal: account([ROLES.MEMBER]),
+        } as never,
+        {} as never,
+      ),
     ).rejects.toMatchObject({
       statusCode: 403,
       code: 'PERMISSION_DENIED',
@@ -48,29 +60,35 @@ describe('authorization', () => {
 
   it('allows principals with the required permission to continue', async () => {
     await expect(
-      requirePermission(PERMISSIONS.USER_MANAGE)({
-        principal: account([ROLES.ADMIN]),
-      } as never),
+      requirePermission(PERMISSIONS.USER_MANAGE).call(
+        {} as never,
+        {
+          principal: account([ROLES.ADMIN]),
+        } as never,
+        {} as never,
+      ),
     ).resolves.toBeUndefined()
   })
 
   it('allows a broader permission to satisfy a scoped read', async () => {
     await expect(
-      requireAnyPermission(
-        PERMISSIONS.BILLING_READ_SELF,
-        PERMISSIONS.BILLING_READ_ALL,
-      )({
-        principal: account([ROLES.ADMIN]),
-      } as never),
+      requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL).call(
+        {} as never,
+        {
+          principal: account([ROLES.ADMIN]),
+        } as never,
+        {} as never,
+      ),
     ).resolves.toBeUndefined()
 
     await expect(
-      requireAnyPermission(
-        PERMISSIONS.BILLING_READ_SELF,
-        PERMISSIONS.BILLING_READ_ALL,
-      )({
-        principal: account([ROLES.MEMBER]),
-      } as never),
+      requireAnyPermission(PERMISSIONS.BILLING_READ_SELF, PERMISSIONS.BILLING_READ_ALL).call(
+        {} as never,
+        {
+          principal: account([ROLES.MEMBER]),
+        } as never,
+        {} as never,
+      ),
     ).resolves.toBeUndefined()
   })
 })

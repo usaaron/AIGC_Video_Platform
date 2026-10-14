@@ -2517,15 +2517,15 @@ describe('admin console api', { timeout: 30_000 }, () => {
 
 function localAuthConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (!authDatabase) throw new Error('Postgres auth fixture is not ready')
-  return loadConfig({
+  const defaults = loadConfig({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
     DATABASE_URL: authDatabase.connectionString,
     DATA_FILE: ':memory:',
     STORAGE_DRIVER: 'local',
     UPLOAD_DIR: resolve('./data/test-uploads'),
-    ...overrides,
   })
+  return { ...defaults, ...overrides }
 }
 
 async function login(email: string, password: string, headers?: Record<string, string>) {
@@ -2533,7 +2533,7 @@ async function login(email: string, password: string, headers?: Record<string, s
   return await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
-    headers,
+    headers: headers ?? {},
     payload: { email, password },
   })
 }
@@ -2548,7 +2548,7 @@ async function activateProvisionedAccount(
     method: 'POST',
     url: '/api/v1/auth/login',
     remoteAddress: '10.0.0.2',
-    headers,
+    headers: headers ?? {},
     payload: { email, password: temporaryPassword },
   })
   expect(initialLogin.statusCode).toBe(200)
@@ -2568,7 +2568,7 @@ async function activateProvisionedAccount(
     method: 'POST',
     url: '/api/v1/auth/login',
     remoteAddress: '10.0.0.2',
-    headers,
+    headers: headers ?? {},
     payload: { email, password: newPassword },
   })
   expect(readyLogin.statusCode).toBe(200)

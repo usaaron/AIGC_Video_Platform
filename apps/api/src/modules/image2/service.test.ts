@@ -80,7 +80,9 @@ describe('Image2BatchService', () => {
       estimatedCredits: IMAGE2_CREDITS_PER_IMAGE,
     })
 
-    const inputs = generationTasks.createBatchWithCharge.mock.calls[0]?.[0] as Array<Record<string, unknown>>
+    const inputs = vi.mocked(generationTasks.createBatchWithCharge).mock.calls[0]?.[0] as Array<
+      Record<string, unknown>
+    >
     expect(inputs).toHaveLength(1)
     expect(inputs[0]).toMatchObject({
       clientRequestId: 'image2-redo-1-1',

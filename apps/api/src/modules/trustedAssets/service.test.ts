@@ -1,3 +1,4 @@
+import type { Asset } from '@seqora/contracts'
 import type {
   AssetLibraryProvider,
   ProviderPortrait,
@@ -154,7 +155,7 @@ describe('TrustedAssetService', () => {
     const store = new AppStore(null)
     await store.initialize()
     const storage = new MemoryStorage()
-    await storage.put('tenant/project/generated/face.png', Buffer.from('face-image'), 'image/png')
+    await storage.put('tenant/project/generated/face.png', Buffer.from('face-image'))
     await store.mutate((state) => {
       const now = new Date().toISOString()
       state.assets.push({
@@ -254,7 +255,7 @@ describe('TrustedAssetService', () => {
       'test-secret-with-at-least-32-characters',
       'https://api.example.com',
       'default',
-      null,
+      '',
       null,
       null,
       null,
@@ -547,7 +548,12 @@ describe('TrustedAssetService', () => {
     expect(listPortraits).toHaveBeenCalledOnce()
     expect(getPortrait).not.toHaveBeenCalled()
     expect(updated).toHaveLength(2)
-    expect(updated.every((asset) => asset.attributes.trustedPortrait?.status === 'active')).toBe(true)
+    expect(
+      updated.every(
+        (asset) =>
+          asset.attributes.type === 'character' && asset.attributes.trustedPortrait?.status === 'active',
+      ),
+    ).toBe(true)
   })
 
   it('refreshes from the repository when the API process cache is stale', async () => {
@@ -588,7 +594,7 @@ describe('TrustedAssetService', () => {
       createdAt: now,
       updatedAt: now,
     }
-    let stored = structuredClone(persisted)
+    let stored: Asset = structuredClone(persisted)
     const provider: AssetLibraryProvider = {
       createVirtualGroup: async () => 'unused-group',
       createVirtualAsset: async () => {
@@ -994,7 +1000,7 @@ describe('TrustedAssetService', () => {
     const store = new AppStore(null)
     await store.initialize()
     const storage = new MemoryStorage()
-    await storage.put('tenant/project/retry-face.png', Buffer.from('retry-face'), 'image/png')
+    await storage.put('tenant/project/retry-face.png', Buffer.from('retry-face'))
     const now = new Date().toISOString()
     await store.mutate((state) => {
       state.media.push({

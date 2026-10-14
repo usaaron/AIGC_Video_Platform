@@ -57,10 +57,16 @@ import { AppError } from '../../core/errors.js'
 import type { DailyOperationalSummary } from '../../core/observability/metrics.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { SessionMetadata } from '../auth/accounts.js'
+import {
+  type OperationalStatusCountRow,
+  operationalStatusCounts,
+  startOfChinaDay,
+} from './operationalSummary.js'
 
 export { classifyComplianceRisk } from './complianceClassifier.js'
 
 const defaultLimit = 50
+
 const maxLimit = 100
 
 export type AdminListOptions = {
@@ -1198,13 +1204,6 @@ type Queryable = {
   ): Promise<{ rows: T[] }>
 }
 
-type OperationalStatusCountRow = {
-  created: number
-  completed: number
-  failed: number
-  cancelled: number
-}
-
 type AdminUserRow = {
   id: string
   email: string | null
@@ -2047,32 +2046,6 @@ function listResult<T>(items: T[], total: number, paging: Paging) {
       total,
     },
   }
-}
-
-function operationalStatusCounts(
-  row: OperationalStatusCountRow | undefined,
-): DailyOperationalSummary['generationTasks'] {
-  const created = row?.created ?? 0
-  const completed = row?.completed ?? 0
-  const failed = row?.failed ?? 0
-  const cancelled = row?.cancelled ?? 0
-  const terminal = completed + failed + cancelled
-  return {
-    created,
-    completed,
-    failed,
-    cancelled,
-    terminal,
-    successRate: terminal > 0 ? completed / terminal : null,
-  }
-}
-
-function startOfChinaDay(now = new Date()): string {
-  const chinaOffsetMs = 8 * 60 * 60 * 1_000
-  const chinaNow = new Date(now.getTime() + chinaOffsetMs)
-  return new Date(
-    Date.UTC(chinaNow.getUTCFullYear(), chinaNow.getUTCMonth(), chinaNow.getUTCDate()) - chinaOffsetMs,
-  ).toISOString()
 }
 
 function toAdminUser(row: AdminUserRow): AdminUser {

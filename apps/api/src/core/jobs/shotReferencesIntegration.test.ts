@@ -1,7 +1,8 @@
+import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import type { Asset, CreateGenerationTask, GenerationTask } from '@seqora/contracts'
 import { videoReviewVersion } from '@seqora/contracts'
 import { describe, expect, it, vi } from 'vitest'
-import { AppStore } from '../../infra/store.js'
+import { AppStore, defaultAssetAttributes } from '../../infra/store.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { GenerationService } from '../../modules/generation/service.js'
 import type { GenerationTaskRepository } from '../../modules/generation/repository.js'
@@ -17,10 +18,18 @@ async function fixture(continuity = false, missing = false) {
     shot.prompt = '角色参考【图1】，场景参考【图2】，人物转身。'
     shot.referenceImages = [{ url: '/api/v1/media/outfit', name: '服装图' }, { url: '/api/v1/media/scene' }]
     const face = { id: 'face', url: '/api/v1/media/face', name: '面部' }
-    const asset = {
+    const asset: Asset = {
       id: 'numbered-actor',
       name: '测试人物',
       kind: 'character',
+      sourceMode: 'generate',
+      promptMode: 'standard',
+      customPromptMode: 'append',
+      customPrompt: '',
+      negativePrompt: '',
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       projectId: project.id,
       tenantId: project.tenantId,
       imageUrl: shot.referenceImages[0]!.url,
@@ -28,6 +37,7 @@ async function fixture(continuity = false, missing = false) {
       description: '',
       references: [],
       attributes: {
+        ...defaultAssetAttributes('character'),
         type: 'character',
         subjectType: 'human',
         portraitSource: 'ai-virtual',
@@ -37,12 +47,18 @@ async function fixture(continuity = false, missing = false) {
         bodyReference: { ...face, id: 'outfit', url: '/api/v1/media/outfit' },
         trustedPortrait: {
           assetId: 'trusted-actor',
+          groupId: 'test-group',
+          name: '测试人物',
+          previewUrl: null,
+          errorCode: null,
+          errorMessage: null,
+          checkedAt: new Date().toISOString(),
           status: 'active',
           groupType: 'AIGC',
           faceReferenceId: face.id,
         },
       },
-    } as Asset
+    }
     state.assets = [asset]
     state.media = ['outfit', 'scene', 'face'].map((id) => ({
       id,
@@ -51,7 +67,8 @@ async function fixture(continuity = false, missing = false) {
       tenantId: missing && id === 'outfit' ? 'foreign-tenant' : project.tenantId,
       userId: project.ownerId,
       storageKey: `${id}.png`,
-      fileName: `${id}.png`,
+      kind: 'image' as const,
+      name: `${id}.png`,
       contentType: 'image/png',
       size: 20,
       createdAt: new Date().toISOString(),
@@ -95,8 +112,8 @@ async function fixture(continuity = false, missing = false) {
           ],
         },
       })
-      const previous = state.tasks.find(task => task.id === 'previous')!
-      previous.metadata.contentReview = {decision:'approved',mediaVersion:videoReviewVersion(previous)}
+      const previous = state.tasks.find((task) => task.id === 'previous')!
+      previous.metadata.contentReview = { decision: 'approved', mediaVersion: videoReviewVersion(previous) }
     })
   const repository = {
     canCreate: vi.fn(async () => true),
@@ -112,9 +129,16 @@ async function fixture(continuity = false, missing = false) {
     }),
   } as unknown as GenerationTaskRepository
   const dispatcher = { dispatch: vi.fn() } as unknown as TaskDispatcher
-  const service = new GenerationService(repository, dispatcher, {
-    submit: vi.fn(), getStatus: vi.fn(), getContent: vi.fn(),
-  }, 'dora-router-seedance')
+  const service = new GenerationService(
+    repository,
+    dispatcher,
+    {
+      submit: vi.fn<VideoGenerationProvider['submit']>(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    },
+    'dora-router-seedance',
+  )
   const input: CreateGenerationTask = {
     clientRequestId: 'numbered-task',
     projectId: context.project.id,
@@ -141,31 +165,57 @@ async function fixture(continuity = false, missing = false) {
 }
 
 describe('shot editor references through API snapshot, worker and Dora payload', () => {
-  it.each([false, true])('keeps separate identity and outfit slots without manual images, old snapshot=%s', async (oldSnapshot) => {
-    const { store, context, create } = await fixture()
-    context.shot.referenceImages = []
-    context.shot.prompt = '测试人物正对镜头。'
-    const task = await create()
-    expect(task.metadata.images).toEqual(['asset://trusted-actor', '/api/v1/media/outfit'])
-    expect(task.prompt).toContain('图1用于身份')
-    expect(task.prompt).toContain('图2用于全身造型')
-    const frozen = oldSnapshot ? '旧版已经确认的完整提示词' : task.prompt
-    await store.mutate((state) => {
-      const stored = state.tasks.find((item) => item.id === task.id)!
-      if (oldSnapshot) {
-        stored.metadata.videoPromptVersion = 'seedance-storyboard-v17'
-        stored.metadata.compiledPrompt = frozen
+  it.each([false, true])(
+    'keeps separate identity and outfit slots without manual images, old snapshot=%s',
+    async (oldSnapshot) => {
+      const { store, context, create } = await fixture()
+      context.shot.referenceImages = []
+      context.shot.prompt = '测试人物正对镜头。'
+      const task = await create()
+      expect(task.metadata.images).toEqual(['asset://trusted-actor', '/api/v1/media/outfit'])
+      expect(task.prompt).toContain('图1用于身份')
+      expect(task.prompt).toContain('图2用于全身造型')
+      const frozen = oldSnapshot ? '旧版已经确认的完整提示词' : task.prompt
+      await store.mutate((state) => {
+        const stored = state.tasks.find((item) => item.id === task.id)!
+        if (oldSnapshot) {
+          stored.metadata.videoPromptVersion = 'seedance-storyboard-v17'
+          stored.metadata.compiledPrompt = frozen
+        }
+        state.shots.find((item) => item.id === context.shot.id)!.prompt = '排队后改成不同景别'
+      })
+      const provider = {
+        submit: vi.fn<VideoGenerationProvider['submit']>(async () => ({
+          providerTaskId: 'remote',
+          status: 'queued',
+          progress: 0,
+        })),
+        getStatus: vi.fn(),
+        getContent: vi.fn(),
       }
-      state.shots.find((item) => item.id === context.shot.id)!.prompt = '排队后改成不同景别'
-    })
-    const provider = { submit: vi.fn(async () => ({ providerTaskId: 'remote', status: 'queued', progress: 0 })), getStatus: vi.fn(), getContent: vi.fn() }
-    const storage = { get: vi.fn(async (key: string) => Buffer.from(key)), put: vi.fn(), delete: vi.fn() } as ObjectStorage
-    await new GenerationTaskRunner(store, { videoProvider: provider, videoProviderName: 'dora-router-seedance', objectStorage: storage }).tick()
-    expect(provider.submit).toHaveBeenCalledOnce()
-    expect(provider.submit.mock.calls[0]?.[0]).toMatchObject({ prompt: frozen,
-      images: ['face.png', 'outfit.png'].map((key) => ({ url: `data:image/png;base64,${Buffer.from(key).toString('base64')}`, role: 'reference_image' })) })
-    expect(store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.videoPromptVersion)).toBe(oldSnapshot ? 'seedance-storyboard-v17' : 'seedance-storyboard-v22')
-  })
+      const storage = {
+        get: vi.fn(async (key: string) => Buffer.from(key)),
+        put: vi.fn(),
+        delete: vi.fn(),
+      } as ObjectStorage
+      await new GenerationTaskRunner(store, {
+        videoProvider: provider,
+        videoProviderName: 'dora-router-seedance',
+        objectStorage: storage,
+      }).tick()
+      expect(provider.submit).toHaveBeenCalledOnce()
+      expect(provider.submit.mock.calls[0]?.[0]).toMatchObject({
+        prompt: frozen,
+        images: ['face.png', 'outfit.png'].map((key) => ({
+          url: `data:image/png;base64,${Buffer.from(key).toString('base64')}`,
+          role: 'reference_image',
+        })),
+      })
+      expect(
+        store.read((state) => state.tasks.find((item) => item.id === task.id)?.metadata.videoPromptVersion),
+      ).toBe(oldSnapshot ? 'seedance-storyboard-v17' : 'seedance-storyboard-v22')
+    },
+  )
   it.each([false, true])(
     'rejects an inconsistent tail-frame offset before charging, continuity=%s',
     async (continuity) => {
@@ -228,7 +278,11 @@ describe('shot editor references through API snapshot, worker and Dora payload',
   it('fails missing or foreign references instead of dropping an image and shifting later slots', async () => {
     const { store, create } = await fixture(false, true)
     await create()
-    const provider = { submit: vi.fn(), getStatus: vi.fn(), getContent: vi.fn() }
+    const provider = {
+      submit: vi.fn<VideoGenerationProvider['submit']>(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
     await new GenerationTaskRunner(store, {
       videoProvider: provider,
       videoProviderName: 'stringx-seedance',
@@ -245,7 +299,11 @@ describe('shot editor references through API snapshot, worker and Dora payload',
     context.shot.prompt = '角色出现并走过场景。'
     await create()
     const provider = {
-      submit: vi.fn(async () => ({ providerTaskId: 'remote-auto-reference', status: 'queued', progress: 0 })),
+      submit: vi.fn<VideoGenerationProvider['submit']>(async () => ({
+        providerTaskId: 'remote-auto-reference',
+        status: 'queued',
+        progress: 0,
+      })),
       getStatus: vi.fn(),
       getContent: vi.fn(),
     }
@@ -262,7 +320,9 @@ describe('shot editor references through API snapshot, worker and Dora payload',
     }).tick()
 
     expect(provider.submit).not.toHaveBeenCalled()
-    expect(store.read((state) => state.tasks.find((task) => task.id === 'numbered-task')?.status)).toBe('failed')
+    expect(store.read((state) => state.tasks.find((task) => task.id === 'numbered-task')?.status)).toBe(
+      'failed',
+    )
   })
   it.each(['dangling', 'overflow'])('rejects %s before charging', async (failure) => {
     const { context, repository, create } = await fixture(true)

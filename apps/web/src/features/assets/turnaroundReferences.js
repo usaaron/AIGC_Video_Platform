@@ -15,9 +15,11 @@ export function turnaroundPreviewOutputs(references) {
   const selected = (references || []).slice(0, 3)
   // Only wholly untagged legacy records used positional front/side/back ordering.
   const legacy = selected.every((reference) => !reference.view)
-  return selected.map((reference, index) => ({
-    ...reference,
-    mediaType: 'image',
-    view: legacy ? VIEWS[index] : reference.view,
-  })).sort((left, right) => VIEWS.indexOf(left.view) - VIEWS.indexOf(right.view))
+  return selected
+    .map((reference, index) => ({
+      ...reference,
+      mediaType: 'image',
+      view: legacy ? VIEWS[index] : reference.view,
+    }))
+    .sort((left, right) => VIEWS.indexOf(left.view) - VIEWS.indexOf(right.view))
 }

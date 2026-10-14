@@ -395,9 +395,11 @@ describe('api client', () => {
   })
 
   it('reads a task delivery verification snapshot without mutating the task', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({ taskId: 'task-1', contract: null, evidence: [], verification: null }),
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ taskId: 'task-1', contract: null, evidence: [], verification: null }),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(api.deliveryVerification('task-1')).resolves.toMatchObject({ taskId: 'task-1' })
@@ -408,9 +410,11 @@ describe('api client', () => {
   })
 
   it('reads the formal delivery gate without mutating the task', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({ allowed: false, status: 'pending', reasonCodes: ['MEDIA_NOT_READABLE'] }),
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ allowed: false, status: 'pending', reasonCodes: ['MEDIA_NOT_READABLE'] }),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(api.deliveryGate('task-1')).resolves.toMatchObject({ allowed: false })
@@ -421,9 +425,11 @@ describe('api client', () => {
   })
 
   it('freezes a task delivery contract through the generation API', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({ id: 'task-1', metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } } }),
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ id: 'task-1', metadata: { deliveryContract: { contractHash: 'a'.repeat(64) } } }),
+      )
     vi.stubGlobal('fetch', fetchMock)
     const input = {
       expectedUpdatedAt: '2026-10-13T09:00:00.000Z',

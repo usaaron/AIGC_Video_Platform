@@ -2,14 +2,37 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { AssetsPage } from './AssetsPage'
 
-const project = { id: 'quick-host-test', name: '已交付作品', contentType: 'short-drama', aspectRatio: '9:16', visualStyle: 'cinematic-cg' }
-const episode = { id: 'episode-1', episodeNumber: 1, status: 'saved', content: '场次：S01｜角色：林澈｜场景：档案室｜动作：林澈打开档案。', continuityState: {} }
+const project = {
+  id: 'quick-host-test',
+  name: '已交付作品',
+  contentType: 'short-drama',
+  aspectRatio: '9:16',
+  visualStyle: 'cinematic-cg',
+}
+const episode = {
+  id: 'episode-1',
+  episodeNumber: 1,
+  status: 'saved',
+  content: '场次：S01｜角色：林澈｜场景：档案室｜动作：林澈打开档案。',
+  continuityState: {},
+}
 
 describe('delivered script assets entry', () => {
   it('shows a ready-to-use extraction entry after script-only delivery into an empty project', () => {
     const scan = vi.fn()
     const create = vi.fn()
-    const html = renderToStaticMarkup(<AssetsPage project={project} assets={[]} scriptEpisodes={[episode]} tasks={[]} billing={{ plan: 'free' }} onSuggestAssets={vi.fn()} onSuggestAssetsFast={scan} onCreate={create} />)
+    const html = renderToStaticMarkup(
+      <AssetsPage
+        project={project}
+        assets={[]}
+        scriptEpisodes={[episode]}
+        tasks={[]}
+        billing={{ plan: 'free' }}
+        onSuggestAssets={vi.fn()}
+        onSuggestAssetsFast={scan}
+        onCreate={create}
+      />,
+    )
     expect(html).toContain('确认剧本中的人物、场景和物品')
     expect(html).toContain('重新提取已交付剧本')
     expect(html).toContain('class="delivered-script-assets" open=""')
@@ -19,21 +42,45 @@ describe('delivered script assets entry', () => {
 
   it('does not imply asset extraction is available for a draft-only or empty series', () => {
     for (const scriptEpisodes of [[], [{ ...episode, status: 'draft' }]]) {
-      const html = renderToStaticMarkup(<AssetsPage project={project} assets={[]} scriptEpisodes={scriptEpisodes} tasks={[]} billing={{ plan: 'free' }} onSuggestAssetsFast={vi.fn()} onCreate={vi.fn()} />)
+      const html = renderToStaticMarkup(
+        <AssetsPage
+          project={project}
+          assets={[]}
+          scriptEpisodes={scriptEpisodes}
+          tasks={[]}
+          billing={{ plan: 'free' }}
+          onSuggestAssetsFast={vi.fn()}
+          onCreate={vi.fn()}
+        />,
+      )
       expect(html).not.toContain('确认剧本中的人物、场景和物品')
       expect(html).toContain('添加人物')
     }
   })
 
   it('keeps extraction available but collapsed after assets have been created', () => {
-    const assets = [{ id: 'asset-1', kind: 'scene', name: '档案室', sourceMode: 'generate', attributes: { type: 'scene' } }]
-    const html = renderToStaticMarkup(<AssetsPage project={project} assets={assets} scriptEpisodes={[episode]} tasks={[]} billing={{ plan: 'free' }} onSuggestAssetsFast={vi.fn()} onCreate={vi.fn()} />)
+    const assets = [
+      { id: 'asset-1', kind: 'scene', name: '档案室', sourceMode: 'generate', attributes: { type: 'scene' } },
+    ]
+    const html = renderToStaticMarkup(
+      <AssetsPage
+        project={project}
+        assets={assets}
+        scriptEpisodes={[episode]}
+        tasks={[]}
+        billing={{ plan: 'free' }}
+        onSuggestAssetsFast={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    )
     expect(html).toContain('class="delivered-script-assets"')
     expect(html).not.toContain('class="delivered-script-assets" open=')
   })
 
   it('does not rescan when a delivery already persisted its asset evidence', () => {
-    const assets = [{ id: 'asset-1', kind: 'scene', name: '档案室', sourceMode: 'generate', attributes: { type: 'scene' } }]
+    const assets = [
+      { id: 'asset-1', kind: 'scene', name: '档案室', sourceMode: 'generate', attributes: { type: 'scene' } },
+    ]
     const deliveredEpisode = {
       ...episode,
       continuityState: {
@@ -45,19 +92,31 @@ describe('delivered script assets entry', () => {
         },
       },
     }
-    const html = renderToStaticMarkup(<AssetsPage project={project} assets={assets} scriptEpisodes={[deliveredEpisode]} tasks={[]} billing={{ plan: 'free' }} onSuggestAssetsFast={vi.fn()} onCreate={vi.fn()} />)
+    const html = renderToStaticMarkup(
+      <AssetsPage
+        project={project}
+        assets={assets}
+        scriptEpisodes={[deliveredEpisode]}
+        tasks={[]}
+        billing={{ plan: 'free' }}
+        onSuggestAssetsFast={vi.fn()}
+        onCreate={vi.fn()}
+      />,
+    )
     expect(html).not.toContain('确认剧本中的人物、场景和物品')
   })
 
   it('does not rescan when a model asset design arrived without narrative evidence', () => {
-    const assets = [{
-      id: 'asset-model-1',
-      kind: 'scene',
-      name: '档案室',
-      sourceMode: 'generate',
-      prompt: '统一视觉风格的档案室概念设计。\n\n资产设定说明：高窗、铁柜和冷白顶灯。',
-      attributes: { type: 'scene' },
-    }]
+    const assets = [
+      {
+        id: 'asset-model-1',
+        kind: 'scene',
+        name: '档案室',
+        sourceMode: 'generate',
+        prompt: '统一视觉风格的档案室概念设计。\n\n资产设定说明：高窗、铁柜和冷白顶灯。',
+        attributes: { type: 'scene' },
+      },
+    ]
     const html = renderToStaticMarkup(
       <AssetsPage
         project={project}

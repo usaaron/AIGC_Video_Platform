@@ -1,7 +1,7 @@
-import Ajv from 'ajv/dist/2020.js'
+import { Ajv2020 } from 'ajv/dist/2020.js'
 import { z, type ZodTypeAny } from 'zod'
 
-const ajv = new Ajv({
+const ajv = new Ajv2020({
   allErrors: true,
   allowUnionTypes: true,
   coerceTypes: false,

@@ -14,7 +14,7 @@ describe('TrustedAssetService Dora validation sessions', () => {
     const store = new AppStore(null)
     await store.initialize()
     const storage = new MemoryStorage()
-    await storage.put('face/source.png', Buffer.from('face'), 'image/png')
+    await storage.put('face/source.png', Buffer.from('face'))
     const now = new Date().toISOString()
     const asset = {
       id: 'character-validation',

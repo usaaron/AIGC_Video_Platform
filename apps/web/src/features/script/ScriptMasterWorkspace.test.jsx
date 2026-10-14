@@ -78,14 +78,27 @@ describe('embedded script workspace address', () => {
       launchUrl: '/script-master?surface=embedded&module=project-script#host_token=test-ticket',
     }
     expect(() => scriptMasterFrameUrl(launch, origin, scope)).toThrow('范围不一致')
-    expect(() => scriptMasterFrameUrl({
-      ...launch,
-      launchUrl: '/script-master?surface=standalone&module=project-script#host_token=test-ticket',
-    }, origin, scope)).toThrow('范围不一致')
-    expect(() => scriptMasterFrameUrl({
-      ...launch,
-      launchUrl: '/script-master?surface=standalone&module=standalone&host_project_id=main#host_token=test-ticket',
-    }, origin, scope)).toThrow('范围不一致')
+    expect(() =>
+      scriptMasterFrameUrl(
+        {
+          ...launch,
+          launchUrl: '/script-master?surface=standalone&module=project-script#host_token=test-ticket',
+        },
+        origin,
+        scope,
+      ),
+    ).toThrow('范围不一致')
+    expect(() =>
+      scriptMasterFrameUrl(
+        {
+          ...launch,
+          launchUrl:
+            '/script-master?surface=standalone&module=standalone&host_project_id=main#host_token=test-ticket',
+        },
+        origin,
+        scope,
+      ),
+    ).toThrow('范围不一致')
   })
   it('does not send a launch ticket to another origin or another application', () => {
     for (const launchUrl of [

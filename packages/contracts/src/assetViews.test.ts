@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { characterAppearanceVariantSchema, characterTurnaroundReferenceSchema, mediaReferenceSchema } from './project.js'
+import {
+  characterAppearanceVariantSchema,
+  characterTurnaroundReferenceSchema,
+  mediaReferenceSchema,
+} from './project.js'
 
 const reference = { id: 'ref', name: '人物', url: '/ref.png' }
 
@@ -16,8 +20,11 @@ describe('asset reference view metadata', () => {
     expect(characterTurnaroundReferenceSchema.safeParse({ ...reference, view }).success).toBe(false)
   })
   it('preserves views inside their owning appearance on serialization', () => {
-    const variant = characterAppearanceVariantSchema.parse({ id: 'rain', name: '雨衣',
-      createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-10T00:00:00Z',
+    const variant = characterAppearanceVariantSchema.parse({
+      id: 'rain',
+      name: '雨衣',
+      createdAt: '2026-10-10T00:00:00Z',
+      updatedAt: '2026-10-10T00:00:00Z',
       turnaroundReferences: ['back', 'front', 'side'].map((view) => ({ ...reference, id: view, view })),
     })
     const restored = characterAppearanceVariantSchema.parse(JSON.parse(JSON.stringify(variant)))

@@ -2,25 +2,20 @@ import { createDefaultAttributes } from '../../../web/src/features/assets/assetO
 import { expect, test } from '@playwright/test'
 import { createWebE2EState, mockWebApi, generationTask } from '../fixtures.js'
 
-async function mockEmbeddedStudio(page, launches = []) {
-  await page.route('**/api/v1/script-master/launch?*', async (route) => {
-    launches.push(new URL(route.request().url()).searchParams.get('projectId'))
-    await route.fulfill({
-      json: {
-        enabled: true,
-        launchUrl: new URL('/script-master?host_project_id=project-1', route.request().url()).href,
-      },
-    })
-  })
-  await page.route('**/script-master?host_project_id=project-1', (route) =>
-    route.fulfill({
+async function mockEmbeddedStudio(page, frameLoads = []) {
+  await page.route('**/script-master?**', (route) => {
+    const params = new URL(route.request().url()).searchParams
+    expect(params.get('surface')).toBe('embedded')
+    expect(params.get('module')).toBe('project-script')
+    frameLoads.push(params.get('host_project_id'))
+    return route.fulfill({
       contentType: 'text/html; charset=utf-8',
       body: `<h1>网剧创作测试目标</h1><textarea aria-label="创作输入"></textarea>
-      <button onclick="parent.postMessage({type:'seqora:script-master:synced',projectId:'project-1'},location.origin)">同步完成</button>
-      <button onclick="parent.postMessage({type:'seqora:script-master:navigate',projectId:'project-1',view:'assets'},location.origin)">进入资产设计</button>
-      <script>parent.postMessage({type:'seqora:script-master:ready',projectId:'project-1'},location.origin)</script>`,
-    }),
-  )
+      <button onclick="parent.postMessage({type:'seqora:script-master:synced',surface:'embedded',projectId:'project-1'},location.origin)">同步完成</button>
+      <button onclick="parent.postMessage({type:'seqora:script-master:navigate',surface:'embedded',projectId:'project-1',view:'assets'},location.origin)">进入资产设计</button>
+      <script>parent.postMessage({type:'seqora:script-master:ready',surface:'embedded',projectId:'project-1'},location.origin)</script>`,
+    })
+  })
 }
 
 for (const viewport of [
@@ -49,15 +44,15 @@ for (const viewport of [
     if (viewport.width > 600) await expect(page.getByRole('navigation', { name: '创作流程' })).toBeVisible()
     await expect(page.getByRole('region', { name: '剧本生成设置' })).toHaveCount(0)
     await creator.getByRole('textbox').fill('切换后仍然保留的创作草稿')
-    await page.getByRole('button', { name: /^制作稿/ }).click()
+    await page.getByRole('button', { name: /^已交付版本/ }).click()
     await expect(page.locator('.script-textarea-wrap textarea')).toBeVisible()
-    await page.getByRole('button', { name: /^剧本创作/ }).click()
+    await page.getByRole('button', { name: '返回剧本创作' }).click()
     await expect(creator.getByRole('textbox')).toHaveValue('切换后仍然保留的创作草稿')
     state.workspace.project.script = '从创作工作台同步的新制作稿'
     await creator.getByRole('button', { name: '同步完成' }).click()
-    await page.getByRole('button', { name: /^制作稿/ }).click()
+    await page.getByRole('button', { name: /^已交付版本/ }).click()
     await expect(page.locator('.script-textarea-wrap textarea')).toHaveValue('从创作工作台同步的新制作稿')
-    await page.getByRole('button', { name: /^剧本创作/ }).click()
+    await page.getByRole('button', { name: '返回剧本创作' }).click()
     await creator.getByRole('button', { name: '进入资产设计' }).click()
     await expect(page.getByRole('heading', { name: '建立可复用的视觉资产', exact: true })).toBeVisible()
     if (viewport.width < 600) await page.getByRole('button', { name: '打开导航' }).click()
@@ -107,17 +102,17 @@ for (const saveFails of [false, true]) {
       await route.fulfill({ json: state.workspace.scriptEpisodes[0] })
     })
     await page.goto('/?projectId=project-1&view=script')
-    await page.getByRole('button', { name: /^制作稿/ }).click()
+    await page.getByRole('button', { name: /^已交付版本/ }).click()
     const editor = page.locator('.script-textarea-wrap textarea')
     await expect(editor).toHaveValue('原有剧集内容')
     await editor.fill('修改后的制作稿')
-    await page.getByRole('button', { name: /^剧本创作/ }).click()
+    await page.getByRole('button', { name: '返回剧本创作' }).click()
     if (saveFails) {
       await expect(page.getByText('保存失败，请重试')).toBeVisible()
       await expect(editor).toHaveValue('修改后的制作稿')
     } else {
       await expect(page.frameLocator('iframe').getByRole('heading')).toBeVisible()
-      await page.getByRole('button', { name: /^制作稿/ }).click()
+      await page.getByRole('button', { name: /^已交付版本/ }).click()
       await expect(editor).toHaveValue('修改后的制作稿')
     }
     expect(actions).toEqual(['save'])
@@ -125,31 +120,40 @@ for (const saveFails of [false, true]) {
   })
 }
 
-test('连接失败可重试，拒绝伪造或其他项目的导航消息', async ({ page }) => {
-  await mockWebApi(page, createWebE2EState())
-  await page.route('**/api/v1/script-master/launch?*', (route) =>
-    route.fulfill({ status: 503, json: { error: { message: '创作服务暂不可用' } } }),
+test('连接超时可重试，拒绝伪造或其他项目的导航消息', async ({ page }) => {
+  await page.clock.install()
+  const state = createWebE2EState()
+  // Assets would be reachable if a forged message were accepted. Empty-workflow
+  // gates must not accidentally make this protocol rejection test pass.
+  state.workspace.project.script = '已保存的正文，可以继续制作资产。'
+  await mockWebApi(page, state)
+  await page.route('**/script-master?**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<p>工作台尚未就绪</p>' }),
   )
   await page.goto('/?projectId=project-1&view=script')
-  await expect(page.getByText('创作服务暂不可用')).toBeVisible()
+  await expect(page.frameLocator('iframe').getByText('工作台尚未就绪')).toBeAttached()
+  await page.clock.fastForward(31_000)
+  await expect(page.getByText('创作工作台连接较慢，请检查下方状态，或重新连接。')).toBeVisible()
   await mockEmbeddedStudio(page)
   await page.getByRole('button', { name: '重新连接' }).click()
   await expect(page.frameLocator('iframe').getByRole('heading')).toBeVisible()
   await page.evaluate(() => {
     window.postMessage(
-      { type: 'seqora:script-master:navigate', projectId: 'project-1', view: 'assets' },
+      { type: 'seqora:script-master:navigate', surface: 'embedded', projectId: 'project-1', view: 'assets' },
       location.origin,
     )
     const source = document.querySelector('iframe').contentWindow
     for (const data of [
       { projectId: 'other', view: 'assets' },
       { projectId: 'project-1', view: 'admin' },
+      { projectId: 'project-1', surface: 'standalone', view: 'assets' },
+      { projectId: 'project-1', surface: undefined, view: 'assets' },
     ]) {
       window.dispatchEvent(
         new MessageEvent('message', {
           source,
           origin: location.origin,
-          data: { type: 'seqora:script-master:navigate', ...data },
+          data: { type: 'seqora:script-master:navigate', surface: 'embedded', ...data },
         }),
       )
     }
@@ -157,7 +161,12 @@ test('连接失败可重试，拒绝伪造或其他项目的导航消息', async
       new MessageEvent('message', {
         source,
         origin: 'https://other.example',
-        data: { type: 'seqora:script-master:navigate', projectId: 'project-1', view: 'assets' },
+        data: {
+          type: 'seqora:script-master:navigate',
+          surface: 'embedded',
+          projectId: 'project-1',
+          view: 'assets',
+        },
       }),
     )
   })
@@ -263,7 +272,7 @@ for (const viewport of [
     await page.goto('/?projectId=project-1&view=assets')
     await expect(page.getByRole('button', { name: '添加人物', exact: true })).toBeVisible()
     await expect(page.locator('.asset-tabs').getByText('服装', { exact: true })).toHaveCount(0)
-    await page.getByRole('button', { name: '编辑资产', exact: true }).click()
+    await page.getByRole('button', { name: '编辑', exact: true }).click()
     await expect(page.getByRole('combobox', { name: '人物造型', exact: true })).toBeVisible()
     await page.screenshot({
       path: testInfo.outputPath(`character-looks-${viewport.width}.png`),

@@ -14,53 +14,17 @@ import type {
   Principal,
   UpdateAssetLibraryItem,
 } from '@seqora/contracts'
-import type { PoolClient, QueryResultRow } from 'pg'
+import type { PoolClient } from 'pg'
 import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppState, AppStore } from '../../infra/store.js'
 import { automaticCatalogItems } from './automaticCatalog.js'
 import { isStandaloneProjectId, rejectStandaloneProjectId } from '../projects/projectSurface.js'
-
-type AssetLibraryItemRow = QueryResultRow & {
-  id: string
-  tenant_id: string
-  owner_user_id: string
-  kind: AssetLibraryItemRecord['kind']
-  title: string
-  description: string
-  source_project_id: string | null
-  source_project_name: string | null
-  source_asset_id: string | null
-  source_task_id: string | null
-  source_media_id: string | null
-  source_snapshot: unknown
-  storage_key: string
-  preview_storage_key: string | null
-  content_hash: string
-  content_type: string
-  size_bytes: number | string
-  duplicate_of_item_id: string | null
-  current_version: number | string
-  tags: unknown
-  created_at: Date | string
-  updated_at: Date | string
-  restored_at: Date | string | null
-  deleted_at: Date | string | null
-}
-
-type AssetLibraryItemVersionRow = QueryResultRow & {
-  id: string
-  item_id: string
-  tenant_id: string
-  owner_user_id: string
-  version: number | string
-  source_snapshot: unknown
-  storage_key: string
-  content_hash: string
-  content_type: string
-  size_bytes: number | string
-  created_at: Date | string
-  created_by: string
-}
+import {
+  type AssetLibraryItemRow,
+  type AssetLibraryItemVersionRow,
+  itemFromRow,
+  versionFromRow,
+} from './repositoryMappers.js'
 
 export type AssetLibraryListResult = {
   items: AssetLibraryItemRecord[]
@@ -837,10 +801,10 @@ async function insertItemFromStore(client: PoolClient, item: AssetLibraryItemRec
       deleted_at
     )
     SELECT
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+      $1, $2, $3, $4, $5, $6, $7::text, $8, $9, $10,
       $11, $12::jsonb, $13, $14, $15, $16, $17, $18,
       $19, $20::jsonb, $21, $22, $23, $24
-    WHERE ($7 IS NULL OR $7 NOT LIKE 'sm-standalone-%')
+    WHERE ($7::text IS NULL OR $7::text NOT LIKE 'sm-standalone-%')
       AND EXISTS (SELECT 1 FROM tenants WHERE id = $2)
       AND EXISTS (SELECT 1 FROM users WHERE id = $3)
     ON CONFLICT DO NOTHING
@@ -995,66 +959,4 @@ function applyVersionPatch(
   item.duplicateOfItemId = patch.duplicateOfItemId
   item.currentVersion = version
   item.updatedAt = patch.updatedAt
-}
-
-function itemFromRow(row: AssetLibraryItemRow): AssetLibraryItemRecord {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    ownerUserId: row.owner_user_id,
-    kind: row.kind,
-    title: row.title,
-    description: row.description,
-    sourceProjectId: row.source_project_id,
-    sourceProjectName: row.source_project_name,
-    sourceAssetId: row.source_asset_id,
-    sourceTaskId: row.source_task_id,
-    sourceMediaId: row.source_media_id,
-    sourceSnapshot: jsonValue(row.source_snapshot, {}),
-    storageKey: row.storage_key,
-    previewStorageKey: row.preview_storage_key,
-    contentHash: row.content_hash,
-    contentType: row.content_type,
-    sizeBytes: Number(row.size_bytes),
-    duplicateOfItemId: row.duplicate_of_item_id,
-    currentVersion: Number(row.current_version),
-    tags: jsonValue(row.tags, []),
-    createdAt: isoString(row.created_at),
-    updatedAt: isoString(row.updated_at),
-    restoredAt: row.restored_at ? isoString(row.restored_at) : null,
-    deletedAt: row.deleted_at ? isoString(row.deleted_at) : null,
-  }
-}
-
-function versionFromRow(row: AssetLibraryItemVersionRow): AssetLibraryItemVersionRecord {
-  return {
-    id: row.id,
-    itemId: row.item_id,
-    tenantId: row.tenant_id,
-    ownerUserId: row.owner_user_id,
-    version: Number(row.version),
-    sourceSnapshot: jsonValue(row.source_snapshot, {}),
-    storageKey: row.storage_key,
-    contentHash: row.content_hash,
-    contentType: row.content_type,
-    sizeBytes: Number(row.size_bytes),
-    createdAt: isoString(row.created_at),
-    createdBy: row.created_by,
-  }
-}
-
-function jsonValue<T>(value: unknown, fallback: T): T {
-  if (value === null || value === undefined) return fallback
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value) as T
-    } catch {
-      return fallback
-    }
-  }
-  return structuredClone(value) as T
-}
-
-function isoString(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }

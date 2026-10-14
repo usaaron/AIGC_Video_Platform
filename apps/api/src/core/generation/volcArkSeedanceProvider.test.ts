@@ -261,7 +261,7 @@ describe('VolcArkSeedanceProvider', () => {
   })
 
   it('forwards byte ranges to the signed URL without leaking the API key', async () => {
-    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const calls: Array<{ url: string; init?: RequestInit | undefined }> = []
     const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init })
       if (calls.length === 1) {

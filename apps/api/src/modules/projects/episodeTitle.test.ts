@@ -40,12 +40,16 @@ describe('episode title and content safeguards', () => {
   it('keeps long-form continuation imports while still rejecting exact repeats', () => {
     const first = `${'Maya and Owen hold the underground communications floor. '.repeat(40)}The command center remains sealed.`
     const continuation = `${'Maya and Owen hold the underground communications floor. '.repeat(39)}Maya sends the decoded signal upstairs and the command center opens one channel.`
-    expect(findDuplicateEpisodeContent(continuation, [{ id: 'episode-1', content: first }], undefined, {
-      longFormExactOnly: true,
-    })).toBeUndefined()
-    expect(findDuplicateEpisodeContent(first, [{ id: 'episode-1', content: first }], undefined, {
-      longFormExactOnly: true,
-    })).toMatchObject({ id: 'episode-1' })
+    expect(
+      findDuplicateEpisodeContent(continuation, [{ id: 'episode-1', content: first }], undefined, {
+        longFormExactOnly: true,
+      }),
+    ).toBeUndefined()
+    expect(
+      findDuplicateEpisodeContent(first, [{ id: 'episode-1', content: first }], undefined, {
+        longFormExactOnly: true,
+      }),
+    ).toMatchObject({ id: 'episode-1' })
   })
 
   it('does not keep stacking suffixes when the candidate already has one', () => {

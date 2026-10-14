@@ -64,7 +64,9 @@ export function compileCharacterStagePrompt(asset, aspectRatio, stage) {
 
 function variantDetails(variant) {
   const details = [
-    ['外观', variant.description], ['造型要求', variant.prompt], ['适用与连续性', variant.continuityNote],
+    ['外观', variant.description],
+    ['造型要求', variant.prompt],
+    ['适用与连续性', variant.continuityNote],
   ]
     .map(([label, value]) => (typeof value === 'string' && value.trim() ? `${label}：${value.trim()}` : ''))
     .filter(Boolean)

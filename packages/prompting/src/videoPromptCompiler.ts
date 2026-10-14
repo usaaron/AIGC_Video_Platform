@@ -31,7 +31,11 @@ export type PromptAsset = {
   attributes?: unknown
 }
 
-export type PromptReference = { id: string; appearance?: { name: string; description: string }; imageBindings?: { number: number; purpose: string; view?: string }[] }
+export type PromptReference = {
+  id: string
+  appearance?: { name: string; description: string }
+  imageBindings?: { number: number; purpose: string; view?: string }[]
+}
 
 const ASSET_KIND_LABELS: Record<string, string> = {
   character: '人物',
@@ -57,11 +61,15 @@ export function compileStoryboardVideoPrompt(input: {
     input.manualReferenceCount === undefined
       ? source
       : mapShotReferenceTokens(source, input.manualReferenceCount, continuityMode === 'continue')
-  const focused = prioritizeShotExecution(mapped, references.some((reference) => reference.imageBindings?.length))
+  const focused = prioritizeShotExecution(
+    mapped,
+    references.some((reference) => reference.imageBindings?.length),
+  )
   const prompt = project.contentType === 'advertisement' ? removeScreenTextInstructions(focused) : focused
   const rigidContract = deriveRigidPhysicsContract({ prompt: source })
-  const rigidObjectMotion = Boolean(rigidContract?.objects.length)
-    && /推|拉|撞|挤|挤压|施压|攀爬|承重|打开|关闭|移动|滑动|倾斜|受力|固定/.test(prompt)
+  const rigidObjectMotion =
+    Boolean(rigidContract?.objects.length) &&
+    /推|拉|撞|挤|挤压|施压|攀爬|承重|打开|关闭|移动|滑动|倾斜|受力|固定/.test(prompt)
   const singleContinuousShot = /单一连续镜头|连续镜头|不在镜内切换|固定镜头完全静止/.test(source)
   const continuity = cleanShotContinuityNote(shot.continuityNote, continuityMode)
   const referenceAssets = references
@@ -94,7 +102,9 @@ export function compileStoryboardVideoPrompt(input: {
     SCENE_EXECUTION_VIDEO_RULE,
     rigidObjectMotion ? RIGID_OBJECT_VIDEO_RULE : '',
     rigidObjectMotion ? rigidPhysicsExecutionRule(rigidContract) : '',
-    singleContinuousShot ? '连续性执行：本镜是一段连续时间流，镜内禁止硬切、跳切、黑场重启、空间重置或无提示换机位；硬切只允许发生在本镜结束后的镜间编辑边界，由后期处理。' : '',
+    singleContinuousShot
+      ? '连续性执行：本镜是一段连续时间流，镜内禁止硬切、跳切、黑场重启、空间重置或无提示换机位；硬切只允许发生在本镜结束后的镜间编辑边界，由后期处理。'
+      : '',
     '执行：保持本镜动作先后、左右手与道具交接；运镜和焦点变化分开执行。按给定秒数完成原文对白与动作，不用异常加速、删词或新增事件填补时长。',
     silent
       ? ''
@@ -112,7 +122,12 @@ function referenceRuleFor(asset: PromptAsset, assets: PromptAsset[], reference?:
   if (bindings && !bindings.length) {
     return `${ASSET_KIND_LABELS[asset.kind] || '资产'}“${asset.name}”本次未附图片，仅按已给文字设定${reference?.appearance ? `；当前造型：${reference.appearance.name}，${referenceVisualDetail(reference.appearance.description)}` : asset.description ? `：${referenceVisualDetail(asset.description)}` : ''}`
   }
-  const mapping = bindings?.map((item) => `图${item.number}用于${item.purpose}${item.view && !['body', 'unspecified', 'face'].includes(item.view) ? `（${{ front: '正面', side: '侧面', back: '背面' }[item.view] || item.view}）` : ''}`).join('，')
+  const mapping = bindings
+    ?.map(
+      (item) =>
+        `图${item.number}用于${item.purpose}${item.view && !['body', 'unspecified', 'face'].includes(item.view) ? `（${{ front: '正面', side: '侧面', back: '背面' }[item.view] || item.view}）` : ''}`,
+    )
+    .join('，')
   return `${mapping ? `“${asset.name}”：${mapping}；` : ''}${identityRuleFor(asset, assets, reference?.appearance)}`
 }
 

@@ -30,7 +30,12 @@ import {
   taskOutputUrl,
   videoResolutionForTask,
 } from './storyboardState'
-import { cleanShotContinuityNote, cleanStoryboardPrompt, inspectVideoPreflight, normalizedVideoDuration } from '@seqora/prompting'
+import {
+  cleanShotContinuityNote,
+  cleanStoryboardPrompt,
+  inspectVideoPreflight,
+  normalizedVideoDuration,
+} from '@seqora/prompting'
 
 export function ShotRow({
   shot,
@@ -196,11 +201,22 @@ export function ShotRow({
               />
             </div>
           )}
-          <VideoReviewPanel key={previewVideoTask?.id || 'no-video'} task={previewVideoTask} onReview={onReviewVideo} />
-          {preflight.issues.map((issue, index) => <p key={`${issue.code}-${index}`} role={issue.severity === 'error' ? 'alert' : undefined}>{issue.severity === 'error' ? '生成前冲突：' : '生成前提示：'}{issue.message}</p>)}
-          {videoTask?.status === 'queued' && typeof videoTask.metadata?.continuitySourceTaskId === 'string' &&
-            !canUseVideoContinuity(taskById(tasks, videoTask.metadata.continuitySourceTaskId)) &&
-            <p>等待上一镜生成并通过内容验收；本镜尚未提交模型。</p>}
+          <VideoReviewPanel
+            key={previewVideoTask?.id || 'no-video'}
+            task={previewVideoTask}
+            onReview={onReviewVideo}
+          />
+          {preflight.issues.map((issue, index) => (
+            <p key={`${issue.code}-${index}`} role={issue.severity === 'error' ? 'alert' : undefined}>
+              {issue.severity === 'error' ? '生成前冲突：' : '生成前提示：'}
+              {issue.message}
+            </p>
+          ))}
+          {videoTask?.status === 'queued' &&
+            typeof videoTask.metadata?.continuitySourceTaskId === 'string' &&
+            !canUseVideoContinuity(taskById(tasks, videoTask.metadata.continuitySourceTaskId)) && (
+              <p>等待上一镜生成并通过内容验收；本镜尚未提交模型。</p>
+            )}
         </div>
         <div className="shot-actions">
           <select
@@ -321,12 +337,14 @@ export function ContinuityConnector({ previousShot, shot, previousVideoTask, onC
   const status =
     mode === 'continue'
       ? previousVideoReady && !canUseVideoContinuity(previousVideoTask)
-        ? videoReviewState(previousVideoTask) === 'rejected' ? '上一镜头已标记问题，暂不承接' : '上一镜头待内容验收，暂不承接'
+        ? videoReviewState(previousVideoTask) === 'rejected'
+          ? '上一镜头已标记问题，暂不承接'
+          : '上一镜头待内容验收，暂不承接'
         : lastFrameReady
-        ? '上一镜头尾帧已就绪'
-        : previousVideoReady
-          ? '上一镜头缺少尾帧，请重新生成'
-          : '生成上一镜头后自动获取尾帧'
+          ? '上一镜头尾帧已就绪'
+          : previousVideoReady
+            ? '上一镜头缺少尾帧，请重新生成'
+            : '生成上一镜头后自动获取尾帧'
       : '两个镜头独立生成，使用普通切镜'
 
   return (

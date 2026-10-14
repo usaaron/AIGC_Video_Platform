@@ -1,3 +1,4 @@
+import { mockQueryRows } from '../../testing/databaseQueryFixture.js'
 import { describe, expect, it, vi } from 'vitest'
 import { readRuntimeProjectVersions } from './runtimeCache.js'
 
@@ -10,15 +11,13 @@ describe('runtime project versions', () => {
   })
 
   it('deduplicates project ids and returns compact cache versions', async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          id: 'project-1',
-          version: '4',
-          updated_at: new Date('2026-09-04T03:00:00.000Z'),
-        },
-      ],
-    }))
+    const query = mockQueryRows([
+      {
+        id: 'project-1',
+        version: '4',
+        updated_at: new Date('2026-09-04T03:00:00.000Z'),
+      },
+    ])
 
     await expect(readRuntimeProjectVersions({ query }, ['project-1', 'project-1'])).resolves.toEqual(
       new Map([['project-1', '4:2026-09-04T03:00:00.000Z']]),

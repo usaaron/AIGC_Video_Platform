@@ -318,11 +318,7 @@ describe('AppStore mutation queue', () => {
     try {
       const store = new AppStore(filePath)
       await store.initialize()
-      await writeFile(
-        lockPath,
-        JSON.stringify({ pid: 999_999, createdAt: Date.now() }),
-        'utf8',
-      )
+      await writeFile(lockPath, JSON.stringify({ pid: 999_999, createdAt: Date.now() }), 'utf8')
 
       await store.mutate((state) => {
         state.projects[0]!.name = 'recovered-after-dead-owner'

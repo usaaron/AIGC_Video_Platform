@@ -249,7 +249,15 @@ export function useAssetSuggestions({
     // user, but unrelated renders must not create an automatic retry loop.
     automaticFingerprintRef.current = automaticScope
     void runAutomaticSuggestion(source)
-  }, [projectId, autoSource, automaticScope, activeTask?.id, onSuggestAssets, onSuggestAssetsFast, stoppingTaskId])
+  }, [
+    projectId,
+    autoSource,
+    automaticScope,
+    activeTask?.id,
+    onSuggestAssets,
+    onSuggestAssetsFast,
+    stoppingTaskId,
+  ])
 
   const openEditor = (asset) => {
     const key = assetSuggestionKey(asset)

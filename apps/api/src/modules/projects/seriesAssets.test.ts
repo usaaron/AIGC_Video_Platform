@@ -37,13 +37,52 @@ describe('series asset suggestions', () => {
       createProjectSchema.parse({ name: '全剧资产测试', contentType: 'short-drama', aspectRatio: '9:16' }),
       principal,
     )
-    for (let index = 0; index < 21; index += 1) {
-      await service.saveScriptEpisode(
-        project.id,
-        null,
-        `资产：\n人物：林晚-${index ? '工作服版' : '标准版'}｜基础人物：林晚｜版本：${index ? '工作服版' : '标准版'}｜性别：女性｜年龄：25岁｜外形：黑色长发，人类女性｜服装：${index ? '白色大褂' : '蓝色衬衫'}\n人物：顾客${index}｜外形：人类男性\n场景：诊所${index}｜布局：左侧木门，靠墙药柜\n服装：白色大褂\n正文：\n场次：S01｜诊所｜日｜内景｜20秒\n林晚说：“请坐。”`,
-        principal,
-      )
+    const episodeActions = [
+      '推开木门迎接顾客',
+      '整理柜台上的病历',
+      '从抽屉取出预约本',
+      '搬开门旁的木箱',
+      '拉开窗帘照亮房间',
+      '扶正墙边的椅子',
+      '把雨伞放进伞架',
+      '打开柜门寻找文件',
+      '挂好顾客脱下的外套',
+      '接过顾客递来的信封',
+      '擦去桌面的水渍',
+      '关掉响起的闹钟',
+      '把照片递给顾客辨认',
+      '将墙上的画框扶正',
+      '检查门锁后返回柜台',
+      '从书架取下相册',
+      '把纸箱搬到走廊',
+      '拾起掉落的钥匙',
+      '给窗边植物浇水',
+      '翻找遗失的收据',
+      '在告示板上贴好通知',
+    ]
+    for (let index = 0; index < episodeActions.length; index += 1) {
+      const content = `资产：\n人物：林晚-${index ? '工作服版' : '标准版'}｜基础人物：林晚｜版本：${index ? '工作服版' : '标准版'}｜性别：女性｜年龄：25岁｜外形：黑色长发，人类女性｜服装：${index ? '白色大褂' : '蓝色衬衫'}\n人物：顾客${index}｜外形：人类男性\n场景：诊所${index}｜布局：左侧木门，靠墙药柜\n服装：白色大褂\n正文：\n场次：S01｜诊所｜日｜内景｜20秒\n林晚${episodeActions[index]}，随后说：“请坐。”`
+      const now = new Date().toISOString()
+      // Seed saved episodes directly: this test exercises asset discovery from
+      // persisted history, whose shared asset sheets may predate duplicate guards.
+      await store.mutate((state) => {
+        state.scriptEpisodes.push({
+          id: `asset-scan-episode-${index + 1}`,
+          projectId: project.id,
+          tenantId: principal.tenantId,
+          episodeNumber: index + 1,
+          title: `第 ${index + 1} 集`,
+          content,
+          draftContent: '',
+          status: 'saved',
+          summary: episodeActions[index]!,
+          continuityState: {},
+          revision: 1,
+          lastEditedBy: principal.userId,
+          createdAt: now,
+          updatedAt: now,
+        })
+      })
     }
     const result = await service.suggestScriptAssets(
       project.id,

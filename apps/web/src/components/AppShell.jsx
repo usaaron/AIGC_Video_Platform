@@ -54,7 +54,6 @@ export function AppHeader({
   projectName,
   billing,
   account,
-  runningJobs,
   tasks = [],
   busyTaskId = null,
   onPause,
@@ -115,7 +114,9 @@ export function AppHeader({
   }, [taskOpen])
 
   const activeTasks = tasks.filter(
-    (task) => ['queued', 'paused', 'running'].includes(task.status) && typeof task.metadata?.queueHiddenAt !== 'string',
+    (task) =>
+      ['queued', 'paused', 'running'].includes(task.status) &&
+      typeof task.metadata?.queueHiddenAt !== 'string',
   )
 
   return (
@@ -155,7 +156,9 @@ export function AppHeader({
               <header>
                 <div>
                   <strong>生成任务</strong>
-                  <span>{activeTasks.length ? `${activeTasks.length} 项进行中` : '当前没有进行中的任务'}</span>
+                  <span>
+                    {activeTasks.length ? `${activeTasks.length} 项进行中` : '当前没有进行中的任务'}
+                  </span>
                 </div>
                 <IconButton label="关闭任务控制" onClick={() => setTaskOpen(false)}>
                   <X size={16} />

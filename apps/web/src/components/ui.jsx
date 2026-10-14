@@ -30,14 +30,7 @@ export function canCancelRunningTask(job) {
 }
 
 /** Keep task actions identical wherever a generation task is surfaced. */
-export function TaskControls({
-  job,
-  busy = false,
-  compact = false,
-  onPause,
-  onResume,
-  onDelete,
-}) {
+export function TaskControls({ job, busy = false, compact = false, onPause, onResume, onDelete }) {
   if (!job) return null
   const canCancelRunning = canCancelRunningTask(job)
   const showDelete = !compact && onDelete && (job.status !== 'running' || canCancelRunning)
@@ -266,7 +259,10 @@ function physicsSummary(job) {
     metadata.rigidPhysicsBlockingReason ||
       audit.blockingReason ||
       (firstViolation && (firstViolation.detail || firstViolation.code)) ||
-      (status === 'pending-evidence' || status === 'pending' || status === 'needs-evidence' || status === 'needs_evidence'
+      (status === 'pending-evidence' ||
+      status === 'pending' ||
+      status === 'needs-evidence' ||
+      status === 'needs_evidence'
         ? '等待底脚与连接点逐帧证据'
         : ''),
   ).trim()

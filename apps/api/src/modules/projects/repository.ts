@@ -1,3 +1,6 @@
+import { importProjectsFromStore, type ProjectJsonImportResult } from './projectStoreImport.js'
+export type { ProjectJsonImportResult } from './projectStoreImport.js'
+import { listProjectsFromStore, readWorkspaceFromStore } from './projectStoreReads.js'
 import {
   assetInsertParams,
   shotInsertParams,
@@ -31,7 +34,7 @@ import type {
   TrustedPortrait,
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
-import type { PoolClient, QueryResult, QueryResultRow } from 'pg'
+import type { QueryResult, QueryResultRow } from 'pg'
 import { insertAuditLog, type AuditLogInput } from '../../core/audit/auditLog.js'
 import { canReadAllTenantContent } from '../../core/auth/roles.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
@@ -84,12 +87,6 @@ type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>
 }
 
-export type ProjectJsonImportResult = {
-  projects: { inserted: number; skipped: number }
-  assets: { inserted: number; skipped: number }
-  shots: { inserted: number; skipped: number }
-}
-
 export class ProjectRepository {
   private readonly projectCreationRequests = new Map<string, { requestHash: string; projectId: string }>()
   private readonly projectCreationInFlight = new Map<string, Promise<Project>>()
@@ -100,56 +97,7 @@ export class ProjectRepository {
   ) {}
 
   async importFromStore(): Promise<ProjectJsonImportResult> {
-    if (!this.database || !this.store) {
-      return {
-        projects: { inserted: 0, skipped: 0 },
-        assets: { inserted: 0, skipped: 0 },
-        shots: { inserted: 0, skipped: 0 },
-      }
-    }
-    const snapshot = this.store.read((state) => {
-      const projects = state.projects.filter((project) => !isStandaloneProjectId(project.id))
-      const projectIds = new Set(projects.map((project) => project.id))
-      return {
-        projects,
-        scriptEpisodes: state.scriptEpisodes.filter((episode) => projectIds.has(episode.projectId)),
-        assets: state.assets.filter((asset) => projectIds.has(asset.projectId)),
-        shots: state.shots.filter((shot) => projectIds.has(shot.projectId)),
-      }
-    })
-    const result: ProjectJsonImportResult = {
-      projects: { inserted: 0, skipped: 0 },
-      assets: { inserted: 0, skipped: 0 },
-      shots: { inserted: 0, skipped: 0 },
-    }
-    await this.database.transaction(async (client) => {
-      for (const project of snapshot.projects) {
-        if (await insertProjectFromStore(client, project)) {
-          result.projects.inserted += 1
-        } else {
-          result.projects.skipped += 1
-        }
-      }
-      for (const asset of snapshot.assets) {
-        if (await insertAssetFromStore(client, asset)) {
-          result.assets.inserted += 1
-        } else {
-          result.assets.skipped += 1
-        }
-      }
-      for (const episode of snapshot.scriptEpisodes) {
-        await insertScriptEpisodeFromStore(client, episode)
-      }
-      for (const shot of snapshot.shots) {
-        if (await insertShotFromStore(client, shot)) {
-          result.shots.inserted += 1
-        } else {
-          result.shots.skipped += 1
-        }
-      }
-    })
-    await this.refreshRuntimeCacheFromDatabase()
-    return result
+    return importProjectsFromStore(this.store, this.database)
   }
 
   async bootstrapFromStore(): Promise<void> {
@@ -168,7 +116,7 @@ export class ProjectRepository {
   }
 
   async list(principal: Principal): Promise<Project[]> {
-    if (!this.database) return this.listFromStore(principal)
+    if (!this.database) return listProjectsFromStore(this.requireStore(), principal)
 
     const canReadAll = canReadAllTenantContent(principal)
     const result = await this.database.query<ProjectRow>(
@@ -309,7 +257,7 @@ export class ProjectRepository {
 
   async workspace(projectId: string, principal: Principal): Promise<ProjectWorkspace | null> {
     if (isStandaloneProjectId(projectId)) return null
-    if (!this.database) return this.workspaceFromStore(projectId, principal)
+    if (!this.database) return readWorkspaceFromStore(this.requireStore(), projectId, principal)
 
     const project = await this.findReadableProject(this.database, projectId, principal)
     if (!project) return null
@@ -401,8 +349,10 @@ export class ProjectRepository {
         const projectIds = new Set(
           state.projects
             .filter(
-              (project) => project.tenantId === principal.tenantId && project.ownerId === principal.userId
-                && !isStandaloneProjectId(project.id),
+              (project) =>
+                project.tenantId === principal.tenantId &&
+                project.ownerId === principal.userId &&
+                !isStandaloneProjectId(project.id),
             )
             .map((project) => project.id),
         )
@@ -438,7 +388,8 @@ export class ProjectRepository {
       try {
         return await operation
       } finally {
-        if (this.projectCreationInFlight.get(requestId) === operation) this.projectCreationInFlight.delete(requestId)
+        if (this.projectCreationInFlight.get(requestId) === operation)
+          this.projectCreationInFlight.delete(requestId)
       }
     }
     if (!this.database) return this.createInStore(input, principal, idempotencyKey, requestHash)
@@ -776,9 +727,12 @@ export class ProjectRepository {
           episode.draftContent = ''
           episode.status = 'saved'
           episode.continuityState = {
-            ...(episode.continuityState.batchGenerationKey ? { batchGenerationKey: episode.continuityState.batchGenerationKey } : {}),
+            ...(episode.continuityState.batchGenerationKey
+              ? { batchGenerationKey: episode.continuityState.batchGenerationKey }
+              : {}),
             ...(Array.isArray(episode.continuityState.scriptProductionHistory)
-              ? { scriptProductionHistory: episode.continuityState.scriptProductionHistory } : {}),
+              ? { scriptProductionHistory: episode.continuityState.scriptProductionHistory }
+              : {}),
           }
           episode.title = title?.trim()
             ? disambiguateEpisodeTitle(title, episode.episodeNumber, episodes, episode.id)
@@ -1748,52 +1702,6 @@ export class ProjectRepository {
     return result
   }
 
-  private listFromStore(principal: Principal): Project[] {
-    const canReadAll = canReadAllTenantContent(principal)
-    return this.requireStore().read((state) =>
-      state.projects
-        .filter((project) => project.tenantId === principal.tenantId)
-        .filter((project) => !isStandaloneProjectId(project.id))
-        .filter((project) => project.status !== 'archived')
-        .filter((project) => canReadAll || project.ownerId === principal.userId)
-        .map((project) => ({
-          ...project,
-          // Keep the JSON-store path aligned with the Postgres list response.
-          // The full script is fetched only when a project is opened.
-          script: '',
-          previewUrl: projectPreviewUrl(project.id, state),
-          generationSummary: projectGenerationSummary(project.id, state),
-        }))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-    )
-  }
-
-  private workspaceFromStore(projectId: string, principal: Principal): ProjectWorkspace | null {
-    if (isStandaloneProjectId(projectId)) return null
-    return this.requireStore().read((state) => {
-      const project = state.projects.find(
-        (item) =>
-          item.id === projectId &&
-          item.tenantId === principal.tenantId &&
-          item.status !== 'archived' &&
-          (canReadAllTenantContent(principal) || item.ownerId === principal.userId),
-      )
-      if (!project) return null
-      return {
-        project,
-        scriptEpisodes: state.scriptEpisodes
-          .filter((episode) => episode.projectId === projectId && episode.tenantId === principal.tenantId)
-          .sort((left, right) => left.episodeNumber - right.episodeNumber),
-        assets: state.assets.filter(
-          (asset) => asset.projectId === projectId && asset.tenantId === principal.tenantId,
-        ),
-        shots: state.shots
-          .filter((shot) => shot.projectId === projectId && shot.tenantId === principal.tenantId)
-          .sort((left, right) => left.order - right.order),
-      }
-    })
-  }
-
   private async createInStore(
     input: CreateProject,
     principal: Principal,
@@ -1807,7 +1715,9 @@ export class ProjectRepository {
         if (existing.requestHash !== requestHash) {
           throw new AppError(409, 'IDEMPOTENCY_KEY_REUSED', '创建请求标识已用于其他项目参数')
         }
-        const project = this.requireStore().read((state) => state.projects.find((item) => item.id === existing.projectId))
+        const project = this.requireStore().read((state) =>
+          state.projects.find((item) => item.id === existing.projectId),
+        )
         if (project) return project
         this.projectCreationRequests.delete(requestId)
       }
@@ -1878,16 +1788,30 @@ export class ProjectRepository {
             episode_duration_seconds, aspect_ratio, status, synopsis, script,
             version, created_at, updated_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-          [project.id, project.tenantId, project.ownerId, project.name, project.contentType, project.visualStyle,
-            project.episodeDurationSeconds, project.aspectRatio, project.status, project.synopsis, project.script,
-            project.version, project.createdAt, project.updatedAt],
+          [
+            project.id,
+            project.tenantId,
+            project.ownerId,
+            project.name,
+            project.contentType,
+            project.visualStyle,
+            project.episodeDurationSeconds,
+            project.aspectRatio,
+            project.status,
+            project.synopsis,
+            project.script,
+            project.version,
+            project.createdAt,
+            project.updatedAt,
+          ],
         )
       }
       const existingProject = await client.query<ProjectRow>(
         `SELECT ${projectColumns} FROM projects WHERE id = $1 AND tenant_id = $2 AND owner_user_id = $3`,
         [projectId, principal.tenantId, principal.userId],
       )
-      if (!existingProject.rows[0]) throw new AppError(409, 'IDEMPOTENCY_REQUEST_UNAVAILABLE', '创建请求正在处理中，请稍后重试')
+      if (!existingProject.rows[0])
+        throw new AppError(409, 'IDEMPOTENCY_REQUEST_UNAVAILABLE', '创建请求正在处理中，请稍后重试')
       return projectFromRow(existingProject.rows[0])
     })
     if (created) await this.mirrorProject(result)
@@ -2358,131 +2282,6 @@ async function renumberShotsInDatabase(
      FROM ranked WHERE shot.id = ranked.id`,
     [projectId, tenantId],
   )
-}
-
-async function insertProjectFromStore(client: PoolClient, project: Project): Promise<boolean> {
-  const result = await client.query(
-    `
-    INSERT INTO projects (
-      id,
-      tenant_id,
-      owner_user_id,
-      name,
-      content_type,
-      visual_style,
-      episode_duration_seconds,
-      aspect_ratio,
-      status,
-      synopsis,
-      script,
-      version,
-      created_at,
-      updated_at
-    )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-    WHERE EXISTS (SELECT 1 FROM tenants WHERE id = $2)
-      AND EXISTS (SELECT 1 FROM users WHERE id = $3)
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id
-    `,
-    [
-      project.id,
-      project.tenantId,
-      project.ownerId,
-      project.name,
-      project.contentType,
-      project.visualStyle ?? 'cinematic-cg',
-      project.episodeDurationSeconds ?? 60,
-      project.aspectRatio,
-      project.status,
-      project.synopsis,
-      project.script,
-      project.version,
-      project.createdAt,
-      project.updatedAt,
-    ],
-  )
-  return (result.rowCount ?? 0) > 0
-}
-
-async function insertAssetFromStore(client: PoolClient, asset: Asset): Promise<boolean> {
-  const result = await client.query(
-    `
-    INSERT INTO assets (
-      id,
-      project_id,
-      tenant_id,
-      kind,
-      source_mode,
-      name,
-      description,
-      prompt,
-      prompt_mode,
-      custom_prompt_mode,
-      custom_prompt,
-      negative_prompt,
-      reference_items,
-      attributes,
-      image_url,
-      status,
-      created_at,
-      updated_at
-    )
-    SELECT
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-      $13::jsonb, $14::jsonb, $15, $16, $17, $18
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id
-    `,
-    assetInsertParams(asset),
-  )
-  return (result.rowCount ?? 0) > 0
-}
-
-async function insertScriptEpisodeFromStore(client: PoolClient, episode: ScriptEpisode): Promise<boolean> {
-  const result = await client.query(
-    `
-    INSERT INTO script_episodes (
-      id, project_id, tenant_id, episode_number, title, content, draft_content,
-      status, summary, continuity_state, revision, last_edited_by, created_at, updated_at
-    )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id
-    `,
-    [
-      episode.id,
-      episode.projectId,
-      episode.tenantId,
-      episode.episodeNumber,
-      episode.title,
-      episode.content,
-      episode.draftContent,
-      episode.status,
-      episode.summary,
-      JSON.stringify(episode.continuityState),
-      episode.revision,
-      episode.lastEditedBy,
-      episode.createdAt,
-      episode.updatedAt,
-    ],
-  )
-  return (result.rowCount ?? 0) > 0
-}
-
-async function insertShotFromStore(client: PoolClient, shot: Shot): Promise<boolean> {
-  const result = await client.query(
-    `
-    INSERT INTO shots (${shotInsertColumns}) SELECT ${shotInsertValues}
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2 AND tenant_id = $3)
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id
-    `,
-    shotInsertParams(shot),
-  )
-  return (result.rowCount ?? 0) > 0
 }
 
 async function touchProject(

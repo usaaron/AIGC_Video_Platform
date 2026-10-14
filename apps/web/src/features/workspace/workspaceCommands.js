@@ -203,10 +203,11 @@ export function createWorkspaceCommands({
         }
         return created
       }
-      const operation = () => submit().catch((error) => {
-        setToast(error.message)
-        return null
-      })
+      const operation = () =>
+        submit().catch((error) => {
+          setToast(error.message)
+          return null
+        })
       return singleFlightKey ? runSingleFlight(assetLock.current, singleFlightKey, operation) : operation()
     } catch (error) {
       setToast(error.message)
@@ -474,7 +475,8 @@ export function createWorkspaceCommands({
 
   const createProject = async (input) => {
     if (creationLock.current) return creationLock.current
-    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `project-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const idempotencyKey =
+      globalThis.crypto?.randomUUID?.() || `project-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
     const operation = (async () => {
       try {

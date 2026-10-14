@@ -6,7 +6,7 @@ import { ProjectService } from './service.js'
 import * as assetProvider from './assetSuggestionProvider.js'
 import * as assetSuggestions from './assetSuggestions.js'
 
-const principal: Principal = { userId: 'user-1', tenantId: 'tenant-1', roles: ['creator'] }
+const principal: Principal = { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] }
 const firstScript =
   '资产：\n人物：林夏｜性别：女性｜服装：蓝色衬衫\n场景：车站\n物品：旧雨伞\n正文：\n场次：S01｜角色：林夏｜场景：车站\n动作：她想起父亲的叮嘱。'
 const secondScript = '资产：\n人物：顾砚｜性别：男性\n场景：诊所\n正文：\n场次：S01｜角色：顾砚｜场景：诊所'

@@ -48,13 +48,15 @@ describe('asset prompt compiler', () => {
       attributes: {
         ...createDefaultAttributes('character'),
         activeAppearanceVariantId: 'rain',
-        appearanceVariants: [{
-          id: 'rain',
-          name: '顾砚-雨夜行动服版本',
-          description: '深灰防水短款外套，橙色反光条，磨损袖口',
-          prompt: '哑光防水面料，双层领口，战术腰包，泥水溅到裤脚，湿润高光仅出现在衣料表面',
-          continuityNote: '白宫外围雨夜行动使用；沿用同一张脸、发型和体态',
-        }],
+        appearanceVariants: [
+          {
+            id: 'rain',
+            name: '顾砚-雨夜行动服版本',
+            description: '深灰防水短款外套，橙色反光条，磨损袖口',
+            prompt: '哑光防水面料，双层领口，战术腰包，泥水溅到裤脚，湿润高光仅出现在衣料表面',
+            continuityNote: '白宫外围雨夜行动使用；沿用同一张脸、发型和体态',
+          },
+        ],
       },
     }
 

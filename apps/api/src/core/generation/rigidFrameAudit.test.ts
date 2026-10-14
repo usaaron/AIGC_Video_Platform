@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { auditRigidVideoFrames, detectHardCuts } from './rigidFrameAudit.js'
 
 describe('rigid frame audit', () => {
-  const prompt = '固定隔离栏底板以螺栓固定于混凝土地面，前排人群施压；双侧滑动闸门沿轨道运动。单一连续镜头，固定机位。'
+  const prompt =
+    '固定隔离栏底板以螺栓固定于混凝土地面，前排人群施压；双侧滑动闸门沿轨道运动。单一连续镜头，固定机位。'
 
   it('detects a hard cut from raw grayscale frames', () => {
     const frames = [
@@ -21,7 +22,7 @@ describe('rigid frame audit', () => {
     })
     expect(audit.cutFrames).toEqual([2])
     expect(audit.physics?.status).toBe('failed')
-    expect(audit.physics?.violations.map(item => item.code)).toEqual(
+    expect(audit.physics?.violations.map((item) => item.code)).toEqual(
       expect.arrayContaining(['CAMERA_CUT_FORBIDDEN', 'FRAME_EVIDENCE_MISSING']),
     )
   })

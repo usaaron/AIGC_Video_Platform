@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { assert, beforeEach, describe, expect, it } from 'vitest'
 import {
   createProjectSchema,
   scriptMasterImportRequestSchema,
@@ -360,6 +360,7 @@ describe('bulk Script Master import', () => {
     const refinedCharacter = (await projects.workspace(target, principal))!.assets.find(
       (asset) => asset.kind === 'character',
     )!
+    assert(refinedCharacter.attributes.type === 'character')
     const refinedVariant = refinedCharacter.attributes.appearanceVariants.find(
       (variant) => variant.id === 'appearance.maya.rain',
     )!

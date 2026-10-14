@@ -11,7 +11,9 @@ export function productionHistory(episode: ScriptEpisode): unknown[] {
   return Array.isArray(stored) ? stored : []
 }
 
-function fingerprint(shot: Pick<Shot, 'prompt' | 'framing' | 'duration' | 'continuityMode' | 'continuityNote'>) {
+function fingerprint(
+  shot: Pick<Shot, 'prompt' | 'framing' | 'duration' | 'continuityMode' | 'continuityNote'>,
+) {
   return JSON.stringify([shot.prompt, shot.framing, shot.duration, shot.continuityMode, shot.continuityNote])
 }
 
@@ -28,9 +30,10 @@ function sourceShots(content: string) {
     offset += count
     return group.map((shot, index) => ({
       source: paragraph.text,
-      shot: offset - count + index === 0
-        ? { ...shot, continuityMode: 'independent' as const, continuityNote: '' }
-        : shot,
+      shot:
+        offset - count + index === 0
+          ? { ...shot, continuityMode: 'independent' as const, continuityNote: '' }
+          : shot,
     }))
   })
 }
@@ -44,16 +47,20 @@ export function reviseProduction(
   newShotId: (index: number) => string,
 ) {
   const previous = [...currentShots].sort((a, b) => a.order - b.order)
-  const history = [...productionHistory(current), {
-    id: createHash('sha256').update(`${current.id}:${current.revision}:${now}`).digest('hex'),
-    savedAt: now,
-    episodeRevision: current.revision,
-    title: current.title,
-    content: current.content,
-    ...(current.continuityState.scriptAssetEvidence
-      ? { assetEvidence: structuredClone(current.continuityState.scriptAssetEvidence) } : {}),
-    shots: structuredClone(previous),
-  }]
+  const history = [
+    ...productionHistory(current),
+    {
+      id: createHash('sha256').update(`${current.id}:${current.revision}:${now}`).digest('hex'),
+      savedAt: now,
+      episodeRevision: current.revision,
+      title: current.title,
+      content: current.content,
+      ...(current.continuityState.scriptAssetEvidence
+        ? { assetEvidence: structuredClone(current.continuityState.scriptAssetEvidence) }
+        : {}),
+      shots: structuredClone(previous),
+    },
+  ]
   if (next.content === current.content) {
     return {
       history,
@@ -75,14 +82,20 @@ export function reviseProduction(
     const signature = fingerprint(draft)
     const matchingSources = matches.filter((old) => old.fingerprint === signature)
     // Repeated identical-looking scenes have no reliable old shot identity.
-    const knownSource = matchingSources.length === 1 && matchingSources[0]!.source === source &&
+    const knownSource =
+      matchingSources.length === 1 &&
+      matchingSources[0]!.source === source &&
       previous.filter((shot) => fingerprint(shot) === signature).length === 1
-    const candidate = knownSource ? previous.find((shot, oldIndex) =>
-      available.has(shot.id) && fingerprint(shot) === signature &&
-      // A continuing shot's media embeds its predecessor's tail-frame context.
-      (draft.continuityMode === 'independent' ||
-        (index > 0 && oldIndex > 0 && shots[index - 1]?.id === previous[oldIndex - 1]?.id)),
-    ) : undefined
+    const candidate = knownSource
+      ? previous.find(
+          (shot, oldIndex) =>
+            available.has(shot.id) &&
+            fingerprint(shot) === signature &&
+            // A continuing shot's media embeds its predecessor's tail-frame context.
+            (draft.continuityMode === 'independent' ||
+              (index > 0 && oldIndex > 0 && shots[index - 1]?.id === previous[oldIndex - 1]?.id)),
+        )
+      : undefined
     if (candidate) {
       available.delete(candidate.id)
       retained.add(candidate.id)
@@ -99,12 +112,18 @@ export function reviseProduction(
       episodeBreakBefore: index === 0 && current.episodeNumber > 1,
     })
     shots.push({
-      ...fields, id: newShotId(index), projectId: current.projectId, tenantId: current.tenantId,
-      order: index + 1, createdAt: now, updatedAt: now,
+      ...fields,
+      id: newShotId(index),
+      projectId: current.projectId,
+      tenantId: current.tenantId,
+      order: index + 1,
+      createdAt: now,
+      updatedAt: now,
     })
   }
   return {
-    history, shots,
+    history,
+    shots,
     removedShotIds: previous.filter((shot) => !retained.has(shot.id)).map((shot) => shot.id),
     preservedShots: retained.size,
   }

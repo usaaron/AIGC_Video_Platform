@@ -38,7 +38,7 @@ describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
     try {
       const objectStorage = memoryObjectStorage()
       const imageProvider: ImageGenerationProvider = {
-        generate: vi.fn(async () => [
+        generate: vi.fn<ImageGenerationProvider['generate']>(async () => [
           { view: 'single', contentType: 'image/png', content: Buffer.from('image-content') },
         ]),
       }
@@ -61,7 +61,9 @@ describe('worker generation task DB writeback', { timeout: 30_000 }, () => {
       const runner = new GenerationTaskRunner(store, {
         imageProvider,
         objectStorage,
-        beforeTick: () => tasks.refreshRuntimeCacheFromDatabase(),
+        beforeTick: async () => {
+          await tasks.refreshRuntimeCacheFromDatabase()
+        },
         persistTickTasks: (taskIds) => tasks.flushRuntimeTasksToDatabase(taskIds).then(() => {}),
         persistTask: (taskId) => tasks.flushRuntimeTaskToDatabase(taskId).then(() => {}),
       })

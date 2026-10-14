@@ -121,8 +121,10 @@ export function compileQualityRules(input: QualityRuleInput): CompiledQualityRul
 }
 
 function hasRigidObjectMotion(sourcePrompt: string): boolean {
-  return /门|闸|栅栏|隔离栏|栏杆|护栏|墙|架|平台|桥|箱体|车辆外壳|导轨|铰链/.test(sourcePrompt)
-    && /推|拉|撞|挤|挤压|施压|攀爬|承重|打开|关闭|移动|滑动|倾斜|受力|固定/.test(sourcePrompt)
+  return (
+    /门|闸|栅栏|隔离栏|栏杆|护栏|墙|架|平台|桥|箱体|车辆外壳|导轨|铰链/.test(sourcePrompt) &&
+    /推|拉|撞|挤|挤压|施压|攀爬|承重|打开|关闭|移动|滑动|倾斜|受力|固定/.test(sourcePrompt)
+  )
 }
 
 function shouldKeepAtmosphereClear(weather: string | undefined, sourcePrompt: string): boolean {

@@ -35,7 +35,7 @@ describe('rigid physics audit service', () => {
     await store.mutate((state) => {
       state.tasks = [task]
     })
-    const runner: RigidAuditRunner = vi.fn(async () => ({
+    const runner = vi.fn<RigidAuditRunner>(async () => ({
       frameCount: 121,
       fps: 24,
       cutFrames: [70],
@@ -75,7 +75,9 @@ describe('rigid physics audit service', () => {
       { expectedUpdatedAt, observations: [] },
       principal,
     )
-    expect(runner).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.any(String), video: expect.any(Buffer) }))
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.any(String), video: expect.any(Buffer) }),
+    )
     expect(storage.get).toHaveBeenCalledWith('1-1.mp4')
     expect(audited.metadata.rigidPhysicsAudit).toMatchObject({
       status: 'failed',
@@ -86,11 +88,7 @@ describe('rigid physics audit service', () => {
     expect(store.read((state) => state.tasks)).toHaveLength(1)
     expect(audited.updatedAt).not.toBe(expectedUpdatedAt)
     await expect(
-      service.auditRigidPhysics(
-        task.id,
-        { expectedUpdatedAt, observations: [] },
-        principal,
-      ),
+      service.auditRigidPhysics(task.id, { expectedUpdatedAt, observations: [] }, principal),
     ).rejects.toMatchObject({ code: 'RIGID_AUDIT_STALE' })
   })
 
@@ -98,7 +96,14 @@ describe('rigid physics audit service', () => {
     const store = new AppStore(null)
     await store.initialize()
     const task = buildQueuedGenerationTask(
-      { clientRequestId: 'queued-audit', projectId: 'p', provider: 'seedance', kind: 'video', label: 'queued', estimatedCredits: 18 },
+      {
+        clientRequestId: 'queued-audit',
+        projectId: 'p',
+        provider: 'seedance',
+        kind: 'video',
+        label: 'queued',
+        estimatedCredits: 18,
+      },
       principal,
       '2026-10-11T00:00:00.000Z',
     )

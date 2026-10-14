@@ -101,14 +101,14 @@ describe('face confirmation HTTP + PostgreSQL', { timeout: 30_000 }, () => {
         await database.query(
           "SELECT count(*)::int AS count FROM generation_tasks WHERE provider='asset-library'",
         )
-      ).rows[0].count,
+      ).rows[0]!.count,
     ).toBe(1)
     expect(
       (
         await database.query('SELECT count(*)::int AS count FROM outbox_events WHERE aggregate_id=$1', [
           tasks[0].id,
         ])
-      ).rows[0].count,
+      ).rows[0]!.count,
     ).toBe(1)
   })
 
@@ -170,7 +170,7 @@ describe('face confirmation HTTP + PostgreSQL', { timeout: 30_000 }, () => {
         await database.query('SELECT count(*)::int AS count FROM outbox_events WHERE aggregate_id=$1', [
           task.id,
         ])
-      ).rows[0].count,
+      ).rows[0]!.count,
     ).toBe(1)
     const repository = new ProjectRepository(store, database)
     const asset = (await repository.findOwnedAsset(projectId, assetId, principal))!
@@ -349,7 +349,7 @@ describe('face confirmation HTTP + PostgreSQL', { timeout: 30_000 }, () => {
         await database.query('SELECT status FROM outbox_events WHERE aggregate_id=$1', [
           first.registrationTask.id,
         ])
-      ).rows[0].status,
+      ).rows[0]!.status,
     ).toBe('pending')
   })
 

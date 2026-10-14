@@ -112,16 +112,14 @@ export function findDuplicateEpisodeContent<T extends EpisodeTitleRecord>(
   const normalized = normalizeEpisodeContent(content)
   if (!normalized) return undefined
   const longFormExactOnly = options.longFormExactOnly === true && normalized.length >= 1000
-  return records.find(
-    (record) => {
-      if (record.id === currentId) return false
-      const previous = normalizeEpisodeContent(episodeContent(record))
-      if (!previous) return false
-      if (previous === normalized) return previous.length >= 12
-      if (longFormExactOnly) return false
-      return classifyEpisodeContentRelationship(previous, normalized) === 'duplicate'
-    },
-  )
+  return records.find((record) => {
+    if (record.id === currentId) return false
+    const previous = normalizeEpisodeContent(episodeContent(record))
+    if (!previous) return false
+    if (previous === normalized) return previous.length >= 12
+    if (longFormExactOnly) return false
+    return classifyEpisodeContentRelationship(previous, normalized) === 'duplicate'
+  })
 }
 
 const DISAMBIGUATOR = /\s*[（(](?:\d{1,3}|上|中|下)[）)]$/u

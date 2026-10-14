@@ -147,7 +147,13 @@ describe('workspace loading policy', () => {
       assets: [],
       shots: [],
     })
-    expect(scriptOnly).toMatchObject({ script: true, assets: true, storyboard: true, generate: false, film: false })
+    expect(scriptOnly).toMatchObject({
+      script: true,
+      assets: true,
+      storyboard: true,
+      generate: false,
+      film: false,
+    })
 
     const textOnlyAssets = workflowNavigationAccess({
       project: { id: projectId, script: '已保存剧本' },

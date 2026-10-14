@@ -75,13 +75,25 @@ pnpm test:backend:pyramid
 pnpm test:backend:legacy
 ```
 
-完整工作区测试仍使用：
+完整工作区的发布前检查使用：
 
 ```bash
-pnpm test
+pnpm check
 ```
 
-`pnpm test` 会覆盖所有 workspace 包和历史综合测试；`test:backend:pyramid` 用于后端专项回归和 CI 数据库链路。
+其中 `pnpm test:full:stable` 顺序运行测试编排回归、Contracts、Prompting、共享包构建、API 生产和测试源码类型检查、Admin、Web、API 全部测试及 Playwright 桌面/移动端流程。`pnpm check` 还包含格式、架构、安全、Lint 与全部生产构建。
+
+默认要求 Docker 已运行。编排器为每次检查创建独立 Compose 项目，Postgres/Redis 绑定本机随机端口，等待健康状态后执行；失败时也只清理本次创建的容器和卷，不使用开发数据库。Playwright 独立使用 6173/6174，不复用既有服务。
+
+Playwright 通过 `SEQORA_E2E_CACHE_DIR` 为 Web 和 Admin 分别设置按端口区分的 Vite 缓存，并使用 `--force` 重新预优化依赖，避免浏览器回归与普通开发服务争用 `.vite`；普通开发保留默认缓存路径。
+
+浏览器 API 夹具同时在页面和浏览器会话层拦截请求。页面模拟路由被移除时，后台刷新仍由会话层返回 `E2E_API_UNMOCKED`，不会落入 Vite 代理而访问 8787 的本地预览 API。
+
+使用已准备好的测试服务时，必须同时设置 `SEQORA_TEST_DATABASE_URL`（兼容 `TEST_DATABASE_URL`）与 `TEST_REDIS_URL`；这些服务需要允许测试创建自己的数据库和队列，不得传入生产凭据。仅配置其中一项会明确报错。测试不会因 Docker 缺失而自动跳过。
+
+API 阶段显式使用测试数据库、内存数据文件，并在 Node 测试进程及其 worker 预加载网络保护：允许已声明的测试数据库/Redis 与本机临时 HTTP 服务，阻断未声明的外网及常见开发数据库/Redis 端口。保护只作用于该测试阶段，不修改预览服务或其他命令的环境。测试容器清理失败也会使完整检查返回非零。
+
+`pnpm test` 仍运行各 workspace 的原测试入口；`test:backend:pyramid` 用于后端专项回归和 CI 数据库链路。2026-10-14 修复与本机完整验证记录见 [全量检查修复](FULL_CHECK_REPAIR_2026-10-14.md)。
 
 ## CI 规则
 
