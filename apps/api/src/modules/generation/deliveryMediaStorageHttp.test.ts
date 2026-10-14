@@ -377,10 +377,10 @@ describe('main media storage proof HTTP boundary', () => {
       status: 'blocked',
       reasonCodes: expect.arrayContaining(['MEDIA_NOT_READABLE', 'DELIVERY_REQUIREMENTS_INCOMPLETE']),
     })
-    expect(test.getStream).toHaveBeenCalledTimes(4)
+    expect(test.getStream).toHaveBeenCalledTimes(8)
     expect(test.getStream).toHaveBeenCalledWith(test.storageKey)
-    expect(test.get).toHaveBeenCalledTimes(4)
-    expect(test.get).toHaveBeenCalledWith(test.tailStorageKey)
+    expect(test.get).not.toHaveBeenCalled()
+    expect(test.getStream).toHaveBeenCalledWith(test.tailStorageKey)
     test.assertReadOnly()
   })
 

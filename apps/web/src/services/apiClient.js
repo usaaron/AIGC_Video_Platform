@@ -49,6 +49,42 @@ async function request(path, options = {}) {
   return parseResponse(await fetchApi(path, options))
 }
 
+async function deliveryDownloadRequest(taskId, input, options = {}) {
+  const response = await fetchApi(`/generation/tasks/${encodeURIComponent(taskId)}/delivery-download`, {
+    ...json('POST', input),
+    signal: options.signal,
+  })
+  if (!response.ok) return parseResponse(response)
+  const receiptId = response.headers.get('X-Delivery-Receipt-Id')
+  const sha256 = response.headers.get('X-Delivery-Sha256')
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const contentType = response.headers.get('Content-Type') || ''
+  if (
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(receiptId || '') ||
+    !/^[a-f0-9]{64}$/i.test(sha256 || '') ||
+    !/^attachment(?:;|$)/i.test(disposition) ||
+    !/^(video|image)\//i.test(contentType)
+  )
+    throw new Error('服务器未返回完整的正式下载凭证，请重试')
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="([^"]+)"|filename=([^;]+)/i)
+  let filename = match?.[2] || match?.[3] || 'delivery'
+  if (match?.[1]) {
+    try {
+      filename = decodeURIComponent(match[1])
+    } catch {
+      filename = 'delivery'
+    }
+  }
+  filename =
+    filename
+      .replace(/\p{Cc}|[/\\:*?"<>|]/gu, '_')
+      .replace(/^\.+|[. ]+$/g, '')
+      .slice(0, 200) || 'delivery'
+  const blob = await response.blob()
+  if (!blob.size) throw new Error('服务器返回的下载文件为空，请重试')
+  return { blob, filename, receiptId, sha256 }
+}
+
 async function conditionalRequest(path, etag) {
   const response = await fetchApi(path, {
     timeoutMs: 10_000,
@@ -331,6 +367,7 @@ export const api = {
     request(`/generation/tasks/${taskId}/delivery-contract`, json('POST', input)),
   deliveryVerification: (taskId) => request(`/generation/tasks/${taskId}/delivery-verification`),
   deliveryGate: (taskId) => request(`/generation/tasks/${taskId}/delivery-gate`),
+  downloadDelivery: deliveryDownloadRequest,
   stopTask: (taskId) => request(`/generation/tasks/${taskId}/stop`, { method: 'POST' }),
   resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),

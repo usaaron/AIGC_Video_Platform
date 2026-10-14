@@ -5,6 +5,8 @@ import { ArrowRight, Check, Clapperboard, Clock3, Crown, Info, LoaderCircle, Pla
 import { ImagePreviewModal } from '../components/ImagePreviewModal'
 import { VideoPreviewModal } from '../components/VideoPreviewModal'
 import { JobRow, PageHeader } from '../components/ui'
+import { DeliveryDownload } from '../features/generation/DeliveryDownload'
+import { inspectDeliveryDialog } from '../features/generation/deliveryInspection'
 
 const filters = [
   ['all', '全部'],
@@ -27,6 +29,7 @@ export function GenerationPage({
   onFreezeDelivery,
   onInspectDelivery,
   onInspectDeliveryGate,
+  onDownloadDelivery,
 }) {
   const [filter, setFilter] = useState('all')
   const [busyTaskId, setBusyTaskId] = useState(null)
@@ -49,25 +52,13 @@ export function GenerationPage({
     }
   }
 
-  const inspectDelivery = async (job) => {
-    if (!onInspectDelivery) return
-    setDeliveryDialog({ job, status: 'loading', snapshot: null, gate: null, error: '' })
-    try {
-      const [snapshot, gate] = await Promise.all([
-        onInspectDelivery(job),
-        onInspectDeliveryGate ? onInspectDeliveryGate(job) : Promise.resolve(null),
-      ])
-      setDeliveryDialog({ job, status: 'ready', snapshot, gate, error: '' })
-    } catch (error) {
-      setDeliveryDialog({
-        job,
-        status: 'error',
-        snapshot: null,
-        gate: null,
-        error: error?.message || '暂时无法读取交付核验',
-      })
-    }
-  }
+  const inspectDelivery = (job) =>
+    inspectDeliveryDialog({
+      job,
+      inspect: onInspectDelivery,
+      inspectGate: onInspectDeliveryGate,
+      setDialog: setDeliveryDialog,
+    })
 
   const openFreezeDelivery = (job) => {
     if (!onFreezeDelivery || !canFreezeDeliveryContract(job)) return
@@ -239,7 +230,12 @@ export function GenerationPage({
       )}
       {deliveryDialog &&
         createPortal(
-          <DeliveryVerificationDialog dialog={deliveryDialog} onClose={() => setDeliveryDialog(null)} />,
+          <DeliveryVerificationDialog
+            dialog={deliveryDialog}
+            onClose={() => setDeliveryDialog(null)}
+            onDownload={onDownloadDelivery}
+            onRefresh={() => void inspectDelivery(deliveryDialog.job)}
+          />,
           document.body,
         )}
       {freezeDialog &&
@@ -310,19 +306,22 @@ export function buildDeliveryContractDraft(job) {
   const episodeId =
     typeof job?.metadata?.episodeId === 'string' && job.metadata.episodeId.trim()
       ? job.metadata.episodeId.trim()
-      : null
+      : typeof job?.metadata?.scriptEpisodeId === 'string' && job.metadata.scriptEpisodeId.trim()
+        ? job.metadata.scriptEpisodeId.trim()
+        : null
+  const artifactType = job?.kind === 'image' ? 'image' : 'video'
   const hasPhysicsEvidence = Boolean(job?.metadata?.rigidPhysicsContract || job?.metadata?.rigidPhysicsAudit)
   return {
     version: 'seqora.delivery.v1',
     contractHash: null,
     frozenAt: null,
     intent: {
-      mode: shotId ? 'shot' : 'response',
+      mode: artifactType === 'image' ? 'asset' : 'shot',
       projectId: job.projectId,
       episodeId,
       shotIds: shotId ? [shotId] : [],
     },
-    expectedArtifact: { type: 'video', count: 1 },
+    expectedArtifact: { type: artifactType, count: 1 },
     must: [
       {
         id: DELIVERY_REQUIREMENT_IDS.taskCompleted,
@@ -331,7 +330,7 @@ export function buildDeliveryContractDraft(job) {
       },
       {
         id: DELIVERY_REQUIREMENT_IDS.mediaUrl,
-        statement: '必须存在可读取的视频媒体',
+        statement: artifactType === 'image' ? '必须存在可读取的图片媒体' : '必须存在可读取的视频媒体',
         source: 'provider',
       },
       ...(hasPhysicsEvidence
@@ -373,7 +372,7 @@ function requirementSummary(ids) {
   return ids.join('、')
 }
 
-export function DeliveryVerificationDialog({ dialog, onClose }) {
+export function DeliveryVerificationDialog({ dialog, onClose, onDownload, onRefresh }) {
   const { job, status, snapshot, gate, error } = dialog
   const verification = snapshot?.verification
   return (
@@ -387,7 +386,7 @@ export function DeliveryVerificationDialog({ dialog, onClose }) {
       >
         <div className="modal-head">
           <div>
-            <span className="eyebrow">只读事实</span>
+            <span className="eyebrow">交付事实与下载</span>
             <h2 id="delivery-verification-title">交付核验</h2>
           </div>
           <button className="icon-button" type="button" aria-label="关闭交付核验" onClick={onClose}>
@@ -446,6 +445,16 @@ export function DeliveryVerificationDialog({ dialog, onClose }) {
               </ul>
             ) : null}
           </section>
+        )}
+        {status === 'ready' && onDownload && (
+          <DeliveryDownload
+            key={job.id}
+            job={job}
+            snapshot={snapshot}
+            gate={gate}
+            onDownload={onDownload}
+            onRefresh={onRefresh}
+          />
         )}
       </div>
     </div>

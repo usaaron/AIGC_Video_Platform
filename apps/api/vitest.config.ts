@@ -16,6 +16,7 @@ const integration = [
   'src/modules/billing/creditLedger.test.ts',
   'src/modules/billing/paymentRoutes.test.ts',
   'src/modules/library/automaticCatalog.postgres.test.ts',
+  'src/modules/generation/deliveryDownload.postgres.test.ts',
   'src/modules/scriptMaster/importPostgres.test.ts',
   'src/modules/trustedAssets/faceConfirmation.test.ts',
 ]

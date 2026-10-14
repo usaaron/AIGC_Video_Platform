@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import {
   createGenerationTaskSchema,
   deliveryContractFreezeRequestSchema,
+  deliveryDownloadRequestSchema,
   rigidPhysicsAuditRequestSchema,
   reviewVideoSchema,
   PERMISSIONS,
@@ -12,6 +13,7 @@ import { requirePermission } from '../../core/auth/authorization.js'
 import { AppError } from '../../core/errors.js'
 import { rejectStandaloneProjectReferences } from '../projects/projectSurface.js'
 import type { GenerationService } from './service.js'
+import { trackDeliveryResponse } from './deliveryDownloadResponse.js'
 
 const projectParamsSchema = z.object({ projectId: z.string().min(1).max(128) })
 const filmPreviewBodySchema = z.object({
@@ -32,6 +34,56 @@ export async function registerGenerationRoutes(
   app: FastifyInstance,
   service: GenerationService,
 ): Promise<void> {
+  app.post(
+    '/generation/tasks/:taskId/delivery-download',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request, reply) => {
+      const params = taskParamsSchema.safeParse(request.params)
+      const body = deliveryDownloadRequestSchema.safeParse(request.body)
+      if (!params.success || !body.success) throw new AppError(400, 'VALIDATION_ERROR', '正式下载参数无效')
+      const controller = new AbortController()
+      const cancel = () => controller.abort()
+      request.raw.once('aborted', cancel)
+      reply.raw.once('close', cancel)
+      try {
+        const download = await service.prepareDeliveryDownload(
+          params.data.taskId,
+          body.data,
+          request.principal!,
+          controller.signal,
+        )
+        const release = trackDeliveryResponse(reply.raw, () => {
+          request.raw.removeListener('aborted', cancel)
+          reply.raw.removeListener('close', cancel)
+          download.release()
+        })
+        if (controller.signal.aborted) {
+          release()
+          throw new AppError(499, 'DELIVERY_DOWNLOAD_ABORTED', '下载请求已取消')
+        }
+        try {
+          return reply
+            .header('Cache-Control', 'private, no-store')
+            .header(
+              'Content-Disposition',
+              `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+            )
+            .header('X-Delivery-Receipt-Id', download.receipt.id)
+            .header('X-Delivery-Sha256', download.receipt.sha256)
+            .header('Content-Length', download.content.length)
+            .type(download.receipt.contentType)
+            .send(download.content)
+        } catch (error) {
+          release()
+          throw error
+        }
+      } catch (error) {
+        request.raw.removeListener('aborted', cancel)
+        reply.raw.removeListener('close', cancel)
+        throw error
+      }
+    },
+  )
   app.post(
     '/generation/tasks/:taskId/content-review',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
@@ -56,19 +108,39 @@ export async function registerGenerationRoutes(
   app.get(
     '/generation/tasks/:taskId/delivery-verification',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
-    async (request) => {
+    async (request, reply) => {
       const params = taskParamsSchema.safeParse(request.params)
       if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', '任务参数无效')
-      return service.deliveryVerification(params.data.taskId, request.principal!)
+      const controller = new AbortController()
+      const cancel = () => controller.abort()
+      request.raw.once('aborted', cancel)
+      reply.raw.once('close', cancel)
+      try {
+        reply.header('Cache-Control', 'private, no-store')
+        return await service.deliveryVerification(params.data.taskId, request.principal!, controller.signal)
+      } finally {
+        request.raw.removeListener('aborted', cancel)
+        reply.raw.removeListener('close', cancel)
+      }
     },
   )
   app.get(
     '/generation/tasks/:taskId/delivery-gate',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
-    async (request) => {
+    async (request, reply) => {
       const params = taskParamsSchema.safeParse(request.params)
       if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', '任务参数无效')
-      return service.deliveryGate(params.data.taskId, request.principal!)
+      const controller = new AbortController()
+      const cancel = () => controller.abort()
+      request.raw.once('aborted', cancel)
+      reply.raw.once('close', cancel)
+      try {
+        reply.header('Cache-Control', 'private, no-store')
+        return await service.deliveryGate(params.data.taskId, request.principal!, controller.signal)
+      } finally {
+        request.raw.removeListener('aborted', cancel)
+        reply.raw.removeListener('close', cancel)
+      }
     },
   )
   app.post(

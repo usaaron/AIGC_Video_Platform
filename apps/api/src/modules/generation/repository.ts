@@ -71,7 +71,7 @@ import {
   updateTaskResultTargets,
 } from './taskLifecyclePersistence.js'
 import { updateBillingBalanceForTask } from './taskBillingPersistence.js'
-
+import { DeliveryDownloadRepository } from './deliveryDownloadRepository.js'
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
     text: string,
@@ -82,18 +82,15 @@ type Queryable = {
 type GenerationTaskImportResult = {
   tasks: { inserted: number; skipped: number }
 }
-
 type AssetNameRow = QueryResultRow & {
   name: string
 }
-
 type RuntimeTaskCacheOptions = {
   activeOnly?: boolean
 }
-
 const TASK_DEPENDENCY_BATCH_SIZE = 1_000
-
 export class GenerationTaskRepository {
+  readonly deliveryDownloads: DeliveryDownloadRepository
   private readonly pollingRecoveryAt = new Map<string, number>()
   private readonly pollingVersionInFlight = new Map<string, Promise<string>>()
   private readonly runtimeCache: RuntimeCacheCoordinator<GenerationTask, GenerationTaskRow>
@@ -104,6 +101,9 @@ export class GenerationTaskRepository {
     private readonly database: AccountDatabase | null = null,
     private readonly outbox: OutboxRepository | null = null,
   ) {
+    this.deliveryDownloads = new DeliveryDownloadRepository(store, database, (task) =>
+      this.mirrorTask(task, null),
+    )
     this.runtimeCache = new RuntimeCacheCoordinator(database, {
       allQuery: `
         SELECT ${generationTaskColumns}, updated_at::text AS runtime_sync_updated_at

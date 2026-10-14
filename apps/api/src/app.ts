@@ -151,7 +151,7 @@ async function registerHttpPlugins(app: FastifyInstance, config: AppConfig): Pro
       callback(null, !origin || allowedOrigins.has(origin))
     },
     credentials: true,
-    exposedHeaders: ['ETag'],
+    exposedHeaders: ['ETag', 'Content-Disposition', 'X-Delivery-Receipt-Id', 'X-Delivery-Sha256'],
   })
   await app.register(fastifyRawBody, { global: false, runFirst: true, encoding: 'utf8' })
   await app.register(multipart, {

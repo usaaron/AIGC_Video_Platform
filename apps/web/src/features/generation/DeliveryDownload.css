@@ -1,0 +1,29 @@
+.delivery-download {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.delivery-download p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.delivery-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.delivery-download .delivery-download-error {
+  color: var(--danger);
+}
+
+.delivery-download .delivery-download-success {
+  color: var(--accent-strong);
+}

@@ -42,6 +42,7 @@ export function buildQueuedGenerationTask(
     contentReviewHistory: _history,
     localPostprocess: _post,
     deliveryContract: _deliveryContract,
+    deliveryDownloads: _deliveryDownloads,
     generatedOutputs: _generatedOutputs,
     videoStorageKey: _videoStorageKey,
     videoContentType: _videoContentType,

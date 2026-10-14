@@ -41,6 +41,7 @@ describe('generation task creation storage provenance', () => {
       contentReviewHistory: [{ decision: 'approved' }],
       localPostprocess: { outputSha256: 'c'.repeat(64) },
       deliveryContract: { frozenAt: '2026-10-14T00:00:00.000Z', contractHash: 'd'.repeat(64) },
+      deliveryDownloads: [{ clientRequestId: 'forged-download', authorizedAt: '2026-10-14T00:00:00.000Z' }],
     }
     const before = structuredClone(metadata)
     const input: CreateGenerationTask = {

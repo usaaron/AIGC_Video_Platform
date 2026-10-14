@@ -28,7 +28,7 @@ import { canOpenAccountAdmin, getAdminConsoleUrl } from './features/account/acce
 import { useAccountScope } from './features/account/useAccountScope'
 import { api } from './services/apiClient'
 import { createShotAssetReferenceIndex } from './features/storyboard/referenceSelector'
-import { ASSET_SUGGESTION_MODEL } from '@seqora/contracts'
+import { ASSET_SUGGESTION_MODEL, PERMISSIONS } from '@seqora/contracts'
 import { FUNCTION_STACK_IDS, FUNCTION_STACK_ITEMS } from './features/functionStack/config'
 import { assetGenerationReferences } from './features/assets/assetGenerationReferences'
 import { warmAssetPreviewCache } from './features/assets/assetPreview'
@@ -795,6 +795,11 @@ function App() {
           }}
           onInspectDelivery={(task) => api.deliveryVerification(task.id)}
           onInspectDeliveryGate={(task) => api.deliveryGate(task.id)}
+          onDownloadDelivery={
+            session.permissions.includes(PERMISSIONS.GENERATION_TASK_CREATE)
+              ? api.downloadDelivery
+              : undefined
+          }
           onClear={async () => {
             await api.clearTasks(project.id)
             replaceTasks(project.id, await api.tasks(project.id))

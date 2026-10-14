@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-import type { Readable } from 'node:stream'
 import {
   deliveryEvidenceSchema,
   deliveryMediaStorageProofSchema,
@@ -9,16 +7,17 @@ import {
 } from '@seqora/contracts'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { buildGenerationTaskDeliveryEvidence } from './deliveryEvidence.js'
+import { DeliveryStorageReadError, readDeliveryStorageObject } from './deliveryStorageRead.js'
 
 type Descriptor = { storageKey: string; contentType: string; size: number; sha256: string | null }
 
 // The main-media read is limited to 100 MiB / 15 seconds, retaining only a hash and 32 header bytes.
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
-const READ_TIMEOUT_MS = 15_000
+
 const IMAGE_VIEWS = ['single', 'front', 'side', 'back', 'detail']
 const CONTENT_TYPES = ['video/mp4', 'image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
-function currentDescriptor(task: GenerationTask): Descriptor | null {
+export function currentDescriptor(task: GenerationTask): Descriptor | null {
   const contentUrl = `/api/v1/generation/tasks/${task.id}/content`
   let candidate: unknown
   if (task.kind === 'video') {
@@ -62,7 +61,7 @@ function currentDescriptor(task: GenerationTask): Descriptor | null {
   }
 }
 
-function matchesSignature(header: Buffer, contentType: string, size: number): boolean {
+export function matchesSignature(header: Buffer, contentType: string, size: number): boolean {
   if (contentType === 'video/mp4') {
     return (
       header.length >= 16 &&
@@ -84,6 +83,7 @@ function matchesSignature(header: Buffer, contentType: string, size: number): bo
 export async function verifyCurrentMediaStorage(
   task: GenerationTask,
   storage: ObjectStorage | null,
+  signal?: AbortSignal,
 ): Promise<DeliveryMediaStorageProof> {
   const descriptor = currentDescriptor(task)
   const proof: DeliveryMediaStorageProof = {
@@ -105,76 +105,37 @@ export async function verifyCurrentMediaStorage(
   if (!CONTENT_TYPES.includes(descriptor.contentType)) return result('pending', 'unsupported-content-type')
   if (descriptor.size > MAX_MEDIA_BYTES) return result('pending', 'read-limit-exceeded')
 
-  let stream: Readable | undefined
-  let timedOut = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const read = async (): Promise<DeliveryMediaStorageProof> => {
-    try {
-      const stored = await storage.getStream!(descriptor.storageKey)
-      stream = stored.stream
-      if (timedOut) {
-        stream.destroy()
-        return result('pending', 'read-timeout')
-      }
-      if (stored.size > MAX_MEDIA_BYTES) return result('pending', 'read-limit-exceeded')
-      if (stored.size !== descriptor.size) {
-        if (Number.isSafeInteger(stored.size) && stored.size >= 0) proof.actualSize = stored.size
-        return result('failed', stored.size === 0 ? 'empty-object' : 'size-mismatch')
-      }
-      const hash = createHash('sha256')
-      let size = 0
-      let header = Buffer.alloc(0)
-      for await (const chunk of stream) {
-        if (timedOut) return result('pending', 'read-timeout')
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-        size += buffer.length
-        proof.actualSize = size
-        if (size > MAX_MEDIA_BYTES) return result('pending', 'read-limit-exceeded')
-        if (size > descriptor.size) return result('failed', 'size-mismatch')
-        hash.update(buffer)
-        if (header.length < 32) header = Buffer.concat([header, buffer.subarray(0, 32 - header.length)])
-      }
-      proof.actualSize = size
-      if (!size) return result('failed', 'empty-object')
-      if (size !== descriptor.size) return result('failed', 'size-mismatch')
-      proof.actualSha256 = hash.digest('hex')
-      if (!matchesSignature(header, descriptor.contentType, size))
-        return result('failed', 'content-type-mismatch')
-      if (!descriptor.sha256) return result('pending', 'missing-checksum')
-      if (proof.actualSha256 !== descriptor.sha256) return result('failed', 'checksum-mismatch')
-      return result('passed', 'verified')
-    } catch (error) {
-      const value = error as { code?: unknown; statusCode?: unknown } | null
-      const missing = value?.code === 'ENOENT' || value?.code === 404 || value?.statusCode === 404
-      return result(missing ? 'failed' : 'pending', missing ? 'not-found' : 'read-error')
-    } finally {
-      stream?.destroy()
-    }
-  }
   try {
-    return await Promise.race([
-      read(),
-      new Promise<DeliveryMediaStorageProof>((resolve) => {
-        timer = setTimeout(() => {
-          timedOut = true
-          stream?.destroy()
-          resolve(result('pending', 'read-timeout'))
-        }, READ_TIMEOUT_MS)
-      }),
-    ])
-  } finally {
-    clearTimeout(timer)
+    const read = await readDeliveryStorageObject(
+      storage,
+      descriptor.storageKey,
+      descriptor.size,
+      MAX_MEDIA_BYTES,
+      signal,
+    )
+    proof.actualSize = read.size
+    proof.actualSha256 = read.sha256
+    if (!matchesSignature(read.header, descriptor.contentType, read.size))
+      return result('failed', 'content-type-mismatch')
+    if (!descriptor.sha256) return result('pending', 'missing-checksum')
+    if (read.sha256 !== descriptor.sha256) return result('failed', 'checksum-mismatch')
+    return result('passed', 'verified')
+  } catch (error) {
+    if (!(error instanceof DeliveryStorageReadError)) throw error
+    proof.actualSize = error.actualSize
+    const failed = ['not-found', 'empty-object', 'size-mismatch'].includes(error.reason)
+    return result(failed ? 'failed' : 'pending', error.reason)
   }
 }
-
 export async function buildMediaStorageEvidence(
   task: GenerationTask,
   storage: ObjectStorage | null,
   checkedAt = new Date().toISOString(),
+  signal?: AbortSignal,
 ): Promise<DeliveryEvidence | null> {
   if (!['image', 'video'].includes(task.kind)) return null
   const base = buildGenerationTaskDeliveryEvidence(task).find((item) => item.kind === 'asset')!
-  const proof = await verifyCurrentMediaStorage(task, storage)
+  const proof = await verifyCurrentMediaStorage(task, storage, signal)
   return deliveryEvidenceSchema.parse({
     ...base,
     status: base.status === 'failed' ? 'failed' : proof.status,

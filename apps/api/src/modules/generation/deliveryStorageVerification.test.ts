@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { Readable } from 'node:stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { videoReviewVersion, type GenerationTask } from '@seqora/contracts'
-import type { ObjectStorage } from '../../infra/objectStorage.js'
+import type { ObjectStorage, ObjectStorageStream } from '../../infra/objectStorage.js'
 import {
   buildVideoTailStorageEvidence,
   verifyCurrentVideoTailStorage,
@@ -68,11 +69,120 @@ function storageFor(content: Buffer, failure?: unknown): ObjectStorage {
       if (failure) throw failure
       return content
     },
+    getStream: async () => {
+      if (failure) throw failure
+      return { stream: Readable.from([content]), size: content.length }
+    },
     delete: async () => undefined,
   }
 }
 
+afterEach(() => vi.useRealTimers())
+
 describe('video tail object storage verification', () => {
+  it('does not fall back to an unbounded get when streaming is unavailable', async () => {
+    const storage = storageFor(png)
+    delete storage.getStream
+    storage.get = vi.fn(storage.get)
+    expect(await verifyCurrentVideoTailStorage(task(), storage)).toMatchObject({
+      status: 'pending',
+      reason: 'stream-unavailable',
+    })
+    expect(storage.get).not.toHaveBeenCalled()
+  })
+
+  it('rejects a declared tail above 10 MiB before opening storage', async () => {
+    const current = task()
+    ;(current.metadata.generatedOutputs as Array<{ size: number }>)[0]!.size = 10 * 1024 * 1024 + 1
+    const storage = storageFor(png)
+    storage.getStream = vi.fn(storage.getStream!)
+    expect(await verifyCurrentVideoTailStorage(current, storage)).toMatchObject({
+      status: 'pending',
+      reason: 'read-limit-exceeded',
+    })
+    expect(storage.getStream).not.toHaveBeenCalled()
+  })
+
+  it('stops an oversized object and a stream exceeding its trusted descriptor', async () => {
+    const storage = storageFor(png)
+    const stream = Readable.from([png, Buffer.from([1])])
+    storage.getStream = vi.fn(async () => ({ stream, size: png.length }))
+    expect(await verifyCurrentVideoTailStorage(task(), storage)).toMatchObject({
+      status: 'failed',
+      reason: 'size-mismatch',
+    })
+    expect(stream.destroyed).toBe(true)
+    const huge = new Readable({
+      read() {
+        throw new Error('Should not consume oversized object')
+      },
+    })
+    storage.getStream = vi.fn(async () => ({ stream: huge, size: 10 * 1024 * 1024 + 1 }))
+    expect(await verifyCurrentVideoTailStorage(task(), storage)).toMatchObject({
+      status: 'pending',
+      reason: 'read-limit-exceeded',
+    })
+    expect(huge.destroyed).toBe(true)
+  })
+
+  it('times out stalled tails and destroys streams that arrive after the deadline', async () => {
+    vi.useFakeTimers()
+    const storage = storageFor(png)
+    const stream = new Readable({ read() {} })
+    storage.getStream = vi.fn(async () => ({ stream, size: png.length }))
+    const pending = verifyCurrentVideoTailStorage(task(), storage)
+    await vi.advanceTimersByTimeAsync(15_001)
+    expect(await pending).toMatchObject({ status: 'pending', reason: 'read-timeout' })
+    expect(stream.destroyed).toBe(true)
+    const lateStream = new Readable({
+      read() {
+        throw new Error('Late stream must not be read')
+      },
+    })
+    let resolveOpen!: (object: ObjectStorageStream) => void
+    storage.getStream = vi.fn(
+      () =>
+        new Promise<ObjectStorageStream>((resolve) => {
+          resolveOpen = resolve
+        }),
+    )
+    const late = verifyCurrentVideoTailStorage(task(), storage)
+    await vi.advanceTimersByTimeAsync(15_001)
+    expect(await late).toMatchObject({ status: 'pending', reason: 'read-timeout' })
+    resolveOpen({ stream: lateStream, size: png.length })
+    await Promise.resolve()
+    expect(lateStream.destroyed).toBe(true)
+  })
+
+  it('honors cancellation without passing partial bytes and closes the stream', async () => {
+    const storage = storageFor(png)
+    const stream = new Readable({ read() {} })
+    storage.getStream = vi.fn(async () => ({ stream, size: png.length }))
+    const controller = new AbortController()
+    const pending = verifyCurrentVideoTailStorage(task(), storage, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+    expect(await pending).toMatchObject({ status: 'pending', reason: 'read-error' })
+    expect(stream.destroyed).toBe(true)
+  })
+
+  it.each(['../outside.png', 'last-frame/png', 'last-frame\\png', 'last-framepng'])(
+    'rejects the malformed tail suffix %s before storage access',
+    async (suffix) => {
+      const current = task()
+      const storageKey = `tenant-1/project-1/generated/task-1-${suffix}`
+      current.metadata.lastFrameStorageKey = storageKey
+      ;(current.metadata.generatedOutputs as Array<{ storageKey: string }>)[0]!.storageKey = storageKey
+      const storage = storageFor(png)
+      storage.getStream = vi.fn(storage.getStream!)
+      expect(await verifyCurrentVideoTailStorage(current, storage)).toMatchObject({
+        status: 'pending',
+        reason: 'missing-current-tail',
+      })
+      expect(storage.getStream).not.toHaveBeenCalled()
+    },
+  )
+
   it('keeps missing storage, missing tails and non-completed tasks pending', async () => {
     expect((await verifyCurrentVideoTailStorage(task(), null)).reason).toBe('storage-unavailable')
     expect((await verifyCurrentVideoTailStorage(task({ metadata: {} }), storageFor(png))).reason).toBe(

@@ -2,6 +2,7 @@ import { storyboardReferences } from './storyboardReferences.js'
 import type {
   CreateGenerationTask,
   DeliveryGateResult,
+  DeliveryDownloadRequest,
   DeliveryVerificationSnapshot,
   GenerationTask,
   GenerationTaskPolling,
@@ -11,8 +12,6 @@ import type {
 } from '@seqora/contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  deliveryContractSchema,
-  deliveryVerificationSnapshotSchema,
   generateScriptRequestSchema,
   rigidPhysicsAuditResultSchema,
   type ReviewVideo,
@@ -36,11 +35,9 @@ import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider } from '../../core/generation/textProvider.js'
 import type { GenerationTaskRepository } from './repository.js'
 import { auditRigidVideoBuffer, type RawVideoFrameAudit } from '../../core/generation/rigidFrameAudit.js'
-import { buildGenerationTaskDeliveryEvidence } from './deliveryEvidence.js'
-import { buildVideoTailStorageEvidence } from './deliveryStorageVerification.js'
-import { buildMediaStorageEvidence } from './deliveryMediaStorageVerification.js'
-import { evaluateDeliveryContract } from './deliveryContractEvaluation.js'
 import { evaluateDeliveryGate } from './deliveryGate.js'
+import { readDeliveryQuery } from './deliveryQuery.js'
+import { prepareDeliveryDownload } from './deliveryDownload.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
 
@@ -324,60 +321,36 @@ export class GenerationService {
     return this.repository.freezeDeliveryContract(taskId, input.contract, input.expectedUpdatedAt, principal)
   }
 
-  async deliveryVerification(taskId: string, principal: Principal): Promise<DeliveryVerificationSnapshot> {
-    const task = await this.repository.findById(taskId, principal)
-    if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权读取交付验证')
-    const checkedAt = new Date().toISOString()
-    return this.buildDeliveryVerificationSnapshot(task, checkedAt)
-  }
-
-  async deliveryGate(taskId: string, principal: Principal): Promise<DeliveryGateResult> {
-    const task = await this.repository.findById(taskId, principal)
-    if (!task) throw new AppError(404, 'TASK_NOT_FOUND', '生成任务不存在或无权读取正式交付门禁')
-    const verifiedAt = new Date().toISOString()
-    const snapshot = await this.buildDeliveryVerificationSnapshot(task, verifiedAt)
-    return evaluateDeliveryGate({
-      task,
-      contract: snapshot.contract,
-      evidence: snapshot.evidence,
-      verification: snapshot.verification,
-      verifiedAt,
-    })
-  }
-
-  private async buildDeliveryVerificationSnapshot(
-    task: GenerationTask,
-    checkedAt: string,
+  async deliveryVerification(
+    taskId: string,
+    principal: Principal,
+    signal?: AbortSignal,
   ): Promise<DeliveryVerificationSnapshot> {
-    const baseEvidence = buildGenerationTaskDeliveryEvidence(task)
-    const [tailEvidence, mediaEvidence] = await Promise.all([
-      buildVideoTailStorageEvidence(task, this.objectStorage, checkedAt),
-      buildMediaStorageEvidence(task, this.objectStorage, checkedAt),
-    ])
-    const evidence = baseEvidence.map((item) => {
-      if (item.kind === 'continuity' && tailEvidence) return tailEvidence
-      if (item.kind === 'asset' && mediaEvidence) return mediaEvidence
-      return item
-    })
-    const contractResult = deliveryContractSchema.safeParse(task.metadata.deliveryContract)
-    const scope = evidence[0]?.scope
-    const verification =
-      contractResult.success && scope
-        ? evaluateDeliveryContract({
-            contract: contractResult.data,
-            evidence,
-            scope,
-            verifiedAt: checkedAt,
-          })
-        : null
-    return deliveryVerificationSnapshotSchema.parse({
-      taskId: task.id,
-      contract: contractResult.success ? contractResult.data : null,
-      evidence,
-      verification,
-    })
+    return (await readDeliveryQuery(this.repository, this.objectStorage, taskId, principal, signal)).snapshot
   }
 
+  async deliveryGate(
+    taskId: string,
+    principal: Principal,
+    signal?: AbortSignal,
+  ): Promise<DeliveryGateResult> {
+    const { task, snapshot, checkedAt } = await readDeliveryQuery(
+      this.repository,
+      this.objectStorage,
+      taskId,
+      principal,
+      signal,
+    )
+    return evaluateDeliveryGate({ task, ...snapshot, verifiedAt: checkedAt })
+  }
+  prepareDeliveryDownload(
+    taskId: string,
+    input: DeliveryDownloadRequest,
+    principal: Principal,
+    signal?: AbortSignal,
+  ) {
+    return prepareDeliveryDownload(this.repository, this.objectStorage, taskId, input, principal, signal)
+  }
   /** Audit one already completed video. This only reads existing media and updates audit metadata. */
   async auditRigidPhysics(
     taskId: string,

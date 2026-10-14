@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { inspectDeliveryDialog } from '../features/generation/deliveryInspection'
 import {
   buildDeliveryContractDraft,
   canFreezeDeliveryContract,
@@ -74,6 +75,33 @@ describe('generation membership entry', () => {
     expect(html).toContain('刚性物理验收失败')
   })
 
+  it('offers formal download from the verified dialog only when a download permission handler is provided', () => {
+    const dialog = {
+      job: { id: 'task-1', kind: 'video', label: '镜头 01' },
+      status: 'ready',
+      snapshot: {
+        taskId: 'task-1',
+        contract: { contractHash: 'a'.repeat(64) },
+        evidence: [{ scope: { taskId: 'task-1', taskUpdatedAt: '2026-10-14T00:00:00.000Z' } }],
+        verification: { status: 'satisfied', rationale: '全部要求已通过' },
+      },
+      gate: { allowed: true, status: 'allowed', rationale: '已放行' },
+    }
+    const html = renderToStaticMarkup(
+      <DeliveryVerificationDialog
+        dialog={dialog}
+        onClose={() => {}}
+        onDownload={() => {}}
+        onRefresh={() => {}}
+      />,
+    )
+    expect(html).toContain('aria-label="正式下载"')
+    expect(html).toContain('重新核验')
+    expect(html).not.toContain('disabled=""')
+    const readOnly = renderToStaticMarkup(<DeliveryVerificationDialog dialog={dialog} onClose={() => {}} />)
+    expect(readOnly).not.toContain('aria-label="正式下载"')
+  })
+
   it('builds a server-hashed shot contract draft from a completed video task', () => {
     const task = {
       id: 'task-1',
@@ -116,6 +144,42 @@ describe('generation membership entry', () => {
     ).toBe(false)
   })
 
+  it('uses a shot contract for a standalone video without inventing a shot ID', () => {
+    const draft = buildDeliveryContractDraft({ kind: 'video', projectId: 'project-1', metadata: {} })
+    expect(draft.intent).toEqual({
+      mode: 'shot',
+      projectId: 'project-1',
+      episodeId: null,
+      shotIds: [],
+    })
+    expect(draft.expectedArtifact).toEqual({ type: 'video', count: 1 })
+  })
+
+  it('inherits the script episode scope and prefers an explicit episode ID', () => {
+    const base = { kind: 'video', projectId: 'project-1' }
+    expect(
+      buildDeliveryContractDraft({ ...base, metadata: { scriptEpisodeId: ' episode-script ' } }).intent
+        .episodeId,
+    ).toBe('episode-script')
+    expect(
+      buildDeliveryContractDraft({
+        ...base,
+        metadata: { episodeId: ' episode-explicit ', scriptEpisodeId: 'episode-script' },
+      }).intent.episodeId,
+    ).toBe('episode-explicit')
+    expect(
+      buildDeliveryContractDraft({ ...base, metadata: { episodeId: ' ', scriptEpisodeId: 'episode-script' } })
+        .intent.episodeId,
+    ).toBe('episode-script')
+  })
+
+  it('builds an asset contract when preparing an image draft', () => {
+    const draft = buildDeliveryContractDraft({ kind: 'image', projectId: 'project-1', metadata: {} })
+    expect(draft.intent.mode).toBe('asset')
+    expect(draft.expectedArtifact).toEqual({ type: 'image', count: 1 })
+    expect(draft.must.find((item) => item.id === 'media-url').statement).toBe('必须存在可读取的图片媒体')
+  })
+
   it('shows the formal freeze review and server-owned hash boundary', () => {
     const html = renderToStaticMarkup(
       <DeliveryContractFreezeDialog
@@ -143,5 +207,113 @@ describe('generation membership entry', () => {
     expect(html).toContain('确认冻结合同')
     expect(html).toContain('服务器会在冻结时生成时间戳和合同哈希。')
     expect(html).not.toContain('a'.repeat(64))
+  })
+})
+
+describe('delivery inspection request identity', () => {
+  function dialogState() {
+    let current = null
+    return {
+      read: () => current,
+      setDialog(value) {
+        current = typeof value === 'function' ? value(current) : value
+      },
+    }
+  }
+
+  function deferred() {
+    let resolve
+    let reject
+    const promise = new Promise((done, fail) => {
+      resolve = done
+      reject = fail
+    })
+    return { promise, resolve, reject }
+  }
+
+  it('shows successful and failed results while the matching dialog is still open', async () => {
+    const state = dialogState()
+    const job = { id: 'task-1' }
+    const snapshot = { taskId: job.id }
+    const gate = { allowed: true }
+    await inspectDeliveryDialog({
+      job,
+      inspect: async () => snapshot,
+      inspectGate: async () => gate,
+      setDialog: state.setDialog,
+    })
+    expect(state.read()).toMatchObject({ job, snapshot, gate, status: 'ready' })
+    await inspectDeliveryDialog({
+      job,
+      inspect: async () => {
+        throw new Error('读取失败')
+      },
+      setDialog: state.setDialog,
+    })
+    expect(state.read()).toMatchObject({ job, status: 'error', error: '读取失败' })
+  })
+
+  it.each(['success', 'failure'])('does not reopen a dismissed dialog after late %s', async (outcome) => {
+    const state = dialogState()
+    const response = deferred()
+    const pending = inspectDeliveryDialog({
+      job: { id: 'task-1' },
+      inspect: () => response.promise,
+      setDialog: state.setDialog,
+    })
+    expect(state.read().status).toBe('loading')
+    state.setDialog(null)
+    if (outcome === 'success') response.resolve({ taskId: 'task-1' })
+    else response.reject(new Error('读取失败'))
+    await pending
+    expect(state.read()).toBeNull()
+  })
+
+  it.each(['task-1', 'task-2'])(
+    'ignores an earlier response after opening a new inspection for %s',
+    async (taskId) => {
+      const state = dialogState()
+      const older = deferred()
+      const newer = deferred()
+      const first = inspectDeliveryDialog({
+        job: { id: 'task-1' },
+        inspect: () => older.promise,
+        setDialog: state.setDialog,
+      })
+      const second = inspectDeliveryDialog({
+        job: { id: taskId },
+        inspect: () => newer.promise,
+        setDialog: state.setDialog,
+      })
+      const active = state.read()
+      older.resolve({ taskId: 'task-1', version: 'older' })
+      await first
+      expect(state.read()).toBe(active)
+      newer.resolve({ taskId, version: 'newer' })
+      await second
+      expect(state.read()).toMatchObject({
+        status: 'ready',
+        job: { id: taskId },
+        snapshot: { version: 'newer' },
+      })
+    },
+  )
+
+  it('does not replace a newer successful inspection with an older error', async () => {
+    const state = dialogState()
+    const older = deferred()
+    const first = inspectDeliveryDialog({
+      job: { id: 'task-1' },
+      inspect: () => older.promise,
+      setDialog: state.setDialog,
+    })
+    await inspectDeliveryDialog({
+      job: { id: 'task-2' },
+      inspect: async () => ({ taskId: 'task-2' }),
+      setDialog: state.setDialog,
+    })
+    older.reject(new Error('较早请求失败'))
+    await first
+    expect(state.read()).toMatchObject({ status: 'ready', job: { id: 'task-2' } })
   })
 })
