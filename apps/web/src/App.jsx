@@ -53,6 +53,8 @@ function App() {
     retryJob,
     rerunJob,
     createShotVideoJob,
+    createAdvancedVideoJob,
+    createAgentFilmJob,
     retryShotVideoJob,
     exportFilmMp4,
     createProject,
@@ -115,6 +117,8 @@ function App() {
           onSetToast={setToast}
           onCreateJob={createJob}
           onCreateShotVideoJob={createShotVideoJob}
+          onCreateAdvancedVideoJob={createAdvancedVideoJob}
+          onCreateAgentFilmJob={createAgentFilmJob}
           onRetryJob={retryJob}
           onRerunJob={rerunJob}
           onRetryShotVideoJob={retryShotVideoJob}

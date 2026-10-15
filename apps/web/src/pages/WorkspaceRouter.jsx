@@ -6,6 +6,7 @@ import { OverviewPage } from './OverviewPage'
 import { ScriptPage } from './ScriptPage'
 import { SettingsPage } from './SettingsPage'
 import { StoryboardPage } from './StoryboardPage'
+import { createDefaultAttributes } from '../features/assets/assetOptions'
 import { negativePromptForAsset } from '../features/prompts/negativePromptPresets'
 import { api } from '../services/apiClient'
 
@@ -32,6 +33,8 @@ export function WorkspaceRouter({
   onLogout,
   onCreateJob,
   onCreateShotVideoJob,
+  onCreateAdvancedVideoJob,
+  onCreateAgentFilmJob,
   onRetryJob,
   onRerunJob,
   onRetryShotVideoJob,
@@ -72,6 +75,12 @@ export function WorkspaceRouter({
           await onRefreshWorkspace()
           onSetToast('已根据剧本拆分镜头')
           onNavigate('storyboard')
+        }}
+        onCreateSuggestion={async (suggestion) => {
+          const created = await api.createAsset(project.id, assetInputFromSuggestion(suggestion))
+          await onRefreshWorkspace()
+          onSetToast(`已创建资产草稿：${created.name}`)
+          return created
         }}
       />
     ),
@@ -164,6 +173,7 @@ export function WorkspaceRouter({
     ),
     storyboard: (
       <StoryboardPage
+        project={project}
         shots={workspace.shots}
         assets={workspace.assets}
         tasks={tasks}
@@ -183,6 +193,8 @@ export function WorkspaceRouter({
           onSetToast('分镜已更新')
         }}
         onGenerate={onCreateShotVideoJob}
+        onAdvancedGenerate={onCreateAdvancedVideoJob}
+        onAgentGenerate={onCreateAgentFilmJob}
         onRetry={onRetryShotVideoJob}
         onNext={() => onNavigate('generate')}
       />
@@ -254,4 +266,39 @@ export function WorkspaceRouter({
 
 function effectiveAssetNegativePrompt(asset) {
   return asset.negativePrompt?.trim() || negativePromptForAsset(asset)
+}
+
+function assetInputFromSuggestion(suggestion) {
+  const attributes = createDefaultAttributes(suggestion.kind)
+  if (suggestion.kind === 'prop' && suggestion.evidenceCount > 1) attributes.usage = 'recurring'
+  if (suggestion.kind === 'audio') {
+    attributes.audioType = suggestion.name.includes('配乐') ? 'music' : 'ambience'
+    attributes.duration = 15
+  }
+
+  return {
+    kind: suggestion.kind,
+    sourceMode: 'generate',
+    name: suggestion.name,
+    description: suggestion.reason,
+    prompt: promptFromSuggestion(suggestion),
+    promptMode: 'standard',
+    customPromptMode: 'append',
+    customPrompt: '',
+    negativePrompt: '',
+    references: [],
+    attributes,
+    imageUrl: null,
+  }
+}
+
+function promptFromSuggestion(suggestion) {
+  const label = {
+    character: '角色设定',
+    scene: '场景设定',
+    prop: '关键道具设定',
+    costume: '服装设定',
+    audio: '音频设定',
+  }[suggestion.kind]
+  return `${label}：${suggestion.name}。${suggestion.reason}`
 }

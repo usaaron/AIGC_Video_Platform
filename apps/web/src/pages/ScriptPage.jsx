@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { analyzeScriptForProduction } from '@seqora/contracts'
-import { ArrowRight, BadgeCheck, FileText, Save, Scissors, Upload } from 'lucide-react'
+import { ArrowRight, BadgeCheck, FileText, Plus, Save, Scissors, Upload } from 'lucide-react'
 import { PageHeader } from '../components/ui'
 
 const assetKindLabels = {
@@ -11,10 +11,11 @@ const assetKindLabels = {
   audio: '音频',
 }
 
-export function ScriptPage({ project, assets = [], onSave, onSplit }) {
+export function ScriptPage({ project, assets = [], onSave, onSplit, onCreateSuggestion }) {
   const [script, setScript] = useState(project.script)
   const [saved, setSaved] = useState(true)
   const [splitting, setSplitting] = useState(false)
+  const [creatingSuggestionKey, setCreatingSuggestionKey] = useState('')
   const fileInput = useRef(null)
   const count = script.replace(/\s/g, '').length
   const analysis = analyzeScriptForProduction(script, assets)
@@ -51,6 +52,17 @@ export function ScriptPage({ project, assets = [], onSave, onSplit }) {
       await onSplit()
     } finally {
       setSplitting(false)
+    }
+  }
+
+  const handleCreateSuggestion = async (suggestion) => {
+    if (!onCreateSuggestion) return
+    const key = suggestionKey(suggestion)
+    setCreatingSuggestionKey(key)
+    try {
+      await onCreateSuggestion(suggestion)
+    } finally {
+      setCreatingSuggestionKey('')
     }
   }
 
@@ -160,9 +172,21 @@ export function ScriptPage({ project, assets = [], onSave, onSplit }) {
                 <span>{assetKindLabels[suggestion.kind] || suggestion.kind}</span>
                 <strong>{suggestion.name}</strong>
                 <p>{suggestion.reason}</p>
-                <small>
-                  出现 {suggestion.evidenceCount} 次 · {suggestion.assetId ? '已有资产' : '建议补齐'}
-                </small>
+                <div className="asset-suggestion-footer">
+                  <small>
+                    出现 {suggestion.evidenceCount} 次 · {suggestion.assetId ? '已有资产' : '建议补齐'}
+                  </small>
+                  {!suggestion.assetId && (
+                    <button
+                      type="button"
+                      disabled={creatingSuggestionKey === suggestionKey(suggestion)}
+                      onClick={() => void handleCreateSuggestion(suggestion)}
+                    >
+                      <Plus size={13} />
+                      {creatingSuggestionKey === suggestionKey(suggestion) ? '创建中' : '创建资产'}
+                    </button>
+                  )}
+                </div>
               </article>
             ))
           ) : (
@@ -176,4 +200,8 @@ export function ScriptPage({ project, assets = [], onSave, onSplit }) {
       </section>
     </div>
   )
+}
+
+function suggestionKey(suggestion) {
+  return `${suggestion.kind}-${suggestion.name}`
 }

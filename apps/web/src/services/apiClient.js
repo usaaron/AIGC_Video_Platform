@@ -73,8 +73,12 @@ export const api = {
   tasks: (projectId) => request(`/projects/${projectId}/generation/tasks`),
   subscribeTasks: subscribeTaskEvents,
   createTask: (input) => request('/generation/tasks', json('POST', input)),
+  taskLogs: (taskId) => request(`/generation/tasks/${taskId}/logs`),
   retryTask: (taskId) => request(`/generation/tasks/${taskId}/retry`, { method: 'POST' }),
+  pauseTask: (taskId) => request(`/generation/tasks/${taskId}/pause`, { method: 'POST' }),
+  resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   cancelTask: (taskId) => request(`/generation/tasks/${taskId}/cancel`, { method: 'POST' }),
+  deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),
   clearTasks: (projectId) =>
     request(`/projects/${projectId}/generation/tasks/completed`, { method: 'DELETE' }),
   billing: () => request('/billing/summary'),

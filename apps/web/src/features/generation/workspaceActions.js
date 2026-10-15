@@ -1,6 +1,12 @@
 import { completedVideoTaskForShot, latestVideoTaskForShot } from './taskResults'
 import { api } from '../../services/apiClient'
-import { negativePromptForVideoProject } from '../prompts/negativePromptPresets'
+import { negativePromptForVideoProject, negativeTermsFromPrompt } from '../prompts/negativePromptPresets'
+import {
+  advancedVideoMetadataForShot,
+  advancedVideoModeById,
+  advancedVideoPromptForShot,
+  agentFilmPlanForProject,
+} from '../storyboard/advancedVideoTools'
 
 const kindByType = { 文本: 'text', 图片: 'image', 视频: 'video', 音频: 'audio' }
 const assetKindLabels = { character: '角色', scene: '场景', prop: '道具', costume: '服装', audio: '音频' }
@@ -87,23 +93,60 @@ export function createWorkspaceActions({
 
   const createShotVideoJob = (shot, options = {}) => {
     const referencedAssets = referencedAssetsForShot(workspace?.assets ?? [], shot)
-    const assetIds = referencedAssets.map((asset) => asset.id)
+    const promptParts = splitShotPromptForGeneration(shot.prompt)
+    const metadata = baseVideoMetadataForShot(project, shot, referencedAssets)
     return createJob(`镜头 ${String(shot.order).padStart(2, '0')} · ${shot.title}`, '视频', 18, {
-      prompt: videoPromptForShot(shot, referencedAssets),
-      negativePrompt: negativePromptForVideoProject(project),
+      prompt: videoPromptForShot({ ...shot, prompt: promptParts.prompt }, referencedAssets),
+      negativePrompt: mergeNegativePrompts([
+        negativePromptForVideoProject(project),
+        promptParts.negativePrompt,
+      ]),
       metadata: {
-        shotId: shot.id,
-        assetIds,
-        referencedAssets: referencedAssets.map(assetSummary),
-        duration: shot.duration,
-        aspectRatio: project.aspectRatio,
-        resolution: '720p',
-        generateAudio: false,
-        watermark: false,
-        images: imageUrlsForShot(shot, referencedAssets),
+        ...metadata,
+        videoMode: 'text-to-video',
       },
       rethrow: options.rethrow,
     })
+  }
+
+  const createAdvancedVideoJob = (shot, modeId, options = {}) => {
+    const referencedAssets = referencedAssetsForShot(workspace?.assets ?? [], shot)
+    const promptParts = splitShotPromptForGeneration(shot.prompt)
+    const mode = advancedVideoModeById(modeId)
+    const baseMetadata = baseVideoMetadataForShot(project, shot, referencedAssets)
+    const advancedMetadata = advancedVideoMetadataForShot(shot, mode.id, options)
+    const prompt = advancedVideoPromptForShot({ ...shot, prompt: promptParts.prompt }, mode.id, options)
+    return createJob(
+      `镜头 ${String(shot.order).padStart(2, '0')} · ${mode.title}`,
+      '视频',
+      options.estimatedCredits ?? mode.estimatedCredits,
+      {
+        prompt: videoPromptForShot({ ...shot, prompt }, referencedAssets),
+        negativePrompt: mergeNegativePrompts([
+          negativePromptForVideoProject(project),
+          promptParts.negativePrompt,
+          options.negativePrompt,
+        ]),
+        metadata: {
+          ...baseMetadata,
+          ...advancedMetadata,
+          images: uniqueUrls([...(baseMetadata.images || []), ...(advancedMetadata.images || [])]),
+        },
+        rethrow: options.rethrow,
+      },
+    )
+  }
+
+  const createAgentFilmJob = async (templateId) => {
+    const plan = agentFilmPlanForProject(project, workspace?.shots ?? [], workspace?.assets ?? [], templateId)
+    for (const item of plan.items) {
+      await createAdvancedVideoJob(item.shot, item.modeId, {
+        ...item.options,
+        estimatedCredits: plan.template.estimatedCreditsPerShot,
+        rethrow: true,
+      })
+    }
+    setToast(`Agent 整片已提交 ${plan.items.length} 个镜头任务`)
   }
 
   const retryShotVideoJob = async (shot) => {
@@ -115,26 +158,27 @@ export function createWorkspaceActions({
     await createShotVideoJob(shot)
   }
 
-  const exportFilmMp4 = async () => {
+  const exportFilmMp4 = async (options = {}) => {
     if (!workspace?.shots.length) return
-    const sourceTasks = workspace.shots
-      .map((shot) => completedVideoTaskForShot(tasks, shot.id))
-      .filter(Boolean)
-    if (sourceTasks.length !== workspace.shots.length) {
+    const sourceTaskIds = exportTaskIdsForFilm(options, workspace?.shots ?? [], tasks)
+    if (sourceTaskIds.length !== (options.timeline?.length || workspace.shots.length)) {
       setToast('请先完成所有镜头视频，再导出 MP4')
       return
     }
-    const audioTaskIds = tasks
-      .filter((task) => task.kind === 'audio' && task.status === 'completed' && task.outputs?.length)
-      .map((task) => task.id)
+    const audioTaskIds = Array.isArray(options.audioTaskIds)
+      ? options.audioTaskIds
+      : tasks
+          .filter((task) => task.kind === 'audio' && task.status === 'completed' && task.outputs?.length)
+          .map((task) => task.id)
     await createJob(`${project.name} · 成片 MP4`, '视频', 8, {
       provider: 'film-export',
       model: null,
-      prompt: `按分镜顺序导出《${project.name}》成片 MP4`,
+      prompt: `按${options.exportOptions?.ratio || project.aspectRatio}比例导出《${project.name}》成片 MP4`,
       metadata: {
         exportType: 'film-mp4',
-        sourceTaskIds: sourceTasks.map((task) => task.id),
+        sourceTaskIds,
         audioTaskIds,
+        exportOptions: options.exportOptions || {},
       },
     })
   }
@@ -166,6 +210,8 @@ export function createWorkspaceActions({
     retryJob,
     rerunJob,
     createShotVideoJob,
+    createAdvancedVideoJob,
+    createAgentFilmJob,
     retryShotVideoJob,
     exportFilmMp4,
     createProject,
@@ -173,9 +219,37 @@ export function createWorkspaceActions({
   }
 }
 
+function splitShotPromptForGeneration(prompt) {
+  const value = String(prompt || '')
+  const marker = '负面约束：'
+  const index = value.indexOf(marker)
+  if (index === -1) return { prompt: value, negativePrompt: '' }
+  return {
+    prompt: value
+      .slice(0, index)
+      .replace(/[，。；;\s]+$/g, '')
+      .trim(),
+    negativePrompt: value.slice(index + marker.length).trim(),
+  }
+}
+
 function referencedAssetsForShot(assets, shot) {
   const ids = new Set(shot.assetIds || [])
   return assets.filter((asset) => ids.has(asset.id))
+}
+
+function baseVideoMetadataForShot(project, shot, referencedAssets) {
+  return {
+    shotId: shot.id,
+    assetIds: referencedAssets.map((asset) => asset.id),
+    referencedAssets: referencedAssets.map(assetSummary),
+    duration: shot.duration,
+    aspectRatio: project.aspectRatio,
+    resolution: '720p',
+    generateAudio: false,
+    watermark: false,
+    images: imageUrlsForShot(shot, referencedAssets),
+  }
 }
 
 function videoPromptForShot(shot, assets) {
@@ -200,6 +274,17 @@ function imageUrlsForShot(shot, assets) {
   return [...new Set(urls.filter(Boolean))].slice(0, 4)
 }
 
+function mergeNegativePrompts(prompts) {
+  return prompts
+    .flatMap((prompt) => negativeTermsFromPrompt(String(prompt || '')))
+    .filter((term, index, terms) => term && terms.indexOf(term) === index)
+    .join('；')
+}
+
+function uniqueUrls(urls) {
+  return [...new Set(urls.filter(Boolean))]
+}
+
 function assetSummary(asset) {
   return {
     id: asset.id,
@@ -218,4 +303,12 @@ function cleanTaskMetadata(metadata) {
   return Object.fromEntries(
     Object.entries(metadata || {}).filter(([key]) => !transientTaskMetadataKeys.has(key)),
   )
+}
+
+function exportTaskIdsForFilm(options, shots, tasks) {
+  if (Array.isArray(options.sourceTaskIds) && options.sourceTaskIds.length > 0) return options.sourceTaskIds
+  return shots
+    .map((shot) => completedVideoTaskForShot(tasks, shot.id))
+    .filter(Boolean)
+    .map((task) => task.id)
 }

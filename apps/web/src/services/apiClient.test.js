@@ -53,4 +53,21 @@ describe('api client', () => {
     expect(options.body).toBeInstanceOf(FormData)
     expect(options.headers).not.toHaveProperty('Content-Type')
   })
+
+  it('loads generation task logs with cookie credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ logs: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.taskLogs('task-1')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/generation/tasks/task-1/logs',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
 })

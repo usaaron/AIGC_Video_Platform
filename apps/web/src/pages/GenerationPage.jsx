@@ -8,14 +8,17 @@ import {
   LoaderCircle,
   Play,
   RotateCcw,
+  ScrollText,
   Video,
   X,
 } from 'lucide-react'
 import { IconButton, PageHeader } from '../components/ui'
 import { downloadNameForTask, isPlayableVideoUrl, resultUrlForTask } from '../features/generation/taskResults'
+import { api } from '../services/apiClient'
 
 const statusLabels = {
   queued: '等待中',
+  paused: '已暂停',
   running: '生成中',
   completed: '已完成',
   failed: '失败',
@@ -27,9 +30,14 @@ export function GenerationPage({ jobs, onClear, onRetry, onRerun, onCancel, onNe
   const [retryingId, setRetryingId] = useState('')
   const [rerunningId, setRerunningId] = useState('')
   const [cancellingId, setCancellingId] = useState('')
+  const [logJob, setLogJob] = useState(null)
+  const [taskLogs, setTaskLogs] = useState([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState('')
   const [actionError, setActionError] = useState('')
   const runningCount = jobs.filter((job) => job.status === 'running').length
   const queuedCount = jobs.filter((job) => job.status === 'queued').length
+  const pausedCount = jobs.filter((job) => job.status === 'paused').length
   const completedCount = jobs.filter((job) => job.status === 'completed').length
   const failedCount = jobs.filter((job) => job.status === 'failed').length
   const cancelledCount = jobs.filter((job) => job.status === 'cancelled').length
@@ -75,6 +83,21 @@ export function GenerationPage({ jobs, onClear, onRetry, onRerun, onCancel, onNe
     }
   }
 
+  const handleOpenLogs = async (job) => {
+    setLogJob(job)
+    setTaskLogs([])
+    setLogsError('')
+    setLogsLoading(true)
+    try {
+      const payload = await api.taskLogs(job.id)
+      setTaskLogs(payload.logs || [])
+    } catch (error) {
+      setLogsError(error.message || '日志读取失败')
+    } finally {
+      setLogsLoading(false)
+    }
+  }
+
   return (
     <div className="page queue-page">
       <PageHeader
@@ -92,6 +115,7 @@ export function GenerationPage({ jobs, onClear, onRetry, onRerun, onCancel, onNe
       <div className="queue-status-summary">
         <span>生成中 {runningCount}</span>
         <span>等待中 {queuedCount}</span>
+        <span>已暂停 {pausedCount}</span>
         <span>已完成 {completedCount}</span>
         <span className={failedCount ? 'bad' : ''}>失败 {failedCount}</span>
         <span>已取消 {cancelledCount}</span>
@@ -129,6 +153,7 @@ export function GenerationPage({ jobs, onClear, onRetry, onRerun, onCancel, onNe
                 onRetry={handleRetry}
                 onRerun={handleRerun}
                 onCancel={handleCancel}
+                onLogs={handleOpenLogs}
               />
             ))
           ) : (
@@ -141,6 +166,15 @@ export function GenerationPage({ jobs, onClear, onRetry, onRerun, onCancel, onNe
         </div>
       </section>
       {previewJob && <VideoPreviewModal job={previewJob} onClose={() => setPreviewJob(null)} />}
+      {logJob && (
+        <TaskLogModal
+          job={logJob}
+          logs={taskLogs}
+          loading={logsLoading}
+          error={logsError}
+          onClose={() => setLogJob(null)}
+        />
+      )}
     </div>
   )
 }
@@ -154,6 +188,7 @@ function GenerationJobRow({
   onRetry,
   onRerun,
   onCancel,
+  onLogs,
 }) {
   const resultUrl = resultUrlForTask(job)
   const canPreview = job.status === 'completed' && Boolean(resultUrl)
@@ -162,6 +197,7 @@ function GenerationJobRow({
   const canRerun = job.status === 'completed' && canRerunTask(job) && Boolean(onRerun)
   const canCancel = job.status === 'queued' || job.status === 'running'
   const progress = Math.min(100, Math.max(0, job.progress ?? 0))
+  const modeLabel = videoModeLabel(job)
 
   return (
     <div className={`job-row generation-job ${job.status}`}>
@@ -170,7 +206,8 @@ function GenerationJobRow({
         <div className="job-title-line">
           <strong>{job.label}</strong>
           <span>
-            {jobTypeLabel(job)} · {job.estimatedCredits} 积分
+            {jobTypeLabel(job)}
+            {modeLabel ? ` · ${modeLabel}` : ''} · {job.estimatedCredits} 积分
           </span>
         </div>
         {job.status === 'running' && (
@@ -182,6 +219,7 @@ function GenerationJobRow({
           </>
         )}
         {job.status === 'queued' && <span className="job-poll-note">等待并发空位</span>}
+        {job.status === 'paused' && <span className="job-poll-note">任务已暂停，可继续后返回队列</span>}
         {job.status === 'cancelled' && <span className="job-poll-note">任务已取消，可按退款策略重试</span>}
         {job.status === 'failed' && (
           <div className="job-error">
@@ -194,8 +232,13 @@ function GenerationJobRow({
         <span className={`job-state ${job.status}`}>
           {job.status === 'running' ? `${progress}%` : statusLabels[job.status] || job.status}
         </span>
-        {(canRetry || canCancel || canPreview || canDownload || canRerun) && (
+        {(canRetry || canCancel || canPreview || canDownload || canRerun || onLogs) && (
           <div className="job-actions">
+            {onLogs && (
+              <button className="job-action" type="button" onClick={() => onLogs(job)}>
+                <ScrollText size={13} /> 日志
+              </button>
+            )}
             {canCancel && (
               <button
                 className="job-action"
@@ -233,6 +276,61 @@ function GenerationJobRow({
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function TaskLogModal({ job, logs, loading, error, onClose }) {
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal task-log-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">任务日志</span>
+            <h2>{job.label}</h2>
+          </div>
+          <IconButton label="关闭" onClick={onClose}>
+            <X size={20} />
+          </IconButton>
+        </div>
+        {loading ? (
+          <div className="task-log-empty">
+            <LoaderCircle size={18} className="spin" />
+            <span>正在读取日志</span>
+          </div>
+        ) : error ? (
+          <div className="task-log-empty bad">
+            <AlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        ) : logs.length ? (
+          <div className="task-log-list">
+            {logs.map((log) => (
+              <article className={`task-log-row ${log.level}`} key={log.id}>
+                <div>
+                  <time>{formatTime(log.createdAt)}</time>
+                  <span>{log.level}</span>
+                </div>
+                <section>
+                  <strong>{log.message}</strong>
+                  <small>{log.event}</small>
+                  {Object.keys(log.details || {}).length > 0 && <code>{formatDetails(log.details)}</code>}
+                </section>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="task-log-empty">
+            <ScrollText size={18} />
+            <span>暂无日志</span>
+          </div>
+        )}
+        <div className="modal-actions">
+          <button className="button primary" type="button" onClick={onClose}>
+            关闭
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -297,6 +395,24 @@ function jobTypeLabel(job) {
   return typeLabel(job.kind)
 }
 
+const videoModeLabels = {
+  'text-to-video': '普通生成',
+  'video-to-video': 'video-to-video',
+  'first-last-frame': '首尾帧',
+  extend: '视频延长',
+  inpaint: '局部编辑',
+  'replace-background': '换背景',
+  relight: '重打光',
+  upscale: 'upscale',
+  'lip-sync': 'lip-sync',
+}
+
+function videoModeLabel(job) {
+  if (job.kind !== 'video' || job.provider === 'film-export') return ''
+  const mode = job.metadata?.videoMode
+  return videoModeLabels[mode] || ''
+}
+
 function canRerunTask(job) {
   return job.kind === 'audio' || (job.kind === 'image' && job.metadata?.generationStage === 'turnaround')
 }
@@ -325,4 +441,8 @@ function formatTime(value) {
     second: '2-digit',
     hour12: false,
   }).format(new Date(value))
+}
+
+function formatDetails(details) {
+  return JSON.stringify(details, null, 2)
 }
