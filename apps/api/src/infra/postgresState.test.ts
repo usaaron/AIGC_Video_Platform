@@ -14,7 +14,7 @@ describe('loadPostgresState', () => {
 
     await loadPostgresState(client, { lockRows: true })
 
-    expect(queries).toHaveLength(7)
+    expect(queries).toHaveLength(11)
     expect(queries.every((sql) => sql.toLowerCase().includes('for update'))).toBe(true)
   })
 })

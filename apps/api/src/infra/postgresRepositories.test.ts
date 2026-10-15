@@ -24,6 +24,8 @@ describe('Postgres SQL repositories', () => {
 
   it('creates shots with a project row lock and per-table writes', async () => {
     const { calls, runner } = createTransactionRunner([
+      userRows(),
+      [],
       projectRows(),
       [{ order: 2 }],
       shotRows({ order: 3, title: 'Shot 3' }),
@@ -55,6 +57,8 @@ describe('Postgres SQL repositories', () => {
 
   it('updates assets through locked project and asset rows', async () => {
     const { calls, runner } = createTransactionRunner([
+      userRows(),
+      [],
       projectRows(),
       assetRows(),
       assetRows({ name: 'Updated Asset' }),
@@ -82,9 +86,20 @@ describe('Postgres SQL repositories', () => {
   it('updates plans with a locked user row and ledger entry', async () => {
     const { calls, runner } = createTransactionRunner([
       userRows({ plan: 'free', credits: 100 }),
+      [],
       userRows({ plan: 'member', credits: 600 }),
       [],
+      [{ count: '1' }],
+      [],
       ledgerRows({ amount: 500, balance: 600 }),
+      [],
+      [{ total: '0' }],
+      [{ kind: 'video', count: '0' }],
+      [{ count: '0' }],
+      [{ count: '0' }],
+      [{ count: '0' }],
+      [{ count: '1' }],
+      [],
     ])
     const ledger = new PostgresCreditLedger(runner)
 
@@ -164,6 +179,22 @@ describe('Postgres repository migration constraints', () => {
     expect(normalized).toContain('trace_id text not null')
     expect(normalized).toContain('audit_logs_tenant_created_idx')
     expect(normalized).toContain('audit_logs_request_idx')
+    expect(normalized).not.toContain('truncate')
+  })
+
+  it('adds durable generation task logs without destructive migration steps', async () => {
+    const sql = await readFile(
+      new URL('../../migrations/005_generation_task_logs.sql', import.meta.url),
+      'utf8',
+    )
+    const normalized = sql.toLowerCase()
+
+    expect(normalized).toContain('create table if not exists generation_task_logs')
+    expect(normalized).toContain('task_id text not null references generation_tasks(id)')
+    expect(normalized).toContain("check (level in ('info', 'warn', 'error'))")
+    expect(normalized).toContain('generation_task_logs_task_created_idx')
+    expect(normalized).toContain('generation_task_logs_project_created_idx')
+    expect(normalized).toContain('generation_task_logs_tenant_created_idx')
     expect(normalized).not.toContain('truncate')
   })
 })

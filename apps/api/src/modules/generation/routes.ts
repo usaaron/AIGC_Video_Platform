@@ -102,6 +102,38 @@ export async function registerGenerationRoutes(
   )
 
   app.post(
+    '/generation/tasks/:taskId/pause',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request, reply) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const task = await service.pauseTask(parsed.data.taskId, request.principal!)
+      return reply.code(202).send(task)
+    },
+  )
+
+  app.post(
+    '/generation/tasks/:taskId/resume',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request, reply) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const task = await service.resumeTask(parsed.data.taskId, request.principal!)
+      return reply.code(202).send(task)
+    },
+  )
+
+  app.get(
+    '/generation/tasks/:taskId/logs',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
+    async (request) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      return { logs: await service.listTaskLogs(parsed.data.taskId, request.principal!) }
+    },
+  )
+
+  app.post(
     '/generation/tasks/:taskId/cancel',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
     async (request, reply) => {
@@ -122,6 +154,18 @@ export async function registerGenerationRoutes(
       reply.header('Cache-Control', 'private, no-store').type(content.contentType)
       if (content.contentLength) reply.header('Content-Length', content.contentLength)
       return reply.send(content.stream)
+    },
+  )
+
+  app.delete(
+    '/generation/tasks/:taskId',
+    { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_CREATE) },
+    async (request, reply) => {
+      const parsed = taskParamsSchema.safeParse(request.params)
+      if (!parsed.success) throw new AppError(400, 'VALIDATION_ERROR', z.prettifyError(parsed.error))
+      const result = await service.deleteTask(parsed.data.taskId, request.principal!)
+      if ('deleted' in result) return reply.code(204).send()
+      return reply.code(202).send(result.task)
     },
   )
 

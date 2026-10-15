@@ -1,12 +1,16 @@
 import type {
   Asset,
+  CheckoutSession,
   GenerationTask,
   LedgerEntry,
   MediaKind,
   Plan,
   Project,
+  ProjectComment,
+  ProjectShare,
   Role,
   Shot,
+  SubscriptionSummary,
 } from '@seqora/contracts'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -36,6 +40,11 @@ export type StoredMedia = {
   createdAt: string
 }
 
+export type StoredSubscription = SubscriptionSummary
+export type StoredCheckoutSession = CheckoutSession
+export type StoredProjectShare = ProjectShare
+export type StoredProjectComment = ProjectComment
+
 export type AppState = {
   users: StoredUser[]
   projects: Project[]
@@ -44,6 +53,10 @@ export type AppState = {
   tasks: GenerationTask[]
   ledger: LedgerEntry[]
   media: StoredMedia[]
+  subscriptions: StoredSubscription[]
+  checkoutSessions: StoredCheckoutSession[]
+  projectShares: StoredProjectShare[]
+  projectComments: StoredProjectComment[]
   auditLogs: AuditLogEntry[]
 }
 
@@ -154,6 +167,41 @@ function createSeedState(): AppState {
     shots: seedShots(projectId, tenantId, now),
     tasks: [],
     media: [],
+    subscriptions: [
+      {
+        tenantId,
+        provider: 'mock',
+        packageId: 'free',
+        status: 'active',
+        billingCycle: 'monthly',
+        seatLimit: 1,
+        activeSeats: 1,
+        watermarkRequired: true,
+        commercialLicenseEnabled: false,
+        startsAt: now,
+        renewsAt: null,
+        updatedAt: now,
+      },
+    ],
+    checkoutSessions: [],
+    projectShares: [],
+    projectComments: [
+      {
+        id: 'comment-queued',
+        projectId,
+        tenantId,
+        targetType: 'shot',
+        targetId: 'shot-1',
+        authorUserId: 'user-admin',
+        authorName: '平台管理员',
+        body: '分镜节奏可以再加一点停顿。',
+        status: 'pending',
+        reviewedByUserId: null,
+        reviewedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
     auditLogs: [],
     ledger: [
       {
@@ -383,7 +431,82 @@ export function normalizeState(input: Partial<AppState>): AppState {
     tasks,
     ledger: input.ledger ?? [],
     media: input.media ?? [],
+    subscriptions: (input.subscriptions ?? []).map((subscription) => normalizeSubscription(subscription)),
+    checkoutSessions: (input.checkoutSessions ?? []).map((session) => normalizeCheckoutSession(session)),
+    projectShares: (input.projectShares ?? []).map((share) => normalizeProjectShare(share)),
+    projectComments: (input.projectComments ?? []).map((comment) => normalizeProjectComment(comment)),
     auditLogs: input.auditLogs ?? [],
+  }
+}
+
+function normalizeSubscription(subscription: Partial<StoredSubscription>): StoredSubscription {
+  const now = new Date().toISOString()
+  return {
+    tenantId: String(subscription.tenantId ?? ''),
+    provider: subscription.provider ?? 'mock',
+    packageId: subscription.packageId ?? 'free',
+    status: subscription.status ?? 'active',
+    billingCycle: subscription.billingCycle ?? 'monthly',
+    seatLimit: subscription.seatLimit ?? 1,
+    activeSeats: subscription.activeSeats ?? 1,
+    watermarkRequired: subscription.watermarkRequired ?? true,
+    commercialLicenseEnabled: subscription.commercialLicenseEnabled ?? false,
+    startsAt: subscription.startsAt ?? now,
+    renewsAt: subscription.renewsAt ?? null,
+    updatedAt: subscription.updatedAt ?? now,
+  }
+}
+
+function normalizeCheckoutSession(session: Partial<StoredCheckoutSession>): StoredCheckoutSession {
+  const now = new Date().toISOString()
+  return {
+    id: String(session.id ?? ''),
+    tenantId: String(session.tenantId ?? ''),
+    userId: String(session.userId ?? ''),
+    provider: session.provider ?? 'mock',
+    packageId: session.packageId ?? 'free',
+    status: session.status ?? 'created',
+    amountCents: session.amountCents ?? 0,
+    currency: session.currency ?? 'CNY',
+    url: session.url ?? '',
+    createdAt: session.createdAt ?? now,
+    expiresAt: session.expiresAt ?? now,
+    updatedAt: session.updatedAt ?? now,
+  }
+}
+
+function normalizeProjectShare(share: Partial<StoredProjectShare>): StoredProjectShare {
+  const now = new Date().toISOString()
+  return {
+    id: String(share.id ?? ''),
+    projectId: String(share.projectId ?? ''),
+    tenantId: String(share.tenantId ?? ''),
+    sharedWithUserId: share.sharedWithUserId ?? null,
+    sharedWithEmail: share.sharedWithEmail ?? null,
+    permission: share.permission ?? 'view',
+    commentApprovalRequired: share.commentApprovalRequired ?? true,
+    status: share.status ?? 'active',
+    createdAt: share.createdAt ?? now,
+    updatedAt: share.updatedAt ?? now,
+  }
+}
+
+function normalizeProjectComment(comment: Partial<StoredProjectComment>): StoredProjectComment {
+  const now = new Date().toISOString()
+  return {
+    id: String(comment.id ?? ''),
+    projectId: String(comment.projectId ?? ''),
+    tenantId: String(comment.tenantId ?? ''),
+    targetType: comment.targetType ?? 'project',
+    targetId: comment.targetId ?? '',
+    authorUserId: comment.authorUserId ?? null,
+    authorName: comment.authorName ?? '',
+    body: comment.body ?? '',
+    status: comment.status ?? 'pending',
+    reviewedByUserId: comment.reviewedByUserId ?? null,
+    reviewedAt: comment.reviewedAt ?? null,
+    createdAt: comment.createdAt ?? now,
+    updatedAt: comment.updatedAt ?? now,
   }
 }
 

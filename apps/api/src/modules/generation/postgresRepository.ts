@@ -1,9 +1,16 @@
-import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
+import type { CreateGenerationTask, GenerationTask, GenerationTaskLog, Principal } from '@seqora/contracts'
 import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
+import { cancellationResourceLockMetadataFor } from '../../core/jobs/taskResourceLock.js'
+import { insertTaskLog } from '../../core/jobs/taskLog.js'
 import type { PostgresTransactionRunner } from '../../infra/postgresStore.js'
 import { TASK_COLUMNS, taskFromRow, type TaskRow } from '../../infra/postgresRows.js'
-import type { CreateReservedTaskResult, GenerationTaskStore, TaskMutationResult } from './repository.js'
+import type {
+  CreateReservedTaskResult,
+  GenerationTaskStore,
+  TaskDeleteResult,
+  TaskMutationResult,
+} from './repository.js'
 
 const PROVIDER_RETRY_METADATA_KEYS = new Set([
   'providerName',
@@ -11,6 +18,16 @@ const PROVIDER_RETRY_METADATA_KEYS = new Set([
   'providerTaskId',
   'providerPolledAt',
   'providerPollErrors',
+  'cancelRequestedAt',
+  'cancelledAt',
+  'deleteRequestedAt',
+  'cancelResourceLockKind',
+  'cancelResourceLockKey',
+  'cancelClaimedAt',
+  'cancelLeaseExpiresAt',
+  'refundCredits',
+  'refundPolicy',
+  'providerCancelError',
 ])
 
 export class PostgresGenerationTaskRepository implements GenerationTaskStore {
@@ -95,7 +112,20 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
 
       const task = taskFor(input, principal, now)
       const inserted = await insertTask(client, task)
-      if (inserted) return { task: inserted }
+      if (inserted) {
+        await insertTaskLog(client, inserted, {
+          level: 'info',
+          event: 'task.created',
+          message: 'Generation task created and credits reserved',
+          details: {
+            provider: inserted.provider,
+            kind: inserted.kind,
+            estimatedCredits: inserted.estimatedCredits,
+          },
+          createdAt: now,
+        })
+        return { task: inserted }
+      }
 
       const existing = await findByClientRequestId(client, input.clientRequestId, principal)
       return existing ? { task: existing } : { error: 'project-not-found' }
@@ -124,6 +154,24 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
     return this.transactions.withTransaction(async (client) => findById(client, taskId, principal))
   }
 
+  async listLogs(taskId: string, principal: Principal): Promise<GenerationTaskLog[] | null> {
+    return this.transactions.withTransaction(async (client) => {
+      const task = await findById(client, taskId, principal)
+      if (!task) return null
+      const result = await client.query<TaskLogRow>(
+        `
+          select id, task_id as "taskId", project_id as "projectId", tenant_id as "tenantId",
+            user_id as "userId", level, event, message, details, created_at as "createdAt"
+          from generation_task_logs
+          where task_id = $1 and tenant_id = $2
+          order by created_at, id
+        `,
+        [task.id, principal.tenantId],
+      )
+      return result.rows.map(logFromRow)
+    })
+  }
+
   async retry(taskId: string, principal: Principal): Promise<TaskMutationResult> {
     return this.transactions.withTransaction(async (client) => {
       const task = await findById(client, taskId, principal, { lock: true })
@@ -132,7 +180,7 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
       if (task.status === 'completed') return { error: 'task-not-cancellable' }
 
       const retryAttempt = numberValue(task.metadata.retryAttempt, 0) + 1
-      const refundedCredits = numberValue(task.metadata.refundedCredits, 0)
+      const refundedCredits = numberValue(task.metadata.refundCredits, 0)
       if (task.status === 'cancelled' && refundedCredits > 0) {
         const user = await client.query<{ id: string; tenantId: string; credits: number }>(
           `
@@ -196,7 +244,69 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
         `,
         [JSON.stringify(metadata), now, task.id],
       )
-      return result.rows[0] ? { task: taskFromRow(result.rows[0]) } : { error: 'task-not-found' }
+      const updated = result.rows[0] ? taskFromRow(result.rows[0]) : null
+      if (!updated) return { error: 'task-not-found' }
+      await insertTaskLog(client, updated, {
+        level: 'info',
+        event: 'task.retried',
+        message: 'Task returned to the queue for retry',
+        details: {
+          retryAttempt,
+          reservedCredits: task.status === 'cancelled' && refundedCredits > 0 ? task.estimatedCredits : 0,
+        },
+        createdAt: now,
+      })
+      return { task: updated }
+    })
+  }
+
+  async pause(taskId: string, principal: Principal): Promise<TaskMutationResult> {
+    return this.transactions.withTransaction(async (client) => {
+      const task = await findById(client, taskId, principal, { lock: true })
+      if (!task) return { error: 'task-not-found' }
+      if (task.status === 'paused') return { task }
+      if (task.status !== 'queued') return { error: 'task-not-pausable' }
+
+      const now = new Date().toISOString()
+      const updated = await updateCommandedTask(client, task.id, {
+        status: 'paused',
+        metadata: { ...task.metadata, pausedAt: now },
+        updatedAt: now,
+      })
+      if (!updated) return { error: 'task-not-found' }
+      await insertTaskLog(client, updated, {
+        level: 'info',
+        event: 'task.paused',
+        message: 'Task paused before provider submission',
+        createdAt: now,
+      })
+      return { task: updated }
+    })
+  }
+
+  async resume(taskId: string, principal: Principal): Promise<TaskMutationResult> {
+    return this.transactions.withTransaction(async (client) => {
+      const task = await findById(client, taskId, principal, { lock: true })
+      if (!task) return { error: 'task-not-found' }
+      if (task.status !== 'paused') return { error: 'task-not-resumable' }
+
+      const now = new Date().toISOString()
+      const metadata = { ...task.metadata }
+      delete metadata.pausedAt
+      metadata.resumedAt = now
+      const updated = await updateCommandedTask(client, task.id, {
+        status: 'queued',
+        metadata,
+        updatedAt: now,
+      })
+      if (!updated) return { error: 'task-not-found' }
+      await insertTaskLog(client, updated, {
+        level: 'info',
+        event: 'task.resumed',
+        message: 'Task resumed and returned to the queue',
+        createdAt: now,
+      })
+      return { task: updated }
     })
   }
 
@@ -205,7 +315,32 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
       const task = await findById(client, taskId, principal, { lock: true })
       if (!task) return { error: 'task-not-found' }
       if (task.status === 'cancelled') return { task }
-      if (task.status !== 'queued' && task.status !== 'running') return { error: 'task-not-cancellable' }
+      if (!isCancellable(task)) return { error: 'task-not-cancellable' }
+
+      if (task.status === 'running' && hasProviderTaskId(task)) {
+        const now = new Date().toISOString()
+        const lock = cancellationResourceLockMetadataFor(task)
+        const metadata = {
+          ...task.metadata,
+          cancelRequestedAt: stringValue(task.metadata.cancelRequestedAt, now),
+          providerState: 'cancelling',
+          ...lock,
+        }
+        const updated = await updateCommandedTask(client, task.id, {
+          metadata,
+          error: 'Cancellation requested',
+          updatedAt: now,
+        })
+        if (!updated) return { error: 'task-not-found' }
+        await insertTaskLog(client, updated, {
+          level: 'warn',
+          event: 'task.cancel_requested',
+          message: 'Cancellation requested; worker will finalize provider task',
+          details: { providerTaskId: task.metadata.providerTaskId, ...lock },
+          createdAt: now,
+        })
+        return { task: updated }
+      }
 
       const now = new Date().toISOString()
       const refundCredits = refundableCreditsFor(task)
@@ -229,7 +364,7 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
             where id = $1
             for update
           `,
-          [`refund-${task.id}`],
+          [refundLedgerIdFor(task)],
         )
         if (!refund.rows[0]) {
           const nextCredits = lockedUser.credits + refundCredits
@@ -249,7 +384,7 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
               values ($1, $2, $3, $4, $5, 'adjustment', $6, $7)
             `,
             [
-              `refund-${task.id}`,
+              refundLedgerIdFor(task),
               lockedUser.id,
               lockedUser.tenantId,
               refundCredits,
@@ -280,7 +415,117 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
         `,
         [JSON.stringify(metadata), now, task.id],
       )
-      return result.rows[0] ? { task: taskFromRow(result.rows[0]) } : { error: 'task-not-found' }
+      const updated = result.rows[0] ? taskFromRow(result.rows[0]) : null
+      if (!updated) return { error: 'task-not-found' }
+      await insertTaskLog(client, updated, {
+        level: 'warn',
+        event: 'task.cancelled',
+        message: 'Task cancelled by user',
+        details: {
+          refundCredits,
+          refundPolicy: metadata.refundPolicy,
+        },
+        createdAt: now,
+      })
+      return { task: updated }
+    })
+  }
+
+  async delete(taskId: string, principal: Principal): Promise<TaskDeleteResult> {
+    return this.transactions.withTransaction(async (client) => {
+      const task = await findById(client, taskId, principal, { lock: true })
+      if (!task) return { error: 'task-not-found' }
+
+      if (task.status === 'running' && hasProviderTaskId(task)) {
+        const now = new Date().toISOString()
+        const lock = cancellationResourceLockMetadataFor(task)
+        const metadata = {
+          ...task.metadata,
+          cancelRequestedAt: stringValue(task.metadata.cancelRequestedAt, now),
+          deleteRequestedAt: now,
+          providerState: 'cancelling',
+          ...lock,
+        }
+        const updated = await updateCommandedTask(client, task.id, {
+          metadata,
+          error: 'Deletion requested',
+          updatedAt: now,
+        })
+        if (!updated) return { error: 'task-not-found' }
+        await insertTaskLog(client, updated, {
+          level: 'warn',
+          event: 'task.delete_requested',
+          message: 'Delete requested; worker will cancel provider task first',
+          details: { providerTaskId: task.metadata.providerTaskId, ...lock },
+          createdAt: now,
+        })
+        return { task: updated }
+      }
+
+      if (!isDeletableWithoutProvider(task)) return { error: 'task-not-deletable' }
+
+      const refundCredits = refundableCreditsFor(task)
+      if (refundCredits > 0) {
+        const user = await client.query<{ id: string; tenantId: string; credits: number }>(
+          `
+            select id, tenant_id as "tenantId", credits
+            from users
+            where id = $1 and tenant_id = $2
+            for update
+          `,
+          [task.userId, task.tenantId],
+        )
+        const lockedUser = user.rows[0]
+        if (!lockedUser) return { error: 'account-not-found' }
+
+        const refund = await client.query<{ id: string }>(
+          `
+            select id
+            from ledger_entries
+            where id = $1
+            for update
+          `,
+          [refundLedgerIdFor(task)],
+        )
+        if (!refund.rows[0]) {
+          const now = new Date().toISOString()
+          const nextCredits = lockedUser.credits + refundCredits
+          await client.query(
+            `
+              update users
+              set credits = $1, updated_at = $2
+              where id = $3 and tenant_id = $4
+            `,
+            [nextCredits, now, lockedUser.id, lockedUser.tenantId],
+          )
+          await client.query(
+            `
+              insert into ledger_entries (
+                id, user_id, tenant_id, amount, balance, type, description, created_at
+              )
+              values ($1, $2, $3, $4, $5, 'adjustment', $6, $7)
+            `,
+            [
+              refundLedgerIdFor(task),
+              lockedUser.id,
+              lockedUser.tenantId,
+              refundCredits,
+              nextCredits,
+              `Refund deleted task: ${task.label}`,
+              now,
+            ],
+          )
+        }
+      }
+
+      await client.query(
+        `
+          delete from generation_tasks
+          where id = $1 and tenant_id = $2
+        `,
+        [task.id, task.tenantId],
+      )
+      return { deleted: true }
     })
   }
 
@@ -299,6 +544,31 @@ export class PostgresGenerationTaskRepository implements GenerationTaskStore {
       )
       return result.rowCount ?? result.rows.length
     })
+  }
+}
+
+type TaskLogRow = {
+  id: string
+  taskId: string
+  projectId: string
+  tenantId: string
+  userId: string
+  level: GenerationTaskLog['level']
+  event: string
+  message: string
+  details: unknown
+  createdAt: Date | string
+}
+
+function logFromRow(row: TaskLogRow): GenerationTaskLog {
+  return {
+    ...row,
+    details:
+      typeof row.details === 'object' && row.details !== null && !Array.isArray(row.details)
+        ? (row.details as Record<string, unknown>)
+        : {},
+    createdAt:
+      row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
   }
 }
 
@@ -407,11 +677,70 @@ function taskFor(input: CreateGenerationTask, principal: Principal, now: string)
 }
 
 function refundableCreditsFor(task: GenerationTask): number {
-  if (task.status === 'queued') return task.estimatedCredits
+  if (task.status === 'queued' || task.status === 'paused') return task.estimatedCredits
   if (task.status === 'running' && !task.metadata.providerTaskId) return task.estimatedCredits
   return 0
 }
 
+function refundLedgerIdFor(task: GenerationTask): string {
+  return `refund-${task.id}-${numberValue(task.metadata.retryAttempt, 0)}`
+}
+
 function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function stringValue(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value ? value : fallback
+}
+
+function isCancellable(task: GenerationTask): boolean {
+  return task.status === 'queued' || task.status === 'paused' || task.status === 'running'
+}
+
+function isDeletableWithoutProvider(task: GenerationTask): boolean {
+  return (
+    task.status === 'queued' ||
+    task.status === 'paused' ||
+    task.status === 'completed' ||
+    task.status === 'failed' ||
+    task.status === 'cancelled' ||
+    (task.status === 'running' && !hasProviderTaskId(task))
+  )
+}
+
+function hasProviderTaskId(task: GenerationTask): boolean {
+  return typeof task.metadata.providerTaskId === 'string' && task.metadata.providerTaskId.length > 0
+}
+
+async function updateCommandedTask(
+  client: PoolClient,
+  taskId: string,
+  input: {
+    status?: GenerationTask['status']
+    metadata?: Record<string, unknown>
+    error?: string | null
+    updatedAt: string
+  },
+): Promise<GenerationTask | null> {
+  const result = await client.query<TaskRow>(
+    `
+      update generation_tasks
+      set status = coalesce($2::text, status),
+        metadata = coalesce($3::jsonb, metadata),
+        error = case when $4::boolean then $5::text else error end,
+        updated_at = $6
+      where id = $1
+      returning ${TASK_COLUMNS}
+    `,
+    [
+      taskId,
+      input.status ?? null,
+      input.metadata === undefined ? null : JSON.stringify(input.metadata),
+      Object.hasOwn(input, 'error'),
+      input.error ?? null,
+      input.updatedAt,
+    ],
+  )
+  return result.rows[0] ? taskFromRow(result.rows[0]) : null
 }

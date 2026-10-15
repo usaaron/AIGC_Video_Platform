@@ -1,7 +1,7 @@
 import type { GenerationTask } from '@seqora/contracts'
 import type { AudioGenerationRequest } from '../generation/audioProvider.js'
 import type { ImageGenerationRequest } from '../generation/imageProvider.js'
-import type { VideoGenerationRequest } from '../generation/videoProvider.js'
+import type { VideoGenerationMode, VideoGenerationRequest } from '../generation/videoProvider.js'
 import { isControlledMediaUrl } from './mediaReferenceResolver.js'
 
 const SILENT_WAV_DATA_URL =
@@ -11,21 +11,41 @@ export function videoRequestFor(task: GenerationTask): VideoGenerationRequest {
   const seed = optionalInteger(task.metadata.seed)
   const watermark = optionalBoolean(task.metadata.watermark)
   const cameraFixed = optionalBoolean(task.metadata.cameraFixed)
+  const sourceVideoUrl = optionalUrl(task.metadata.sourceVideoUrl)
+  const firstFrameUrl = optionalUrl(task.metadata.firstFrameUrl)
+  const lastFrameUrl = optionalUrl(task.metadata.lastFrameUrl)
+  const maskUrl = optionalUrl(task.metadata.maskUrl)
+  const backgroundReferenceUrl = optionalUrl(task.metadata.backgroundReferenceUrl)
+  const lightingPreset = optionalString(task.metadata.lightingPreset)
+  const upscaleFactor = optionalBoundedInteger(task.metadata.upscaleFactor, 2, 4)
+  const lipSyncAudioUrl = optionalUrl(task.metadata.lipSyncAudioUrl)
+  const extendSeconds = optionalBoundedInteger(task.metadata.extendSeconds, 1, 60)
+  const templateId = optionalString(task.metadata.templateId)
+  const agentPlanId = optionalString(task.metadata.agentPlanId)
+
   return {
     taskId: task.id,
+    mode: videoModeFor(task.metadata.videoMode),
     model: task.model,
     prompt: task.prompt,
     negativePrompt: task.negativePrompt,
     seconds: boundedInteger(task.metadata.duration, 5, 1, 120),
     ratio: stringValue(task.metadata.aspectRatio, '16:9'),
     resolution: stringValue(task.metadata.resolution, '720p'),
-    images: Array.isArray(task.metadata.images)
-      ? task.metadata.images.filter(
-          (value): value is string =>
-            typeof value === 'string' && (/^https?:\/\//.test(value) || isControlledMediaUrl(value)),
-        )
-      : [],
+    images: urlArrayFor(task.metadata.images),
+    sourceImageUrls: urlArrayFor(task.metadata.sourceImageUrls),
     generateAudio: task.metadata.generateAudio === true,
+    ...(sourceVideoUrl ? { sourceVideoUrl } : {}),
+    ...(firstFrameUrl ? { firstFrameUrl } : {}),
+    ...(lastFrameUrl ? { lastFrameUrl } : {}),
+    ...(maskUrl ? { maskUrl } : {}),
+    ...(backgroundReferenceUrl ? { backgroundReferenceUrl } : {}),
+    ...(lightingPreset ? { lightingPreset } : {}),
+    ...(upscaleFactor === null ? {} : { upscaleFactor }),
+    ...(lipSyncAudioUrl ? { lipSyncAudioUrl } : {}),
+    ...(extendSeconds === null ? {} : { extendSeconds }),
+    ...(templateId ? { templateId } : {}),
+    ...(agentPlanId ? { agentPlanId } : {}),
     ...(seed === null ? {} : { seed }),
     ...(watermark === null ? {} : { watermark }),
     ...(cameraFixed === null ? {} : { cameraFixed }),
@@ -97,14 +117,7 @@ export function messageFor(error: unknown): string {
 }
 
 function referenceUrlsFor(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .map((item) => {
-      if (typeof item === 'string') return item
-      if (isRecord(item) && typeof item.url === 'string') return item.url
-      return ''
-    })
-    .filter((url) => /^https?:\/\//.test(url) || isControlledMediaUrl(url))
+  return urlArrayFor(value)
 }
 
 function faceReferenceUrlFor(task: GenerationTask, references: string[]): string | null {
@@ -130,8 +143,7 @@ function recordValue(value: unknown, key: string): unknown {
 }
 
 function publicReferenceUrl(value: unknown): string | null {
-  if (!isRecord(value) || typeof value.url !== 'string') return null
-  return /^https?:\/\//.test(value.url) || isControlledMediaUrl(value.url) ? value.url : null
+  return isRecord(value) ? optionalUrl(value.url) : null
 }
 
 function uniqueUrls(urls: Array<string | null>): string[] {
@@ -186,6 +198,10 @@ function stringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value ? value : fallback
 }
 
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
@@ -199,8 +215,50 @@ function optionalInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) ? value : null
 }
 
+function optionalBoundedInteger(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.min(max, Math.max(min, Math.round(value)))
+}
+
 function optionalBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
+}
+
+function videoModeFor(value: unknown): VideoGenerationMode {
+  if (
+    value === 'text-to-video' ||
+    value === 'video-to-video' ||
+    value === 'first-last-frame' ||
+    value === 'extend' ||
+    value === 'inpaint' ||
+    value === 'replace-background' ||
+    value === 'relight' ||
+    value === 'upscale' ||
+    value === 'lip-sync'
+  ) {
+    return value
+  }
+  return 'text-to-video'
+}
+
+function urlArrayFor(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.reduce<string[]>((urls, item) => {
+    const url = urlFromValue(item)
+    if (url) urls.push(url)
+    return urls
+  }, [])
+}
+
+function urlFromValue(value: unknown): string | null {
+  if (typeof value === 'string') return optionalUrl(value)
+  return isRecord(value) ? optionalUrl(value.url) : null
+}
+
+function optionalUrl(value: unknown): string | null {
+  return typeof value === 'string' && (/^https?:\/\//.test(value) || isControlledMediaUrl(value))
+    ? value
+    : null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

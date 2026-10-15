@@ -2,6 +2,16 @@ import type { Asset, GenerationTask, LedgerEntry, Project, Role, Shot } from '@s
 import type { PoolClient, QueryResultRow } from 'pg'
 import type { AppState, StoredMedia, StoredUser } from './store.js'
 import { normalizeState } from './store.js'
+import {
+  checkoutSessionFromRow,
+  projectCommentFromRow,
+  projectShareFromRow,
+  subscriptionFromRow,
+  type CheckoutSessionRow,
+  type ProjectCommentRow,
+  type ProjectShareRow,
+  type SubscriptionRow,
+} from './postgresRows.js'
 
 type UserRow = QueryResultRow & {
   id: string
@@ -171,6 +181,42 @@ export async function loadPostgresState(
       ${lockClause(options)}
     `,
   )
+  const subscriptions = await rows<SubscriptionRow>(
+    client,
+    `
+      select ${subscriptionSelectSql()}
+      from billing_subscriptions
+      order by updated_at desc, tenant_id
+      ${lockClause(options)}
+    `,
+  )
+  const checkoutSessions = await rows<CheckoutSessionRow>(
+    client,
+    `
+      select ${checkoutSessionSelectSql()}
+      from billing_checkout_sessions
+      order by created_at desc, id
+      ${lockClause(options)}
+    `,
+  )
+  const projectShares = await rows<ProjectShareRow>(
+    client,
+    `
+      select ${projectShareSelectSql()}
+      from project_shares
+      order by updated_at desc, id
+      ${lockClause(options)}
+    `,
+  )
+  const projectComments = await rows<ProjectCommentRow>(
+    client,
+    `
+      select ${projectCommentSelectSql()}
+      from project_comments
+      order by created_at desc, id
+      ${lockClause(options)}
+    `,
+  )
 
   return normalizeState({
     users: users.map((user) => ({ ...user, email: user.email.toLowerCase() })),
@@ -195,6 +241,10 @@ export async function loadPostgresState(
     tasks: tasks.map(taskFromRow),
     ledger: ledger.map((entry) => ({ ...entry, createdAt: iso(entry.createdAt) })),
     media: media.map((item) => ({ ...item, createdAt: iso(item.createdAt) })),
+    subscriptions: subscriptions.map(subscriptionFromRow),
+    checkoutSessions: checkoutSessions.map(checkoutSessionFromRow),
+    projectShares: projectShares.map(projectShareFromRow),
+    projectComments: projectComments.map(projectCommentFromRow),
   })
 }
 
@@ -225,6 +275,44 @@ function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+}
+
+function subscriptionSelectSql(): string {
+  return `
+    tenant_id as "tenantId", provider, package_id as "packageId", status,
+    billing_cycle as "billingCycle", seat_limit as "seatLimit",
+    active_seats as "activeSeats", watermark_required as "watermarkRequired",
+    commercial_license_enabled as "commercialLicenseEnabled",
+    starts_at as "startsAt", renews_at as "renewsAt", updated_at as "updatedAt"
+  `
+}
+
+function checkoutSessionSelectSql(): string {
+  return `
+    id, tenant_id as "tenantId", user_id as "userId", provider,
+    package_id as "packageId", status, amount_cents as "amountCents",
+    currency, checkout_url as "url", created_at as "createdAt",
+    expires_at as "expiresAt", updated_at as "updatedAt"
+  `
+}
+
+function projectShareSelectSql(): string {
+  return `
+    id, project_id as "projectId", tenant_id as "tenantId",
+    shared_with_user_id as "sharedWithUserId", shared_with_email as "sharedWithEmail",
+    permission, comment_approval_required as "commentApprovalRequired",
+    status, created_at as "createdAt", updated_at as "updatedAt"
+  `
+}
+
+function projectCommentSelectSql(): string {
+  return `
+    id, project_id as "projectId", tenant_id as "tenantId",
+    target_type as "targetType", target_id as "targetId",
+    author_user_id as "authorUserId", author_name as "authorName",
+    body, status, reviewed_by_user_id as "reviewedByUserId",
+    reviewed_at as "reviewedAt", created_at as "createdAt", updated_at as "updatedAt"
+  `
 }
 
 function lockClause(options: LoadPostgresStateOptions): string {

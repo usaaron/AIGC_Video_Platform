@@ -21,14 +21,7 @@ export class MediaRepository implements MediaStore {
   constructor(private readonly store: StateStore) {}
 
   async canWrite(projectId: string, principal: Principal): Promise<boolean> {
-    return this.store.read((state) =>
-      state.projects.some(
-        (project) =>
-          project.id === projectId &&
-          project.tenantId === principal.tenantId &&
-          project.ownerId === principal.userId,
-      ),
-    )
+    return this.store.read((state) => canAccessProject(state, projectId, principal, 'edit'))
   }
 
   async create(
@@ -59,9 +52,8 @@ export class MediaRepository implements MediaStore {
     return this.store.read((state) => {
       const media = state.media.find((item) => item.id === id && item.tenantId === principal.tenantId)
       if (!media) return null
-      const canReadAll = principal.roles.some((role) => role === 'admin' || role === 'owner')
       const project = state.projects.find((item) => item.id === media.projectId)
-      return canReadAll || project?.ownerId === principal.userId ? media : null
+      return project && canAccessProject(state, project.id, principal, 'read') ? media : null
     })
   }
 
@@ -72,4 +64,41 @@ export class MediaRepository implements MediaStore {
   private toObject(media: StoredMedia): MediaObject {
     return { ...media, url: `/api/v1/media/${media.id}` }
   }
+}
+
+function canAccessProject(
+  state: {
+    users: Array<{ id: string; tenantId: string; email: string }>
+    projects: Array<{ id: string; tenantId: string; ownerId: string }>
+    projectShares: Array<{
+      projectId: string
+      tenantId: string
+      sharedWithUserId: string | null
+      sharedWithEmail: string | null
+      status: string
+      permission: 'view' | 'comment' | 'edit'
+    }>
+  },
+  projectId: string,
+  principal: Principal,
+  mode: 'read' | 'edit',
+): boolean {
+  if (principal.roles.some((role) => role === 'admin' || role === 'owner')) return true
+  const project = state.projects.find((item) => item.id === projectId && item.tenantId === principal.tenantId)
+  if (!project) return false
+  if (project.ownerId === principal.userId) return true
+  const email =
+    state.users
+      .find((user) => user.id === principal.userId && user.tenantId === principal.tenantId)
+      ?.email.toLowerCase() ?? ''
+  const share = state.projectShares.find(
+    (item) =>
+      item.projectId === projectId &&
+      item.tenantId === principal.tenantId &&
+      item.status === 'active' &&
+      (item.sharedWithUserId === principal.userId ||
+        Boolean(item.sharedWithEmail && item.sharedWithEmail.toLowerCase() === email)),
+  )
+  if (!share) return false
+  return mode === 'read' ? true : share.permission === 'edit'
 }

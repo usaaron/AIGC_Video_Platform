@@ -53,7 +53,7 @@ describe('PostgresTaskRuntimeStore', () => {
         },
       ],
     }
-    const { calls, runner } = createTransactionRunner([imageTaskRow(), [], [], assetRow(), []])
+    const { calls, runner } = createTransactionRunner([imageTaskRow(), [], [], [], [], assetRow(), [], []])
     const runtime = new PostgresTaskRuntimeStore(runner)
 
     await runtime.applyProviderStatus(
@@ -64,11 +64,83 @@ describe('PostgresTaskRuntimeStore', () => {
 
     const sql = joinedSql(calls)
     expect(sql).toContain('insert into media')
+    expect(sql).toContain('insert into generation_task_logs')
     expect(sql).toContain('update generation_tasks')
     expect(sql).toContain('from assets')
     expect(sql).toContain('for update')
     expect(sql).toContain('update assets')
     expect(sql).not.toContain('syncpostgresstate')
+  })
+
+  it('finalizes cancellation requests through locked task SQL updates', async () => {
+    const { calls, runner } = createTransactionRunner([
+      [
+        taskRow({
+          status: 'running',
+          progress: 42,
+          metadata: {
+            providerName: 'aideos-seedance',
+            providerState: 'cancelling',
+            providerTaskId: 'remote-task-1',
+            cancelRequestedAt: timestamp.toISOString(),
+          },
+        }),
+      ],
+      [],
+      [],
+    ])
+    const runtime = new PostgresTaskRuntimeStore(runner)
+
+    await runtime.finalizeCancellation('task-1', null)
+
+    const sql = joinedSql(calls)
+    expect(sql).toContain('from generation_tasks')
+    expect(sql).toContain('for update')
+    expect(sql).toContain('update generation_tasks')
+    expect(sql).toContain('insert into generation_task_logs')
+    expect(calls.find((call) => call.sql.toLowerCase().includes('update generation_tasks'))?.params).toEqual(
+      expect.arrayContaining(['cancelled', 100, 'Task cancelled by user']),
+    )
+    expect(sql).not.toContain('syncpostgresstate')
+  })
+
+  it('claims submission retries with dedicated SQL and task logs', async () => {
+    const { calls, runner } = createTransactionRunner([[submissionRetryRow(Date.now() - 1_000)], [], []])
+    const runtime = new PostgresTaskRuntimeStore(runner)
+
+    const tasks = await runtime.submissionTasksDueForRetry(Date.now())
+
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      id: 'task-1',
+      status: 'running',
+      metadata: expect.objectContaining({ providerState: 'submitting' }),
+    })
+    const sql = joinedSql(calls)
+    expect(sql).toContain('submissionretryat')
+    expect(sql).toContain('for update skip locked')
+    expect(sql).toContain('insert into generation_task_logs')
+    expect(sql).toContain('update generation_tasks')
+  })
+
+  it('claims post-process retries with dedicated SQL and task logs', async () => {
+    const { calls, runner } = createTransactionRunner([[postProcessRetryRow(Date.now() - 1_000)], [], []])
+    const runtime = new PostgresTaskRuntimeStore(runner)
+
+    const tasks = await runtime.postProcessTasksDueForRetry(Date.now())
+
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      id: 'task-1',
+      status: 'running',
+      metadata: expect.objectContaining({ postProcessState: 'processing' }),
+    })
+    const sql = joinedSql(calls)
+    expect(sql).toContain('postprocessstate')
+    expect(sql).toContain('postprocessretryat')
+    expect(sql).toContain('for update skip locked')
+    expect(sql).toContain('insert into generation_task_logs')
+    expect(sql).toContain('update generation_tasks')
   })
 })
 
@@ -132,6 +204,45 @@ function claimedTaskRow(): QueryResultRow[] {
       metadata: { providerName: 'aideos-seedance', providerState: 'submitting' },
     }),
   ]
+}
+
+function submissionRetryRow(retryAt: number): QueryResultRow {
+  return taskRow({
+    status: 'running',
+    progress: 1,
+    provider: 'seedance',
+    metadata: {
+      providerName: 'aideos-seedance',
+      providerState: 'submission_retrying',
+      submissionRetryCount: 1,
+      submissionRetryAt: retryAt,
+    },
+  })
+}
+
+function postProcessRetryRow(retryAt: number): QueryResultRow {
+  return taskRow({
+    status: 'running',
+    progress: 99,
+    kind: 'image',
+    provider: 'img2',
+    metadata: {
+      providerName: 'aideos-img2',
+      providerState: 'completed',
+      providerTaskId: 'remote-image-task-1',
+      postProcessState: 'retrying',
+      postProcessRetryCount: 1,
+      postProcessRetryAt: retryAt,
+      postProcessRemoteOutputs: [
+        {
+          id: 'remote-image-output-1',
+          url: 'https://assets.example/generated-face.png',
+          mediaType: 'image',
+          view: 'single',
+        },
+      ],
+    },
+  })
 }
 
 function imageTaskRow(): QueryResultRow[] {

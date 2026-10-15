@@ -1,6 +1,14 @@
 import type { Asset, GenerationTask, LedgerEntry, Project, Shot } from '@seqora/contracts'
 import type { PoolClient } from 'pg'
-import type { AppState, StoredMedia, StoredUser } from './store.js'
+import type {
+  AppState,
+  StoredCheckoutSession,
+  StoredMedia,
+  StoredProjectComment,
+  StoredProjectShare,
+  StoredSubscription,
+  StoredUser,
+} from './store.js'
 import { normalizeState } from './store.js'
 
 type TenantRow = {
@@ -19,6 +27,18 @@ export async function syncPostgresState(
   const previous = normalizeState(previousInput)
   const next = normalizeState(nextInput)
 
+  await deleteMissing(client, 'project_comments', missingIds(previous.projectComments, next.projectComments))
+  await deleteMissing(client, 'project_shares', missingIds(previous.projectShares, next.projectShares))
+  await deleteMissing(
+    client,
+    'billing_checkout_sessions',
+    missingIds(previous.checkoutSessions, next.checkoutSessions),
+  )
+  await deleteMissing(
+    client,
+    'billing_subscriptions',
+    missingIds(subscriptionRows(previous), subscriptionRows(next)),
+  )
   await deleteMissing(client, 'ledger_entries', missingIds(previous.ledger, next.ledger))
   await deleteMissing(client, 'generation_tasks', missingIds(previous.tasks, next.tasks))
   await deleteMissing(client, 'media', missingIds(previous.media, next.media))
@@ -36,6 +56,10 @@ export async function syncPostgresState(
   await upsertTasks(client, changedRows(previous.tasks, next.tasks))
   await upsertMedia(client, changedRows(previous.media, next.media))
   await upsertLedger(client, changedRows(previous.ledger, next.ledger))
+  await upsertSubscriptions(client, changedRows(subscriptionRows(previous), subscriptionRows(next)))
+  await upsertCheckoutSessions(client, changedRows(previous.checkoutSessions, next.checkoutSessions))
+  await upsertProjectShares(client, changedRows(previous.projectShares, next.projectShares))
+  await upsertProjectComments(client, changedRows(previous.projectComments, next.projectComments))
 }
 
 async function deleteMissing(client: PoolClient, table: string, ids: string[]): Promise<void> {
@@ -343,6 +367,172 @@ async function upsertLedger(client: PoolClient, ledger: LedgerEntry[]): Promise<
   }
 }
 
+async function upsertSubscriptions(client: PoolClient, subscriptions: StoredSubscription[]): Promise<void> {
+  for (const subscription of subscriptions) {
+    await client.query(
+      `
+        insert into billing_subscriptions (
+          tenant_id, provider, package_id, status, billing_cycle, seat_limit,
+          active_seats, watermark_required, commercial_license_enabled,
+          starts_at, renews_at, updated_at
+        )
+        values (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9,
+          $10, $11, $12
+        )
+        on conflict (tenant_id) do update set
+          provider = excluded.provider,
+          package_id = excluded.package_id,
+          status = excluded.status,
+          billing_cycle = excluded.billing_cycle,
+          seat_limit = excluded.seat_limit,
+          active_seats = excluded.active_seats,
+          watermark_required = excluded.watermark_required,
+          commercial_license_enabled = excluded.commercial_license_enabled,
+          starts_at = excluded.starts_at,
+          renews_at = excluded.renews_at,
+          updated_at = excluded.updated_at
+      `,
+      [
+        subscription.tenantId,
+        subscription.provider,
+        subscription.packageId,
+        subscription.status,
+        subscription.billingCycle,
+        subscription.seatLimit,
+        subscription.activeSeats,
+        subscription.watermarkRequired,
+        subscription.commercialLicenseEnabled,
+        subscription.startsAt,
+        subscription.renewsAt,
+        subscription.updatedAt,
+      ],
+    )
+  }
+}
+
+async function upsertCheckoutSessions(client: PoolClient, sessions: StoredCheckoutSession[]): Promise<void> {
+  for (const session of sessions) {
+    await client.query(
+      `
+        insert into billing_checkout_sessions (
+          id, tenant_id, user_id, provider, package_id, status, amount_cents,
+          currency, checkout_url, metadata, created_at, expires_at, updated_at
+        )
+        values (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10::jsonb, $11, $12, $13
+        )
+        on conflict (id) do update set
+          tenant_id = excluded.tenant_id,
+          user_id = excluded.user_id,
+          provider = excluded.provider,
+          package_id = excluded.package_id,
+          status = excluded.status,
+          amount_cents = excluded.amount_cents,
+          currency = excluded.currency,
+          checkout_url = excluded.checkout_url,
+          metadata = excluded.metadata,
+          expires_at = excluded.expires_at,
+          updated_at = excluded.updated_at
+      `,
+      [
+        session.id,
+        session.tenantId,
+        session.userId,
+        session.provider,
+        session.packageId,
+        session.status,
+        session.amountCents,
+        session.currency,
+        session.url,
+        JSON.stringify({}),
+        session.createdAt,
+        session.expiresAt,
+        session.updatedAt,
+      ],
+    )
+  }
+}
+
+async function upsertProjectShares(client: PoolClient, shares: StoredProjectShare[]): Promise<void> {
+  for (const share of shares) {
+    await client.query(
+      `
+        insert into project_shares (
+          id, project_id, tenant_id, shared_with_user_id, shared_with_email,
+          permission, comment_approval_required, status, created_at, updated_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        on conflict (id) do update set
+          project_id = excluded.project_id,
+          tenant_id = excluded.tenant_id,
+          shared_with_user_id = excluded.shared_with_user_id,
+          shared_with_email = excluded.shared_with_email,
+          permission = excluded.permission,
+          comment_approval_required = excluded.comment_approval_required,
+          status = excluded.status,
+          updated_at = excluded.updated_at
+      `,
+      [
+        share.id,
+        share.projectId,
+        share.tenantId,
+        share.sharedWithUserId,
+        share.sharedWithEmail,
+        share.permission,
+        share.commentApprovalRequired,
+        share.status,
+        share.createdAt,
+        share.updatedAt,
+      ],
+    )
+  }
+}
+
+async function upsertProjectComments(client: PoolClient, comments: StoredProjectComment[]): Promise<void> {
+  for (const comment of comments) {
+    await client.query(
+      `
+        insert into project_comments (
+          id, project_id, tenant_id, target_type, target_id, author_user_id,
+          author_name, body, status, reviewed_by_user_id, reviewed_at,
+          created_at, updated_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        on conflict (id) do update set
+          project_id = excluded.project_id,
+          tenant_id = excluded.tenant_id,
+          target_type = excluded.target_type,
+          target_id = excluded.target_id,
+          author_user_id = excluded.author_user_id,
+          author_name = excluded.author_name,
+          body = excluded.body,
+          status = excluded.status,
+          reviewed_by_user_id = excluded.reviewed_by_user_id,
+          reviewed_at = excluded.reviewed_at,
+          updated_at = excluded.updated_at
+      `,
+      [
+        comment.id,
+        comment.projectId,
+        comment.tenantId,
+        comment.targetType,
+        comment.targetId,
+        comment.authorUserId,
+        comment.authorName,
+        comment.body,
+        comment.status,
+        comment.reviewedByUserId,
+        comment.reviewedAt,
+        comment.createdAt,
+        comment.updatedAt,
+      ],
+    )
+  }
+}
+
 function changedRows<T extends Identified>(previous: T[], next: T[]): T[] {
   const previousById = byId(previous)
   return next.filter((item) => JSON.stringify(previousById.get(item.id)) !== JSON.stringify(item))
@@ -366,5 +556,13 @@ function tenantRows(state: AppState): TenantRow[] {
   for (const task of state.tasks) tenantIds.add(task.tenantId)
   for (const entry of state.ledger) tenantIds.add(entry.tenantId)
   for (const item of state.media) tenantIds.add(item.tenantId)
+  for (const item of state.subscriptions) tenantIds.add(item.tenantId)
+  for (const item of state.checkoutSessions) tenantIds.add(item.tenantId)
+  for (const item of state.projectShares) tenantIds.add(item.tenantId)
+  for (const item of state.projectComments) tenantIds.add(item.tenantId)
   return [...tenantIds].sort().map((id) => ({ id }))
+}
+
+function subscriptionRows(state: AppState): Array<StoredSubscription & { id: string }> {
+  return state.subscriptions.map((subscription) => ({ ...subscription, id: subscription.tenantId }))
 }

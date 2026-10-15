@@ -87,6 +87,9 @@ export class GenerationTaskRunner implements TaskDispatcher {
     const hasActiveTasks = await this.taskRuntimeStore.hasActiveTasks()
     if (!hasActiveTasks) return
 
+    await this.remoteTasks.retrySubmissionTasks()
+    await this.remoteTasks.retryPostProcessTasks()
+
     const remoteTasks = await this.taskRuntimeStore.claimQueuedTasks(
       this.remoteTasks,
       Boolean(this.filmExporter),
@@ -97,6 +100,7 @@ export class GenerationTaskRunner implements TaskDispatcher {
     for (const task of remoteTasks.audio) await this.remoteTasks.submitAudio(task)
     for (const task of remoteTasks.film) await this.exportFilm(task)
 
+    await this.remoteTasks.cancelRequestedTasks()
     await this.taskRuntimeStore.advanceLocalTasks()
 
     await this.remoteTasks.pollVideos()

@@ -2,9 +2,13 @@ import type {
   CreateAsset,
   CreateProject,
   CreateShot,
+  CreateProjectComment,
+  CreateProjectShare,
   Principal,
+  ReviewProjectComment,
   UpdateAsset,
   UpdateProject,
+  UpdateProjectShare,
   UpdateShot,
 } from '@seqora/contracts'
 import { analyzeScriptForProduction } from '@seqora/contracts'
@@ -86,5 +90,34 @@ export class ProjectService {
     const created = await this.repository.replaceShots(projectId, shots, principal)
     if (!created) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权生成分镜')
     return created
+  }
+
+  async createShare(projectId: string, input: CreateProjectShare, principal: Principal) {
+    const share = await this.repository.createShare(projectId, input, principal)
+    if (!share) throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found or not shareable')
+    return share
+  }
+
+  async updateShare(projectId: string, shareId: string, input: UpdateProjectShare, principal: Principal) {
+    const share = await this.repository.updateShare(projectId, shareId, input, principal)
+    if (!share) throw new AppError(404, 'PROJECT_SHARE_NOT_FOUND', 'Project share not found')
+    return share
+  }
+
+  async createComment(projectId: string, input: CreateProjectComment, principal: Principal) {
+    const comment = await this.repository.createComment(projectId, input, principal)
+    if (!comment) throw new AppError(403, 'COMMENT_NOT_ALLOWED', 'Project comment is not allowed')
+    return comment
+  }
+
+  async reviewComment(
+    projectId: string,
+    commentId: string,
+    input: ReviewProjectComment,
+    principal: Principal,
+  ) {
+    const comment = await this.repository.reviewComment(projectId, commentId, input, principal)
+    if (!comment) throw new AppError(404, 'PROJECT_COMMENT_NOT_FOUND', 'Project comment not found')
+    return comment
   }
 }

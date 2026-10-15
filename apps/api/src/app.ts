@@ -99,7 +99,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.taskDispatcher ??
     (options.config.TASK_QUEUE_DRIVER === 'bullmq'
       ? new BullMqTaskDispatcher(options.config.REDIS_URL)
-      : new NoopTaskDispatcher())
+      : options.startWorker === false
+        ? new NoopTaskDispatcher()
+        : taskRunner)
+  if (
+    !options.taskDispatcher &&
+    options.config.TASK_QUEUE_DRIVER === 'inline' &&
+    options.startWorker !== false
+  ) {
+    taskRunner.start()
+  }
   const generationRepository = isPostgres
     ? new PostgresGenerationTaskRepository(store)
     : new GenerationTaskRepository(store)

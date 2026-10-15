@@ -97,6 +97,51 @@ describe('API authorization', () => {
     expect(response.json()).toMatchObject({ projectId: 'project-midnight-film', status: 'queued' })
   })
 
+  it('pauses and resumes queued generation tasks without provider execution', async () => {
+    const dispatch = vi.fn(async () => undefined)
+    app = await buildApp({
+      config: testConfig,
+      startWorker: false,
+      taskDispatcher: { dispatch },
+    })
+    const headers = {
+      'x-demo-role': 'creator',
+      'x-demo-user-id': 'user-creator',
+      'x-demo-tenant-id': 'tenant-seqora-demo',
+    }
+    const task = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks',
+      headers,
+      payload: {
+        clientRequestId: 'pause-test',
+        projectId: 'project-midnight-film',
+        kind: 'image',
+        label: '暂停测试',
+        estimatedCredits: 6,
+      },
+    })
+    expect(task.statusCode).toBe(202)
+
+    const paused = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${task.json().id}/pause`,
+      headers,
+    })
+    expect(paused.statusCode).toBe(202)
+    expect(paused.json()).toMatchObject({ status: 'paused', metadata: { pausedAt: expect.any(String) } })
+
+    const resumed = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${task.json().id}/resume`,
+      headers,
+    })
+    expect(resumed.statusCode).toBe(202)
+    expect(resumed.json()).toMatchObject({ status: 'queued', metadata: { resumedAt: expect.any(String) } })
+    expect(resumed.json().metadata.pausedAt).toBeUndefined()
+    expect(dispatch).toHaveBeenCalledTimes(2)
+  })
+
   it('cancels queued tasks and refunds reserved credits once', async () => {
     app = await buildApp({ config: testConfig, startWorker: false })
     const headers = {
@@ -141,8 +186,144 @@ describe('API authorization', () => {
     expect(repeated.statusCode).toBe(202)
     expect(repeated.json()).toMatchObject({ id: task.json().id, status: 'cancelled' })
 
+    const logs = await app.inject({
+      method: 'GET',
+      url: `/api/v1/generation/tasks/${task.json().id}/logs`,
+      headers,
+    })
+    expect(logs.statusCode).toBe(200)
+    expect(logs.json().logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'task.created',
+          level: 'info',
+          details: expect.objectContaining({ estimatedCredits: 6 }),
+        }),
+        expect.objectContaining({
+          event: 'task.cancelled',
+          level: 'warn',
+          details: expect.objectContaining({
+            refundCredits: 6,
+            refundPolicy: 'full-before-provider-start',
+          }),
+        }),
+      ]),
+    )
+
     const billing = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
     expect(billing.json()).toMatchObject({ credits: 286 })
+
+    const retried = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${task.json().id}/retry`,
+      headers,
+    })
+    expect(retried.statusCode).toBe(202)
+    expect(retried.json()).toMatchObject({
+      status: 'queued',
+      metadata: {
+        retryAttempt: 1,
+      },
+    })
+    expect(retried.json().metadata.refundCredits).toBeUndefined()
+
+    const billingAfterRetry = await app.inject({ method: 'GET', url: '/api/v1/billing/summary', headers })
+    expect(billingAfterRetry.json()).toMatchObject({ credits: 280 })
+
+    const cancelledAgain = await app.inject({
+      method: 'POST',
+      url: `/api/v1/generation/tasks/${task.json().id}/cancel`,
+      headers,
+    })
+    expect(cancelledAgain.statusCode).toBe(202)
+    expect(cancelledAgain.json()).toMatchObject({
+      status: 'cancelled',
+      metadata: {
+        refundCredits: 6,
+        refundPolicy: 'full-before-provider-start',
+      },
+    })
+    const billingAfterSecondCancel = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers,
+    })
+    expect(billingAfterSecondCancel.json()).toMatchObject({ credits: 286 })
+  })
+
+  it('marks running provider tasks for worker cancellation without calling the provider in API', async () => {
+    const cancel = vi.fn(async () => undefined)
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+      cancel,
+    }
+    const store = new AppStore(null)
+    app = await buildApp({ config: testConfig, store, videoProvider: provider, startWorker: false })
+    const now = new Date().toISOString()
+    await store.mutate((state) => {
+      const user = state.users.find((item) => item.id === 'user-creator')
+      if (user) user.credits = 268
+      state.tasks.unshift({
+        id: 'running-provider-task',
+        clientRequestId: 'running-provider-client',
+        projectId: 'project-midnight-film',
+        tenantId: 'tenant-seqora-demo',
+        userId: 'user-creator',
+        kind: 'video',
+        label: '运行中镜头',
+        prompt: '雨夜车站',
+        negativePrompt: '',
+        provider: 'seedance',
+        model: 'doubao-seedance-2-0-260128',
+        metadata: {
+          providerName: 'aideos-seedance',
+          providerState: 'running',
+          providerTaskId: 'remote-running-task',
+        },
+        status: 'running',
+        progress: 42,
+        estimatedCredits: 18,
+        createdAt: now,
+        updatedAt: now,
+        resultUrl: null,
+        outputs: [],
+        error: null,
+      })
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/generation/tasks/running-provider-task/cancel',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.json()).toMatchObject({
+      status: 'running',
+      error: 'Cancellation requested',
+      metadata: {
+        providerState: 'cancelling',
+        providerTaskId: 'remote-running-task',
+        cancelRequestedAt: expect.any(String),
+      },
+    })
+    expect(cancel).not.toHaveBeenCalled()
+    const billing = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/summary',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+    expect(billing.json()).toMatchObject({ credits: 268 })
   })
 
   it('retries failed generation tasks and clears stale provider state', async () => {
@@ -203,6 +384,24 @@ describe('API authorization', () => {
     const stored = await store.read((state) => state.tasks.find((item) => item.id === task.id))
     expect(stored).toMatchObject({ status: 'queued', progress: 0, metadata: { shotId: 'shot-1' } })
     expect(stored?.metadata.providerTaskId).toBeUndefined()
+    const logs = await app.inject({
+      method: 'GET',
+      url: '/api/v1/generation/tasks/failed-video-task/logs',
+      headers: {
+        'x-demo-role': 'creator',
+        'x-demo-user-id': 'user-creator',
+        'x-demo-tenant-id': 'tenant-seqora-demo',
+      },
+    })
+    expect(logs.statusCode).toBe(200)
+    expect(logs.json().logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'task.retried',
+          details: expect.objectContaining({ retryAttempt: 1 }),
+        }),
+      ]),
+    )
   })
 
   it('rejects retry for completed generation tasks', async () => {
@@ -582,6 +781,14 @@ describe('production security controls', () => {
     })
     expect(cancel.statusCode).toBe(404)
     expect(cancel.json()).toMatchObject({ error: { code: 'TASK_NOT_FOUND' } })
+
+    const logs = await app.inject({
+      method: 'GET',
+      url: '/api/v1/generation/tasks/task-other/logs',
+      headers: demoCreatorHeaders(),
+    })
+    expect(logs.statusCode).toBe(404)
+    expect(logs.json()).toMatchObject({ error: { code: 'TASK_NOT_FOUND' } })
   })
 
   it('adds tracing headers, records audit logs and exposes readiness and metrics', async () => {

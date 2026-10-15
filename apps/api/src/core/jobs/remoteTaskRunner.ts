@@ -2,14 +2,18 @@ import type { GenerationTask } from '@seqora/contracts'
 import type { AudioGenerationProvider } from '../generation/audioProvider.js'
 import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
-import { logError, logInfo } from '../logging.js'
+import { logError, logInfo, logWarn } from '../logging.js'
 import { GeneratedAssetWriter, type MaterializedGenerationOutputs } from './generatedAssetWriter.js'
 import { MediaReferenceResolver } from './mediaReferenceResolver.js'
 import { AUDIO_PROVIDER_NAME, IMG2_PROVIDER_NAME, SEEDANCE_PROVIDER_NAME } from './providerMetadata.js'
+import { isRetryableSubmissionError } from './taskRetryPolicy.js'
+import { cancellationResourceLockForTask } from './taskResourceLock.js'
 import { audioRequestFor, imageRequestFor, messageFor, videoRequestFor } from './taskRequestFactory.js'
 import type { TaskRuntimeStore } from './taskRuntimeStore.js'
 
 export class RemoteTaskRunner {
+  private readonly cancellationLeaseMs = 60_000
+
   constructor(
     private readonly taskRuntimeStore: TaskRuntimeStore,
     private readonly videoProvider: VideoGenerationProvider | null,
@@ -40,6 +44,45 @@ export class RemoteTaskRunner {
     return Boolean(this.audioProvider) && task.kind === 'audio' && task.provider === 'audio'
   }
 
+  async retrySubmissionTasks(): Promise<void> {
+    const tasks = await this.taskRuntimeStore.submissionTasksDueForRetry(Date.now())
+    for (const task of tasks) {
+      if (this.usesRemoteVideoProvider(task)) {
+        await this.submitVideo(task)
+        continue
+      }
+      if (this.usesRemoteImageProvider(task)) {
+        await this.submitImage(task)
+        continue
+      }
+      if (this.usesRemoteAudioProvider(task)) {
+        await this.submitAudio(task)
+        continue
+      }
+      await this.failTask(task.id, 'Provider is not configured for submission retry', 'submission')
+    }
+  }
+
+  async retryPostProcessTasks(): Promise<void> {
+    const tasks = await this.taskRuntimeStore.postProcessTasksDueForRetry(Date.now())
+    for (const task of tasks) {
+      if (this.usesRemoteVideoProvider(task)) {
+        await this.retryVideoPostProcess(task)
+        continue
+      }
+      if (this.usesRemoteImageProvider(task) || this.usesRemoteAudioProvider(task)) {
+        const outputs = outputsFromPostProcessMetadata(task)
+        if (outputs.length === 0) {
+          await this.failTask(task.id, 'Missing remote outputs for post-processing retry', 'postprocess')
+          continue
+        }
+        await this.retryMaterialization(task, outputs)
+        continue
+      }
+      await this.failTask(task.id, 'Provider is not configured for post-processing retry', 'postprocess')
+    }
+  }
+
   async submitVideo(task: GenerationTask): Promise<void> {
     try {
       if (!(await this.isTaskStillRunning(task.id))) return
@@ -51,7 +94,7 @@ export class RemoteTaskRunner {
       })
       await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, null)
     } catch (error) {
-      await this.failTask(task.id, messageFor(error))
+      await this.handleSubmissionFailure(task, error)
     }
   }
 
@@ -64,13 +107,21 @@ export class RemoteTaskRunner {
         provider: IMG2_PROVIDER_NAME,
         providerTaskId: submission.providerTaskId,
       })
-      const materialized =
-        submission.status === 'completed'
-          ? await this.materializeRemoteOutputs(task, submission.outputs)
-          : null
-      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, materialized)
+      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, null)
+      if (submission.status === 'completed') {
+        try {
+          const materialized = await this.materializeRemoteOutputs(task, submission.outputs)
+          await this.taskRuntimeStore.applyProviderStatus(
+            task.id,
+            { status: 'completed', progress: 100, error: null },
+            materialized,
+          )
+        } catch (error) {
+          await this.handlePostProcessFailure(task, error, submission.outputs)
+        }
+      }
     } catch (error) {
-      await this.failTask(task.id, messageFor(error))
+      await this.handleSubmissionFailure(task, error)
     }
   }
 
@@ -83,14 +134,64 @@ export class RemoteTaskRunner {
         provider: AUDIO_PROVIDER_NAME,
         providerTaskId: submission.providerTaskId,
       })
-      const materialized =
-        submission.status === 'completed'
-          ? await this.materializeRemoteOutputs(task, submission.outputs)
-          : null
-      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, materialized)
+      await this.taskRuntimeStore.applyProviderSubmission(task.id, submission, null)
+      if (submission.status === 'completed') {
+        try {
+          const materialized = await this.materializeRemoteOutputs(task, submission.outputs)
+          await this.taskRuntimeStore.applyProviderStatus(
+            task.id,
+            { status: 'completed', progress: 100, error: null },
+            materialized,
+          )
+        } catch (error) {
+          await this.handlePostProcessFailure(task, error, submission.outputs)
+        }
+      }
     } catch (error) {
-      await this.failTask(task.id, messageFor(error))
+      await this.handleSubmissionFailure(task, error)
     }
+  }
+
+  async cancelRequestedTasks(): Promise<void> {
+    const tasks = await this.taskRuntimeStore.claimProviderCancellationTasks(Date.now(), this.cancellationLeaseMs)
+    for (const task of tasks) {
+      const providerTaskId = String(task.metadata.providerTaskId)
+      const provider = this.cancellableProviderFor(task)
+      const lock = cancellationResourceLockForTask(task)
+      let cancelError: string | null = null
+
+      try {
+        if (provider?.cancel) {
+          await provider.cancel(providerTaskId)
+          logInfo('provider_task.cancelled', {
+            taskId: task.id,
+            provider: task.metadata.providerName,
+            providerTaskId,
+            lockKind: lock.kind,
+            lockKey: lock.key,
+          })
+        }
+      } catch (error) {
+        cancelError = messageFor(error)
+        logError('provider_task.cancel_failed', {
+          taskId: task.id,
+          provider: task.metadata.providerName,
+          providerTaskId,
+          lockKind: lock.kind,
+          lockKey: lock.key,
+          message: cancelError,
+        })
+      }
+
+      await this.taskRuntimeStore.finalizeCancellation(task.id, cancelError)
+    }
+  }
+
+  private cancellableProviderFor(task: GenerationTask) {
+    if (task.kind === 'video' && task.provider === 'seedance') return this.videoProvider
+    if (task.kind === 'image' && task.provider === 'img2') return this.imageProvider
+    if (task.kind === 'audio' && task.provider === 'audio') return this.audioProvider
+    return null
   }
 
   async pollVideos(): Promise<void> {
@@ -107,9 +208,16 @@ export class RemoteTaskRunner {
       await this.taskRuntimeStore.markPolled(task.id, now)
       try {
         const status = await this.videoProvider.getStatus(providerTaskId)
-        const materialized =
-          status.status === 'completed' ? await this.materializeRemoteVideo(task, providerTaskId) : null
-        await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
+        if (status.status === 'completed') {
+          try {
+            const materialized = await this.materializeRemoteVideo(task, providerTaskId)
+            await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
+          } catch (error) {
+            await this.handlePostProcessFailure(task, error)
+          }
+          continue
+        }
+        await this.taskRuntimeStore.applyProviderStatus(task.id, status, null)
       } catch (error) {
         await this.recordPollFailure(task, error)
       }
@@ -130,9 +238,16 @@ export class RemoteTaskRunner {
       await this.taskRuntimeStore.markPolled(task.id, now)
       try {
         const status = await this.imageProvider.getStatus(providerTaskId)
-        const materialized =
-          status.status === 'completed' ? await this.materializeRemoteOutputs(task, status.outputs) : null
-        await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
+        if (status.status === 'completed') {
+          try {
+            const materialized = await this.materializeRemoteOutputs(task, status.outputs)
+            await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
+          } catch (error) {
+            await this.handlePostProcessFailure(task, error, status.outputs)
+          }
+          continue
+        }
+        await this.taskRuntimeStore.applyProviderStatus(task.id, status, null)
       } catch (error) {
         await this.recordPollFailure(task, error)
       }
@@ -153,22 +268,93 @@ export class RemoteTaskRunner {
       await this.taskRuntimeStore.markPolled(task.id, now)
       try {
         const status = await this.audioProvider.getStatus(providerTaskId)
-        const materialized =
-          status.status === 'completed' ? await this.materializeRemoteOutputs(task, status.outputs) : null
-        await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
+        if (status.status === 'completed') {
+          try {
+            const materialized = await this.materializeRemoteOutputs(task, status.outputs)
+            await this.taskRuntimeStore.applyProviderStatus(task.id, status, materialized)
+          } catch (error) {
+            await this.handlePostProcessFailure(task, error, status.outputs)
+          }
+          continue
+        }
+        await this.taskRuntimeStore.applyProviderStatus(task.id, status, null)
       } catch (error) {
         await this.recordPollFailure(task, error)
       }
     }
   }
 
+  private async retryVideoPostProcess(task: GenerationTask): Promise<void> {
+    if (!(await this.isTaskStillRunning(task.id))) return
+    const providerTaskId = String(task.metadata.providerTaskId)
+    try {
+      const materialized = await this.materializeRemoteVideo(task, providerTaskId)
+      await this.taskRuntimeStore.applyProviderStatus(
+        task.id,
+        { status: 'completed', progress: 100, error: null },
+        materialized,
+      )
+    } catch (error) {
+      await this.handlePostProcessFailure(task, error)
+    }
+  }
+
+  private async retryMaterialization(
+    task: GenerationTask,
+    outputs: GenerationTask['outputs'],
+  ): Promise<void> {
+    if (!(await this.isTaskStillRunning(task.id))) return
+    try {
+      const materialized = await this.materializeRemoteOutputs(task, outputs)
+      await this.taskRuntimeStore.applyProviderStatus(
+        task.id,
+        { status: 'completed', progress: 100, error: null },
+        materialized,
+      )
+    } catch (error) {
+      await this.handlePostProcessFailure(task, error, outputs)
+    }
+  }
+
+  private async handleSubmissionFailure(task: GenerationTask, error: unknown): Promise<void> {
+    const message = messageFor(error)
+    if (isRetryableSubmissionError(error)) {
+      logWarn('provider_task.submit_retry', {
+        taskId: task.id,
+        provider: task.metadata.providerName,
+        message,
+      })
+      await this.taskRuntimeStore.scheduleSubmissionRetry(task.id, message)
+      return
+    }
+    await this.failTask(task.id, message, 'submission')
+  }
+
+  private async handlePostProcessFailure(
+    task: GenerationTask,
+    error: unknown,
+    remoteOutputs?: GenerationTask['outputs'],
+  ): Promise<void> {
+    const message = messageFor(error)
+    logWarn('provider_task.postprocess_retry', {
+      taskId: task.id,
+      provider: task.metadata.providerName,
+      message,
+    })
+    await this.taskRuntimeStore.schedulePostProcessRetry(task.id, message, remoteOutputs)
+  }
+
   private async recordPollFailure(task: GenerationTask, error: unknown): Promise<void> {
     await this.taskRuntimeStore.recordPollFailure(task.id, messageFor(error))
   }
 
-  private async failTask(taskId: string, error: string): Promise<void> {
+  private async failTask(
+    taskId: string,
+    error: string,
+    stage?: 'submission' | 'poll' | 'postprocess',
+  ): Promise<void> {
     logError('generation_task.failed', { taskId, message: error })
-    await this.taskRuntimeStore.failTask(taskId, error)
+    await this.taskRuntimeStore.failTask(taskId, error, stage)
   }
 
   private async isTaskStillRunning(taskId: string): Promise<boolean> {
@@ -217,4 +403,29 @@ export class RemoteTaskRunner {
   private audioRequestForProvider(task: GenerationTask) {
     return audioRequestFor(task)
   }
+}
+
+function outputsFromPostProcessMetadata(task: GenerationTask): GenerationTask['outputs'] {
+  const value = task.metadata.postProcessRemoteOutputs
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item, index) => {
+    if (typeof item !== 'object' || item === null) return []
+    const output = item as Partial<GenerationTask['outputs'][number]>
+    if (typeof output.url !== 'string' || typeof output.mediaType !== 'string') return []
+    const mediaType = output.mediaType as GenerationTask['outputs'][number]['mediaType']
+    const view =
+      output.view === 'front' || output.view === 'side' || output.view === 'back' || output.view === 'detail'
+        ? output.view
+        : 'single'
+
+    return [
+      {
+        id: typeof output.id === 'string' ? output.id : `${task.id}-${mediaType}-retry-${index + 1}`,
+        url: output.url,
+        mediaType,
+        view,
+      },
+    ]
+  })
 }

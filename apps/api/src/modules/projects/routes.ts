@@ -1,9 +1,13 @@
 import {
   createAssetSchema,
+  createProjectCommentSchema,
   createProjectSchema,
+  createProjectShareSchema,
   createShotSchema,
   PERMISSIONS,
+  reviewProjectCommentSchema,
   updateAssetSchema,
+  updateProjectShareSchema,
   updateProjectSchema,
   updateShotSchema,
 } from '@seqora/contracts'
@@ -16,6 +20,8 @@ import type { ProjectService } from './service.js'
 const projectParams = z.object({ projectId: z.string().min(1) })
 const assetParams = projectParams.extend({ assetId: z.string().min(1) })
 const shotParams = projectParams.extend({ shotId: z.string().min(1) })
+const shareParams = projectParams.extend({ shareId: z.string().min(1) })
+const commentParams = projectParams.extend({ commentId: z.string().min(1) })
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
@@ -49,6 +55,59 @@ export async function registerProjectRoutes(app: FastifyInstance, service: Proje
     '/projects/:projectId/versions',
     { preHandler: requirePermission(PERMISSIONS.PROJECT_WRITE) },
     (request) => service.saveVersion(parse(projectParams, request.params).projectId, request.principal!),
+  )
+
+  app.post(
+    '/projects/:projectId/shares',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_SHARE_MANAGE) },
+    async (request, reply) => {
+      const { projectId } = parse(projectParams, request.params)
+      const share = await service.createShare(
+        projectId,
+        parse(createProjectShareSchema, request.body),
+        request.principal!,
+      )
+      return reply.code(201).send(share)
+    },
+  )
+  app.patch(
+    '/projects/:projectId/shares/:shareId',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_SHARE_MANAGE) },
+    (request) => {
+      const { projectId, shareId } = parse(shareParams, request.params)
+      return service.updateShare(
+        projectId,
+        shareId,
+        parse(updateProjectShareSchema, request.body),
+        request.principal!,
+      )
+    },
+  )
+  app.post(
+    '/projects/:projectId/comments',
+    { preHandler: requirePermission(PERMISSIONS.PROJECT_READ) },
+    async (request, reply) => {
+      const { projectId } = parse(projectParams, request.params)
+      const comment = await service.createComment(
+        projectId,
+        parse(createProjectCommentSchema, request.body),
+        request.principal!,
+      )
+      return reply.code(201).send(comment)
+    },
+  )
+  app.post(
+    '/projects/:projectId/comments/:commentId/review',
+    { preHandler: requirePermission(PERMISSIONS.COMMENT_APPROVE) },
+    (request) => {
+      const { projectId, commentId } = parse(commentParams, request.params)
+      return service.reviewComment(
+        projectId,
+        commentId,
+        parse(reviewProjectCommentSchema, request.body),
+        request.principal!,
+      )
+    },
   )
 
   app.post(

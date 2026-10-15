@@ -5,6 +5,7 @@ import type { ImageGenerationProvider } from '../generation/imageProvider.js'
 import type { VideoGenerationProvider } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
 import { AppStore } from '../../infra/store.js'
+import { ProviderHttpError } from '../generation/providerHttp.js'
 import { GeneratedAssetWriter } from './generatedAssetWriter.js'
 import { MediaReferenceResolver } from './mediaReferenceResolver.js'
 import { GenerationTaskRunner } from './taskDispatcher.js'
@@ -13,6 +14,132 @@ const MEDIA_URL_PATTERN = /^\/api\/v1\/media\/[0-9a-f-]{36}$/
 const SIGNED_REFERENCE_URL_PATTERN = /^https:\/\/api\.example\.com\/api\/v1\/media\/[0-9a-f-]{36}\/signed\?/
 
 describe('GenerationTaskRunner Seedance integration', () => {
+  it('keeps retryable submission failures in submission retry instead of failing the task', async () => {
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(async () => {
+        throw new ProviderHttpError('Aideos Seedance', 'http', 'Too Many Requests', 429)
+      }),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'retry-submit-task',
+      clientRequestId: 'client-retry-submit-task',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'video',
+      label: 'retry submit',
+      prompt: 'retry submit',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: {},
+      status: 'queued',
+      progress: 0,
+      estimatedCredits: 6,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+
+    const runner = new GenerationTaskRunner(store, provider, null, 0)
+    await runner.dispatch(task)
+
+    expect(provider.submit).toHaveBeenCalledTimes(1)
+    const stored = await store.read((state) => state.tasks.find((item) => item.id === task.id))
+    expect(stored).toMatchObject({
+      status: 'running',
+      progress: 1,
+      error: null,
+      metadata: expect.objectContaining({
+        providerState: 'submission_retrying',
+        submissionRetryCount: 1,
+        submissionRetryAt: expect.any(Number),
+      }),
+    })
+  })
+
+  it('retries post-processing without re-submitting the provider task', async () => {
+    const provider: ImageGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'retry-postprocess-task',
+      clientRequestId: 'client-retry-postprocess-task',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'image',
+      label: 'retry postprocess',
+      prompt: 'retry postprocess',
+      negativePrompt: '',
+      provider: 'img2',
+      model: 'img2-default',
+      metadata: {
+        assetId: 'asset-lin',
+        assetKind: 'character',
+        generationStage: 'face',
+        providerName: 'aideos-img2',
+        providerState: 'completed',
+        providerTaskId: 'remote-image-task-1',
+        postProcessState: 'retrying',
+        postProcessRetryAt: Date.now() - 1_000,
+        postProcessRetryCount: 1,
+        postProcessRemoteOutputs: [
+          {
+            id: 'remote-image-output-1',
+            url: 'https://assets.example/generated-face.png',
+            mediaType: 'image',
+            view: 'single',
+          },
+        ],
+      },
+      status: 'running',
+      progress: 99,
+      estimatedCredits: 6,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: null,
+    }
+    await store.mutate((state) => {
+      const asset = state.assets.find((item) => item.id === 'asset-lin')
+      if (asset && asset.attributes.type === 'character') {
+        asset.status = 'draft'
+        asset.imageUrl = null
+      }
+      state.tasks.unshift(task)
+    })
+
+    const { writer, fetcher } = createGeneratedAssetWriter()
+    const runner = new GenerationTaskRunner(store, null, provider, 0, writer)
+    await runner.dispatch(task)
+
+    expect(provider.submit).not.toHaveBeenCalled()
+    expect(provider.getStatus).not.toHaveBeenCalled()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    const stored = await store.read((state) => state.tasks.find((item) => item.id === task.id))
+    expect(stored).toMatchObject({
+      status: 'completed',
+      progress: 100,
+      metadata: expect.objectContaining({
+        providerState: 'completed',
+      }),
+    })
+  })
+
   it('submits and completes configured video tasks through the remote provider', async () => {
     const provider: VideoGenerationProvider = {
       submit: vi.fn(async () => ({ providerTaskId: 'remote-task-1', status: 'queued', progress: 0 })),
@@ -27,6 +154,8 @@ describe('GenerationTaskRunner Seedance integration', () => {
     await store.initialize()
     const now = new Date().toISOString()
     const platformReferenceId = '22222222-2222-4222-8222-222222222222'
+    const sourceVideoReferenceId = '33333333-3333-4333-8333-333333333333'
+    const lipSyncAudioReferenceId = '44444444-4444-4444-8444-444444444444'
     const task: GenerationTask = {
       id: 'local-video-task',
       clientRequestId: 'client-video-task',
@@ -40,6 +169,7 @@ describe('GenerationTaskRunner Seedance integration', () => {
       provider: 'seedance',
       model: 'doubao-seedance-2-0-260128',
       metadata: {
+        videoMode: 'lip-sync',
         duration: 5,
         aspectRatio: '9:16',
         resolution: '720p',
@@ -48,6 +178,9 @@ describe('GenerationTaskRunner Seedance integration', () => {
           `/api/v1/media/${platformReferenceId}`,
           '/demo/local.jpg',
         ],
+        sourceImageUrls: [`/api/v1/media/${platformReferenceId}`],
+        sourceVideoUrl: `/api/v1/media/${sourceVideoReferenceId}`,
+        lipSyncAudioUrl: `/api/v1/media/${lipSyncAudioReferenceId}`,
       },
       status: 'queued',
       progress: 0,
@@ -70,6 +203,28 @@ describe('GenerationTaskRunner Seedance integration', () => {
         storageKey: `${task.tenantId}/${task.projectId}/shot.jpg`,
         createdAt: now,
       })
+      state.media.push({
+        id: sourceVideoReferenceId,
+        projectId: task.projectId,
+        tenantId: task.tenantId,
+        kind: 'video',
+        name: 'source.mp4',
+        contentType: 'video/mp4',
+        size: 120,
+        storageKey: `${task.tenantId}/${task.projectId}/source.mp4`,
+        createdAt: now,
+      })
+      state.media.push({
+        id: lipSyncAudioReferenceId,
+        projectId: task.projectId,
+        tenantId: task.tenantId,
+        kind: 'audio',
+        name: 'voice.wav',
+        contentType: 'audio/wav',
+        size: 48,
+        storageKey: `${task.tenantId}/${task.projectId}/voice.wav`,
+        createdAt: now,
+      })
       state.tasks.unshift(task)
     })
 
@@ -84,10 +239,14 @@ describe('GenerationTaskRunner Seedance integration', () => {
 
     expect(provider.submit).toHaveBeenCalledWith(
       expect.objectContaining({
+        mode: 'lip-sync',
         prompt: task.prompt,
         seconds: 5,
         ratio: '9:16',
         images: ['https://assets.example/shot.jpg', expect.stringMatching(SIGNED_REFERENCE_URL_PATTERN)],
+        sourceImageUrls: [expect.stringMatching(SIGNED_REFERENCE_URL_PATTERN)],
+        sourceVideoUrl: expect.stringMatching(SIGNED_REFERENCE_URL_PATTERN),
+        lipSyncAudioUrl: expect.stringMatching(SIGNED_REFERENCE_URL_PATTERN),
       }),
     )
     expect(provider.getStatus).toHaveBeenCalledWith('remote-task-1')
@@ -113,6 +272,62 @@ describe('GenerationTaskRunner Seedance integration', () => {
       contentType: 'video/mp4',
     })
     expect(objects.get(media!.storageKey)).toEqual(Buffer.from('video-content'))
+  })
+
+  it('finalizes provider cancellation requests in the worker layer', async () => {
+    const provider: VideoGenerationProvider = {
+      submit: vi.fn(),
+      getStatus: vi.fn(),
+      getContent: vi.fn(),
+      cancel: vi.fn(async () => undefined),
+    }
+    const store = new AppStore(null)
+    await store.initialize()
+    const now = new Date().toISOString()
+    const task: GenerationTask = {
+      id: 'remote-cancel-task',
+      clientRequestId: 'client-remote-cancel-task',
+      projectId: 'project-midnight-film',
+      tenantId: 'tenant-seqora-demo',
+      userId: 'user-creator',
+      kind: 'video',
+      label: '取消中的镜头',
+      prompt: '雨夜车站',
+      negativePrompt: '',
+      provider: 'seedance',
+      model: 'doubao-seedance-2-0-260128',
+      metadata: {
+        providerName: 'aideos-seedance',
+        providerState: 'cancelling',
+        providerTaskId: 'remote-task-to-cancel',
+        cancelRequestedAt: now,
+      },
+      status: 'running',
+      progress: 42,
+      estimatedCredits: 18,
+      createdAt: now,
+      updatedAt: now,
+      resultUrl: null,
+      outputs: [],
+      error: 'Cancellation requested',
+    }
+    await store.mutate((state) => state.tasks.unshift(task))
+
+    const runner = new GenerationTaskRunner(store, provider, null, 0)
+    await runner.dispatch(task)
+
+    expect(provider.cancel).toHaveBeenCalledWith('remote-task-to-cancel')
+    expect(provider.getStatus).not.toHaveBeenCalled()
+    const stored = await store.read((state) => state.tasks.find((item) => item.id === task.id))
+    expect(stored).toMatchObject({
+      status: 'cancelled',
+      progress: 100,
+      error: 'Task cancelled by user',
+      metadata: {
+        providerState: 'cancelled',
+        providerTaskId: 'remote-task-to-cancel',
+      },
+    })
   })
 
   it('submits and completes configured image tasks through the remote provider', async () => {

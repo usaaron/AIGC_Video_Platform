@@ -65,6 +65,7 @@ describe('PostgresGenerationTaskRepository', () => {
     expect(sql).toContain('from ledger_entries')
     expect(sql).toContain('insert into ledger_entries')
     expect(sql).toContain('insert into generation_tasks')
+    expect(sql).toContain('insert into generation_task_logs')
     expect(calls.find((call) => call.sql.toLowerCase().includes('update users'))?.params).toEqual([
       4,
       expect.any(String),
@@ -110,6 +111,7 @@ describe('PostgresGenerationTaskRepository', () => {
     expect(sql).toContain('update users')
     expect(sql).toContain('insert into ledger_entries')
     expect(sql).toContain("status = 'cancelled'")
+    expect(sql).toContain('insert into generation_task_logs')
   })
 })
 
