@@ -21,6 +21,7 @@ const integration = [
   'src/modules/generation/deliveryContractPolicy.postgres.test.ts',
   'src/modules/generation/taskLifecyclePersistence.postgres.test.ts',
   'src/modules/generation/textTaskPersistence.postgres.test.ts',
+  'src/modules/generation/textCompletionPersistence.postgres.test.ts',
   'src/modules/generation/imageProviderPersistence.postgres.test.ts',
   'src/modules/generation/imageWorkspacePersistence.postgres.test.ts',
   'src/modules/projects/textTaskWriteGuard.postgres.test.ts',

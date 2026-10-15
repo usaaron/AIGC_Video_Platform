@@ -1,6 +1,14 @@
-import type { Principal } from '@seqora/contracts'
+import type { Principal, ScriptEpisode } from '@seqora/contracts'
 import type { TextTaskWriteGuard } from '../../core/jobs/textTaskExecutionGuard.js'
 import type { ProjectRepository } from './repository.js'
+
+export type ScriptTaskResult = {
+  script: string
+  mode: 'quick' | 'segment' | 'detailed'
+  warnings: string[]
+  episode?: ScriptEpisode
+  segment?: string
+}
 
 export type ScriptTaskExecution = {
   assertActive?: (() => Promise<void>) | undefined

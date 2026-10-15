@@ -3,6 +3,7 @@ import type { GenerateScriptRequest, Principal, ScriptEpisode } from '@seqora/co
 import type { LocalTaskExecutionContext } from '../../core/jobs/localTaskHandler.js'
 import { AppError } from '../../core/errors.js'
 import type { ProjectService } from './service.js'
+import { finishTextCompletionBatch, markReusedTextEpisode } from '../../core/jobs/textCompletion.js'
 
 export async function generateEpisodeBatch(
   service: ProjectService,
@@ -24,6 +25,7 @@ export async function generateEpisodeBatch(
     .digest('hex')
     .slice(0, 24)
   const episodes: ScriptEpisode[] = []
+  const children: { result: object; reused: boolean }[] = []
   for (const [index, entry] of plan.episodes.entries()) {
     await context?.assertActive?.()
     const requestId = `episode-plan-${plan.id}-${hash}-${index}`
@@ -33,6 +35,7 @@ export async function generateEpisodeBatch(
     )
     if (completed) {
       episodes.push(completed)
+      children.push({ result: { episode: markReusedTextEpisode(completed) }, reused: true })
       continue
     }
     const previous = episodes.at(-1)
@@ -67,13 +70,19 @@ export async function generateEpisodeBatch(
     if (!('episode' in result) || !result.episode)
       throw new AppError(502, 'EPISODE_WRITE_FAILED', '分集写入失败')
     episodes.push(result.episode)
+    children.push({ result, reused: false })
   }
   const last = episodes.at(-1)!
-  return {
-    script: last.draftContent || last.content,
-    episode: last,
-    episodes,
-    warnings: [`已生成 ${episodes.length} 集草稿，请逐集核对并保存。`],
-    mode: 'quick' as const,
-  }
+  return finishTextCompletionBatch(
+    {
+      script: last.draftContent || last.content,
+      episode: last,
+      episodes,
+      warnings: [`已生成 ${episodes.length} 集草稿，请逐集核对并保存。`],
+      mode: 'quick' as const,
+    },
+    children,
+    context,
+    { projectId, ...principal },
+  )
 }

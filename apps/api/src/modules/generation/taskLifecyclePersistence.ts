@@ -5,6 +5,7 @@ import { metadataString } from './taskStateHelpers.js'
 import { findProviderCompletionContext } from '../../core/jobs/providerCompletionContext.js'
 import { findTextTaskPersistenceContext } from '../../core/jobs/textTaskPersistenceContext.js'
 import { providerCompletionEvidence } from './providerCompletionEvidence.js'
+import { textCompletionEvidence } from './textCompletionEvidence.js'
 import type { QueryResult, QueryResultRow } from 'pg'
 type Queryable = {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -39,6 +40,9 @@ export async function updateGenerationTaskLifecycle(
   options: { runtimeSnapshot?: boolean } = {},
 ): Promise<GenerationTask | null> {
   if (task.metadata.providerCompletionReceipt !== undefined && !providerCompletionEvidence(task).receipt) {
+    return null
+  }
+  if (task.metadata.textCompletionReceipt !== undefined && !textCompletionEvidence(task).receipt) {
     return null
   }
   const completion = findProviderCompletionContext(task)
@@ -134,6 +138,33 @@ export async function updateGenerationTaskLifecycle(
           AND (
             (status = 'running' AND lease_owner_id = $18 AND lease_token = $19)
             OR (status = 'completed' AND metadata->'providerCompletionReceipt' = $2::jsonb->'providerCompletionReceipt')
+          )
+        )
+      )
+      AND (
+        (NOT ($2::jsonb ? 'textCompletionReceipt') AND NOT (metadata ? 'textCompletionReceipt'))
+        OR (
+          $3 = 'completed' AND $28::boolean AND kind = 'text' AND provider = 'text'
+          AND project_id NOT LIKE 'sm-standalone-%'
+          AND tenant_id = $16 AND project_id = $17
+          AND user_id = $21 AND client_request_id = $22
+          AND model IS NOT DISTINCT FROM $23
+          AND CASE WHEN jsonb_typeof(metadata->'scriptOperation') = 'string'
+            THEN metadata->>'scriptOperation' ELSE NULL END IS NOT DISTINCT FROM $24
+          AND attempts = $5
+          AND (
+            (
+              status = 'running' AND NOT (metadata ? 'textCompletionReceipt')
+              AND $25 = 'worker'
+              AND lease_owner_id = $26::jsonb->>'leaseOwnerId'
+              AND lease_token = $26::jsonb->>'leaseToken'
+              AND lease_expires_at > clock_timestamp()
+            )
+            OR (
+              status = 'completed'
+              AND metadata->'textCompletionReceipt' = $2::jsonb->'textCompletionReceipt'
+              AND metadata->'textResult' = $2::jsonb->'textResult'
+            )
           )
         )
       )

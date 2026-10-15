@@ -146,7 +146,26 @@ describe('createScriptTaskHandler', () => {
       { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] },
       onTextProgress,
       onTextTiming,
+      'model',
+      { onTextProgress, onTextTiming },
     )
     expect(result).toMatchObject({ summary: '建议先建立主角和核心场景', assets: [] })
+  })
+
+  it('forwards explicit fast strategy and private context to local asset extraction', async () => {
+    const f = handlerFixture('suggest-assets')
+    f.task.metadata = { ...f.task.metadata, strategy: 'fast' } as typeof f.task.metadata
+    const context = { assertActive: vi.fn(async () => {}) }
+    await f.handler(f.task, context)
+    expect(f.methods.suggestScriptAssets.mock.calls[0]).toEqual([
+      f.task.projectId,
+      f.task.metadata.script,
+      f.task.metadata.direction,
+      { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] },
+      undefined,
+      undefined,
+      'fast',
+      context,
+    ])
   })
 })

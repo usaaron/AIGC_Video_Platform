@@ -1,3 +1,4 @@
+import { recoverScriptTaskFromDraft } from './textTaskDraftRecovery.js'
 import {
   hasBoundVideoReferences,
   hasManualVideoReferences,
@@ -30,7 +31,7 @@ import type {
   VideoProviderName,
 } from '../generation/videoProvider.js'
 import type { ObjectStorage } from '../../infra/objectStorage.js'
-import type { AppState, AppStore } from '../../infra/store.js'
+import type { AppStore } from '../../infra/store.js'
 import type { CreditLedger } from '../../modules/billing/creditLedger.js'
 import type { MediaRepository } from '../../modules/media/repository.js'
 import { isStandaloneProjectId } from '../../modules/projects/projectSurface.js'
@@ -1593,73 +1594,6 @@ function isNextEpisodeScriptTask(task: GenerationTask): boolean {
 function taskCreatedAt(task: GenerationTask): number {
   const value = Date.parse(task.createdAt)
   return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER
-}
-
-function recoverScriptTaskFromDraft(
-  task: GenerationTask,
-  state: AppState,
-  store: AppStore,
-  nowIso: string,
-  requireWritebackMarker = false,
-): boolean {
-  if (!isScriptTask(task)) return false
-  const startedAt = Date.parse(stringValue(task.metadata.localTaskStartedAt, ''))
-  const requestedEpisodeId = task.metadata.mode === 'segment' ? '' : stringValue(task.metadata.episodeId, '')
-  const draft = state.scriptEpisodes
-    .filter(
-      (episode) =>
-        episode.projectId === task.projectId &&
-        episode.tenantId === task.tenantId &&
-        episode.status === 'draft' &&
-        episode.draftContent.trim().length > 0 &&
-        (!requestedEpisodeId || episode.id === requestedEpisodeId) &&
-        (!Number.isFinite(startedAt) || Date.parse(episode.updatedAt) >= startedAt),
-    )
-    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
-  const episode = draft[0]
-  if (!episode) return false
-
-  const generationClientRequestId = stringValue(episode.continuityState?.generationClientRequestId, '')
-  const hasWritebackMarker = generationClientRequestId === task.clientRequestId
-  if (requireWritebackMarker && !hasWritebackMarker) return false
-  const hasLegacyPreview = Boolean(stringValue(task.metadata.textPreview, '').trim())
-  const episodeUpdatedAt = Date.parse(episode.updatedAt)
-  const episodeCreatedAt = Date.parse(episode.createdAt)
-  const hasLegacyWritebackEvidence =
-    hasLegacyPreview ||
-    (Number.isFinite(startedAt) &&
-      ((requestedEpisodeId && episode.id === requestedEpisodeId) ||
-        (Number.isFinite(episodeCreatedAt) && episodeCreatedAt >= startedAt)) &&
-      episodeUpdatedAt >= startedAt)
-  if (!hasWritebackMarker && !hasLegacyWritebackEvidence) return false
-
-  const {
-    textPreview: _textPreview,
-    textPreviewUpdatedAt: _textPreviewUpdatedAt,
-    textFirstPreviewAt: _textFirstPreviewAt,
-    textPreviewValidation: _textPreviewValidation,
-    textPreviewStage: _textPreviewStage,
-    ...metadata
-  } = task.metadata
-  const script = episode.draftContent.trim()
-  task.status = 'completed'
-  task.progress = 100
-  task.error = null
-  task.metadata = {
-    ...metadata,
-    localTaskRecoveredAt: nowIso,
-    scriptWritebackRecoveredAt: nowIso,
-    textResult: {
-      script,
-      episode,
-      ...(task.metadata.mode === 'segment' ? { segment: script } : {}),
-      mode: task.metadata.mode === 'segment' ? 'segment' : 'quick',
-    },
-  }
-  task.updatedAt = nowIso
-  releaseGenerationTaskLease(task)
-  markTextTaskTerminalPending(store, task)
-  return true
 }
 
 function canRefundTask(task: GenerationTask, ledgerIds: string[]): boolean {

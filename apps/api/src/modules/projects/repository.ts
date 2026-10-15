@@ -1,4 +1,12 @@
+import {
+  insertionOrderFor,
+  renumberProjectShots,
+  renumberShotsInDatabase,
+  touchProject,
+  prefixedAssetColumns,
+} from './repositorySqlHelpers.js'
 import { importProjectsFromStore, type ProjectJsonImportResult } from './projectStoreImport.js'
+import { markReusedTextEpisode } from '../../core/jobs/textCompletion.js'
 export type { ProjectJsonImportResult } from './projectStoreImport.js'
 import { listProjectsFromStore, readWorkspaceFromStore } from './projectStoreReads.js'
 import {
@@ -488,8 +496,9 @@ export class ProjectRepository {
     } = {},
   ): Promise<ScriptEpisode | null> {
     if (isStandaloneProjectId(projectId)) return null
+    let reused = false
     if (!this.database) {
-      return this.requireStore().mutate((state) => {
+      const written = await this.requireStore().mutate((state) => {
         assertStoreTextTaskWriteGuard(state, projectId, principal, options.taskWriteGuard)
         const project = state.projects.find(
           (item) =>
@@ -506,7 +515,10 @@ export class ProjectRepository {
           episodes.find(
             (item) => item.continuityState.batchGenerationKey === options.generationClientRequestId,
           )
-        if (checkpoint) return checkpoint
+        if (checkpoint) {
+          reused = true
+          return checkpoint
+        }
         let episode = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
         if (!episode && !episodeId && !options.createNext) {
           episode = [...episodes].reverse().find((item) => item.status === 'draft')
@@ -561,6 +573,7 @@ export class ProjectRepository {
         project.updatedAt = now
         return episode
       })
+      return written && reused ? markReusedTextEpisode(written) : written
     }
 
     const writeback =
@@ -579,7 +592,10 @@ export class ProjectRepository {
       const checkpoint =
         options.generationClientRequestId?.startsWith('episode-plan-') &&
         episodes.find((item) => item.continuityState.batchGenerationKey === options.generationClientRequestId)
-      if (checkpoint) return checkpoint
+      if (checkpoint) {
+        reused = true
+        return checkpoint
+      }
       let current = episodeId ? episodes.find((item) => item.id === episodeId) : undefined
       if (!current && episodeId) return null
       if (!current && !options.createNext) {
@@ -650,7 +666,7 @@ export class ProjectRepository {
       return inserted.rows[0] ? scriptEpisodeFromRow(inserted.rows[0]) : null
     })
     if (episode) await (writeback ? writeback.episode(episode) : this.mirrorScriptEpisode(episode))
-    return episode
+    return episode && reused ? markReusedTextEpisode(episode) : episode
   }
 
   async saveScriptEpisode(
@@ -2235,56 +2251,4 @@ export class ProjectRepository {
     }
     return this.store
   }
-}
-
-function insertionOrderFor(shots: Shot[], insertAfterShotId: string | null | undefined): number | null {
-  if (insertAfterShotId === undefined) return shots.length + 1
-  if (insertAfterShotId === null) return 1
-  const anchor = shots.find((shot) => shot.id === insertAfterShotId)
-  return anchor ? anchor.order + 1 : null
-}
-
-function renumberProjectShots(shots: Shot[], projectId: string, tenantId: string): void {
-  shots
-    .filter((shot) => shot.projectId === projectId && shot.tenantId === tenantId)
-    .sort((left, right) => left.order - right.order)
-    .forEach((shot, index) => {
-      shot.order = index + 1
-    })
-}
-
-async function renumberShotsInDatabase(
-  queryable: Queryable,
-  projectId: string,
-  tenantId: string,
-): Promise<void> {
-  await queryable.query(
-    `WITH ranked AS (
-       SELECT id, ROW_NUMBER() OVER (ORDER BY shot_order ASC, created_at ASC, id ASC) AS next_order
-       FROM shots WHERE project_id = $1 AND tenant_id = $2
-     )
-     UPDATE shots shot SET shot_order = ranked.next_order
-     FROM ranked WHERE shot.id = ranked.id`,
-    [projectId, tenantId],
-  )
-}
-
-async function touchProject(
-  queryable: Queryable,
-  projectId: string,
-  tenantId: string,
-  updatedAt: string,
-): Promise<void> {
-  await queryable.query('UPDATE projects SET updated_at = $3 WHERE id = $1 AND tenant_id = $2', [
-    projectId,
-    tenantId,
-    updatedAt,
-  ])
-}
-
-function prefixedAssetColumns(alias: string): string {
-  return assetColumns
-    .split(',')
-    .map((column) => `${alias}.${column.trim()}`)
-    .join(',\n')
 }

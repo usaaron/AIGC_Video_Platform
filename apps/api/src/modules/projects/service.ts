@@ -5,6 +5,7 @@ import {
   writeTaskProjectScript,
   type ScriptBatchExecution,
   type ScriptTaskExecution,
+  type ScriptTaskResult,
 } from './scriptTaskExecution.js'
 import type {
   AutoSplitShotsRequest,
@@ -32,6 +33,7 @@ import {
 import { mergeProjectSuggestions } from './characterSuggestions.js'
 import { AppError } from '../../core/errors.js'
 import type { TextGenerationProvider, TextGenerationTiming } from '../../core/generation/textProvider.js'
+import { createTextCompletionRecorder } from '../../core/jobs/textCompletion.js'
 import { traceMetadata } from '../../core/observability/trace.js'
 import type { SessionMetadata } from '../auth/accounts.js'
 import type { CreditLedger } from '../billing/creditLedger.js'
@@ -219,7 +221,10 @@ export class ProjectService {
     onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
     strategy: 'model' | 'fast' = 'model',
+    execution?: ScriptTaskExecution,
   ) {
+    const recorder = createTextCompletionRecorder(this.textProvider, execution, { projectId, ...principal })
+    const textProvider = recorder.provider
     const workspace = await this.workspace(projectId, principal)
     const hasModelAuthoredAssetDelivery = (workspace.scriptEpisodes || []).some(
       (episode) =>
@@ -228,12 +233,15 @@ export class ProjectService {
           'script_asset_design_delivery.v1',
     )
     if (hasModelAuthoredAssetDelivery) {
-      return {
-        summary: '剧本已随模型生成的正式资产设定交付，主项目直接复用这些资产。',
-        assets: [],
-        generatedAt: new Date().toISOString(),
-        warnings: ['已跳过正文资产提取；如需新增资产，请在剧本大师中补充设定后重新同步。'],
-      }
+      return recorder.finish(
+        {
+          summary: '剧本已随模型生成的正式资产设定交付，主项目直接复用这些资产。',
+          assets: [],
+          generatedAt: new Date().toISOString(),
+          warnings: ['已跳过正文资产提取；如需新增资产，请在剧本大师中补充设定后重新同步。'],
+        },
+        'local-derived',
+      )
     }
     const sources = (workspace.scriptEpisodes || [])
       .filter((episode) => episode.status === 'saved' && episode.content.trim())
@@ -268,14 +276,14 @@ export class ProjectService {
     if (strategy === 'fast') {
       warnings = ['已使用剧本结构快速提取基础资产；建议在资产设计页核对名称、外观和优先级']
       result = fallbackResult
-    } else if (!this.textProvider) {
+    } else if (!textProvider) {
       warnings = ['文本服务未配置，已根据剧本文本做基础资产建议']
       result = fallbackResult
     } else {
       try {
         const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n视觉风格：${projectVisualStyleLabel(workspace.project.visualStyle)}\n画面比例：${workspace.project.aspectRatio}\n创作方向：${directionSummary(direction)}\n已有资产：${assetSuggestionSummary(workspace.assets)}`
         const assetEvidence = buildScriptAssetEvidence(source, sourceIndex)
-        const response = await this.textProvider.generate({
+        const response = await textProvider.generate({
           systemPrompt: SCRIPT_ASSET_SUGGESTIONS_SYSTEM_PROMPT,
           userPrompt: `${projectContext}\n\n全剧资产证据（已覆盖开头、中段和结尾；只基于这些证据筛选核心资产）：\n${assetEvidence.text}`,
           maxOutputTokens: scriptAssetSuggestionMaxTokens(assetEvidence.candidateCount),
@@ -340,21 +348,24 @@ export class ProjectService {
       warnings = ['模型未返回可用资产，已根据全剧结构化字段补齐基础资产建议']
     }
 
-    return {
-      summary: result.summary,
-      assets: mergeProjectSuggestions(
-        [
-          ...normalizedAssets,
-          ...normalizedFallbackAssets.filter(
-            (suggestion) => !representedAssets.has(assetSuggestionKey(suggestion)),
-          ),
-        ],
-        workspace.assets,
-        workspace.project.contentType === 'short-drama',
-      ),
-      generatedAt: new Date().toISOString(),
-      warnings,
-    }
+    return recorder.finish(
+      {
+        summary: result.summary,
+        assets: mergeProjectSuggestions(
+          [
+            ...normalizedAssets,
+            ...normalizedFallbackAssets.filter(
+              (suggestion) => !representedAssets.has(assetSuggestionKey(suggestion)),
+            ),
+          ],
+          workspace.assets,
+          workspace.project.contentType === 'short-drama',
+        ),
+        generatedAt: new Date().toISOString(),
+        warnings,
+      },
+      result === fallbackResult ? 'local-derived' : 'mixed',
+    )
   }
 
   async generateScript(
@@ -376,10 +387,12 @@ export class ProjectService {
     episodeId?: string,
     batch?: ScriptBatchExecution,
     execution?: ScriptTaskExecution,
-  ) {
+  ): Promise<ScriptTaskResult> {
+    const recorder = createTextCompletionRecorder(this.textProvider, execution, { projectId, ...principal })
+    const textProvider = recorder.provider
     const beforeWrite = scriptWriteCheck(execution, batch)
     const workspace = await this.workspace(projectId, principal)
-    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    if (!textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
     const hasEpisodeWorkspace = Array.isArray(workspace.scriptEpisodes)
     const scriptEpisodes = workspace.scriptEpisodes ?? []
@@ -434,21 +447,27 @@ export class ProjectService {
           },
         )
         if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-        return {
-          script: source,
-          episode,
-          mode: 'quick' as const,
-          warnings: ['检测到超过 1 万字的内容，已保留为本集草稿；请拆分后再生成。'],
-        }
+        return recorder.finish(
+          {
+            script: source,
+            episode,
+            mode: 'quick' as const,
+            warnings: ['检测到超过 1 万字的内容，已保留为本集草稿；请拆分后再生成。'],
+          },
+          'retained-input',
+        )
       }
       await beforeWrite()
       const updated = await writeTaskProjectScript(this.repository, projectId, source, principal, execution)
       if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-      return {
-        script: updated.script,
-        mode: 'quick' as const,
-        warnings: ['检测到超过 1 万字的长篇内容，已保护原稿；请使用“生成下一段”按段续写或进入小说模块。'],
-      }
+      return recorder.finish(
+        {
+          script: updated.script,
+          mode: 'quick' as const,
+          warnings: ['检测到超过 1 万字的长篇内容，已保护原稿；请使用“生成下一段”按段续写或进入小说模块。'],
+        },
+        'retained-input',
+      )
     }
     const generationInstruction = scriptGenerationInstruction({
       scriptMode,
@@ -486,8 +505,8 @@ export class ProjectService {
               : source
           const segmentSeconds = segment.targetSeconds ?? segment.targetMinutes * 60
           let segmentText = await ensureChineseScriptOutput(
-            this.textProvider!,
-            await this.textProvider!.generate({
+            textProvider,
+            await textProvider.generate({
               systemPrompt: withChineseScriptRules(scriptSegmentSystemPrompt(scriptMode)),
               userPrompt: scriptSegmentUserPrompt(
                 scriptMode,
@@ -523,13 +542,16 @@ export class ProjectService {
               },
             )
             if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-            return {
-              script: segmentText,
-              segment: segmentText,
-              episode,
-              mode: 'segment' as const,
-              warnings: segmentScriptIssues(segmentText, scriptMode),
-            }
+            return recorder.finish(
+              {
+                script: segmentText,
+                segment: segmentText,
+                episode,
+                mode: 'segment' as const,
+                warnings: segmentScriptIssues(segmentText, scriptMode),
+              },
+              'mixed',
+            )
           }
           const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
           await beforeWrite()
@@ -541,16 +563,19 @@ export class ProjectService {
             execution,
           )
           if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-          return {
-            script: updated.script,
-            segment: segmentText,
-            mode: 'segment' as const,
-            warnings: segmentScriptIssues(segmentText, scriptMode),
-          }
+          return recorder.finish(
+            {
+              script: updated.script,
+              segment: segmentText,
+              mode: 'segment' as const,
+              warnings: segmentScriptIssues(segmentText, scriptMode),
+            },
+            'mixed',
+          )
         }
         const generatedCandidate = await ensureChineseScriptOutput(
-          this.textProvider!,
-          await this.textProvider!.generate({
+          textProvider,
+          await textProvider.generate({
             systemPrompt: withChineseScriptRules(generationSystemPrompt),
             userPrompt: scriptGenerationUserPrompt(scriptMode, projectContext, generationInstruction, source),
             maxOutputTokens: scriptGenerationMaxOutputTokens(
@@ -581,7 +606,7 @@ export class ProjectService {
             10,
             Math.round(episodeSeconds / Math.max(1, sceneBudget.target)),
           )
-          const continuation = await this.textProvider!.generate({
+          const continuation = await textProvider.generate({
             systemPrompt: withChineseScriptRules(WEB_SERIES_SCRIPT_SYSTEM_PROMPT),
             userPrompt: `${projectContext}\n\n首轮已经生成 ${existingSceneCount} 个可识别场次，低于单集最低 ${sceneBudget.minimum} 场。保留首轮内容，不要重复或改写；请从其出场状态继续，只输出后续 ${missingMinimum} 到 ${missingMaximum} 个新场次，建议 ${missingTarget} 个，使本集达到 ${sceneBudget.minimum} 到 ${sceneBudget.maximum} 场并在最后形成明确钩子。新场次逐行完整包含场次、时长、剧情、目标、阻力、变化、场景、角色、服装、关键物件、入场状态、动作、对白、声音、镜头1、镜头2、出场状态、衔接字段；${webSeriesDialogueRequirement(averageSceneSeconds)}镜头按导演目的而非动作拆分。\n\n用户原始素材：\n${source}\n\n已经生成的首轮内容：\n${existingCandidate}`,
             maxOutputTokens: Math.min(
@@ -599,7 +624,7 @@ export class ProjectService {
             ...(onTextTiming ? { onTextTiming, timingLabel: 'scene-completion' } : {}),
           })
           const normalizedContinuation = await ensureChineseScriptOutput(
-            this.textProvider!,
+            textProvider,
             continuation,
             model,
             onTextTiming,
@@ -620,7 +645,7 @@ export class ProjectService {
           scriptMode !== 'short-video' &&
           countStructuredScenes(candidate) < contentSceneBudget.minimum
         if (shouldRepairContentStructure) {
-          const repaired = await this.textProvider!.generate({
+          const repaired = await textProvider.generate({
             systemPrompt: withChineseScriptRules(scriptGenerationSystemPrompt(scriptMode, true)),
             userPrompt: scriptStructureRepairPrompt(
               scriptMode,
@@ -639,7 +664,7 @@ export class ProjectService {
             ...(onTextTiming ? { onTextTiming, timingLabel: 'structure-repair' } : {}),
           })
           candidate = await ensureChineseScriptOutput(
-            this.textProvider!,
+            textProvider,
             repaired,
             model,
             onTextTiming,
@@ -684,11 +709,11 @@ export class ProjectService {
             },
           )
           if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-          return { script, episode, mode: 'quick' as const, warnings }
+          return recorder.finish({ script, episode, mode: 'quick' as const, warnings }, 'mixed')
         }
         const updated = await writeTaskProjectScript(this.repository, projectId, script, principal, execution)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-        return { script: updated.script, mode: 'quick' as const, warnings }
+        return recorder.finish({ script: updated.script, mode: 'quick' as const, warnings }, 'mixed')
       },
       billingMode,
       Boolean(batch),
@@ -713,9 +738,11 @@ export class ProjectService {
     onTextTiming?: (timing: TextGenerationTiming) => void,
     episodeId?: string,
     execution?: ScriptTaskExecution,
-  ) {
+  ): Promise<ScriptTaskResult> {
+    const recorder = createTextCompletionRecorder(this.textProvider, execution, { projectId, ...principal })
+    const textProvider = recorder.provider
     const workspace = await this.workspace(projectId, principal)
-    if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
+    if (!textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
     const hasEpisodeWorkspace = Array.isArray(workspace.scriptEpisodes)
     const scriptEpisodes = workspace.scriptEpisodes ?? []
@@ -746,8 +773,8 @@ export class ProjectService {
       scriptDetailOperationLabel(scriptMode),
       async () => {
         const candidate = await ensureChineseScriptOutput(
-          this.textProvider!,
-          await this.textProvider!.generate({
+          textProvider,
+          await textProvider.generate({
             systemPrompt: withChineseScriptRules(scriptDetailSystemPrompt(scriptMode, requestedSceneCount)),
             userPrompt: scriptDetailUserPrompt(scriptMode, projectContext, source, requestedSceneCount),
             maxOutputTokens: requestedSceneCount
@@ -773,8 +800,8 @@ export class ProjectService {
           : alignEnrichedSceneRows(source, candidateWithBreaks)
         if (requestedSceneCount && countStructuredScenes(sceneAlignedCandidate) !== requestedSceneCount) {
           const repairedCandidate = await ensureChineseScriptOutput(
-            this.textProvider!,
-            await this.textProvider!.generate({
+            textProvider,
+            await textProvider.generate({
               systemPrompt: withChineseScriptRules(scriptDetailSystemPrompt(scriptMode, requestedSceneCount)),
               userPrompt: scriptSceneCountRepairPrompt(
                 projectContext,
@@ -824,7 +851,10 @@ export class ProjectService {
             },
           )
           if (!episode) throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '剧集不存在或无权修改')
-          return { script: enriched, episode, mode: 'detailed' as const, warnings }
+          return recorder.finish(
+            { script: enriched, episode, mode: 'detailed' as const, warnings },
+            preserved ? 'retained-input' : 'mixed',
+          )
         }
         const updated = await writeTaskProjectScript(
           this.repository,
@@ -834,7 +864,10 @@ export class ProjectService {
           execution,
         )
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-        return { script: updated.script, mode: 'detailed' as const, warnings }
+        return recorder.finish(
+          { script: updated.script, mode: 'detailed' as const, warnings },
+          preserved ? 'retained-input' : 'mixed',
+        )
       },
       billingMode,
       false,

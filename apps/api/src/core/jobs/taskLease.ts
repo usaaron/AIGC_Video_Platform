@@ -32,6 +32,11 @@ export function claimGenerationTaskLease(
 ): string {
   const nowIso = now.toISOString()
   const token = randomUUID()
+  if (task.kind === 'text') {
+    delete task.metadata.textCompletionReceipt
+    delete task.metadata.textResult
+    delete task.metadata.localTaskCompletedAt
+  }
   if (task.status !== 'running') task.status = 'running'
   if (options.countAttempt !== false) task.attempts = normalizeAttemptCount(task.attempts) + 1
   task.maxAttempts = normalizeMaxAttempts(task.maxAttempts)
@@ -58,6 +63,7 @@ export function renewGenerationTaskLease(
 }
 
 export function releaseGenerationTaskLease(task: GenerationTask): void {
+  if (task.kind === 'text' && task.status !== 'completed') delete task.metadata.textCompletionReceipt
   task.leaseOwnerId = null
   task.leaseToken = null
   task.leaseAcquiredAt = null

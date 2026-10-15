@@ -15,6 +15,7 @@ import {
 import { assertTextTaskWriteGuard, type TextTaskWriteGuard } from './textTaskExecutionGuard.js'
 import { registerTextTaskPersistenceContext } from './textTaskPersistenceContext.js'
 import { markTextTaskTerminalPending } from './textTaskTerminalEffects.js'
+import { buildTextCompletionReceipt } from './textCompletion.js'
 
 function writable(
   task: GenerationTask | undefined,
@@ -53,12 +54,14 @@ export async function completeLocalTask(
     if (!writable(task, owner, token, guard)) return null
     const nowMs = Date.now()
     const now = new Date(nowMs).toISOString()
+    const receipt = guard ? buildTextCompletionReceipt(task, result, guard, now) : null
     const {
       textPreview: _preview,
       textPreviewUpdatedAt: _updated,
       textFirstPreviewAt: _first,
       textPreviewValidation: _validation,
       textPreviewStage: _stage,
+      textCompletionReceipt: _oldReceipt,
       ...metadata
     } = task.metadata
     task.status = 'completed'
@@ -69,6 +72,7 @@ export async function completeLocalTask(
       localTaskCompletedAt: now,
       ...(diagnostics ? { textTiming: summarizeTextTiming(task, diagnostics, nowMs) } : {}),
       ...(task.kind === 'text' ? { textResult: structuredClone(result) } : {}),
+      ...(receipt ? { textCompletionReceipt: receipt } : {}),
     }
     task.updatedAt = now
     releaseGenerationTaskLease(task)
@@ -93,6 +97,7 @@ export async function failLocalTextTask(
     task.progress = 100
     task.error = error.slice(0, 1_000)
     delete task.metadata.providerCompletionReceipt
+    delete task.metadata.textCompletionReceipt
     task.metadata = { ...task.metadata, textTiming: summarizeTextTiming(task, diagnostics, Date.now()) }
     task.updatedAt = new Date().toISOString()
     releaseGenerationTaskLease(task)
