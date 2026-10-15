@@ -24,6 +24,7 @@ export function createMockApi() {
       ],
     },
     tasks: initialTasks(),
+    taskLogs: taskLogsById(),
     createdTaskPayloads: [],
     cancelledTaskIds: [],
     retryTaskIds: [],
@@ -210,6 +211,14 @@ export function createMockApi() {
           state.cancelledTaskIds.push(taskId)
         }
         return fulfillJson(route, 202, task || {})
+      }
+      if (
+        pathname.startsWith('/api/v1/generation/tasks/') &&
+        pathname.endsWith('/logs') &&
+        method === 'GET'
+      ) {
+        const taskId = pathname.split('/').at(-2)
+        return fulfillJson(route, 200, { logs: state.taskLogs[taskId] || [] })
       }
       if (
         pathname.startsWith('/api/v1/generation/tasks/') &&
@@ -592,6 +601,28 @@ function initialTasks() {
   ]
 }
 
+function taskLogsById() {
+  return {
+    'task-audio-failed': [
+      taskLog({
+        id: 'log-audio-created',
+        taskId: 'task-audio-failed',
+        level: 'info',
+        event: 'task.created',
+        message: 'Generation task created and credits reserved',
+      }),
+      taskLog({
+        id: 'log-audio-provider-failed',
+        taskId: 'task-audio-failed',
+        level: 'error',
+        event: 'provider.poll_failed',
+        message: 'Audio provider timeout',
+        details: { attempts: 3 },
+      }),
+    ],
+  }
+}
+
 function createdTaskFromPayload(payload) {
   const id = `task-created-${Math.random().toString(36).slice(2, 8)}`
   return task({
@@ -641,6 +672,22 @@ function task(overrides) {
     resultUrl: null,
     outputs: [],
     error: null,
+    ...overrides,
+  }
+}
+
+function taskLog(overrides) {
+  return {
+    id: 'log',
+    taskId: 'task',
+    projectId: 'project-midnight-film',
+    tenantId: 'tenant-seqora-demo',
+    userId: 'user-creator',
+    level: 'info',
+    event: 'task.created',
+    message: 'Task log',
+    details: {},
+    createdAt: now(),
     ...overrides,
   }
 }

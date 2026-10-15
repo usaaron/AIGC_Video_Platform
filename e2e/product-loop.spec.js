@@ -21,6 +21,20 @@ test.describe('product loop', () => {
       )
       .toBe(true)
 
+    await page.locator('nav').getByRole('button', { name: /剧本/ }).click()
+    const scriptInput = page.locator('textarea').first()
+    await scriptInput.fill(
+      '雨夜，临港市旧火车站。林夏打开信，信封上没有署名。林夏把信放进风衣口袋，继续看向站台。',
+    )
+    const propSuggestion = page.locator('.asset-suggestion-card', { hasText: '信' }).first()
+    await expect(propSuggestion).toBeVisible()
+    await propSuggestion.getByRole('button', { name: /创建资产/ }).click()
+    await expect
+      .poll(() =>
+        mockApi.state.workspace.assets.some((asset) => asset.kind === 'prop' && asset.name === '信'),
+      )
+      .toBe(true)
+
     await page.locator('nav').getByRole('button', { name: /资产/ }).click()
     await expect(page.getByRole('heading', { name: /角色 \/ 场景 \/ 道具 \/ 服装 \/ 音频/ })).toBeVisible()
 
@@ -37,12 +51,45 @@ test.describe('product loop', () => {
     await page.locator('.asset-studio').getByRole('button', { name: '关闭' }).click()
     await expect(page.locator('.asset-studio')).toBeHidden()
 
+    await page.locator('nav').getByRole('button', { name: /分镜/ }).click()
+    const storyboardShot = page.locator('.shot-row', { hasText: '林夏抵达' }).first()
+    await storyboardShot.getByRole('button', { name: '编辑' }).click()
+    const shotModal = page.locator('.shot-editor-modal')
+    await shotModal.getByRole('button', { name: /自动引用资产/ }).click()
+    await shotModal.getByRole('button', { name: /角色行动/ }).click()
+    await shotModal.getByLabel('选择负面提示词模板').selectOption('character')
+    await shotModal.getByRole('button', { name: /加入约束/ }).click()
+    await shotModal.getByRole('button', { name: /^保存分镜$/ }).click()
+    await expect
+      .poll(() => mockApi.state.workspace.shots.find((shot) => shot.id === 'shot-2')?.assetIds || [])
+      .toContain('asset-station')
+    const updatedShot = mockApi.state.workspace.shots.find((shot) => shot.id === 'shot-2')
+    expect(updatedShot.prompt).toContain('镜头模板：角色行动')
+    expect(updatedShot.prompt).toContain('负面约束：')
+    await storyboardShot.getByRole('button', { name: /重生成|生成/ }).click()
+    await expect.poll(() => mockApi.getLastCreatedTaskPayload('video')?.metadata?.shotId).toBe('shot-2')
+    const videoPayload = mockApi.getLastCreatedTaskPayload('video')
+    expect(videoPayload.prompt).toContain('镜头模板：角色行动')
+    expect(videoPayload.prompt).not.toContain('负面约束：')
+    expect(videoPayload.negativePrompt).toContain('不要磨皮过度')
+    expect(videoPayload.metadata.assetIds).toContain('asset-station')
+
     await page.locator('nav').getByRole('button', { name: /生成/ }).click()
     await expect(page.getByRole('heading', { name: '任务状态' })).toBeVisible()
     await expect(page.getByText(/实时推送/)).toBeVisible()
 
     const failedAudioRow = generationRow(page, '幽灵列车 · 音频')
     await expect(failedAudioRow).toContainText('Audio provider timeout')
+    await failedAudioRow.getByRole('button', { name: /日志/ }).click()
+    const logModal = page.locator('.task-log-modal')
+    await expect(page.getByText('provider.poll_failed')).toBeVisible()
+    await expect(
+      logModal.locator('.task-log-row strong', { hasText: 'Audio provider timeout' }),
+    ).toBeVisible()
+    await logModal
+      .locator('.modal-actions')
+      .getByRole('button', { name: /^关闭$/ })
+      .click()
     await failedAudioRow.getByRole('button', { name: /重试/ }).click()
 
     await expect.poll(() => mockApi.state.retryTaskIds).toContain('task-audio-failed')

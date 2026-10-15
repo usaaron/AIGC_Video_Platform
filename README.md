@@ -54,6 +54,7 @@ docs/        架构、权限、规范和部署文档
 - [总体架构](docs/ARCHITECTURE.md)
 - [认证与权限](docs/AUTHORIZATION.md)
 - [资产生成与 Provider 接入](docs/ASSET_GENERATION.md)
+- [真实 Provider 验收](docs/PROVIDER_ACCEPTANCE.md)
 - [PostgreSQL 迁移方案](docs/POSTGRES_MIGRATION.md)
 - [密钥管理](docs/SECRETS.md)
 - [代码规范](docs/CODE_STYLE.md)
@@ -78,6 +79,6 @@ docs/        架构、权限、规范和部署文档
 - `/auth/*`：登录、退出和当前会话
 - `/projects/*`：项目、版本、剧本、资产和分镜
 - `/projects/:projectId/media`、`/media/*`：媒体上传与读取
-- `/generation/*`：生成任务创建、查询和清理
+- `/generation/*`：生成任务创建、暂停、继续、取消、删除、查询和清理
 - `/billing/*`：套餐、积分余额和账本
 - `/admin/*`：仅管理员可访问的平台概览

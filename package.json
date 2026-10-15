@@ -18,6 +18,7 @@
     "deploy:local": "docker compose up --build",
     "deploy:local:down": "docker compose down",
     "deploy:smoke": "node scripts/deployment-smoke.mjs",
+    "provider:acceptance": "node scripts/provider-acceptance.mjs",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm --filter @seqora/contracts build && pnpm -r test",

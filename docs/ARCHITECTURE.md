@@ -18,6 +18,7 @@ flowchart LR
   Queue --> Worker["apps/api Worker"]
   Worker --> Repo
   Worker --> Providers["AIGC Providers"]
+  Worker --> Writeback["Result Writeback"]
 ```
 
 ## 边界
@@ -37,6 +38,13 @@ apps/api/src/
   app.ts         依赖装配与路由注册
   server.ts      进程启动和优雅退出
 ```
+
+#### 生成任务四层
+
+- 命令层：`create / pause / resume / cancel / delete`，只改任务状态和账本，不直接调用 Provider。
+- Worker 层：独立进程，负责 `claim -> submit -> poll -> finalize`。
+- Provider 层：每个 Provider 一个适配器，只做 HTTP、签名和响应解析。
+- 写回层：下载远端结果到对象存储，再回写 `outputs`、`resultUrl`、`asset.imageUrl` 和 `shot.imageUrl`。
 
 ### 共享契约
 
