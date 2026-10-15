@@ -1,3 +1,4 @@
+import { recordTextTaskCancellation } from '../../core/jobs/textTaskCancellation.js'
 import { resolveTaskBillingTarget } from '../billing/taskBillingTarget.js'
 import { buildQueuedGenerationTask, findTaskByClientRequest, taskInsertParams } from './taskCreation.js'
 import { preparePortraitSubmission, preparePortraitSubmissionInState } from './trustedPortraitSubmission.js'
@@ -291,42 +292,15 @@ export class GenerationTaskRepository {
         !task ||
         isStandaloneProjectId(task.projectId) ||
         task.kind !== 'text' ||
+        task.provider !== 'text' ||
         task.status !== 'running' ||
         !task.leaseToken
       )
         return null
-      return {
-        id: task.id,
-        metadata: task.metadata,
-        progress: task.progress,
-        updatedAt: task.updatedAt,
-        leaseToken: task.leaseToken,
-      }
+      return normalizeGenerationTaskLifecycle(task)
     })
     if (!snapshot) return false
-    const result = await this.database.query<{ id: string }>(
-      `
-      UPDATE generation_tasks
-      SET metadata = $2::jsonb,
-          progress = $3,
-          updated_at = $4::timestamptz
-      WHERE id = $1
-        AND project_id NOT LIKE 'sm-standalone-%'
-        AND kind = 'text'
-        AND status = 'running'
-        AND lease_token = $5
-        AND updated_at <= $4::timestamptz
-      RETURNING id
-      `,
-      [
-        snapshot.id,
-        JSON.stringify(snapshot.metadata),
-        snapshot.progress,
-        snapshot.updatedAt,
-        snapshot.leaseToken,
-      ],
-    )
-    return result.rows.length > 0
+    return (await persistRuntimeTaskSnapshots(this.store, this.database, [{ task: snapshot }])) > 0
   }
 
   async canCreate(projectId: string, principal: Principal): Promise<boolean> {
@@ -985,6 +959,7 @@ export class GenerationTaskRepository {
         const now = new Date().toISOString()
         if (task.status === 'running') {
           const lock = cancellationResourceLockForTask(task)
+          recordTextTaskCancellation(task)
           task.status = 'cancelled'
           task.progress = 100
           task.error = null
@@ -1028,6 +1003,7 @@ export class GenerationTaskRepository {
       if (task.status === 'running') {
         const now = new Date().toISOString()
         const lock = cancellationResourceLockForTask(task)
+        recordTextTaskCancellation(task)
         task.status = 'cancelled'
         task.progress = 100
         task.error = null

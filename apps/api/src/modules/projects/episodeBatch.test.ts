@@ -6,8 +6,56 @@ import { ProjectService } from './service.js'
 import { generateEpisodeBatch } from './episodeBatch.js'
 import { StoreCreditLedger } from '../billing/creditLedger.js'
 import { UserRepository } from '../users/repository.js'
+import type { TextTaskWriteGuard } from '../../core/jobs/textTaskExecutionGuard.js'
+import {
+  assertTextTaskWriteGuard,
+  captureTextTaskWriteGuard,
+} from '../../core/jobs/textTaskExecutionGuard.js'
+import { claimGenerationTaskLease } from '../../core/jobs/taskLease.js'
+import { buildQueuedGenerationTask } from '../generation/taskCreation.js'
+import { GenerationTaskRepository } from '../generation/repository.js'
 
 describe('episode batch recovery', () => {
+  it('forwards the same execution guard to each episode service call', async () => {
+    const principal: Principal = { userId: 'user-1', tenantId: 'tenant-1', roles: ['member'] }
+    const generate = vi.fn(async (...args: Parameters<ProjectService['generateScript']>) => ({
+      script: args[1],
+      mode: 'quick',
+      warnings: [],
+      episode: { id: 'episode-1', content: '', draftContent: args[1], continuityState: {} },
+    }))
+    const service = {
+      workspace: vi.fn(async () => ({ project: { contentType: 'short-drama' }, scriptEpisodes: [] })),
+      generateScript: generate,
+    } as unknown as ProjectService
+    const input = generateScriptRequestSchema.parse({
+      episodePlan: {
+        id: '7c3763e5-0ea7-46ef-b8b6-de95107ec676',
+        episodes: [
+          { title: '回家', source: '林晚回家。' },
+          { title: '出发', source: '林晚出发。' },
+        ],
+      },
+    })
+    const context = {
+      assertActive: vi.fn(async () => {}),
+      taskWriteGuard: Object.freeze({ marker: 'private-write-guard' }) as unknown as TextTaskWriteGuard,
+      onTextProgress: vi.fn(),
+      onTextTiming: vi.fn(),
+    }
+    await generateEpisodeBatch(service, 'project-1', input, principal, context, 'task-1')
+    expect(context.assertActive).toHaveBeenCalledTimes(2)
+    expect(generate).toHaveBeenCalledTimes(2)
+    for (const [index, call] of generate.mock.calls.entries()) {
+      expect(call[17]).toBe(context)
+      expect(call[16]?.beforeWrite).toBe(context.assertActive)
+      expect(call[16]?.billingRequestId).toBe(`task-1-episode-${index}`)
+      expect(call[13]).toBe(context.onTextProgress)
+      expect(call[14]).toBe(context.onTextTiming)
+    }
+    expect(generate.mock.calls[1]?.[16]?.continuity).toBe('林晚回家。')
+  })
+
   it('keeps saved episodes, retries only unfinished material and carries the previous ending', async () => {
     const store = new AppStore(null)
     await store.initialize()
@@ -78,6 +126,86 @@ describe('episode batch recovery', () => {
 })
 
 describe('batch generation and actual billing', () => {
+  it('refunds only the unfinished episode when the real task is cancelled before writeback', async () => {
+    const store = new AppStore(null)
+    await store.initialize()
+    const principal: Principal = { userId: 'user-member', tenantId: 'tenant-seqora-demo', roles: ['member'] }
+    const repository = new ProjectRepository(store)
+    const ledger = new StoreCreditLedger(store, new UserRepository(store))
+    const tasks = new GenerationTaskRepository(store)
+    const input = generateScriptRequestSchema.parse({
+      episodePlan: {
+        id: '7c3763e5-0ea7-46ef-b8b6-de95107ec677',
+        episodes: [
+          { title: '回家', source: '林晚回家找程野。' },
+          { title: '出发', source: '赵岚在气象塔找顾衡。' },
+        ],
+      },
+    })
+    const project = await repository.create(
+      createProjectSchema.parse({
+        name: '分集取消退款',
+        contentType: 'short-drama',
+        aspectRatio: '9:16',
+      }),
+      principal,
+    )
+    const task = buildQueuedGenerationTask(
+      {
+        projectId: project.id,
+        clientRequestId: 'batch-cancel-request',
+        kind: 'text',
+        provider: 'text',
+        model: input.model,
+        label: '分集生成',
+        estimatedCredits: 0,
+        metadata: { scriptOperation: 'generate', episodePlan: input.episodePlan, billingMode: 'direct' },
+      },
+      principal,
+      new Date().toISOString(),
+    )
+    claimGenerationTaskLease(task, 'batch-worker', 60_000)
+    const guard = captureTextTaskWriteGuard(task)
+    await store.mutate((state) => {
+      state.tasks.push(task)
+    })
+    let providerCalls = 0
+    const service = new ProjectService(
+      repository,
+      {
+        generate: async () => {
+          const cancelledEpisode = ++providerCalls > 1
+          if (cancelledEpisode) await tasks.deleteFromQueue(task.id, principal)
+          return Array.from({ length: 6 }, (_, index) =>
+            cancelledEpisode
+              ? `场次：T0${index + 1}｜时长：10秒｜剧情：赵岚在气象塔寻找第${index + 1}份航标图。｜场景：气象塔。｜角色：赵岚；顾衡。｜动作：赵岚拆开锈锁，顾衡点亮信号灯。｜对白：[对白]赵岚：信号还在吗？[对白]顾衡：北侧灯已经恢复。[对白]赵岚：把坐标发出去。[对白]顾衡：现在就发。｜衔接：两人转向控制台。`
+              : `场次：S0${index + 1}｜时长：10秒｜剧情：林晚追查第${index + 1}条线索。｜场景：诊所。｜角色：林晚；程野。｜动作：林晚推门，程野抬眼。｜对白：[对白]林晚：请告诉我实情。[对白]程野：那个人刚离开。[对白]林晚：我要找到他。[对白]程野：跟我来。｜衔接：两人走向门口。`,
+          ).join('\n')
+        },
+      },
+      ledger,
+    )
+    const before = (await ledger.summary(principal)).credits
+    const context = {
+      taskWriteGuard: guard,
+      assertActive: async () => {
+        assertTextTaskWriteGuard(
+          store.read((state) => state.tasks.find((item) => item.id === task.id)),
+          guard,
+        )
+      },
+    }
+    await expect(
+      generateEpisodeBatch(service, project.id, input, principal, context, task.id),
+    ).rejects.toMatchObject({ code: 'TASK_LEASE_LOST' })
+    expect((await service.workspace(project.id, principal)).scriptEpisodes).toHaveLength(1)
+    expect((await ledger.summary(principal)).credits).toBe(before - 3)
+    const refunds = store.read((state) =>
+      state.ledger.filter((entry) => entry.id.startsWith(`refund-script-generate-${task.id}-episode-`)),
+    )
+    expect(refunds.map((entry) => entry.id)).toEqual([`refund-script-generate-${task.id}-episode-1`])
+  })
+
   it('uses the real script service, refunds a stopped episode, then resumes without charging completed episodes', async () => {
     const store = new AppStore(null)
     await store.initialize()

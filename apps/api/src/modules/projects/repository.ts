@@ -74,6 +74,10 @@ import {
 } from './runtimeCache.js'
 import { isStandaloneProjectId } from './projectSurface.js'
 import { disambiguateEpisodeTitle, findDuplicateEpisodeContent } from './episodeTitle.js'
+import type { TextTaskWriteGuard } from '../../core/jobs/textTaskExecutionGuard.js'
+import { assertStoreTextTaskWriteGuard, lockTextTaskWriteGuard } from './textTaskWriteGuard.js'
+import { updateProjectInDatabase } from './projectUpdate.js'
+import { captureTextTaskWorkspaceWriteback } from './textTaskWorkspaceWriteback.js'
 
 export { mergeAssetAttributes } from './assetAttributesMerge.js'
 
@@ -457,52 +461,17 @@ export class ProjectRepository {
     return project
   }
 
-  async update(projectId: string, input: UpdateProject, principal: Principal): Promise<Project | null> {
+  async update(
+    projectId: string,
+    input: UpdateProject,
+    principal: Principal,
+    taskWriteGuard?: TextTaskWriteGuard,
+  ): Promise<Project | null> {
     if (isStandaloneProjectId(projectId)) return null
-    if (!this.database) return this.updateInStore(projectId, input, principal)
-
-    const existing = await this.findWritableProject(this.database, projectId, principal)
-    if (!existing) return null
-
-    const updated: Project = {
-      ...existing,
-      name: input.name ?? existing.name,
-      status: input.status ?? existing.status,
-      visualStyle: input.visualStyle ?? existing.visualStyle,
-      episodeDurationSeconds: input.episodeDurationSeconds ?? existing.episodeDurationSeconds,
-      synopsis: input.synopsis ?? existing.synopsis,
-      script: input.script ?? existing.script,
-      updatedAt: new Date().toISOString(),
-    }
-    const result = await this.database.query<ProjectRow>(
-      `
-      UPDATE projects
-      SET
-        name = $4,
-        status = $5,
-        visual_style = $6,
-        episode_duration_seconds = $7,
-        synopsis = $8,
-        script = $9,
-        updated_at = $10
-      WHERE id = $1 AND tenant_id = $2 AND owner_user_id = $3
-      RETURNING ${projectColumns}
-      `,
-      [
-        projectId,
-        principal.tenantId,
-        principal.userId,
-        updated.name,
-        updated.status,
-        updated.visualStyle,
-        updated.episodeDurationSeconds,
-        updated.synopsis,
-        updated.script,
-        updated.updatedAt,
-      ],
-    )
-    const project = result.rows[0] ? projectFromRow(result.rows[0]) : null
-    if (project) await this.mirrorProject(project)
+    if (!this.database) return this.updateInStore(projectId, input, principal, taskWriteGuard)
+    const writeback = taskWriteGuard && captureTextTaskWorkspaceWriteback(this.store, projectId, principal)
+    const project = await updateProjectInDatabase(this.database, projectId, input, principal, taskWriteGuard)
+    if (project) await (writeback ? writeback.project(project) : this.mirrorProject(project))
     return project
   }
 
@@ -511,11 +480,17 @@ export class ProjectRepository {
     episodeId: string | null,
     content: string,
     principal: Principal,
-    options: { createNext?: boolean; title?: string; generationClientRequestId?: string } = {},
+    options: {
+      createNext?: boolean
+      title?: string
+      generationClientRequestId?: string
+      taskWriteGuard?: TextTaskWriteGuard
+    } = {},
   ): Promise<ScriptEpisode | null> {
     if (isStandaloneProjectId(projectId)) return null
     if (!this.database) {
       return this.requireStore().mutate((state) => {
+        assertStoreTextTaskWriteGuard(state, projectId, principal, options.taskWriteGuard)
         const project = state.projects.find(
           (item) =>
             item.id === projectId &&
@@ -552,6 +527,7 @@ export class ProjectRepository {
           options.generationClientRequestId,
           now,
         )
+        assertStoreTextTaskWriteGuard(state, projectId, principal, options.taskWriteGuard)
         if (!episode) {
           const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
           episode = {
@@ -587,7 +563,10 @@ export class ProjectRepository {
       })
     }
 
+    const writeback =
+      options.taskWriteGuard && captureTextTaskWorkspaceWriteback(this.store, projectId, principal)
     const episode = await this.database.transaction(async (client) => {
+      const assertActive = await lockTextTaskWriteGuard(client, projectId, principal, options.taskWriteGuard)
       const project = await this.findWritableProject(client, projectId, principal, true)
       if (!project) return null
       const result = await client.query<ScriptEpisodeRow>(
@@ -596,6 +575,7 @@ export class ProjectRepository {
         [projectId, principal.tenantId],
       )
       const episodes = result.rows.map(scriptEpisodeFromRow)
+      assertActive()
       const checkpoint =
         options.generationClientRequestId?.startsWith('episode-plan-') &&
         episodes.find((item) => item.continuityState.batchGenerationKey === options.generationClientRequestId)
@@ -621,6 +601,7 @@ export class ProjectRepository {
         options.generationClientRequestId,
         now,
       )
+      assertActive()
       if (current) {
         const updated = await client.query<ScriptEpisodeRow>(
           `UPDATE script_episodes
@@ -642,6 +623,7 @@ export class ProjectRepository {
           ],
         )
         await touchProject(client, projectId, principal.tenantId, now)
+        assertActive()
         return updated.rows[0] ? scriptEpisodeFromRow(updated.rows[0]) : null
       }
       const episodeNumber = (episodes.at(-1)?.episodeNumber ?? 0) + 1
@@ -664,9 +646,10 @@ export class ProjectRepository {
         ],
       )
       await touchProject(client, projectId, principal.tenantId, now)
+      assertActive()
       return inserted.rows[0] ? scriptEpisodeFromRow(inserted.rows[0]) : null
     })
-    if (episode) await this.mirrorScriptEpisode(episode)
+    if (episode) await (writeback ? writeback.episode(episode) : this.mirrorScriptEpisode(episode))
     return episode
   }
 
@@ -1822,8 +1805,10 @@ export class ProjectRepository {
     projectId: string,
     input: UpdateProject,
     principal: Principal,
+    taskWriteGuard?: TextTaskWriteGuard,
   ): Promise<Project | null> {
     return this.requireStore().mutate((state) => {
+      assertStoreTextTaskWriteGuard(state, projectId, principal, taskWriteGuard)
       const project = state.projects.find(
         (item) =>
           item.id === projectId && item.tenantId === principal.tenantId && item.ownerId === principal.userId,

@@ -14,6 +14,7 @@ import type { QueryResultRow } from 'pg'
 import { insertAuditLog } from '../../core/audit/auditLog.js'
 import { AppError } from '../../core/errors.js'
 import type { AccountDatabase } from '../../infra/postgres.js'
+import { lockTextTaskRefundGuard, type BillingLedgerRefundInput } from './textTaskRefundGuard.js'
 
 const monthlyGrantCredits = 500
 const emptyMetadata = '{}'
@@ -415,18 +416,9 @@ export class BillingLedgerRepository {
     })
   }
 
-  async recordRefund(input: {
-    tenantId: string
-    userId: string
-    originalEntryId: string
-    refundEntryId: string
-    amount: number
-    description: string
-    createdByUserId?: string | null
-    createdAt?: string
-    audit?: BillingLedgerAuditInput
-  }): Promise<BillingLedgerRecordResult | null> {
+  async recordRefund(input: BillingLedgerRefundInput): Promise<BillingLedgerRecordResult | null> {
     const organizationRefund = await this.database.transaction(async (client) => {
+      const assertRefundable = await lockTextTaskRefundGuard(client, input)
       const original = await client.query<OrganizationLedgerEntryRow>(
         `
         SELECT
@@ -466,6 +458,7 @@ export class BillingLedgerRepository {
           'Organization billing account does not exist',
         )
       }
+      assertRefundable()
       return await insertOrganizationLedgerEntryIfAbsent(client, {
         organization,
         userId: input.userId,
@@ -489,6 +482,7 @@ export class BillingLedgerRepository {
     }
 
     return this.database.transaction(async (client) => {
+      const assertRefundable = await lockTextTaskRefundGuard(client, input)
       const original = await client.query<{ id: string; membership_id: string }>(
         `
         SELECT id, membership_id
@@ -520,6 +514,7 @@ export class BillingLedgerRepository {
       )
       if (duplicate.rows[0]) return null
 
+      assertRefundable()
       const nextCredits = account.credits + input.amount
       if (nextCredits < 0) {
         throw new AppError(402, 'INSUFFICIENT_CREDITS', 'Insufficient credits')

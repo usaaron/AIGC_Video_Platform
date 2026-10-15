@@ -83,9 +83,11 @@ pnpm check
 
 其中 `pnpm test:full:stable` 顺序运行测试编排回归、Contracts、Prompting、共享包构建、API 生产和测试源码类型检查、Admin、Web、API 全部测试及 Playwright 桌面/移动端流程。`pnpm check` 还包含格式、架构、安全、Lint 与全部生产构建。
 
-默认要求 Docker 已运行。编排器为每次检查创建独立 Compose 项目，Postgres/Redis 绑定本机随机端口，等待健康状态后执行；失败时也只清理本次创建的容器和卷，不使用开发数据库。Playwright 独立使用 6173/6174，不复用既有服务。
+默认要求 Docker 已运行。编排器为每次检查创建独立 Compose 项目，Postgres/Redis 绑定本机随机端口，等待健康状态后执行；失败时也只清理本次创建的容器和卷，不使用开发数据库。API 测试结束后先完成本轮测试服务清理，再启动使用模拟 API 的 Playwright，避免数据库服务与浏览器占用资源重叠；API 或清理失败不会继续浏览器阶段，外部提供的测试服务不会被关闭。Playwright 独立使用 6173/6174，不复用既有服务。
 
 Playwright 通过 `SEQORA_E2E_CACHE_DIR` 为 Web 和 Admin 分别设置按端口区分的 Vite 缓存，并使用 `--force` 重新预优化依赖，避免浏览器回归与普通开发服务争用 `.vite`；普通开发保留默认缓存路径。
+
+浏览器测试默认使用 2 个 worker。资源受限的主机可显式设置 `SEQORA_E2E_WORKERS=1` 后运行同一 `pnpm check`，串行执行全部桌面、移动端和管理端用例；该设置不改变用例范围、断言、超时或重试策略。配置必须是正整数，非法值会报错，不会静默回退。PowerShell 可使用 `$env:SEQORA_E2E_WORKERS = '1'`，完成后移除该变量或恢复原值。
 
 浏览器 API 夹具同时在页面和浏览器会话层拦截请求。页面模拟路由被移除时，后台刷新仍由会话层返回 `E2E_API_UNMOCKED`，不会落入 Vite 代理而访问 8787 的本地预览 API。
 

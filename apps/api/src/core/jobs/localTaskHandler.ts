@@ -5,6 +5,7 @@ import type { ProjectService } from '../../modules/projects/service.js'
 import type { TrustedAssetService } from '../../modules/trustedAssets/service.js'
 import { createScriptTaskHandler } from './scriptTaskHandler.js'
 import { createTrustedAssetTaskHandler } from './trustedAssetTaskHandler.js'
+import type { TextTaskWriteGuard } from './textTaskExecutionGuard.js'
 
 export type LocalGenerationTaskHandler = {
   canHandle(task: GenerationTask): boolean
@@ -13,6 +14,7 @@ export type LocalGenerationTaskHandler = {
 
 export type LocalTaskExecutionContext = {
   assertActive?: (() => Promise<void>) | undefined
+  taskWriteGuard?: TextTaskWriteGuard | undefined
   onTextProgress?: (text: string, stage?: string) => void
   onTextTiming?: (timing: TextGenerationTiming) => void
 }

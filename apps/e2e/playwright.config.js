@@ -4,13 +4,18 @@ import { fileURLToPath } from 'node:url'
 
 const webPort = Number(process.env.SEQORA_E2E_WEB_PORT || 6173)
 const adminPort = Number(process.env.SEQORA_E2E_ADMIN_PORT || 6174)
+const configuredWorkers = process.env.SEQORA_E2E_WORKERS?.trim()
+const workers = configuredWorkers ? Number(configuredWorkers) : 2
+if (!Number.isSafeInteger(workers) || workers < 1) {
+  throw new Error('SEQORA_E2E_WORKERS must be a positive integer.')
+}
 const chromiumExecutable = findChromiumExecutable()
 const browserLaunch = chromiumExecutable ? { launchOptions: { executablePath: chromiumExecutable } } : {}
 
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
-  workers: 2,
+  workers,
   timeout: 45_000,
   expect: { timeout: 8_000 },
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',

@@ -2,6 +2,7 @@ import { findTaskByClientRequest } from './taskCreation.js'
 import type { CreateGenerationTask, GenerationTask, Principal } from '@seqora/contracts'
 import { AppError } from '../../core/errors.js'
 import { releaseGenerationTaskLease } from '../../core/jobs/taskLease.js'
+import { recordTextTaskCancellation } from '../../core/jobs/textTaskCancellation.js'
 import type { AppState } from '../../infra/store.js'
 import { generationTaskColumns, type GenerationTaskRow, taskFromRow } from './repositoryData.js'
 import type { QueryResult, QueryResultRow } from 'pg'
@@ -27,23 +28,7 @@ export async function preemptActiveScriptTasksInDatabase(
   await assertNoDraftScriptEpisode(queryable, input, principal)
   const result = await queryable.query<GenerationTaskRow>(
     `
-    UPDATE generation_tasks
-    SET status = 'cancelled',
-        progress = 100,
-        error = $3,
-        metadata = metadata || jsonb_build_object(
-          'providerState', 'cancelled',
-          'accountPreemptedAt', $4::text,
-          'cancelReason', 'new_script_task',
-          'cancelledAt', $4::text,
-          'queueHiddenAt', $4::text
-        ),
-        lease_owner_id = NULL,
-        lease_token = NULL,
-        lease_acquired_at = NULL,
-        lease_heartbeat_at = NULL,
-        lease_expires_at = NULL,
-        updated_at = $4::timestamptz
+    SELECT ${generationTaskColumns} FROM generation_tasks
     WHERE tenant_id = $1
       AND user_id = $2
       AND project_id NOT LIKE 'sm-standalone-%'
@@ -53,11 +38,23 @@ export async function preemptActiveScriptTasksInDatabase(
       AND metadata->>'scriptOperation' IN ('generate', 'enrich', 'suggest-assets')
       AND status IN ('queued', 'paused', 'running')
       AND jsonb_typeof(metadata->'queueHiddenAt') IS DISTINCT FROM 'string'
-    RETURNING ${generationTaskColumns}
+    ORDER BY id
+    FOR UPDATE
     `,
-    [principal.tenantId, principal.userId, SCRIPT_TASK_PREEMPT_ERROR, new Date().toISOString()],
+    [principal.tenantId, principal.userId],
   )
-  return result.rows.map(taskFromRow)
+  const now = new Date().toISOString()
+  const cancelled = result.rows.map(taskFromRow).map((task) => cancelScriptTask(task, now))
+  for (const task of cancelled) {
+    await queryable.query(
+      `UPDATE generation_tasks SET status = 'cancelled', progress = 100,
+      error = $2, metadata = $3::jsonb, lease_owner_id = NULL, lease_token = NULL,
+      lease_acquired_at = NULL, lease_heartbeat_at = NULL, lease_expires_at = NULL,
+      updated_at = $4::timestamptz WHERE id = $1`,
+      [task.id, task.error, JSON.stringify(task.metadata), now],
+    )
+  }
+  return cancelled
 }
 
 export async function assertNoDraftScriptEpisode(
@@ -127,22 +124,25 @@ export function preemptActiveScriptTasksInState(
         ['queued', 'paused', 'running'].includes(task.status) &&
         typeof task.metadata.queueHiddenAt !== 'string',
     )
-    .map((task) => {
-      task.status = 'cancelled'
-      task.progress = 100
-      task.error = SCRIPT_TASK_PREEMPT_ERROR
-      task.metadata = {
-        ...task.metadata,
-        providerState: 'cancelled',
-        accountPreemptedAt: now,
-        cancelReason: 'new_script_task',
-        cancelledAt: now,
-        queueHiddenAt: now,
-      }
-      releaseGenerationTaskLease(task)
-      task.updatedAt = now
-      return task
-    })
+    .map((task) => cancelScriptTask(task, now))
+}
+
+function cancelScriptTask(task: GenerationTask, now: string): GenerationTask {
+  recordTextTaskCancellation(task)
+  task.status = 'cancelled'
+  task.progress = 100
+  task.error = SCRIPT_TASK_PREEMPT_ERROR
+  task.metadata = {
+    ...task.metadata,
+    providerState: 'cancelled',
+    accountPreemptedAt: now,
+    cancelReason: 'new_script_task',
+    cancelledAt: now,
+    queueHiddenAt: now,
+  }
+  releaseGenerationTaskLease(task)
+  task.updatedAt = now
+  return task
 }
 
 export function assertSingleScriptTaskInput(inputs: CreateGenerationTask[]): void {

@@ -1,4 +1,11 @@
 import { runBillableScriptOperation } from '../billing/scriptBilling.js'
+import {
+  scriptWriteCheck,
+  scriptWriteOptions,
+  writeTaskProjectScript,
+  type ScriptBatchExecution,
+  type ScriptTaskExecution,
+} from './scriptTaskExecution.js'
 import type {
   AutoSplitShotsRequest,
   CreateAsset,
@@ -21,7 +28,6 @@ import {
   DEFAULT_SCRIPT_MODEL,
   SCRIPT_OPERATION_CREDITS,
   scriptAssetSuggestionsContentSchema,
-  scriptReviewContentSchema,
 } from '@seqora/contracts'
 import { mergeProjectSuggestions } from './characterSuggestions.js'
 import { AppError } from '../../core/errors.js'
@@ -51,16 +57,11 @@ import { assetSuggestionSummary, assetSummary, directionSummary } from './projec
 import { parseProviderJson } from './providerJson.js'
 import {
   alignEnrichedSceneRows,
-  assignShotEpisodes,
   countStructuredScenes,
-  expandLongScriptParagraphs,
   hasStructuredSceneRows,
   preserveScriptBreakMarkers,
   scriptBodyWithoutAssetManifest,
-  splitScriptIntoBeatShots,
-  splitScriptParagraphs,
 } from './shotPlanning.js'
-import { splitScriptIntoSmartSceneShots } from './directorShotPlanning.js'
 import {
   LONG_SCRIPT_MAX_TOKENS,
   SCRIPT_DETAIL_MAX_TOKENS,
@@ -106,6 +107,8 @@ import {
   withChineseScriptRules,
 } from './scriptWriting.js'
 import { usageContextForPrincipal, episodeContinuationContext } from './scriptContext.js'
+import { generateScriptReview } from './scriptReview.js'
+import { generateProjectShots, saveShotEpisodeAssignments } from './scriptShotGeneration.js'
 
 export { assignShotEpisodes, splitScriptParagraphs } from './shotPlanning.js'
 
@@ -371,15 +374,10 @@ export class ProjectService {
     onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
     episodeId?: string,
-    batch?: {
-      createNext: boolean
-      title: string
-      batchGenerationKey: string
-      continuity: string
-      beforeWrite?: (() => Promise<void>) | undefined
-      billingRequestId?: string | undefined
-    },
+    batch?: ScriptBatchExecution,
+    execution?: ScriptTaskExecution,
   ) {
+    const beforeWrite = scriptWriteCheck(execution, batch)
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
     const scriptMode = resolveScriptContentMode(workspace.project.contentType, productionMode)
@@ -424,12 +422,16 @@ export class ProjectService {
     const projectContext = `项目名称：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n项目简介：${workspace.project.synopsis.trim() || '未填写'}\n画面比例：${workspace.project.aspectRatio}\n制作模式：${scriptModeContext(scriptMode, episodeSeconds)}\n当前选择模型：${model}\n创作方向（兼容已有设置）：${directionSummary(direction)}\n已确认项目资产：${assetSummary(workspace.assets)}\n本次改写要求：${revisionNote.trim() || '无，按默认制作规范处理'}${batch?.continuity ? `\n上一集结尾（仅作衔接，不要重复）：\n${batch.continuity}` : ''}`
     if (mode === 'quick' && sourceLength >= SINGLE_REWRITE_MAX_LENGTH) {
       if (hasEpisodeWorkspace && scriptMode === 'web-series') {
+        await beforeWrite()
         const episode = await this.repository.writeScriptEpisodeDraft(
           projectId,
           episodeId ?? null,
           source,
           principal,
-          { generationClientRequestId: clientRequestId },
+          {
+            generationClientRequestId: clientRequestId,
+            ...scriptWriteOptions(execution),
+          },
         )
         if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return {
@@ -439,7 +441,8 @@ export class ProjectService {
           warnings: ['检测到超过 1 万字的内容，已保留为本集草稿；请拆分后再生成。'],
         }
       }
-      const updated = await this.repository.update(projectId, { script: source }, principal)
+      await beforeWrite()
+      const updated = await writeTaskProjectScript(this.repository, projectId, source, principal, execution)
       if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
       return {
         script: updated.script,
@@ -507,12 +510,17 @@ export class ProjectService {
           segmentText = completeWebSeriesSpokenContent(segmentText, scriptMode)
           assertWebSeriesDialogueCoverage(segmentText, scriptMode)
           if (hasEpisodeWorkspace && scriptMode === 'web-series') {
+            await beforeWrite()
             const episode = await this.repository.writeScriptEpisodeDraft(
               projectId,
               null,
               segmentText,
               principal,
-              { createNext: true, generationClientRequestId: clientRequestId },
+              {
+                createNext: true,
+                generationClientRequestId: clientRequestId,
+                ...scriptWriteOptions(execution),
+              },
             )
             if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
             return {
@@ -524,7 +532,14 @@ export class ProjectService {
             }
           }
           const script = appendScriptSegment(draft.trim() || workspace.project.script.trim(), segmentText)
-          const updated = await this.repository.update(projectId, { script }, principal)
+          await beforeWrite()
+          const updated = await writeTaskProjectScript(
+            this.repository,
+            projectId,
+            script,
+            principal,
+            execution,
+          )
           if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
           return {
             script: updated.script,
@@ -655,25 +670,30 @@ export class ProjectService {
         }
         const script = candidate
         const warnings = quickScriptIssues(script, scriptMode, episodeSeconds)
-        await batch?.beforeWrite?.()
+        await beforeWrite()
         if (hasEpisodeWorkspace && scriptMode === 'web-series') {
           const episode = await this.repository.writeScriptEpisodeDraft(
             projectId,
             episodeId ?? null,
             script,
             principal,
-            { generationClientRequestId: clientRequestId, ...batch },
+            {
+              generationClientRequestId: clientRequestId,
+              ...batch,
+              ...scriptWriteOptions(execution),
+            },
           )
           if (!episode) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
           return { script, episode, mode: 'quick' as const, warnings }
         }
-        const updated = await this.repository.update(projectId, { script }, principal)
+        const updated = await writeTaskProjectScript(this.repository, projectId, script, principal, execution)
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'quick' as const, warnings }
       },
       billingMode,
       Boolean(batch),
-      batch?.beforeWrite,
+      beforeWrite,
+      execution?.taskWriteGuard,
     )
   }
 
@@ -692,6 +712,7 @@ export class ProjectService {
     onTextProgress?: (text: string, stage?: string) => void,
     onTextTiming?: (timing: TextGenerationTiming) => void,
     episodeId?: string,
+    execution?: ScriptTaskExecution,
   ) {
     const workspace = await this.workspace(projectId, principal)
     if (!this.textProvider) throw new AppError(503, 'TEXT_PROVIDER_NOT_CONFIGURED', '文本生成服务尚未配置')
@@ -790,22 +811,35 @@ export class ProjectService {
         const warnings = preserved
           ? ['检测到长篇原稿，AI 输出过短，系统已自动保留原稿，避免剧情被压缩。']
           : detailedScriptIssues(enriched, scriptMode, episodeSeconds)
+        await execution?.assertActive?.()
         if (hasEpisodeWorkspace && scriptMode === 'web-series') {
           const episode = await this.repository.writeScriptEpisodeDraft(
             projectId,
             targetEpisode!.id,
             enriched,
             principal,
-            { generationClientRequestId: clientRequestId },
+            {
+              generationClientRequestId: clientRequestId,
+              ...scriptWriteOptions(execution),
+            },
           )
           if (!episode) throw new AppError(404, 'SCRIPT_EPISODE_NOT_FOUND', '剧集不存在或无权修改')
           return { script: enriched, episode, mode: 'detailed' as const, warnings }
         }
-        const updated = await this.repository.update(projectId, { script: enriched }, principal)
+        const updated = await writeTaskProjectScript(
+          this.repository,
+          projectId,
+          enriched,
+          principal,
+          execution,
+        )
         if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
         return { script: updated.script, mode: 'detailed' as const, warnings }
       },
       billingMode,
+      false,
+      execution?.assertActive,
+      execution?.taskWriteGuard,
     )
   }
 
@@ -825,24 +859,15 @@ export class ProjectService {
     const source = script.trim() || workspace.project.script.trim()
     if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本后再进行专业审核')
 
-    return runBillableScriptOperation(
+    return generateScriptReview(
+      this.textProvider,
       this.creditLedger,
+      workspace.project,
+      source,
+      direction,
+      clientRequestId,
       principal,
-      `script-review-${clientRequestId}`,
-      SCRIPT_OPERATION_CREDITS.review,
-      '专业审核剧本',
-      async () => {
-        const response = await this.textProvider!.generate({
-          systemPrompt:
-            '你是漫剧公司的编导总监、摄影指导和剪辑指导。请只返回严格 JSON，不要 Markdown，不要代码块。必须包含 score（0到100整数）、verdict、dimensions、priorityActions。dimensions 必须覆盖 plot、character、dialogue、style、composition、lighting、camera，每项包含 key、score、finding、suggestion。评价要具体到可执行的剧本修改和画面执行，不要泛泛而谈。',
-          userPrompt: `项目：${workspace.project.name}\n内容类型：${workspace.project.contentType}\n画面比例：${workspace.project.aspectRatio}\n当前选择模型：${model}\n创作方向：${directionSummary(direction)}\n\n待审核剧本：\n${source}`,
-          maxOutputTokens: 4_000,
-          model,
-          usageContext: usageContextForPrincipal(principal),
-        })
-        const review = parseProviderJson(response, scriptReviewContentSchema, '专业审核结果格式错误')
-        return { ...review, generatedAt: new Date().toISOString() }
-      },
+      model,
     )
   }
 
@@ -909,77 +934,17 @@ export class ProjectService {
 
   async generateShots(projectId: string, input: GenerateShotsRequest, principal: Principal) {
     const workspace = await this.workspace(projectId, principal)
-    if (workspace.project.contentType === 'short-drama' && workspace.scriptEpisodes?.length) {
-      const savedEpisodes = workspace.scriptEpisodes.filter(
-        (episode) => episode.status === 'saved' && episode.content.trim(),
-      )
-      const selectedEpisodes = input.episodeId
-        ? savedEpisodes.filter((episode) => episode.id === input.episodeId)
-        : savedEpisodes
-      if (!selectedEpisodes.length) {
-        throw new AppError(
-          400,
-          'SCRIPT_EPISODE_REQUIRED',
-          input.episodeId ? '该集尚未保存，请先保存本集' : '请先保存至少一集剧本',
-        )
-      }
-      const generated = selectedEpisodes.flatMap((episode) => {
-        const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(episode.content))
-        const shots =
-          input.mode === 'beat'
-            ? splitScriptIntoBeatShots(paragraphs, input.maxShots, true)
-            : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, true)
-        return shots.map((shot, index) => ({
-          ...shot,
-          scriptEpisodeId: episode.id,
-          episodeBreakBefore: index === 0 && episode.episodeNumber > 1,
-          continuityMode: index === 0 ? ('independent' as const) : shot.continuityMode,
-          continuityNote: index === 0 ? '' : shot.continuityNote,
-          episodeNumber: episode.episodeNumber,
-          episodeTitle: episode.title,
-          episodeKind: 'standard' as const,
-        }))
-      })
-      if (input.episodeId) {
-        return this.repository.replaceEpisodeShots(projectId, selectedEpisodes[0]!, generated, principal)
-      }
-      return this.repository.replaceShots(projectId, generated, principal)
-    }
-    const source = workspace.project.script.trim()
-    if (!source) throw new AppError(400, 'SCRIPT_REQUIRED', '请先填写剧本')
-
-    const paragraphs = expandLongScriptParagraphs(splitScriptParagraphs(source))
-    const isWebSeries = workspace.project.contentType === 'short-drama'
-    const shots =
-      input.mode === 'beat'
-        ? splitScriptIntoBeatShots(paragraphs, input.maxShots, isWebSeries)
-        : splitScriptIntoSmartSceneShots(paragraphs, input.maxShots, isWebSeries)
-    return this.repository.replaceShots(
-      projectId,
-      assignShotEpisodes(
-        shots.map((shot) => ({ ...shot, scriptEpisodeId: null })),
-        input.episodeDurationSeconds,
-      ),
-      principal,
-    )
+    return generateProjectShots(this.repository, projectId, workspace, input, principal)
   }
 
   async autoSplitShotEpisodes(projectId: string, input: AutoSplitShotsRequest, principal: Principal) {
     const workspace = await this.workspace(projectId, principal)
-    const assigned = assignShotEpisodes(workspace.shots, input.episodeDurationSeconds)
-    const updated = await this.repository.updateShotEpisodes(
+    return saveShotEpisodeAssignments(
+      this.repository,
       projectId,
-      assigned.map(({ id, episodeNumber, episodeTitle, episodeKind, continuityMode, continuityNote }) => ({
-        id,
-        episodeNumber,
-        episodeTitle,
-        episodeKind,
-        continuityMode,
-        continuityNote: continuityNote ?? '',
-      })),
+      workspace.shots,
+      input.episodeDurationSeconds,
       principal,
     )
-    if (!updated) throw new AppError(404, 'PROJECT_NOT_FOUND', '项目不存在或无权修改')
-    return updated
   }
 }

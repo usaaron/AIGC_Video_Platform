@@ -5,6 +5,8 @@ import type { AccountDatabase } from '../../infra/postgres.js'
 import type { AppStore } from '../../infra/store.js'
 import { generationTaskColumns, taskFromRow, type GenerationTaskRow } from './repositoryData.js'
 import { clearProviderCompletionContext } from '../../core/jobs/providerCompletionContext.js'
+import { clearTextTaskPersistenceContext } from '../../core/jobs/textTaskPersistenceContext.js'
+import { settleTextTaskTerminal } from '../../core/jobs/textTaskTerminalEffects.js'
 import {
   clearImageWorkspaceWriteback,
   restoreRejectedImageWorkspaceWriteback,
@@ -25,7 +27,7 @@ export async function persistRuntimeTaskSnapshots(
   const updated = await database.transaction(async (client) => {
     let count = 0
     for (const { task, selectedVersions } of snapshots) {
-      const persisted = await updateGenerationTaskLifecycle(client, task)
+      const persisted = await updateGenerationTaskLifecycle(client, task, { runtimeSnapshot: true })
       if (!persisted) {
         rejected.push(task)
         continue
@@ -37,15 +39,17 @@ export async function persistRuntimeTaskSnapshots(
   })
   for (const { task } of snapshots) {
     clearProviderCompletionContext(task)
+    clearTextTaskPersistenceContext(task)
     if (!rejected.includes(task)) clearImageWorkspaceWriteback(store, task)
   }
-  await reconcileRejectedProviderCompletions(store, database, rejected)
+  await reconcileRejectedTaskSnapshots(store, database, rejected)
   for (const task of rejected) clearImageWorkspaceWriteback(store, task)
+  for (const { task } of snapshots) settleTextTaskTerminal(store, task, !rejected.includes(task))
   return updated
 }
 
-/** A rejected worker timestamp is not authority to retain its receipt in the runtime cache. */
-async function reconcileRejectedProviderCompletions(
+/** Rejected worker results must not remain authoritative in the runtime cache. */
+async function reconcileRejectedTaskSnapshots(
   store: AppStore,
   database: AccountDatabase,
   rejected: GenerationTask[],
@@ -70,7 +74,9 @@ async function reconcileRejectedProviderCompletions(
         if (!accepted) restoreRejectedImageWorkspaceWriteback(store, state, snapshot)
         if (
           snapshot.metadata.providerCompletionReceipt === undefined &&
-          persisted?.metadata.providerCompletionReceipt === undefined
+          persisted?.metadata.providerCompletionReceipt === undefined &&
+          !(snapshot.kind === 'text' && snapshot.provider === 'text') &&
+          !(persisted?.kind === 'text' && persisted.provider === 'text')
         ) {
           continue
         }

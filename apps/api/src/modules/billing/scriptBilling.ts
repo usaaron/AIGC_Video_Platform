@@ -3,6 +3,7 @@ import type { CreditLedger } from './creditLedger.js'
 import type { BillingLedgerRepository } from './repository.js'
 import type { AppStore } from '../../infra/store.js'
 import { AppError } from '../../core/errors.js'
+import type { TextTaskWriteGuard } from '../../core/jobs/textTaskExecutionGuard.js'
 type ScriptBillingMode = 'direct' | 'prepaid'
 
 export async function reserveRecoverable(
@@ -44,6 +45,7 @@ export async function runBillableScriptOperation<T>(
   billingMode: ScriptBillingMode = 'direct',
   recoverable = false,
   refundGuard?: (() => Promise<void>) | undefined,
+  taskWriteGuard?: TextTaskWriteGuard,
 ): Promise<T> {
   if (!creditLedger || billingMode === 'prepaid') return operation()
   const recoveredReference =
@@ -59,6 +61,20 @@ export async function runBillableScriptOperation<T>(
   try {
     return await operation()
   } catch (error) {
+    if (taskWriteGuard) {
+      try {
+        await creditLedger.refundReservation(
+          principal,
+          referenceId,
+          `${description} · 失败退款`,
+          undefined,
+          taskWriteGuard,
+        )
+      } catch (refundError) {
+        if (!(refundError instanceof AppError && refundError.code === 'TASK_LEASE_LOST')) throw refundError
+      }
+      throw error
+    }
     try {
       await refundGuard?.()
     } catch (guardError) {

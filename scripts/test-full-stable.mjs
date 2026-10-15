@@ -111,7 +111,6 @@ export async function runFullStableTests({
     await commands.pnpm('all api tests', ['--filter', '@seqora/api', 'test'], {
       env: apiTestEnv,
     })
-    await commands.pnpm('browser regression tests', ['test:e2e'], { env })
   } catch (error) {
     failure = error
   } finally {
@@ -136,6 +135,9 @@ export async function runFullStableTests({
     }
   }
   if (failure) throw failure
+  // Browser fixtures use isolated mock APIs; release this run's database and
+  // Redis before starting Chromium on resource-constrained development hosts.
+  await commands.pnpm('browser regression tests', ['test:e2e'], { env })
 }
 
 function appendNodeOption(existing, option) {

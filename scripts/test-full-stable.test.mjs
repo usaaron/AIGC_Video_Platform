@@ -101,8 +101,45 @@ test('runs every release suite and API typecheck against only this run’s manag
     assert.equal(callEnv.DATA_FILE, env.DATA_FILE, call.name || call.kind)
     assert.equal(callEnv.NODE_ENV, env.NODE_ENV, call.name || call.kind)
   }
-  assert.equal(fixture.calls.at(-1).name, 'stop shared test database')
-  assert.deepEqual(fixture.calls.at(-1).args.slice(-2), ['down', '-v'])
+  assert.deepEqual(
+    fixture.calls.slice(-2).map(({ name }) => name),
+    ['stop shared test database', 'browser regression tests'],
+  )
+  assert.deepEqual(fixture.calls.at(-2).args.slice(-2), ['down', '-v'])
+  assert.equal(fixture.calls.filter(({ name }) => name === 'stop shared test database').length, 1)
+})
+
+test('waits for managed service cleanup before starting browser tests', async () => {
+  const fixture = commandFixture()
+  let releaseCleanup
+  let markCleanupStarted
+  const cleanupPending = new Promise((resolve) => {
+    releaseCleanup = resolve
+  })
+  const cleanupStarted = new Promise((resolve) => {
+    markCleanupStarted = resolve
+  })
+  const docker = fixture.commands.docker
+  fixture.commands.docker = async (name, args, options) => {
+    const result = await docker(name, args, options)
+    if (name === 'stop shared test database') {
+      markCleanupStarted()
+      await cleanupPending
+    }
+    return result
+  }
+  const running = runFullStableTests({ env: {}, commands: fixture.commands })
+  await cleanupStarted
+  try {
+    assert.equal(
+      fixture.calls.some(({ name }) => name === 'browser regression tests'),
+      false,
+    )
+  } finally {
+    releaseCleanup()
+    await running
+  }
+  assert.equal(fixture.calls.at(-1).name, 'browser regression tests')
 })
 
 test('uses distinct Compose projects for simultaneous or repeated full checks', async () => {
@@ -184,7 +221,7 @@ for (const failAt of ['start shared test database', 'all api tests', 'browser re
     const fixture = commandFixture({ failAt })
     await assert.rejects(runFullStableTests({ env: {}, commands: fixture.commands }), fixture.failure)
     const start = fixture.calls.find(({ name }) => name === 'start shared test database')
-    const cleanup = fixture.calls.at(-1)
+    const cleanup = fixture.calls.find(({ name }) => name === 'stop shared test database')
     assert.equal(cleanup.name, 'stop shared test database')
     assert.equal(cleanup.options.allowFailure, undefined)
     assert.deepEqual(cleanup.args.slice(0, -2), start.args.slice(0, start.args.indexOf('up')))
@@ -193,7 +230,13 @@ for (const failAt of ['start shared test database', 'all api tests', 'browser re
         fixture.calls.some(({ name }) => name === 'browser regression tests'),
         false,
       )
+    } else {
+      assert.deepEqual(
+        fixture.calls.slice(-2).map(({ name }) => name),
+        ['stop shared test database', 'browser regression tests'],
+      )
     }
+    assert.equal(fixture.calls.filter(({ name }) => name === 'stop shared test database').length, 1)
   })
 }
 
@@ -211,6 +254,10 @@ test('fails when cleanup of the managed Compose project fails', async () => {
   const fixture = commandFixture({ failAt: 'stop shared test database' })
   await assert.rejects(runFullStableTests({ env: {}, commands: fixture.commands }), fixture.failure)
   assert.equal(fixture.calls.at(-1).name, 'stop shared test database')
+  assert.equal(
+    fixture.calls.some(({ name }) => name === 'browser regression tests'),
+    false,
+  )
 })
 
 for (const invalidService of ['database', 'Redis']) {

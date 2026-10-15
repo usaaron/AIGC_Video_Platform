@@ -62,6 +62,7 @@ export async function generateEpisodeBatch(
         beforeWrite: context?.assertActive,
         billingRequestId: taskId ? `${taskId}-episode-${index}` : requestId,
       },
+      context,
     )
     if (!('episode' in result) || !result.episode)
       throw new AppError(502, 'EPISODE_WRITE_FAILED', '分集写入失败')

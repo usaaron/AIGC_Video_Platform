@@ -14,6 +14,7 @@ export type TextTaskHandler = (task: GenerationTask, context?: LocalTaskExecutio
 
 export function createScriptTaskHandler(store: AppStore, service: ProjectService): TextTaskHandler {
   return async (task, context) => {
+    await context?.assertActive?.()
     const principal = principalForTask(store, task)
     const operation = task.metadata.scriptOperation
 
@@ -51,6 +52,8 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         context?.onTextProgress,
         context?.onTextTiming,
         input.episodeId,
+        undefined,
+        context,
       )
     }
 
@@ -81,6 +84,7 @@ export function createScriptTaskHandler(store: AppStore, service: ProjectService
         context?.onTextProgress,
         context?.onTextTiming,
         input.episodeId,
+        context,
       )
     }
 

@@ -11,6 +11,7 @@ const principal: Principal = {
 describe('generation task creation storage provenance', () => {
   it.each([
     { kind: 'image', provider: 'img2' },
+    { kind: 'text', provider: 'text' },
     { kind: 'video', provider: 'seedance' },
     { kind: 'video', provider: 'local-compose' },
   ] as const)('rejects caller-supplied stored media proof for $provider tasks', ({ kind, provider }) => {
@@ -43,6 +44,7 @@ describe('generation task creation storage provenance', () => {
       deliveryContract: { frozenAt: '2026-10-14T00:00:00.000Z', contractHash: 'd'.repeat(64) },
       deliveryDownloads: [{ clientRequestId: 'forged-download', authorizedAt: '2026-10-14T00:00:00.000Z' }],
       providerCompletionReceipt: { attestation: 'server-observed-completion' },
+      textCancellationExecution: { version: 'seqora.text-cancellation.v1', executionHash: 'forged' },
       providerTaskId: 'someone-elses-upstream-task',
       providerName: 'dora-router-seedance',
       providerState: 'completed',

@@ -44,6 +44,7 @@ export function buildQueuedGenerationTask(
     deliveryContract: _deliveryContract,
     deliveryDownloads: _deliveryDownloads,
     providerCompletionReceipt: _providerCompletionReceipt,
+    textCancellationExecution: _textCancellationExecution,
     providerTaskId: _providerTaskId,
     providerName: _providerName,
     providerState: _providerState,

@@ -21,6 +21,8 @@ import type { AppState, AppStore } from '../../infra/store.js'
 import type { SessionMetadata } from '../auth/accounts.js'
 import type { UserRepository } from '../users/repository.js'
 import { BillingLedgerRepository, type BillingWebhookProcessResult } from './repository.js'
+import type { TextTaskWriteGuard } from '../../core/jobs/textTaskExecutionGuard.js'
+import { assertStoreScriptReservationRefund } from './textTaskRefundGuard.js'
 
 export interface CreditLedger {
   reserveRecoverable?(
@@ -68,6 +70,7 @@ export interface CreditLedger {
     referenceId: string,
     description: string,
     metadata?: SessionMetadata,
+    taskWriteGuard?: TextTaskWriteGuard,
   ): Promise<void>
   refundCreditsInState(
     state: AppState,
@@ -258,13 +261,21 @@ export class StoreCreditLedger implements CreditLedger {
     referenceId: string,
     description: string,
     metadata?: SessionMetadata,
+    taskWriteGuard?: TextTaskWriteGuard,
   ): Promise<void> {
     if (this.ledgerRepository) {
-      await this.refundReservationInState(unusedJsonState(), principal, referenceId, description, metadata)
+      await this.refundReservationInState(
+        unusedJsonState(),
+        principal,
+        referenceId,
+        description,
+        metadata,
+        taskWriteGuard,
+      )
       return
     }
     await this.requireStore().transaction((state) =>
-      this.refundReservationInState(state, principal, referenceId, description, metadata),
+      this.refundReservationInState(state, principal, referenceId, description, metadata, taskWriteGuard),
     )
   }
 
@@ -292,6 +303,7 @@ export class StoreCreditLedger implements CreditLedger {
     referenceId: string,
     description: string,
     metadata?: SessionMetadata,
+    taskWriteGuard?: TextTaskWriteGuard,
   ): Promise<void> {
     const debitId = `generation-${referenceId}`
     const refundId = `refund-${referenceId}`
@@ -309,6 +321,7 @@ export class StoreCreditLedger implements CreditLedger {
         amount: Math.abs(debit.amount),
         description,
         createdByUserId: principal.userId,
+        ...(taskWriteGuard ? { taskWriteGuard } : {}),
         audit: billingAudit('billing.credits.refunded', principal.userId, metadata, {
           referenceId,
           originalEntryId: debit.id,
@@ -321,6 +334,7 @@ export class StoreCreditLedger implements CreditLedger {
       return
     }
 
+    assertStoreScriptReservationRefund(state, principal, referenceId, taskWriteGuard)
     const user = findUser(state, principal)
     if (!user) throw new AppError(401, 'ACCOUNT_NOT_FOUND', 'Account does not exist')
     const debit = state.ledger.find(

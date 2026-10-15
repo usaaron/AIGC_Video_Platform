@@ -4,6 +4,10 @@ import {
   resolveVideoImages,
 } from './taskVideoReferences.js'
 import type { GenerationTask } from '@seqora/contracts'
+import * as localWriteback from './localTaskWriteback.js'
+import type { TextTaskWriteGuard } from './textTaskExecutionGuard.js'
+import { isTextTaskTerminalPending, markTextTaskTerminalPending } from './textTaskTerminalEffects.js'
+import { markRefundedTask } from './textTaskRefundMetadata.js'
 import {
   compileQualityRules,
   compileStoryboardVideoPrompt,
@@ -58,7 +62,6 @@ import {
   type LocalTaskDiagnostics,
   recordGenerationTaskQueueWait,
   recordGenerationTaskTerminal,
-  progressiveTextValidation,
   summarizeTextTiming,
   durationSince,
 } from './taskDiagnostics.js'
@@ -114,7 +117,7 @@ export class TaskClaimer {
             const leaseActive = generationTaskLeaseActive(task, now.getTime())
             // A script handler writes its episode draft before returning its result. Finish
             // from that durable writeback even if the final task mutation was interrupted.
-            if (recoverScriptTaskFromDraft(task, state, nowIso, leaseActive)) return
+            if (recoverScriptTaskFromDraft(task, state, this.store, nowIso, leaseActive)) return
             if (leaseActive) return
             delete task.metadata.providerCompletionReceipt
             if (providerName && !task.metadata.providerTaskId) {
@@ -190,7 +193,8 @@ export class TaskClaimer {
         task.error = '同一项目已有剧本任务正在执行，本次重复任务已停止；请等待前一个任务完成后再提交'
         task.updatedAt = nowIso
         releaseGenerationTaskLease(task)
-        recordGenerationTaskTerminal(task, new Error(task.error))
+        if (task.kind === 'text') markTextTaskTerminalPending(this.store, task)
+        else recordGenerationTaskTerminal(task, new Error(task.error))
       }
 
       const draftEpisodeProjects = new Set(
@@ -206,7 +210,8 @@ export class TaskClaimer {
         task.error = '当前项目已有未保存的剧集草稿，请先保存本集后再继续生成'
         task.updatedAt = nowIso
         releaseGenerationTaskLease(task)
-        recordGenerationTaskTerminal(task, new Error(task.error))
+        if (task.kind === 'text') markTextTaskTerminalPending(this.store, task)
+        else recordGenerationTaskTerminal(task, new Error(task.error))
       }
 
       const usersByKey = new Map(state.users.map((user) => [`${user.tenantId}:${user.id}`, user]))
@@ -225,7 +230,8 @@ export class TaskClaimer {
               : '依赖的上一镜任务失败、已删除或不存在，请从该镜头重新生成'
             task.updatedAt = nowIso
             releaseGenerationTaskLease(task)
-            recordGenerationTaskTerminal(task, new Error(task.error))
+            if (task.kind === 'text') markTextTaskTerminalPending(this.store, task)
+            else recordGenerationTaskTerminal(task, new Error(task.error))
           })
 
         let runningTextTasks = 0
@@ -261,7 +267,8 @@ export class TaskClaimer {
             task.error = 'Task exceeded maximum attempts; create a new task or retry from details'
             task.updatedAt = nowIso
             releaseGenerationTaskLease(task)
-            recordGenerationTaskTerminal(task, new Error(task.error))
+            if (task.kind === 'text') markTextTaskTerminalPending(this.store, task)
+            else recordGenerationTaskTerminal(task, new Error(task.error))
             continue
           }
           claimGenerationTaskLease(task, this.options.leaseOwnerId, this.options.leaseTtlMs, now)
@@ -336,11 +343,16 @@ export class TaskRefundService {
     private readonly creditLedger: CreditLedger | null = null,
   ) {}
 
-  async refundTerminalTasks(): Promise<void> {
+  async refundTerminalTasks(): Promise<string[]> {
     const candidates = this.store.read((state) =>
-      state.tasks.filter((task) => !isStandaloneProjectId(task.projectId) && canPotentiallyRefundTask(task)),
+      state.tasks.filter(
+        (task) =>
+          !isStandaloneProjectId(task.projectId) &&
+          !isTextTaskTerminalPending(this.store, task) &&
+          canPotentiallyRefundTask(task),
+      ),
     )
-    if (!candidates.length) return
+    if (!candidates.length) return []
     const creditLedger = this.creditLedger
     if (creditLedger) {
       const handledTaskIds: string[] = []
@@ -350,27 +362,26 @@ export class TaskRefundService {
         await creditLedger.refundGeneration(task, refundDescription(task))
         handledTaskIds.push(task.id)
       }
-      if (!handledTaskIds.length) return
-      await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
+      if (!handledTaskIds.length) return []
+      return this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
+        const changed: string[] = []
         const handled = new Set(handledTaskIds)
         const now = new Date().toISOString()
         for (const task of state.tasks) {
           if (isStandaloneProjectId(task.projectId)) continue
           if (!handled.has(task.id)) continue
-          task.metadata = {
-            ...task.metadata,
-            creditsRefundedAt:
-              typeof task.metadata.creditsRefundedAt === 'string' ? task.metadata.creditsRefundedAt : now,
-          }
+          const refunded = candidates.find((candidate) => candidate.id === task.id)
+          if (refunded && markRefundedTask(task, refunded, now)) changed.push(task.id)
         }
+        return changed
       })
-      return
     }
 
-    await this.store.mutate((state) => {
+    return this.store.mutate((state) => {
+      const changed: string[] = []
       for (const task of state.tasks) {
         if (isStandaloneProjectId(task.projectId)) continue
-        if (!canPotentiallyRefundTask(task)) continue
+        if (isTextTaskTerminalPending(this.store, task) || !canPotentiallyRefundTask(task)) continue
         const ledgerIds = state.ledger.map((entry) => entry.id)
         if (!canRefundTask(task, ledgerIds)) continue
         const refundId = `refund-${task.id}`
@@ -388,9 +399,10 @@ export class TaskRefundService {
           description: refundDescription(task),
           createdAt: now,
         })
-        task.metadata = { ...task.metadata, creditsRefundedAt: now }
+        if (markRefundedTask(task, task, now)) changed.push(task.id)
         observabilityMetrics.recordRefund({ tenantId: task.tenantId, amount: task.estimatedCredits })
       }
+      return changed
     })
   }
 }
@@ -403,7 +415,8 @@ export class TaskWritebackService {
     objectStorage: ObjectStorage | null,
     private readonly leaseOwnerId: string,
     private readonly leaseTtlMs: number,
-    private readonly refundService: TaskRefundService,
+    refundService: TaskRefundService,
+    private readonly refundAndPersist: () => Promise<unknown> = () => refundService.refundTerminalTasks(),
   ) {
     this.resultWriteback = new GenerationResultWriteback(store, objectStorage)
   }
@@ -460,7 +473,8 @@ export class TaskWritebackService {
             task.outputs = outputsFor(task)
             task.resultUrl = task.outputs[0]?.url ?? null
             releaseGenerationTaskLease(task)
-            recordGenerationTaskTerminal(task)
+            if (task.kind === 'text') markTextTaskTerminalPending(this.store, task)
+            else recordGenerationTaskTerminal(task)
           }
         })
     })
@@ -471,34 +485,17 @@ export class TaskWritebackService {
     leaseToken: string,
     result: unknown,
     diagnostics?: LocalTaskDiagnostics,
-  ): Promise<void> {
-    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
-      if (!task || task.status !== 'running') return
-      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
-      const nowMs = Date.now()
-      const now = new Date(nowMs).toISOString()
-      const {
-        textPreview: _textPreview,
-        textPreviewUpdatedAt: _textPreviewUpdatedAt,
-        textFirstPreviewAt: _textFirstPreviewAt,
-        textPreviewValidation: _textPreviewValidation,
-        textPreviewStage: _textPreviewStage,
-        ...metadata
-      } = task.metadata
-      task.status = 'completed'
-      task.progress = 100
-      task.error = null
-      task.metadata = {
-        ...metadata,
-        localTaskCompletedAt: now,
-        ...(diagnostics ? { textTiming: summarizeTextTiming(task, diagnostics, nowMs) } : {}),
-        ...(task.kind === 'text' ? { textResult: result } : {}),
-      }
-      task.updatedAt = now
-      releaseGenerationTaskLease(task)
-      recordGenerationTaskTerminal(task)
-    })
+    guard?: TextTaskWriteGuard,
+  ): Promise<GenerationTask | null> {
+    return localWriteback.completeLocalTask(
+      this.store,
+      this.leaseOwnerId,
+      taskId,
+      leaseToken,
+      result,
+      diagnostics,
+      guard,
+    )
   }
 
   async updateLocalTextPreview(
@@ -506,36 +503,28 @@ export class TaskWritebackService {
     leaseToken: string,
     preview: string,
     stage = 'first-draft',
+    guard?: TextTaskWriteGuard,
   ): Promise<void> {
-    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
-      if (!task || task.kind !== 'text' || task.status !== 'running') return
-      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
-      const now = new Date().toISOString()
-      const boundedPreview = preview.slice(0, 24_000)
-      task.progress = Math.max(task.progress, Math.min(88, 12 + Math.floor(boundedPreview.length / 40)))
-      task.metadata = {
-        ...task.metadata,
-        textPreview: boundedPreview,
-        textPreviewStage: stage,
-        textPreviewUpdatedAt: now,
-        textPreviewValidation: progressiveTextValidation(boundedPreview),
-        textFirstPreviewAt:
-          typeof task.metadata.textFirstPreviewAt === 'string' ? task.metadata.textFirstPreviewAt : now,
-      }
-      task.updatedAt = now
-    })
+    return localWriteback.updateLocalTextPreview(
+      this.store,
+      this.leaseOwnerId,
+      taskId,
+      leaseToken,
+      preview,
+      stage,
+      guard,
+    )
   }
 
-  async renewLocalTaskLease(taskId: string, leaseToken: string): Promise<void> {
-    await this.store.mutateGenerationTaskRuntimeCacheAsync((state) => {
-      const task = state.tasks.find((item) => !isStandaloneProjectId(item.projectId) && item.id === taskId)
-      if (!task || task.status !== 'running') return
-      if (!generationTaskLeaseMatches(task, this.leaseOwnerId, leaseToken)) return
-      const now = new Date()
-      renewGenerationTaskLease(task, this.leaseOwnerId, leaseToken, this.leaseTtlMs, now)
-      task.updatedAt = now.toISOString()
-    })
+  async renewLocalTaskLease(taskId: string, leaseToken: string, guard?: TextTaskWriteGuard): Promise<void> {
+    return localWriteback.renewLocalTaskLease(
+      this.store,
+      this.leaseOwnerId,
+      this.leaseTtlMs,
+      taskId,
+      leaseToken,
+      guard,
+    )
   }
 
   async failTask(
@@ -575,7 +564,7 @@ export class TaskWritebackService {
       task.updatedAt = now
       recordGenerationTaskTerminal(task, new Error(task.error))
     })
-    await this.refundService.refundTerminalTasks()
+    await this.refundAndPersist()
   }
 
   async retryTimedOutVideoSubmission(taskId: string, leaseToken: string, error: string): Promise<void> {
@@ -667,7 +656,7 @@ export class TaskWritebackService {
 
     if (result?.status === 'failed') {
       recordGenerationTaskTerminal(result, new Error(result.error ?? 'Video processing stalled'))
-      await this.refundService.refundTerminalTasks()
+      await this.refundAndPersist()
     }
     return result
   }
@@ -1609,6 +1598,7 @@ function taskCreatedAt(task: GenerationTask): number {
 function recoverScriptTaskFromDraft(
   task: GenerationTask,
   state: AppState,
+  store: AppStore,
   nowIso: string,
   requireWritebackMarker = false,
 ): boolean {
@@ -1668,7 +1658,7 @@ function recoverScriptTaskFromDraft(
   }
   task.updatedAt = nowIso
   releaseGenerationTaskLease(task)
-  recordGenerationTaskTerminal(task)
+  markTextTaskTerminalPending(store, task)
   return true
 }
 
