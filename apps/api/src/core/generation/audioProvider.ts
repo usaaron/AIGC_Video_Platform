@@ -24,4 +24,5 @@ export interface AudioGenerationProvider {
   getStatus(
     providerTaskId: string,
   ): Promise<Pick<GenerationTask, 'status' | 'progress' | 'outputs' | 'error'>>
+  cancel?(providerTaskId: string): Promise<void>
 }

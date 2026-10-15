@@ -5,7 +5,7 @@ import type {
   AudioGenerationRequest,
   AudioGenerationSubmission,
 } from './audioProvider.js'
-import { fetchWithProviderTimeout } from './providerHttp.js'
+import { createProviderHttpError, fetchWithProviderTimeout } from './providerHttp.js'
 
 const providerOutputSchema = z
   .object({
@@ -159,7 +159,7 @@ export class AideosAudioProvider implements AudioGenerationProvider {
     } catch {
       // Keep the bounded text response when the provider does not return JSON.
     }
-    throw new Error(`Aideos request failed (${response.status})${message ? `: ${message}` : ''}`)
+    throw createProviderHttpError('Aideos Audio', response.status, message)
   }
 }
 

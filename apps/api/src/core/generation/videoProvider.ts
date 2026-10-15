@@ -1,7 +1,19 @@
 import type { Readable } from 'node:stream'
 
+export type VideoGenerationMode =
+  | 'text-to-video'
+  | 'video-to-video'
+  | 'first-last-frame'
+  | 'extend'
+  | 'inpaint'
+  | 'replace-background'
+  | 'relight'
+  | 'upscale'
+  | 'lip-sync'
+
 export type VideoGenerationRequest = {
   taskId: string
+  mode: VideoGenerationMode
   model: string | null
   prompt: string
   negativePrompt: string
@@ -9,6 +21,18 @@ export type VideoGenerationRequest = {
   ratio: string
   resolution: string
   images: string[]
+  sourceVideoUrl?: string
+  sourceImageUrls: string[]
+  firstFrameUrl?: string
+  lastFrameUrl?: string
+  maskUrl?: string
+  backgroundReferenceUrl?: string
+  lightingPreset?: string
+  upscaleFactor?: number
+  lipSyncAudioUrl?: string
+  extendSeconds?: number
+  templateId?: string
+  agentPlanId?: string
   generateAudio: boolean
   seed?: number
   watermark?: boolean
@@ -37,4 +61,5 @@ export interface VideoGenerationProvider {
   submit(request: VideoGenerationRequest): Promise<VideoGenerationSubmission>
   getStatus(providerTaskId: string): Promise<VideoGenerationStatus>
   getContent(providerTaskId: string): Promise<VideoContent>
+  cancel?(providerTaskId: string): Promise<void>
 }

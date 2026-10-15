@@ -5,7 +5,7 @@ import type {
   ImageGenerationSubmission,
 } from './imageProvider.js'
 import type { GenerationTask } from '@seqora/contracts'
-import { fetchWithProviderTimeout } from './providerHttp.js'
+import { createProviderHttpError, fetchWithProviderTimeout } from './providerHttp.js'
 
 const providerOutputSchema = z
   .object({
@@ -175,7 +175,7 @@ export class AideosImageProvider implements ImageGenerationProvider {
     } catch {
       // Keep the bounded text response when the provider does not return JSON.
     }
-    throw new Error(`Aideos 请求失败 (${response.status})${message ? `: ${message}` : ''}`)
+    throw createProviderHttpError('Aideos Img2', response.status, message)
   }
 }
 

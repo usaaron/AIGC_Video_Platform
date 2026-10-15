@@ -25,6 +25,7 @@ describe('AideosSeedanceProvider', () => {
 
     const result = await provider.submit({
       taskId: 'local-task-1',
+      mode: 'text-to-video',
       model: 'seedance-2.0',
       prompt: '雨夜车站，镜头缓慢推进',
       negativePrompt: '不要闪烁、频闪、跳帧',
@@ -32,6 +33,7 @@ describe('AideosSeedanceProvider', () => {
       ratio: '9:16',
       resolution: '720p',
       images: ['https://assets.example/reference.jpg'],
+      sourceImageUrls: [],
       generateAudio: false,
       watermark: false,
     })
@@ -46,8 +48,8 @@ describe('AideosSeedanceProvider', () => {
       prompt: '雨夜车站，镜头缓慢推进',
       negative_prompt: '不要闪烁、频闪、跳帧',
       images: ['https://assets.example/reference.jpg'],
-      seconds: '5',
       metadata: {
+        mode: 'text-to-video',
         resolution: '720p',
         ratio: '9:16',
         generate_audio: false,
@@ -55,6 +57,56 @@ describe('AideosSeedanceProvider', () => {
       },
     })
     expect(result).toEqual({ providerTaskId: 'task-provider-1', status: 'queued', progress: 0 })
+  })
+
+  it('passes advanced video operation metadata without changing the provider endpoint', async () => {
+    let payload: Record<string, unknown> | null = null
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body))
+      return Response.json({
+        id: 'task-provider-2',
+        status: 'in_progress',
+        progress: 12,
+      })
+    }) as typeof fetch
+    const provider = new AideosSeedanceProvider({
+      baseUrl: 'https://aideos.example/',
+      apiKey: 'test-api-key',
+      defaultModel: 'doubao-seedance-2-0-260128',
+      requestTimeoutMs: 30_000,
+      fetcher,
+    })
+
+    await provider.submit({
+      taskId: 'local-task-2',
+      mode: 'first-last-frame',
+      model: 'doubao-seedance-2-0-260128',
+      prompt: '从推门动作过渡到室内停顿',
+      negativePrompt: '',
+      seconds: 6,
+      ratio: '16:9',
+      resolution: '1080p',
+      images: ['https://assets.example/first.jpg', 'https://assets.example/last.jpg'],
+      sourceImageUrls: ['https://assets.example/style.jpg'],
+      firstFrameUrl: 'https://assets.example/first.jpg',
+      lastFrameUrl: 'https://assets.example/last.jpg',
+      extendSeconds: 4,
+      templateId: 'cinematic-dialogue',
+      agentPlanId: 'agent-plan-1',
+      generateAudio: false,
+    })
+
+    expect(payload).toMatchObject({
+      metadata: {
+        mode: 'first-last-frame',
+        source_image_urls: ['https://assets.example/style.jpg'],
+        first_frame_url: 'https://assets.example/first.jpg',
+        last_frame_url: 'https://assets.example/last.jpg',
+        extend_seconds: 4,
+        template_id: 'cinematic-dialogue',
+        agent_plan_id: 'agent-plan-1',
+      },
+    })
   })
 
   it('maps provider completion and failure states', async () => {

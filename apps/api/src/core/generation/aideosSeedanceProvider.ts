@@ -7,7 +7,7 @@ import type {
   VideoGenerationStatus,
   VideoGenerationSubmission,
 } from './videoProvider.js'
-import { fetchWithProviderTimeout } from './providerHttp.js'
+import { createProviderHttpError, fetchWithProviderTimeout } from './providerHttp.js'
 
 const taskResponseSchema = z.object({
   id: z.string().min(1),
@@ -42,15 +42,7 @@ export class AideosSeedanceProvider implements VideoGenerationProvider {
       prompt: request.prompt.trim(),
       ...(request.negativePrompt.trim() ? { negative_prompt: request.negativePrompt.trim() } : {}),
       ...(request.images.length > 0 ? { images: request.images } : {}),
-      seconds: String(request.seconds),
-      metadata: {
-        resolution: request.resolution,
-        ratio: request.ratio,
-        generate_audio: request.generateAudio,
-        ...(request.seed === undefined ? {} : { seed: request.seed }),
-        ...(request.watermark === undefined ? {} : { watermark: request.watermark }),
-        ...(request.cameraFixed === undefined ? {} : { camera_fixed: request.cameraFixed }),
-      },
+      metadata: metadataFor(request),
     }
     if (!payload.prompt) throw new Error('Seedance 视频提示词不能为空')
 
@@ -130,6 +122,30 @@ export class AideosSeedanceProvider implements VideoGenerationProvider {
     } catch {
       // Keep the bounded text response when the provider does not return JSON.
     }
-    throw new Error(`Aideos 请求失败 (${response.status})${message ? `: ${message}` : ''}`)
+    throw createProviderHttpError('Aideos Seedance', response.status, message)
+  }
+}
+
+function metadataFor(request: VideoGenerationRequest): Record<string, unknown> {
+  return {
+    mode: request.mode,
+    resolution: request.resolution,
+    ratio: request.ratio,
+    generate_audio: request.generateAudio,
+    ...(request.sourceVideoUrl ? { source_video_url: request.sourceVideoUrl } : {}),
+    ...(request.sourceImageUrls.length > 0 ? { source_image_urls: request.sourceImageUrls } : {}),
+    ...(request.firstFrameUrl ? { first_frame_url: request.firstFrameUrl } : {}),
+    ...(request.lastFrameUrl ? { last_frame_url: request.lastFrameUrl } : {}),
+    ...(request.maskUrl ? { mask_url: request.maskUrl } : {}),
+    ...(request.backgroundReferenceUrl ? { background_reference_url: request.backgroundReferenceUrl } : {}),
+    ...(request.lightingPreset ? { lighting_preset: request.lightingPreset } : {}),
+    ...(request.upscaleFactor === undefined ? {} : { upscale_factor: request.upscaleFactor }),
+    ...(request.lipSyncAudioUrl ? { lip_sync_audio_url: request.lipSyncAudioUrl } : {}),
+    ...(request.extendSeconds === undefined ? {} : { extend_seconds: request.extendSeconds }),
+    ...(request.templateId ? { template_id: request.templateId } : {}),
+    ...(request.agentPlanId ? { agent_plan_id: request.agentPlanId } : {}),
+    ...(request.seed === undefined ? {} : { seed: request.seed }),
+    ...(request.watermark === undefined ? {} : { watermark: request.watermark }),
+    ...(request.cameraFixed === undefined ? {} : { camera_fixed: request.cameraFixed }),
   }
 }
