@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   DELIVERY_REQUIREMENT_IDS,
@@ -11,6 +11,12 @@ import { VideoPreviewModal } from '../components/VideoPreviewModal'
 import { JobRow, PageHeader } from '../components/ui'
 import { DeliveryDownload } from '../features/generation/DeliveryDownload'
 import { inspectDeliveryDialog } from '../features/generation/deliveryInspection'
+import { TextCompletionDialog } from '../features/generation/TextCompletionDialog'
+import {
+  canInspectTextCompletion,
+  createTextCompletionInspection,
+  isTextCompletionDialogCurrent,
+} from '../features/generation/textCompletionInspection'
 import {
   ProviderCompletionReceipt,
   ProviderCompletionRequirement,
@@ -18,12 +24,15 @@ import {
 
 const filters = [
   ['all', '全部'],
+  ['text', '文本'],
   ['image', '图片'],
   ['video', '视频'],
   ['audio', '音频'],
 ]
 
 export function GenerationPage({
+  projectId,
+  tenantId,
   jobs,
   concurrency,
   member,
@@ -37,6 +46,7 @@ export function GenerationPage({
   onFreezeDelivery,
   onInspectDelivery,
   onInspectDeliveryGate,
+  onInspectTextCompletion,
   onDownloadDelivery,
 }) {
   const [filter, setFilter] = useState('all')
@@ -44,6 +54,18 @@ export function GenerationPage({
   const [preview, setPreview] = useState(null)
   const [freezeDialog, setFreezeDialog] = useState(null)
   const [deliveryDialog, setDeliveryDialog] = useState(null)
+  const [textDialog, setTextDialog] = useState(null)
+  const [textInspection] = useState(() => createTextCompletionInspection({ onState: setTextDialog }))
+  const currentTextDialog = isTextCompletionDialogCurrent(textDialog, jobs, projectId, tenantId)
+    ? textDialog
+    : null
+  useEffect(() => () => textInspection.cancel(), [textInspection])
+  useLayoutEffect(() => {
+    if (textDialog && !currentTextDialog) {
+      textInspection.cancel()
+      setTextDialog(null)
+    }
+  }, [textDialog, currentTextDialog, textInspection])
   const queueJobs = jobs.filter((job) => typeof job.metadata?.queueHiddenAt !== 'string')
   const visibleJobs = filter === 'all' ? queueJobs : queueJobs.filter((job) => job.kind === filter)
   const active = queueJobs.filter((job) => ['queued', 'paused', 'running'].includes(job.status))
@@ -67,6 +89,13 @@ export function GenerationPage({
       inspectGate: onInspectDeliveryGate,
       setDialog: setDeliveryDialog,
     })
+
+  const inspectTextCompletion = (job) =>
+    textInspection.run({ job, projectId, tenantId, inspect: onInspectTextCompletion })
+  const closeTextCompletion = () => {
+    textInspection.cancel()
+    setTextDialog(null)
+  }
 
   const openFreezeDelivery = (job) => {
     if (!onFreezeDelivery || !canFreezeDeliveryContract(job)) return
@@ -219,6 +248,11 @@ export function GenerationPage({
                     ? () => openFreezeDelivery(job)
                     : undefined
                 }
+                onInspectTextCompletion={
+                  onInspectTextCompletion && canInspectTextCompletion(job)
+                    ? () => void inspectTextCompletion(job)
+                    : undefined
+                }
               />
             ))
           ) : (
@@ -236,6 +270,18 @@ export function GenerationPage({
       {preview && preview.mediaType !== 'video' && (
         <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />
       )}
+      {currentTextDialog &&
+        createPortal(
+          <TextCompletionDialog
+            dialog={currentTextDialog}
+            onClose={closeTextCompletion}
+            onRetry={() => {
+              const job = jobs.find((candidate) => candidate.id === currentTextDialog.scope.taskId)
+              if (job) void inspectTextCompletion(job)
+            }}
+          />,
+          document.body,
+        )}
       {deliveryDialog &&
         createPortal(
           <DeliveryVerificationDialog

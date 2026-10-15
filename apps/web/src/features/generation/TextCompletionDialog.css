@@ -1,0 +1,168 @@
+.job-text-completion-link {
+  width: fit-content;
+  margin: 7px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.job-text-completion-link:hover {
+  text-decoration: underline;
+}
+.queue-page .queue-panel > .panel-head {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.queue-page .queue-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 100%;
+}
+.modal.text-completion-modal {
+  width: min(620px, 100%);
+  min-width: 0;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.text-completion-modal .modal-head {
+  gap: 12px;
+}
+.text-completion-modal .modal-head .icon-button {
+  flex-shrink: 0;
+}
+.text-completion-task {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.text-completion-boundary,
+.text-completion-receipt p,
+.text-completion-result p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.text-completion-boundary {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+.text-completion-loading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.text-completion-error {
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.text-completion-result {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.text-completion-result strong {
+  font-size: 14px;
+}
+.text-completion-result.verified strong {
+  color: var(--accent-strong);
+}
+.text-completion-result.failed strong {
+  color: var(--danger);
+}
+.text-completion-receipt {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  min-width: 0;
+}
+.text-completion-receipt dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.text-completion-receipt dl > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+}
+.text-completion-receipt dt {
+  color: var(--muted);
+}
+.text-completion-receipt dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.text-completion-receipt code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 11px;
+}
+.text-completion-details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  min-width: 0;
+}
+.text-completion-receipt summary {
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.text-completion-units,
+.text-completion-calls {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+  min-width: 0;
+}
+.text-completion-units > li,
+.text-completion-calls > li {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.text-completion-units li span {
+  color: var(--muted);
+}
+.text-completion-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+@media (max-width: 480px) {
+  .modal.text-completion-modal {
+    padding: 18px;
+  }
+  .text-completion-receipt dl > div {
+    grid-template-columns: 78px minmax(0, 1fr);
+  }
+}

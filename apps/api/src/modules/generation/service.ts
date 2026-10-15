@@ -38,6 +38,7 @@ import { auditRigidVideoBuffer, type RawVideoFrameAudit } from '../../core/gener
 import { evaluateDeliveryGate } from './deliveryGate.js'
 import { readDeliveryQuery } from './deliveryQuery.js'
 import { prepareDeliveryDownload } from './deliveryDownload.js'
+import { readTextCompletionQuery } from './textCompletionQuery.js'
 
 export type FilmPreviewMode = 'full' | 'partial'
 
@@ -319,6 +320,10 @@ export class GenerationService {
     principal: Principal,
   ): Promise<GenerationTask> {
     return this.repository.freezeDeliveryContract(taskId, input.contract, input.expectedUpdatedAt, principal)
+  }
+
+  textCompletion(taskId: string, principal: Principal) {
+    return readTextCompletionQuery(this.repository, taskId, principal)
   }
 
   async deliveryVerification(

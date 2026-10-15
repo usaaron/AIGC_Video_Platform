@@ -105,6 +105,7 @@ export function JobRow({
   onPreviewResult,
   onFreezeDelivery,
   onInspectDelivery,
+  onInspectTextCompletion,
 }) {
   const canCancelRunning = canCancelRunningTask(job)
   const canPreviewInApp = ['image', 'video'].includes(job.kind) && typeof onPreviewResult === 'function'
@@ -167,6 +168,11 @@ export function JobRow({
             <strong>物理验收：{physics.label}</strong>
             {physics.reason && <span>阻塞原因：{physics.reason}</span>}
           </p>
+        )}
+        {onInspectTextCompletion && (
+          <button className="job-text-completion-link" type="button" onClick={onInspectTextCompletion}>
+            查看来源
+          </button>
         )}
         {onInspectDelivery && (
           <button className="job-delivery-link" type="button" onClick={onInspectDelivery}>

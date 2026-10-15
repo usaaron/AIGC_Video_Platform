@@ -776,6 +776,9 @@ function App() {
       ),
       generate: () => (
         <GenerationPage
+          key={[session.account.id, session.account.tenantId, project.id].join(':')}
+          projectId={project.id}
+          tenantId={session.account.tenantId}
           jobs={tasks}
           concurrency={billing.concurrency}
           member={billing.plan === 'member'}
@@ -795,6 +798,7 @@ function App() {
           }}
           onInspectDelivery={(task) => api.deliveryVerification(task.id)}
           onInspectDeliveryGate={(task) => api.deliveryGate(task.id)}
+          onInspectTextCompletion={(task, options) => api.textCompletion(task.id, options)}
           onDownloadDelivery={
             session.permissions.includes(PERMISSIONS.GENERATION_TASK_CREATE)
               ? api.downloadDelivery

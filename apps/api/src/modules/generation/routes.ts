@@ -106,6 +106,21 @@ export async function registerGenerationRoutes(
     },
   )
   app.get(
+    '/generation/tasks/:taskId/text-completion',
+    {
+      preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ),
+      onSend: async (_request, reply, payload) => {
+        reply.header('Cache-Control', 'private, no-store')
+        return payload
+      },
+    },
+    async (request) => {
+      const params = taskParamsSchema.safeParse(request.params)
+      if (!params.success) throw new AppError(400, 'VALIDATION_ERROR', '任务参数无效')
+      return service.textCompletion(params.data.taskId, request.principal!)
+    },
+  )
+  app.get(
     '/generation/tasks/:taskId/delivery-verification',
     { preHandler: requirePermission(PERMISSIONS.GENERATION_TASK_READ) },
     async (request, reply) => {

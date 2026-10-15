@@ -368,6 +368,13 @@ export const api = {
   deliveryVerification: (taskId) => request(`/generation/tasks/${taskId}/delivery-verification`),
   deliveryGate: (taskId) => request(`/generation/tasks/${taskId}/delivery-gate`),
   downloadDelivery: deliveryDownloadRequest,
+  textCompletion: (taskId, options = {}) =>
+    request('/generation/tasks/' + encodeURIComponent(taskId) + '/text-completion', {
+      method: 'GET',
+      cache: 'no-store',
+      signal: options.signal,
+      timeoutMs: 15_000,
+    }),
   stopTask: (taskId) => request(`/generation/tasks/${taskId}/stop`, { method: 'POST' }),
   resumeTask: (taskId) => request(`/generation/tasks/${taskId}/resume`, { method: 'POST' }),
   deleteTask: (taskId) => request(`/generation/tasks/${taskId}`, { method: 'DELETE' }),
