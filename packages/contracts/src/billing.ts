@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { planSchema } from './account.js'
+import {
+  billingPackageSchema,
+  checkoutSessionSchema,
+  subscriptionSummarySchema,
+  usageSummarySchema,
+} from './workspace.js'
 
 export const ledgerEntrySchema = z.object({
   id: z.string().min(1),
@@ -17,6 +23,10 @@ export const billingSummarySchema = z.object({
   credits: z.number().int().nonnegative(),
   concurrency: z.number().int().positive(),
   entries: z.array(ledgerEntrySchema),
+  subscription: subscriptionSummarySchema.optional(),
+  packages: z.array(billingPackageSchema).optional(),
+  checkoutSessions: z.array(checkoutSessionSchema).optional(),
+  usage: usageSummarySchema.optional(),
 })
 
 export const updatePlanSchema = z.object({ plan: planSchema })

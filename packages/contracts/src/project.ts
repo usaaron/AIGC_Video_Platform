@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { generationOutputSchema } from './generation.js'
+import { projectCollaborationSchema } from './workspace.js'
 
 export const projectStatusSchema = z.enum(['draft', 'producing', 'completed', 'archived'])
 export const assetKindSchema = z.enum(['character', 'scene', 'prop', 'costume', 'audio'])
@@ -246,6 +247,7 @@ export const projectWorkspaceSchema = z.object({
   project: projectSchema,
   assets: z.array(assetSchema),
   shots: z.array(shotSchema),
+  collaboration: projectCollaborationSchema.optional(),
 })
 
 export type Project = z.infer<typeof projectSchema>

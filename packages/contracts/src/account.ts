@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { roleSchema } from './auth.js'
 
-export const planSchema = z.enum(['free', 'member'])
+export const planSchema = z.enum(['free', 'member', 'team', 'enterprise'])
 
 export const accountSchema = z.object({
   id: z.string().min(1),
